@@ -439,6 +439,10 @@ tr:hover td{background:var(--bg)}
     </div>
 
     <div class="modal-section-title">関連Invoice</div>
+    <div style="margin-bottom:6px">
+      <button class="btn btn-p" style="font-size:11px" onclick="issueInvoiceFromBookingDetail('JPY')">🧾 JPY Invoice発行</button>
+      <button class="btn" style="font-size:11px" onclick="issueInvoiceFromBookingDetail('USD')">🧾 USD Invoice発行</button>
+    </div>
     <div class="tbl-wrap"><table>
       <thead><tr><th>Invoice No.</th><th>通貨</th><th>金額</th><th>発行日</th><th>期限</th><th>Status</th></tr></thead>
       <tbody id="bd-invoices"><tr><td colspan="6" class="empty">なし</td></tr></tbody>
@@ -823,6 +827,16 @@ async function openBookingDetail(id){
 function closeBookingDetail(){
   document.getElementById('detail-modal').classList.remove('open');
   currentDetailId = null;
+}
+
+async function issueInvoiceFromBookingDetail(currency){
+  if(!currentDetailId) return;
+  const id = currentDetailId;
+  // 売上明細を保存して合計を最新化
+  await saveBookingDetail();
+  closeBookingDetail();
+  go('invoice');
+  await generateInvoice(id, currency);
 }
 
 async function saveBookingDetail(){
