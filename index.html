@@ -1326,6 +1326,13 @@ async function showInvoicePreview(inv, booking){
   const {data: salesRows} = await sb.from('booking_sales').select('*').eq('booking_id', booking.id).order('created_at');
   const items = (salesRows && salesRows.length>0) ? salesRows : [{item_name: booking.tour_name||'Tour Fee', unit_price: Number(inv.amount), qty: 1, amount: Number(inv.amount)}];
 
+  // 取引先住所を取得
+  let agentAddress = '';
+  if(booking.agent_name){
+    const {data: agentRow} = await sb.from('agent_info').select('address').eq('name', booking.agent_name).maybeSingle();
+    if(agentRow) agentAddress = agentRow.address || '';
+  }
+
   const fmtMoney = v => isUSD ? '$'+(Number(v)/USD_RATE).toLocaleString(undefined,{minimumFractionDigits:2}) : yen(v);
 
   const itemRows = items.map(it=>`
@@ -1346,7 +1353,7 @@ async function showInvoicePreview(inv, booking){
         <div style="font-size:11px;line-height:1.7;flex:1">
           <div style="font-weight:700;font-size:10px;color:#888;letter-spacing:1px;margin-bottom:2px">BILL TO</div>
           <div style="font-size:13px;font-weight:700">${booking.agent_name||''}</div>
-          <div contenteditable="true" data-placeholder="住所を入力..." style="color:#666;min-height:1.4em"></div>
+          <div contenteditable="true" data-placeholder="住所を入力..." style="color:#666;min-height:1.4em">${(agentAddress||'').replace(/</g,'&lt;')}</div>
           <div style="color:#666">Ref: ${booking.ref_no} ${booking.tour_name?(' / '+booking.tour_name):''}</div>
         </div>
         <div style="text-align:right;font-size:11px;line-height:1.7">
