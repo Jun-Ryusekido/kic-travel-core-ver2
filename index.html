@@ -124,6 +124,7 @@ th.sortable:hover{color:var(--blue)}
 @media(max-width:480px){.pax-row{flex-wrap:wrap}.pax-row .form-field{flex:1 1 calc(50% - 8px)}}
 
 /* 印刷時：Invoiceプレビューのみ表示 */
+@page{size:A4;margin:0}
 @media print{
   body *{visibility:hidden}
   #inv-preview-card, #inv-preview-card *{visibility:visible}
@@ -1243,35 +1244,46 @@ function showInvoicePreview(inv, booking){
   const issueDate = inv.issue_date ? new Date(inv.issue_date).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'}) : '';
 
   const html = `
-    <div style="background:#fff;border:1px solid #ddd;border-radius:10px;padding:24px;max-width:600px;font-size:12px;color:#222">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:1px solid #ddd;padding-bottom:12px;margin-bottom:14px">
-        <div>
+    <div style="background:#fff;border:1px solid #ddd;width:210mm;max-width:100%;min-height:297mm;margin:0 auto;padding:18mm;font-size:11px;color:#222;box-sizing:border-box">
+      <div style="text-align:center;font-size:22px;font-weight:700;letter-spacing:4px;color:var(--blue);margin-bottom:18px">
+        ${isUSD?'USD ':''}INVOICE
+      </div>
+
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;gap:20px">
+        <div style="font-size:11px;line-height:1.7">
+          <div style="font-weight:700;font-size:10px;color:#888;letter-spacing:1px;margin-bottom:2px">BILL TO</div>
+          <div style="font-size:13px;font-weight:700">${booking.agent_name||''}</div>
+          <div style="color:#666">Ref: ${booking.ref_no} ${booking.tour_name?(' / '+booking.tour_name):''}</div>
+        </div>
+        <div style="text-align:right;font-size:11px;line-height:1.7">
           <div style="font-size:15px;font-weight:700;color:var(--blue)">KIC Co., Ltd.</div>
-          <div style="font-size:11px;color:#666;margin-top:2px">Nishikasai, Edogawa-ku, Tokyo</div>
-        </div>
-        <div style="text-align:right">
-          <div style="font-size:20px;font-weight:600;color:var(--blue)">${isUSD?'USD ':''}INVOICE</div>
-          <div style="font-size:11px;color:#666;margin-top:2px">NO: ${inv.invoice_no}<br>Date: ${issueDate}</div>
+          <div style="color:#666">Marusei Bldg. 3F-E, 6-13-14, Nishikasai,<br>Edogawa-ku, Tokyo, 134-0088 Japan</div>
         </div>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;font-size:11px">
-        <div><div style="font-weight:600;margin-bottom:2px">BILL TO:</div><div>${booking.agent_name||''}</div><div style="color:#666">Ref: ${booking.ref_no} / ${booking.tour_name||''}</div></div>
-        <div><div style="font-weight:600;margin-bottom:2px">TOUR DETAILS:</div><div>In: ${booking.in_date||'-'} / Out: ${booking.out_date||'-'}</div><div style="color:#666">No. of pax: ${booking.pax||0}</div></div>
+
+      <div style="display:flex;justify-content:space-between;border-top:1px solid #ddd;border-bottom:1px solid #ddd;padding:8px 0;margin-bottom:18px;font-size:11px">
+        <div><span style="color:#888">Invoice No.</span> <strong>${inv.invoice_no}</strong></div>
+        <div><span style="color:#888">Issue Date</span> <strong>${issueDate}</strong></div>
+        <div><span style="color:#888">In / Out</span> <strong>${booking.in_date||'-'} ～ ${booking.out_date||'-'}</strong></div>
+        <div><span style="color:#888">Pax</span> <strong>${booking.pax||0}</strong></div>
       </div>
-      <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:12px">
-        <thead><tr><th style="background:#f5f7fa;padding:6px 8px;text-align:left;border:1px solid #ddd">Description</th><th style="background:#f5f7fa;padding:6px 8px;text-align:right;border:1px solid #ddd">Amount</th></tr></thead>
+
+      <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:18px">
+        <thead><tr><th style="background:#f5f7fa;padding:8px 10px;text-align:left;border:1px solid #ddd">Description</th><th style="background:#f5f7fa;padding:8px 10px;text-align:right;border:1px solid #ddd;width:160px">Amount</th></tr></thead>
         <tbody>
-          <tr><td style="padding:6px 8px;border:1px solid #ddd">${booking.tour_name||'Tour Fee'}</td><td style="padding:6px 8px;border:1px solid #ddd;text-align:right">${amountStr}</td></tr>
-          <tr style="font-weight:700;background:#EEF3FA"><td style="padding:6px 8px;border:1px solid #ddd;text-align:right">TOTAL</td><td style="padding:6px 8px;border:1px solid #ddd;text-align:right;color:var(--blue)">${amountStr}</td></tr>
+          <tr><td style="padding:10px;border:1px solid #ddd">${booking.tour_name||'Tour Fee'}</td><td style="padding:10px;border:1px solid #ddd;text-align:right">${amountStr}</td></tr>
+          <tr style="font-weight:700;background:#EEF3FA"><td style="padding:10px;border:1px solid #ddd;text-align:right">TOTAL</td><td style="padding:10px;border:1px solid #ddd;text-align:right;color:var(--blue);font-size:13px">${amountStr}</td></tr>
         </tbody>
       </table>
-      <div style="background:#EAF3DE;border-left:3px solid var(--green);border-radius:0 4px 4px 0;padding:8px 10px;font-size:11px;line-height:1.7">
+
+      <div style="background:#EAF3DE;border-left:3px solid var(--green);border-radius:0 4px 4px 0;padding:10px 12px;font-size:11px;line-height:1.8;margin-bottom:14px">
         <strong>Remittance may be made to the following account:</strong><br>
         SUMITOMO MITSUI BANKING CORPORATION, Shimbashi Branch<br>
         Account# 2428493 &nbsp;(Swift Code: SMBCJPJT)<br>
         Account Name: <strong>KIC Co., Ltd.</strong>
       </div>
-      <div style="margin-top:12px;font-size:10px;color:#666;border-top:1px solid #ddd;padding-top:8px;line-height:1.6">
+
+      <div style="font-size:10px;color:#666;border-top:1px solid #ddd;padding-top:8px;line-height:1.7">
         Any discrepancy in this statement, please inform us in writing within 10 days.<br>
         Bank transfer fee should be paid by sender.<br>
         Due date: ${inv.due_date||''}
