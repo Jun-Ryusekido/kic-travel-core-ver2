@@ -592,8 +592,15 @@ function resetBookingFilter(prefix){
   filterBookingListGeneric(prefix);
 }
 
+// 全角英数記号を半角に変換（検索用）
+function toHalfWidth(str){
+  return str
+    .replace(/[\uFF01-\uFF5E]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
+    .replace(/\u3000/g, ' ');
+}
+
 function filterBookingListGeneric(prefix){
-  const q = document.getElementById(prefix+'-search').value.trim().toLowerCase();
+  const q = toHalfWidth(document.getElementById(prefix+'-search').value.trim().toLowerCase());
   const from = document.getElementById(prefix+'-from').value;
   const to = document.getElementById(prefix+'-to').value;
   const status = document.getElementById(prefix+'-status').value;
