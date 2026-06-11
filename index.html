@@ -155,20 +155,37 @@ tr:hover td{background:var(--bg)}
 
       <!-- Dashboard -->
       <div id="pg-dashboard" class="page">
-        <div class="kpi-grid">
-          <div class="kpi"><div class="kpi-lbl">総売上</div><div class="kpi-val" id="kpi-sales">-</div></div>
-          <div class="kpi"><div class="kpi-lbl">予約件数</div><div class="kpi-val" id="kpi-count">-</div></div>
-          <div class="kpi"><div class="kpi-lbl">GROSS</div><div class="kpi-val green" id="kpi-gross">-</div></div>
-          <div class="kpi"><div class="kpi-lbl">GROSS率</div><div class="kpi-val green" id="kpi-rate">-</div></div>
+        <div class="card">
+          <div class="card-title">検索・絞り込み</div>
+          <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr 1fr">
+            <div class="form-field"><label>検索（REF# / Agent / Tour）</label><input id="db-search" placeholder="例: Kesari, #1374, Kyoto" oninput="filterBookingListGeneric('db')"></div>
+            <div class="form-field"><label>出発日(From)</label><input id="db-from" type="date" onchange="filterBookingListGeneric('db')"></div>
+            <div class="form-field"><label>出発日(To)</label><input id="db-to" type="date" onchange="filterBookingListGeneric('db')"></div>
+            <div class="form-field"><label>Status</label>
+              <select id="db-status" onchange="filterBookingListGeneric('db')">
+                <option value="">すべて</option>
+                <option value="open">Open</option>
+                <option value="invoiced">Invoiced</option>
+                <option value="pending">Pending</option>
+                <option value="paid">Paid</option>
+                <option value="closed">Closed</option>
+              </select>
+            </div>
+          </div>
+          <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center">
+            <span style="font-size:11px;color:var(--text3)" id="db-count"></span>
+            <button class="btn" onclick="resetBookingFilter('db')">条件クリア</button>
+          </div>
         </div>
         <div class="card">
-          <div class="card-title">直近予約 <span class="lnk" style="font-size:11px;font-weight:400" onclick="go('booking-list')">全件 →</span></div>
+          <div class="card-title">予約一覧</div>
           <div class="tbl-wrap"><table>
-            <thead><tr><th>REF#</th><th>Agent</th><th>Tour</th><th>In</th><th>Out</th><th>Pax</th><th>GROSS</th><th>Status</th></tr></thead>
-            <tbody id="dash-bookings"><tr><td colspan="8" class="empty">読み込み中...</td></tr></tbody>
+            <thead><tr><th>REF#</th><th>Agent</th><th>Tour</th><th>In</th><th>Out</th><th>Pax</th><th>売上</th><th>原価</th><th>GROSS</th><th>率</th><th>Status</th></tr></thead>
+            <tbody id="db-tbody"><tr><td colspan="11" class="empty">読み込み中...</td></tr></tbody>
           </table></div>
         </div>
       </div>
+
 
       <!-- New Booking -->
       <div id="pg-new-booking" class="page" style="display:none">
@@ -210,11 +227,11 @@ tr:hover td{background:var(--bg)}
         <div class="card">
           <div class="card-title">検索・絞り込み</div>
           <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr 1fr">
-            <div class="form-field"><label>検索（REF# / Agent / Tour）</label><input id="bl-search" placeholder="例: Kesari, #1374, Kyoto" oninput="filterBookingList()"></div>
-            <div class="form-field"><label>出発日(From)</label><input id="bl-from" type="date" onchange="filterBookingList()"></div>
-            <div class="form-field"><label>出発日(To)</label><input id="bl-to" type="date" onchange="filterBookingList()"></div>
+            <div class="form-field"><label>検索（REF# / Agent / Tour）</label><input id="bl-search" placeholder="例: Kesari, #1374, Kyoto" oninput="filterBookingListGeneric('bl')"></div>
+            <div class="form-field"><label>出発日(From)</label><input id="bl-from" type="date" onchange="filterBookingListGeneric('bl')"></div>
+            <div class="form-field"><label>出発日(To)</label><input id="bl-to" type="date" onchange="filterBookingListGeneric('bl')"></div>
             <div class="form-field"><label>Status</label>
-              <select id="bl-status" onchange="filterBookingList()">
+              <select id="bl-status" onchange="filterBookingListGeneric('bl')">
                 <option value="">すべて</option>
                 <option value="open">Open</option>
                 <option value="invoiced">Invoiced</option>
@@ -226,7 +243,7 @@ tr:hover td{background:var(--bg)}
           </div>
           <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center">
             <span style="font-size:11px;color:var(--text3)" id="bl-count"></span>
-            <button class="btn" onclick="resetBookingFilter()">条件クリア</button>
+            <button class="btn" onclick="resetBookingFilter('bl')">条件クリア</button>
           </div>
         </div>
         <div class="card">
@@ -437,8 +454,8 @@ function go(id){
 
   if(id!=='dashboard') logAction('ページ遷移', pageNames[id]||id);
 
-  if(id==='dashboard') loadDashboard();
-  if(id==='booking-list') loadBookingList();
+  if(id==='dashboard') loadBookingListGeneric('db');
+  if(id==='booking-list') loadBookingListGeneric('bl');
   if(id==='invoice') loadInvoicePage();
   if(id==='gross') loadGross();
   if(id==='payment') loadPayments();
@@ -459,31 +476,85 @@ async function fetchAllBookings(){
   return all;
 }
 
-// ===== Dashboard =====
-async function loadDashboard(){
-  const data = await fetchAllBookings();
+// ===== Dashboard / Booking List（共通: prefixで切替） =====
+let allBookingsCache = [];
+const LIST_PAGE_SIZE = 100;
+const listState = { db:{page:1}, bl:{page:1} };
 
-  const totalSales = data.reduce((s,b)=>s+Number(b.gross_sales||0),0);
-  const totalCost  = data.reduce((s,b)=>s+Number(b.gross_cost||0),0);
-  const gross = totalSales - totalCost;
-  const rate = totalSales ? (gross/totalSales*100).toFixed(1) : '0.0';
+async function loadBookingListGeneric(prefix){
+  document.getElementById(prefix+'-tbody').innerHTML='<tr><td colspan="11" class="empty">読み込み中...</td></tr>';
+  allBookingsCache = await fetchAllBookings();
+  listState[prefix].page = 1;
+  filterBookingListGeneric(prefix);
+}
 
-  document.getElementById('kpi-sales').textContent = yen(totalSales);
-  document.getElementById('kpi-count').textContent = data.length;
-  document.getElementById('kpi-gross').textContent = yen(gross);
-  document.getElementById('kpi-rate').textContent = rate + '%';
+function resetBookingFilter(prefix){
+  document.getElementById(prefix+'-search').value='';
+  document.getElementById(prefix+'-from').value='';
+  document.getElementById(prefix+'-to').value='';
+  document.getElementById(prefix+'-status').value='';
+  listState[prefix].page = 1;
+  filterBookingListGeneric(prefix);
+}
 
-  const tbody = document.getElementById('dash-bookings');
-  if(data.length===0){ tbody.innerHTML='<tr><td colspan="8" class="empty">予約データがありません</td></tr>'; return; }
-  tbody.innerHTML = data.slice(0,8).map(b=>{
-    const g = Number(b.gross_sales||0)-Number(b.gross_cost||0);
+function filterBookingListGeneric(prefix){
+  const q = document.getElementById(prefix+'-search').value.trim().toLowerCase();
+  const from = document.getElementById(prefix+'-from').value;
+  const to = document.getElementById(prefix+'-to').value;
+  const status = document.getElementById(prefix+'-status').value;
+
+  let filtered = allBookingsCache.filter(b=>{
+    if(q){
+      const hay = `${b.ref_no||''} ${b.agent_name||''} ${b.tour_name||''}`.toLowerCase();
+      if(!hay.includes(q)) return false;
+    }
+    if(from && (!b.in_date || b.in_date < from)) return false;
+    if(to && (!b.in_date || b.in_date > to)) return false;
+    if(status && b.status !== status) return false;
+    return true;
+  });
+
+  document.getElementById(prefix+'-count').textContent = `${filtered.length}件 / 全${allBookingsCache.length}件`;
+
+  const tbody = document.getElementById(prefix+'-tbody');
+  if(filtered.length===0){ tbody.innerHTML='<tr><td colspan="11" class="empty">該当する予約がありません</td></tr>'; return; }
+
+  // ページネーション
+  let page = listState[prefix].page;
+  const totalPages = Math.ceil(filtered.length / LIST_PAGE_SIZE);
+  if(page > totalPages) page = totalPages;
+  if(page < 1) page = 1;
+  listState[prefix].page = page;
+  const start = (page-1)*LIST_PAGE_SIZE;
+  const pageData = filtered.slice(start, start+LIST_PAGE_SIZE);
+
+  tbody.innerHTML = pageData.map(b=>{
+    const sales=Number(b.gross_sales||0), cost=Number(b.gross_cost||0), g=sales-cost;
+    const rate = sales ? (g/sales*100).toFixed(1) : '0.0';
     const gcls = g<0?'red':'green';
     return `<tr>
       <td class="lnk">${b.ref_no}</td><td>${b.agent_name||''}</td><td>${b.tour_name||''}</td>
       <td>${b.in_date||''}</td><td>${b.out_date||''}</td><td>${b.pax||0}</td>
-      <td class="${gcls}">${yen(g)}</td><td>${statusPill(b.status)}</td>
+      <td>${yen(sales)}</td><td>${yen(cost)}</td>
+      <td class="${gcls}">${yen(g)}</td><td class="${gcls}">${rate}%</td>
+      <td>${statusPill(b.status)}</td>
     </tr>`;
   }).join('');
+
+  // ページネーションUI
+  if(totalPages > 1){
+    let pager = `<tr><td colspan="11" style="text-align:center;padding:10px">`;
+    pager += `<button class="btn" ${page<=1?'disabled':''} onclick="listGoPage('${prefix}',${page-1})">← 前へ</button> `;
+    pager += `<span style="margin:0 10px;font-size:11px;color:var(--text3)">ページ ${page} / ${totalPages}</span>`;
+    pager += `<button class="btn" ${page>=totalPages?'disabled':''} onclick="listGoPage('${prefix}',${page+1})">次へ →</button>`;
+    pager += `</td></tr>`;
+    tbody.innerHTML += pager;
+  }
+}
+
+function listGoPage(prefix,p){
+  listState[prefix].page = p;
+  filterBookingListGeneric(prefix);
 }
 
 function statusPill(status){
@@ -533,85 +604,6 @@ async function saveBooking(){
   // フォームクリア
   ['nb-ref','nb-agent','nb-tour','nb-pax','nb-in','nb-out','nb-sales','nb-cost'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('nb-status').value='open';
-}
-
-// ===== Booking List =====
-let allBookingsCache = [];
-const BL_PAGE_SIZE = 100;
-let blCurrentPage = 1;
-
-async function loadBookingList(){
-  document.getElementById('bl-tbody').innerHTML='<tr><td colspan="11" class="empty">読み込み中...</td></tr>';
-  allBookingsCache = await fetchAllBookings();
-  blCurrentPage = 1;
-  filterBookingList();
-}
-
-function resetBookingFilter(){
-  document.getElementById('bl-search').value='';
-  document.getElementById('bl-from').value='';
-  document.getElementById('bl-to').value='';
-  document.getElementById('bl-status').value='';
-  blCurrentPage = 1;
-  filterBookingList();
-}
-
-function filterBookingList(){
-  const q = document.getElementById('bl-search').value.trim().toLowerCase();
-  const from = document.getElementById('bl-from').value;
-  const to = document.getElementById('bl-to').value;
-  const status = document.getElementById('bl-status').value;
-
-  let filtered = allBookingsCache.filter(b=>{
-    if(q){
-      const hay = `${b.ref_no||''} ${b.agent_name||''} ${b.tour_name||''}`.toLowerCase();
-      if(!hay.includes(q)) return false;
-    }
-    if(from && (!b.in_date || b.in_date < from)) return false;
-    if(to && (!b.in_date || b.in_date > to)) return false;
-    if(status && b.status !== status) return false;
-    return true;
-  });
-
-  document.getElementById('bl-count').textContent = `${filtered.length}件 / 全${allBookingsCache.length}件`;
-
-  const tbody = document.getElementById('bl-tbody');
-  if(filtered.length===0){ tbody.innerHTML='<tr><td colspan="11" class="empty">該当する予約がありません</td></tr>'; return; }
-
-  // ページネーション
-  const totalPages = Math.ceil(filtered.length / BL_PAGE_SIZE);
-  if(blCurrentPage > totalPages) blCurrentPage = totalPages;
-  if(blCurrentPage < 1) blCurrentPage = 1;
-  const start = (blCurrentPage-1)*BL_PAGE_SIZE;
-  const pageData = filtered.slice(start, start+BL_PAGE_SIZE);
-
-  tbody.innerHTML = pageData.map(b=>{
-    const sales=Number(b.gross_sales||0), cost=Number(b.gross_cost||0), g=sales-cost;
-    const rate = sales ? (g/sales*100).toFixed(1) : '0.0';
-    const gcls = g<0?'red':'green';
-    return `<tr>
-      <td class="lnk">${b.ref_no}</td><td>${b.agent_name||''}</td><td>${b.tour_name||''}</td>
-      <td>${b.in_date||''}</td><td>${b.out_date||''}</td><td>${b.pax||0}</td>
-      <td>${yen(sales)}</td><td>${yen(cost)}</td>
-      <td class="${gcls}">${yen(g)}</td><td class="${gcls}">${rate}%</td>
-      <td>${statusPill(b.status)}</td>
-    </tr>`;
-  }).join('');
-
-  // ページネーションUI
-  if(totalPages > 1){
-    let pager = `<tr><td colspan="11" style="text-align:center;padding:10px">`;
-    pager += `<button class="btn" ${blCurrentPage<=1?'disabled':''} onclick="blGoPage(${blCurrentPage-1})">← 前へ</button> `;
-    pager += `<span style="margin:0 10px;font-size:11px;color:var(--text3)">ページ ${blCurrentPage} / ${totalPages}</span>`;
-    pager += `<button class="btn" ${blCurrentPage>=totalPages?'disabled':''} onclick="blGoPage(${blCurrentPage+1})">次へ →</button>`;
-    pager += `</td></tr>`;
-    tbody.innerHTML += pager;
-  }
-}
-
-function blGoPage(p){
-  blCurrentPage = p;
-  filterBookingList();
 }
 
 // ===== GROSS =====
