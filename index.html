@@ -118,6 +118,10 @@ th.sortable:hover{color:var(--blue)}
 .li-table .li-amt{white-space:nowrap;text-align:right;width:64px}
 .li-total{text-align:right;margin-top:4px;font-size:11px;font-weight:700}
 @media(max-width:600px){.detail-summary{grid-template-columns:1fr 1fr}.detail-cols{grid-template-columns:1fr}}
+.pax-row{display:flex;gap:8px;align-items:flex-end}
+.pax-row .form-field{flex:0 0 70px}
+.pax-row .form-field input{width:100%}
+@media(max-width:480px){.pax-row{flex-wrap:wrap}.pax-row .form-field{flex:1 1 calc(50% - 8px)}}
 
 /* 印刷時：Invoiceプレビューのみ表示 */
 @media print{
@@ -230,10 +234,14 @@ th.sortable:hover{color:var(--blue)}
             </div>
             <div class="form-field"><label>Agent / Group</label><input id="nb-agent" placeholder="e.g. Kesari Tours Pvt. Ltd."></div>
             <div class="form-field"><label>Tour Name</label><input id="nb-tour" placeholder="e.g. Kyoto Classic 5D"></div>
-            <div class="form-field"><label>大人 (ADT)</label><input id="nb-pax-adt" type="number" min="0" placeholder="24" oninput="updateNbPaxTotal()"></div>
-            <div class="form-field"><label>子供 (CHD)</label><input id="nb-pax-chd" type="number" min="0" placeholder="0" oninput="updateNbPaxTotal()"></div>
-            <div class="form-field"><label>乳児 (INF)</label><input id="nb-pax-inf" type="number" min="0" placeholder="0" oninput="updateNbPaxTotal()"></div>
-            <div class="form-field"><label>合計 (TCP)</label><input id="nb-pax-total" type="number" disabled></div>
+            <div class="form-field" style="grid-column:1/-1">
+              <div class="pax-row">
+                <div class="form-field"><label>大人 (ADT)</label><input id="nb-pax-adt" type="number" min="0" placeholder="24" oninput="updateNbPaxTotal()"></div>
+                <div class="form-field"><label>子供 (CHD)</label><input id="nb-pax-chd" type="number" min="0" placeholder="0" oninput="updateNbPaxTotal()"></div>
+                <div class="form-field"><label>乳児 (INF)</label><input id="nb-pax-inf" type="number" min="0" placeholder="0" oninput="updateNbPaxTotal()"></div>
+                <div class="form-field"><label>合計 (TCP)</label><input id="nb-pax-total" type="number" disabled></div>
+              </div>
+            </div>
             <div class="form-field"><label>In-Date</label><input id="nb-in" type="date"></div>
             <div class="form-field"><label>Out-Date</label><input id="nb-out" type="date"></div>
             <div class="form-field"><label>売上 (GROSS SALES, JPY)</label><input id="nb-sales" type="number" placeholder="1870000"></div>
@@ -416,10 +424,14 @@ th.sortable:hover{color:var(--blue)}
       <div class="form-field"><label>REF#</label><input id="bd-ref-input" disabled></div>
       <div class="form-field"><label>Agent</label><input id="bd-agent"></div>
       <div class="form-field" style="grid-column:1/-1"><label>Tour Name</label><input id="bd-tour"></div>
-      <div class="form-field"><label>大人 (ADT)</label><input id="bd-pax-adt" type="number" min="0" oninput="updateBdPaxTotal()"></div>
-      <div class="form-field"><label>子供 (CHD)</label><input id="bd-pax-chd" type="number" min="0" oninput="updateBdPaxTotal()"></div>
-      <div class="form-field"><label>乳児 (INF)</label><input id="bd-pax-inf" type="number" min="0" oninput="updateBdPaxTotal()"></div>
-      <div class="form-field"><label>合計 (TCP)</label><input id="bd-pax-total" type="number" disabled></div>
+      <div class="form-field" style="grid-column:1/-1">
+        <div class="pax-row">
+          <div class="form-field"><label>大人 (ADT)</label><input id="bd-pax-adt" type="number" min="0" oninput="updateBdPaxTotal()"></div>
+          <div class="form-field"><label>子供 (CHD)</label><input id="bd-pax-chd" type="number" min="0" oninput="updateBdPaxTotal()"></div>
+          <div class="form-field"><label>乳児 (INF)</label><input id="bd-pax-inf" type="number" min="0" oninput="updateBdPaxTotal()"></div>
+          <div class="form-field"><label>合計 (TCP)</label><input id="bd-pax-total" type="number" disabled></div>
+        </div>
+      </div>
       <div class="form-field"><label>手配状況 / Status</label>
         <select id="bd-status">
           <option value="open">Open（未対応）</option>
