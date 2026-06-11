@@ -499,6 +499,36 @@ const SUPABASE_KEY = 'sb_publishable_Cnloaxzb2Ati8gmCa-1o3Q_t3uy6_mB';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 let currentUser = null;
+let currentPageId = 'dashboard';
+const SESSION_KEY = 'kic_session_v1';
+const SESSION_TIMEOUT_MS = 15*60*1000; // 15分操作がなければ自動ログアウト
+
+function saveSession(){
+  if(!currentUser) return;
+  try{
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      user: currentUser,
+      expiresAt: Date.now() + SESSION_TIMEOUT_MS,
+      page: currentPageId
+    }));
+  }catch(e){}
+}
+
+function touchSession(){
+  if(!currentUser) return;
+  try{
+    const raw = localStorage.getItem(SESSION_KEY);
+    if(!raw) return;
+    const s = JSON.parse(raw);
+    s.expiresAt = Date.now() + SESSION_TIMEOUT_MS;
+    s.page = currentPageId;
+    localStorage.setItem(SESSION_KEY, JSON.stringify(s));
+  }catch(e){}
+}
+
+function clearSession(){
+  try{ localStorage.removeItem(SESSION_KEY); }catch(e){}
+}
 
 // ===== ユーティリティ =====
 function yen(n){ return '¥' + Number(n||0).toLocaleString('ja-JP'); }
@@ -537,10 +567,22 @@ async function doLogin(){
   }
 
   currentUser = data;
+
+  // 最終ログイン更新
+  await sb.from('app_users').update({last_login:new Date().toISOString()}).eq('id', data.id);
+  await logAction('ログイン','—');
+
+  applyLoggedInUI(data);
+  saveSession();
+  go('dashboard');
+}
+document.getElementById('login-id').addEventListener('keydown', e=>{if(e.key==='Enter')doLogin()});
+document.getElementById('login-pw').addEventListener('keydown', e=>{if(e.key==='Enter')doLogin()});
+
+function applyLoggedInUI(data){
   document.getElementById('screen-login').style.display='none';
   document.getElementById('screen-app').style.display='block';
 
-  const initials = (data.name||'U').slice(0,1) + (data.name||'').split(' ')[1]?.slice(0,1)||'';
   document.getElementById('sb-avatar').textContent = (data.name||'U').slice(0,2).toUpperCase();
   document.getElementById('sb-uname').textContent = data.name || data.email;
   const roleLabel = {admin:'管理者',staff:'スタッフ',view:'閲覧のみ'}[data.role] || data.role;
@@ -549,22 +591,52 @@ async function doLogin(){
   document.querySelectorAll('.admin-only').forEach(el=>{
     el.style.display = data.role==='admin' ? '' : 'none';
   });
-
-  // 最終ログイン更新
-  await sb.from('app_users').update({last_login:new Date().toISOString()}).eq('id', data.id);
-  await logAction('ログイン','—');
-
-  go('dashboard');
 }
-document.getElementById('login-id').addEventListener('keydown', e=>{if(e.key==='Enter')doLogin()});
-document.getElementById('login-pw').addEventListener('keydown', e=>{if(e.key==='Enter')doLogin()});
 
 function doLogout(){
   logAction('ログアウト','—');
   currentUser=null;
+  clearSession();
   document.getElementById('screen-app').style.display='none';
   document.getElementById('screen-login').style.display='flex';
   document.getElementById('login-pw').value='';
+}
+
+// 操作があるたびにセッションの有効期限を延長（頻発しすぎないよう間引き）
+let lastTouchAt = 0;
+['click','keydown','mousemove','touchstart'].forEach(evt=>{
+  document.addEventListener(evt, ()=>{
+    if(!currentUser) return;
+    const now = Date.now();
+    if(now - lastTouchAt < 10000) return; // 10秒に1回まで
+    lastTouchAt = now;
+    touchSession();
+  }, {passive:true});
+});
+
+// 1分ごとにセッション期限を確認し、切れていれば自動ログアウト
+setInterval(()=>{
+  if(!currentUser) return;
+  try{
+    const raw = localStorage.getItem(SESSION_KEY);
+    if(!raw){ doLogout(); return; }
+    const s = JSON.parse(raw);
+    if(!s.expiresAt || Date.now() > s.expiresAt){ doLogout(); }
+  }catch(e){}
+}, 60*1000);
+
+// ===== ページ読み込み時：セッション復元 =====
+function restoreSession(){
+  try{
+    const raw = localStorage.getItem(SESSION_KEY);
+    if(!raw) return;
+    const s = JSON.parse(raw);
+    if(!s.expiresAt || Date.now() > s.expiresAt){ clearSession(); return; }
+    currentUser = s.user;
+    applyLoggedInUI(currentUser);
+    touchSession();
+    go(s.page || 'dashboard');
+  }catch(e){ clearSession(); }
 }
 
 // ===== ナビゲーション =====
@@ -574,6 +646,8 @@ const pageNames={
 };
 function go(id){
   if((id==='accounts'||id==='logs') && currentUser && currentUser.role!=='admin') return;
+  if(!document.getElementById('pg-'+id)) return;
+  currentPageId = id;
   document.querySelectorAll('.page').forEach(el=>el.style.display='none');
   document.getElementById('pg-'+id).style.display='';
   document.querySelectorAll('.sb-item').forEach(n=>n.classList.remove('active'));
@@ -1329,6 +1403,9 @@ async function showInvoicePreview(inv, booking){
   document.getElementById('inv-preview-card').style.display='';
   document.getElementById('inv-preview-card').scrollIntoView({behavior:'smooth'});
 }
+
+// ===== 起動時：ログインセッション復元 =====
+restoreSession();
 
 </script>
 </body>
