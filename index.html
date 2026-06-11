@@ -82,6 +82,9 @@ tr:hover td{background:var(--bg)}
 .msg-ok{font-size:11px;color:var(--green);margin-top:6px;display:none}
 .lnk{color:var(--blue);cursor:pointer;font-weight:600}
 .empty{text-align:center;padding:24px;color:var(--text3);font-size:12px}
+th.sortable{cursor:pointer;user-select:none;white-space:nowrap}
+th.sortable:hover{color:var(--blue)}
+.sort-arrow{font-size:9px;color:var(--blue)}
 @media(max-width:760px){
   .sb{position:fixed;left:-210px;transition:left .2s;z-index:50;box-shadow:2px 0 8px rgba(0,0,0,.1)}
   .sb.open{left:0}
@@ -199,7 +202,7 @@ tr:hover td{background:var(--bg)}
         <div class="card">
           <div class="card-title">予約一覧</div>
           <div class="tbl-wrap"><table>
-            <thead><tr><th>REF#</th><th>Agent</th><th>Tour</th><th>In</th><th>Out</th><th>Pax</th><th>売上</th><th>原価</th><th>GROSS</th><th>率</th><th>Status</th></tr></thead>
+            <thead id="db-thead"></thead>
             <tbody id="db-tbody"><tr><td colspan="11" class="empty">読み込み中...</td></tr></tbody>
           </table></div>
         </div>
@@ -271,7 +274,7 @@ tr:hover td{background:var(--bg)}
         <div class="card">
           <div class="card-title">Booking List</div>
           <div class="tbl-wrap"><table>
-            <thead><tr><th>REF#</th><th>Agent</th><th>Tour</th><th>In</th><th>Out</th><th>Pax</th><th>売上</th><th>原価</th><th>GROSS</th><th>率</th><th>Status</th></tr></thead>
+            <thead id="bl-thead"></thead>
             <tbody id="bl-tbody"><tr><td colspan="11" class="empty">読み込み中...</td></tr></tbody>
           </table></div>
         </div>
@@ -579,10 +582,34 @@ async function fetchAllBookings(){
 // ===== Dashboard / Booking List（共通: prefixで切替） =====
 let allBookingsCache = [];
 const LIST_PAGE_SIZE = 100;
-const listState = { db:{page:1}, bl:{page:1} };
+const listState = { db:{page:1, sortField:null, sortDir:1}, bl:{page:1, sortField:null, sortDir:1} };
+
+const LIST_COLUMNS = [
+  ['ref_no','REF#'], ['agent_name','Agent'], ['tour_name','Tour'],
+  ['in_date','In'], ['out_date','Out'], ['pax','Pax'],
+  ['gross_sales','売上'], ['gross_cost','原価'], ['gross','GROSS'], ['rate','率'], ['status','Status']
+];
+
+function renderListHeader(prefix){
+  const state = listState[prefix];
+  document.getElementById(prefix+'-thead').innerHTML = '<tr>' + LIST_COLUMNS.map(([field,label])=>{
+    let arrow = '';
+    if(state.sortField===field) arrow = ' <span class="sort-arrow">'+(state.sortDir===1?'▲':'▼')+'</span>';
+    return `<th class="sortable" onclick="sortBookingList('${prefix}','${field}')">${label}${arrow}</th>`;
+  }).join('') + '</tr>';
+}
+
+function sortBookingList(prefix, field){
+  const state = listState[prefix];
+  if(state.sortField===field){ state.sortDir = -state.sortDir; }
+  else { state.sortField = field; state.sortDir = 1; }
+  state.page = 1;
+  filterBookingListGeneric(prefix);
+}
 
 async function loadBookingListGeneric(prefix){
   document.getElementById(prefix+'-tbody').innerHTML='<tr><td colspan="11" class="empty">読み込み中...</td></tr>';
+  renderListHeader(prefix);
   allBookingsCache = await fetchAllBookings();
   listState[prefix].page = 1;
   filterBookingListGeneric(prefix);
@@ -622,6 +649,31 @@ function filterBookingListGeneric(prefix){
   });
 
   document.getElementById(prefix+'-count').textContent = `${filtered.length}件 / 全${allBookingsCache.length}件`;
+
+  // 並べ替え
+  const state = listState[prefix];
+  if(state.sortField){
+    const f = state.sortField, dir = state.sortDir;
+    filtered = filtered.slice().sort((a,b)=>{
+      let av, bv;
+      if(f==='gross'){
+        av = Number(a.gross_sales||0)-Number(a.gross_cost||0);
+        bv = Number(b.gross_sales||0)-Number(b.gross_cost||0);
+      }else if(f==='rate'){
+        const as=Number(a.gross_sales||0), bs=Number(b.gross_sales||0);
+        av = as ? (Number(a.gross_sales)-Number(a.gross_cost))/as : 0;
+        bv = bs ? (Number(b.gross_sales)-Number(b.gross_cost))/bs : 0;
+      }else{
+        av = a[f]; bv = b[f];
+      }
+      if(av==null && bv==null) return 0;
+      if(av==null) return 1;
+      if(bv==null) return -1;
+      if(typeof av === 'string') return dir * av.localeCompare(bv, 'ja');
+      return dir * (av - bv);
+    });
+  }
+  renderListHeader(prefix);
 
   const tbody = document.getElementById(prefix+'-tbody');
   if(filtered.length===0){ tbody.innerHTML='<tr><td colspan="11" class="empty">該当する予約がありません</td></tr>'; return; }
