@@ -95,7 +95,7 @@ tr:hover td{background:var(--bg)}
 /* Booking Detail Modal */
 .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:100;align-items:flex-start;justify-content:center;padding:30px 16px;overflow-y:auto}
 .modal-overlay.open{display:flex}
-.modal-box{background:var(--card);border-radius:12px;width:100%;max-width:680px;padding:18px 20px;max-height:90vh;overflow-y:auto}
+.modal-box{background:var(--card);border-radius:12px;width:100%;max-width:min(960px,95vw);padding:18px 20px;max-height:92vh;overflow-y:auto}
 .modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--border)}
 .modal-title{font-size:14px;font-weight:700}
 .modal-close{cursor:pointer;font-size:18px;color:var(--text3);line-height:1;padding:2px 6px;border-radius:6px}
@@ -106,11 +106,13 @@ tr:hover td{background:var(--bg)}
 .detail-summary .kpi-val{font-size:15px}
 .detail-cols{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 .detail-cols h4{font-size:11px;font-weight:700;margin-bottom:4px}
-.li-table{font-size:10px}
+.li-table{font-size:10px;table-layout:fixed;width:100%}
 .li-table th{padding:3px 4px;font-size:9px}
-.li-table td{padding:2px 3px}
-.li-table input{width:100%;border:1px solid var(--border);border-radius:5px;padding:3px 4px;font-size:10px;background:#fff;color:var(--text)}
+.li-table td{padding:2px 3px;overflow:hidden}
+.li-table input{width:100%;border:1px solid var(--border);border-radius:5px;padding:3px 4px;font-size:10px;background:#fff;color:var(--text);box-sizing:border-box}
 .li-table input:focus{outline:none;border-color:var(--blue)}
+.li-table .li-del{white-space:nowrap;text-align:center;width:36px}
+.li-table .li-amt{white-space:nowrap;text-align:right;width:64px}
 .li-total{text-align:right;margin-top:4px;font-size:11px;font-weight:700}
 @media(max-width:600px){.detail-summary{grid-template-columns:1fr 1fr}.detail-cols{grid-template-columns:1fr}}
 </style>
@@ -424,7 +426,7 @@ tr:hover td{background:var(--bg)}
       <div>
         <h4 class="green">売上明細</h4>
         <div class="tbl-wrap"><table class="li-table">
-          <thead><tr><th>項目</th><th>単価</th><th>数量</th><th>金額</th><th>入金日</th><th></th></tr></thead>
+          <thead><tr><th>項目</th><th style="width:60px">単価</th><th style="width:42px">数量</th><th class="li-amt">金額</th><th style="width:108px">入金日</th><th class="li-del"></th></tr></thead>
           <tbody id="bd-sales-tbody"></tbody>
         </table></div>
         <button class="btn" style="font-size:10px;margin-top:4px" onclick="addSalesRow()">＋ 行追加</button>
@@ -433,7 +435,7 @@ tr:hover td{background:var(--bg)}
       <div>
         <h4 class="red">仕入明細</h4>
         <div class="tbl-wrap"><table class="li-table">
-          <thead><tr><th>仕入先</th><th>仕入額</th><th>出金日</th><th>備考</th><th></th></tr></thead>
+          <thead><tr><th>仕入先</th><th style="width:80px">仕入額</th><th style="width:108px">出金日</th><th>備考</th><th class="li-del"></th></tr></thead>
           <tbody id="bd-cost-tbody"></tbody>
         </table></div>
         <button class="btn" style="font-size:10px;margin-top:4px" onclick="addCostRow()">＋ 行追加</button>
@@ -694,11 +696,11 @@ function renderSalesTable(){
     tbody.innerHTML = bdSalesItems.map((it,i)=>`
       <tr>
         <td><input value="${(it.item_name||'').replace(/"/g,'&quot;')}" onchange="bdSalesItems[${i}].item_name=this.value"></td>
-        <td><input type="number" value="${it.unit_price||0}" style="width:64px" onchange="bdSalesRowCalc(${i},this,'unit_price')"></td>
-        <td><input type="number" value="${it.qty||1}" style="width:46px" onchange="bdSalesRowCalc(${i},this,'qty')"></td>
-        <td id="bd-sales-amt-${i}" style="text-align:right;white-space:nowrap">${yen(it.amount||0)}</td>
+        <td><input type="number" value="${it.unit_price||0}" onchange="bdSalesRowCalc(${i},this,'unit_price')"></td>
+        <td><input type="number" value="${it.qty||1}" onchange="bdSalesRowCalc(${i},this,'qty')"></td>
+        <td id="bd-sales-amt-${i}" class="li-amt">${yen(it.amount||0)}</td>
         <td><input type="date" value="${it.payment_date||''}" onchange="bdSalesItems[${i}].payment_date=this.value"></td>
-        <td><span class="lnk" style="font-size:10px" onclick="removeSalesRow(${i})">削除</span></td>
+        <td class="li-del"><span class="lnk" style="font-size:10px" onclick="removeSalesRow(${i})">削除</span></td>
       </tr>`).join('');
   }
   updateDetailGrossPreview();
@@ -712,10 +714,10 @@ function renderCostTable(){
     tbody.innerHTML = bdCostItems.map((it,i)=>`
       <tr>
         <td><input value="${(it.item_name||'').replace(/"/g,'&quot;')}" onchange="bdCostItems[${i}].item_name=this.value"></td>
-        <td><input type="number" value="${it.amount||0}" style="width:80px" onchange="bdCostRowCalc(${i},this)"></td>
+        <td><input type="number" value="${it.amount||0}" onchange="bdCostRowCalc(${i},this)"></td>
         <td><input type="date" value="${it.payment_date||''}" onchange="bdCostItems[${i}].payment_date=this.value"></td>
         <td><input value="${(it.memo||'').replace(/"/g,'&quot;')}" onchange="bdCostItems[${i}].memo=this.value"></td>
-        <td><span class="lnk" style="font-size:10px" onclick="removeCostRow(${i})">削除</span></td>
+        <td class="li-del"><span class="lnk" style="font-size:10px" onclick="removeCostRow(${i})">削除</span></td>
       </tr>`).join('');
   }
   updateDetailGrossPreview();
