@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KIC Travel Core Ver2</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--blue:#185FA5;--blue-lt:#E6F1FB;--blue-bd:#B5D4F4;--green:#0F6E56;--green-lt:#EAF3DE;--amber:#854F0B;--amber-lt:#FAEEDA;--red:#A32D2D;--red-lt:#FCEBEB;--bg:#F4F3EE;--card:#FFFFFF;--border:#E3E1D9;--text:#1F1E1B;--text2:#5F5E5A;--text3:#9B998F}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Hiragino Kaku Gothic ProN",Meiryo,sans-serif;font-size:13px;color:var(--text);background:var(--bg)}
+#screen-login{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
+.login-box{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:32px 28px;width:100%;max-width:360px;box-shadow:0 2px 12px rgba(0,0,0,.04)}
+.login-logo{font-size:18px;font-weight:600;color:var(--blue);margin-bottom:4px}
+.login-sub{font-size:11px;color:var(--text3);margin-bottom:24px}
+.fld{display:flex;flex-direction:column;gap:4px;margin-bottom:14px}
+.fld label{font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+.fld input{padding:9px 10px;border-radius:8px;border:1px solid var(--border);background:#fff;font-size:13px;color:var(--text)}
+.fld input:focus{outline:none;border-color:var(--blue)}
+.login-err{font-size:11px;color:var(--red);margin-bottom:10px;display:none}
+.btn-login{width:100%;padding:10px;background:var(--blue);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;margin-top:4px}
+.btn-login:hover{background:#0C447C}
+.login-hint{font-size:10px;color:var(--text3);margin-top:14px;text-align:center;line-height:1.6}
+#screen-app{display:none}
+.app{display:flex;min-height:100vh}
+.sb{width:200px;min-width:200px;background:var(--card);border-right:1px solid var(--border);display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
+.sb-logo{padding:14px 14px 10px;border-bottom:1px solid var(--border)}
+.sb-logo-main{font-size:13px;font-weight:600;color:var(--blue)}
+.sb-logo-sub{font-size:9px;color:var(--text3);margin-top:1px}
+.sb-sec{padding:12px 10px 2px;font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;font-weight:600}
+.sb-item{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;cursor:pointer;font-size:12px;color:var(--text2);margin:1px 6px}
+.sb-item:hover{background:var(--bg)}
+.sb-item.active{background:var(--blue-lt);color:var(--blue);font-weight:600}
+.sb-badge{margin-left:auto;background:var(--blue-lt);color:var(--blue);font-size:9px;padding:1px 6px;border-radius:8px;font-weight:600}
+.sb-user{margin-top:auto;padding:10px;border-top:1px solid var(--border)}
+.sb-user-info{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.sb-avatar{width:30px;height:30px;border-radius:50%;background:var(--blue-lt);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--blue);flex-shrink:0}
+.sb-uname{font-size:11px;font-weight:600}
+.sb-urole{font-size:9px;color:var(--text3)}
+.sb-logout{font-size:11px;color:var(--text3);cursor:pointer;padding:5px 10px;border-radius:8px;text-align:center}
+.sb-logout:hover{background:var(--red-lt);color:var(--red)}
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.topbar{background:var(--card);border-bottom:1px solid var(--border);padding:0 20px;height:50px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;position:sticky;top:0;z-index:5}
+.tb-title{font-size:14px;font-weight:600}
+.ver-badge{background:var(--blue-lt);color:var(--blue);font-size:9px;padding:2px 7px;border-radius:8px;font-weight:600;margin-left:8px}
+.btn{display:inline-flex;align-items:center;gap:5px;padding:6px 12px;border-radius:8px;border:1px solid var(--border);background:#fff;color:var(--text);font-size:12px;cursor:pointer}
+.btn:hover{background:var(--bg)}
+.btn-p{background:var(--blue);color:#fff;border-color:var(--blue)}
+.btn-p:hover{background:#0C447C}
+.content{flex:1;padding:18px 20px;max-width:1100px;width:100%;margin:0 auto}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:14px}
+.card-title{font-size:12px;font-weight:600;color:var(--text2);margin-bottom:10px;display:flex;align-items:center;justify-content:space-between}
+.kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+.kpi{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px 14px}
+.kpi-lbl{font-size:10px;color:var(--text3);margin-bottom:5px}
+.kpi-val{font-size:20px;font-weight:700;line-height:1}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{font-size:10px;color:var(--text3);font-weight:600;padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);white-space:nowrap}
+td{padding:8px 8px;border-bottom:1px solid var(--border);vertical-align:middle}
+tr:last-child td{border:none}
+tr:hover td{background:var(--bg)}
+.tbl-wrap{overflow-x:auto}
+.pill{display:inline-flex;align-items:center;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;white-space:nowrap}
+.s-open{background:var(--green-lt);color:#3B6D11}
+.s-closed{background:#F1EFE8;color:#5F5E5A}
+.s-pending{background:var(--amber-lt);color:var(--amber)}
+.s-invoiced{background:var(--blue-lt);color:var(--blue)}
+.s-paid{background:var(--green-lt);color:#3B6D11}
+.green{color:var(--green)}.amber{color:var(--amber)}.red{color:var(--red)}.blue{color:var(--blue)}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.form-field{display:flex;flex-direction:column;gap:4px}
+.form-field label{font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+.form-field input,.form-field select{padding:7px 9px;border-radius:8px;border:1px solid var(--border);background:#fff;font-size:12px;color:var(--text)}
+.form-field input:focus,.form-field select:focus{outline:none;border-color:var(--blue)}
+.role-badge{font-size:9px;padding:2px 8px;border-radius:8px;font-weight:600}
+.role-admin{background:#EEEDFE;color:#534AB7}
+.role-staff{background:var(--blue-lt);color:var(--blue)}
+.role-view{background:#F1EFE8;color:#5F5E5A}
+.user-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 12px;display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.u-avatar{width:32px;height:32px;border-radius:50%;background:var(--blue-lt);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:var(--blue);flex-shrink:0}
+.u-meta{font-size:10px;color:var(--text3)}
+.msg-ok{font-size:11px;color:var(--green);margin-top:6px;display:none}
+.lnk{color:var(--blue);cursor:pointer;font-weight:600}
+.empty{text-align:center;padding:24px;color:var(--text3);font-size:12px}
+@media(max-width:760px){
+  .sb{position:fixed;left:-210px;transition:left .2s;z-index:50;box-shadow:2px 0 8px rgba(0,0,0,.1)}
+  .sb.open{left:0}
+  .kpi-grid{grid-template-columns:1fr 1fr}
+  .form-grid{grid-template-columns:1fr}
+  .content{padding:12px}
+  .menu-btn{display:flex!important}
+}
+.menu-btn{display:none;align-items:center;justify-content:center;width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:#fff;cursor:pointer;margin-right:8px}
+</style>
+</head>
+<body>
+
+<!-- ===== LOGIN ===== -->
+<div id="screen-login">
+  <div class="login-box">
+    <div class="login-logo">✈ KIC Travel Core</div>
+    <div class="login-sub">Ver 2.0 · INBOUND · マルチデバイス対応</div>
+    <div class="fld"><label>ユーザーID / Email</label><input id="login-id" type="text" value="admin@kictravel.jp"></div>
+    <div class="fld"><label>パスワード</label><input id="login-pw" type="password" value="kic2024"></div>
+    <div class="login-err" id="login-err">IDまたはパスワードが正しくありません</div>
+    <button class="btn-login" onclick="doLogin()">ログイン</button>
+    <div class="login-hint">
+      admin@kictravel.jp / kic2024（管理者）<br>
+      staff@kictravel.jp / staff123（スタッフ）<br>
+      view@kictravel.jp / view123（閲覧のみ）
+    </div>
+  </div>
+</div>
+
+<!-- ===== APP ===== -->
+<div id="screen-app">
+<div class="app">
+  <div class="sb" id="sidebar">
+    <div class="sb-logo">
+      <div class="sb-logo-main">✈ KIC Travel Core</div>
+      <div class="sb-logo-sub">Ver 2.0 · INBOUND</div>
+    </div>
+    <div class="sb-sec">予約管理</div>
+    <div class="sb-item active" data-pg="dashboard" onclick="go('dashboard')">📊 ダッシュボード</div>
+    <div class="sb-item" data-pg="new-booking" onclick="go('new-booking')">➕ New Booking</div>
+    <div class="sb-item" data-pg="booking-list" onclick="go('booking-list')">📋 Booking List</div>
+    <div class="sb-sec">分析</div>
+    <div class="sb-item" data-pg="gross" onclick="go('gross')">📈 GROSS / 粗利</div>
+    <div class="sb-item" data-pg="payment" onclick="go('payment')">💱 入出金管理</div>
+    <div class="sb-sec admin-only">管理</div>
+    <div class="sb-item admin-only" data-pg="accounts" onclick="go('accounts')">🔐 アカウント管理</div>
+    <div class="sb-item admin-only" data-pg="logs" onclick="go('logs')">📜 アクセスログ</div>
+    <div class="sb-user">
+      <div class="sb-user-info">
+        <div class="sb-avatar" id="sb-avatar">AD</div>
+        <div><div class="sb-uname" id="sb-uname">Admin</div><div class="sb-urole" id="sb-urole">管理者</div></div>
+      </div>
+      <div class="sb-logout" onclick="doLogout()">ログアウト</div>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="topbar">
+      <div style="display:flex;align-items:center">
+        <div class="menu-btn" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</div>
+        <span class="tb-title" id="pg-title">Dashboard</span>
+        <span class="ver-badge">KIC Ver 2.0</span>
+      </div>
+      <button class="btn btn-p" onclick="go('new-booking')">＋ New Booking</button>
+    </div>
+
+    <div class="content">
+
+      <!-- Dashboard -->
+      <div id="pg-dashboard" class="page">
+        <div class="kpi-grid">
+          <div class="kpi"><div class="kpi-lbl">総売上</div><div class="kpi-val" id="kpi-sales">-</div></div>
+          <div class="kpi"><div class="kpi-lbl">予約件数</div><div class="kpi-val" id="kpi-count">-</div></div>
+          <div class="kpi"><div class="kpi-lbl">GROSS</div><div class="kpi-val green" id="kpi-gross">-</div></div>
+          <div class="kpi"><div class="kpi-lbl">GROSS率</div><div class="kpi-val green" id="kpi-rate">-</div></div>
+        </div>
+        <div class="card">
+          <div class="card-title">直近予約 <span class="lnk" style="font-size:11px;font-weight:400" onclick="go('booking-list')">全件 →</span></div>
+          <div class="tbl-wrap"><table>
+            <thead><tr><th>REF#</th><th>Agent</th><th>Tour</th><th>In</th><th>Out</th><th>Pax</th><th>GROSS</th><th>Status</th></tr></thead>
+            <tbody id="dash-bookings"><tr><td colspan="8" class="empty">読み込み中...</td></tr></tbody>
+          </table></div>
+        </div>
+      </div>
+
+      <!-- New Booking -->
+      <div id="pg-new-booking" class="page" style="display:none">
+        <div class="card">
+          <div class="card-title">New Booking — 予約入力</div>
+          <div class="form-grid">
+            <div class="form-field"><label>REF#</label><input id="nb-ref" placeholder="#2406-003"></div>
+            <div class="form-field"><label>Agent / Group</label><input id="nb-agent" placeholder="e.g. Kesari Tours Pvt. Ltd."></div>
+            <div class="form-field"><label>Tour Name</label><input id="nb-tour" placeholder="e.g. Kyoto Classic 5D"></div>
+            <div class="form-field"><label>Pax</label><input id="nb-pax" type="number" placeholder="24"></div>
+            <div class="form-field"><label>In-Date</label><input id="nb-in" type="date"></div>
+            <div class="form-field"><label>Out-Date</label><input id="nb-out" type="date"></div>
+            <div class="form-field"><label>売上 (GROSS SALES, JPY)</label><input id="nb-sales" type="number" placeholder="1870000"></div>
+            <div class="form-field"><label>原価 (GROSS COST, JPY)</label><input id="nb-cost" type="number" placeholder="1290000"></div>
+            <div class="form-field"><label>Status</label>
+              <select id="nb-status">
+                <option value="open">Open</option>
+                <option value="invoiced">Invoiced</option>
+                <option value="pending">Pending</option>
+                <option value="paid">Paid</option>
+                <option value="closed">Closed</option>
+              </select>
+            </div>
+          </div>
+          <div style="margin-top:14px;display:flex;gap:8px">
+            <button class="btn btn-p" onclick="saveBooking()">💾 保存</button>
+            <span class="msg-ok" id="nb-msg">✓ 予約を保存しました</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Booking List -->
+      <div id="pg-booking-list" class="page" style="display:none">
+        <div class="card">
+          <div class="card-title">Booking List</div>
+          <div class="tbl-wrap"><table>
+            <thead><tr><th>REF#</th><th>Agent</th><th>Tour</th><th>In</th><th>Out</th><th>Pax</th><th>売上</th><th>原価</th><th>GROSS</th><th>率</th><th>Status</th></tr></thead>
+            <tbody id="bl-tbody"><tr><td colspan="11" class="empty">読み込み中...</td></tr></tbody>
+          </table></div>
+        </div>
+      </div>
+
+      <!-- GROSS -->
+      <div id="pg-gross" class="page" style="display:none">
+        <div class="kpi-grid">
+          <div class="kpi"><div class="kpi-lbl">総売上</div><div class="kpi-val" id="g-sales">-</div></div>
+          <div class="kpi"><div class="kpi-lbl">総原価</div><div class="kpi-val" id="g-cost">-</div></div>
+          <div class="kpi"><div class="kpi-lbl">GROSS</div><div class="kpi-val green" id="g-gross">-</div></div>
+          <div class="kpi"><div class="kpi-lbl">GROSS率</div><div class="kpi-val green" id="g-rate">-</div></div>
+        </div>
+        <div class="card">
+          <div class="card-title">GROSS明細 — ツアー別</div>
+          <div class="tbl-wrap"><table>
+            <thead><tr><th>REF#</th><th>Agent</th><th>Tour</th><th>売上</th><th>原価</th><th>GROSS</th><th>率</th><th>Status</th></tr></thead>
+            <tbody id="g-tbody"><tr><td colspan="8" class="empty">読み込み中...</td></tr></tbody>
+          </table></div>
+        </div>
+      </div>
+
+      <!-- Payment -->
+      <div id="pg-payment" class="page" style="display:none">
+        <div class="kpi-grid">
+          <div class="kpi"><div class="kpi-lbl">入金合計</div><div class="kpi-val green" id="p-in">-</div></div>
+          <div class="kpi"><div class="kpi-lbl">出金合計</div><div class="kpi-val red" id="p-out">-</div></div>
+          <div class="kpi"><div class="kpi-lbl">差引</div><div class="kpi-val" id="p-net">-</div></div>
+          <div class="kpi"><div class="kpi-lbl">件数</div><div class="kpi-val" id="p-count">-</div></div>
+        </div>
+        <div class="card">
+          <div class="card-title">入出金明細 — KIC Co., Ltd. Account# 2428493 (SMBCJPJT)</div>
+          <div class="tbl-wrap"><table>
+            <thead><tr><th>日付</th><th>種別</th><th>相手先</th><th>内容</th><th>入金</th><th>出金</th></tr></thead>
+            <tbody id="pay-tbody"><tr><td colspan="6" class="empty">読み込み中...</td></tr></tbody>
+          </table></div>
+        </div>
+      </div>
+
+      <!-- Accounts -->
+      <div id="pg-accounts" class="page" style="display:none">
+        <div class="card">
+          <div class="card-title">アカウント管理</div>
+          <div id="user-list"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">新規ユーザー追加</div>
+          <div class="form-grid">
+            <div class="form-field"><label>氏名</label><input id="new-uname" placeholder="山田 太郎"></div>
+            <div class="form-field"><label>Email (@kictravel.jp)</label><input id="new-email" placeholder="taro@kictravel.jp"></div>
+            <div class="form-field"><label>パスワード（8文字以上）</label><input type="password" id="new-pw" placeholder="••••••••"></div>
+            <div class="form-field"><label>権限</label>
+              <select id="new-role">
+                <option value="admin">管理者</option>
+                <option value="staff" selected>スタッフ</option>
+                <option value="view">閲覧のみ</option>
+              </select>
+            </div>
+          </div>
+          <div style="margin-top:10px">
+            <button class="btn btn-p" onclick="addUser()">追加</button>
+            <span class="msg-ok" id="add-user-msg">✓ ユーザーを追加しました</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Logs -->
+      <div id="pg-logs" class="page" style="display:none">
+        <div class="card">
+          <div class="card-title">アクセスログ <span style="font-size:10px;color:var(--text3);font-weight:400">直近50件</span></div>
+          <div class="tbl-wrap"><table>
+            <thead><tr><th>日時</th><th>ユーザー</th><th>操作</th><th>対象</th><th>デバイス</th><th>結果</th></tr></thead>
+            <tbody id="log-tbody"><tr><td colspan="6" class="empty">読み込み中...</td></tr></tbody>
+          </table></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+// ===== Supabase 接続設定 =====
+const SUPABASE_URL = 'https://nzdygjlnzvtdezslnuoy.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_Cnloaxzb2Ati8gmCa-1o3Q_t3uy6_mB';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let currentUser = null;
+
+// ===== ユーティリティ =====
+function yen(n){ return '¥' + Number(n||0).toLocaleString('ja-JP'); }
+function isMobile(){ return /Mobile|iPhone|Android/.test(navigator.userAgent); }
+function deviceLabel(){ return isMobile() ? (/iPhone/.test(navigator.userAgent)?'iPhone':'Android') : 'PC'; }
+
+async function logAction(action, target){
+  if(!currentUser) return;
+  try{
+    await sb.from('access_logs').insert({
+      user_email: currentUser.email,
+      action: action,
+      target: target || '—',
+      device: deviceLabel(),
+      ip_address: '—',
+      result: 'success'
+    });
+  }catch(e){ console.error(e); }
+}
+
+// ===== ログイン =====
+async function doLogin(){
+  const id = document.getElementById('login-id').value.trim();
+  const pw = document.getElementById('login-pw').value;
+  document.getElementById('login-err').style.display='none';
+
+  const {data, error} = await sb.from('app_users').select('*').eq('email', id).eq('password', pw).maybeSingle();
+
+  if(error || !data){
+    document.getElementById('login-err').style.display='block';
+    // 失敗ログ
+    try{
+      await sb.from('access_logs').insert({user_email:id||'unknown',action:'ログイン試行',target:'—',device:deviceLabel(),ip_address:'—',result:'failed'});
+    }catch(e){}
+    return;
+  }
+
+  currentUser = data;
+  document.getElementById('screen-login').style.display='none';
+  document.getElementById('screen-app').style.display='block';
+
+  const initials = (data.name||'U').slice(0,1) + (data.name||'').split(' ')[1]?.slice(0,1)||'';
+  document.getElementById('sb-avatar').textContent = (data.name||'U').slice(0,2).toUpperCase();
+  document.getElementById('sb-uname').textContent = data.name || data.email;
+  const roleLabel = {admin:'管理者',staff:'スタッフ',view:'閲覧のみ'}[data.role] || data.role;
+  document.getElementById('sb-urole').textContent = roleLabel;
+
+  document.querySelectorAll('.admin-only').forEach(el=>{
+    el.style.display = data.role==='admin' ? '' : 'none';
+  });
+
+  // 最終ログイン更新
+  await sb.from('app_users').update({last_login:new Date().toISOString()}).eq('id', data.id);
+  await logAction('ログイン','—');
+
+  go('dashboard');
+}
+document.getElementById('login-id').addEventListener('keydown', e=>{if(e.key==='Enter')doLogin()});
+document.getElementById('login-pw').addEventListener('keydown', e=>{if(e.key==='Enter')doLogin()});
+
+function doLogout(){
+  logAction('ログアウト','—');
+  currentUser=null;
+  document.getElementById('screen-app').style.display='none';
+  document.getElementById('screen-login').style.display='flex';
+  document.getElementById('login-pw').value='';
+}
+
+// ===== ナビゲーション =====
+const pageNames={
+  dashboard:'Dashboard','new-booking':'New Booking','booking-list':'Booking List',
+  gross:'GROSS / 粗利管理',payment:'入出金管理',accounts:'アカウント管理',logs:'アクセスログ'
+};
+function go(id){
+  if((id==='accounts'||id==='logs') && currentUser && currentUser.role!=='admin') return;
+  document.querySelectorAll('.page').forEach(el=>el.style.display='none');
+  document.getElementById('pg-'+id).style.display='';
+  document.querySelectorAll('.sb-item').forEach(n=>n.classList.remove('active'));
+  document.querySelectorAll('.sb-item[data-pg="'+id+'"]').forEach(n=>n.classList.add('active'));
+  document.getElementById('pg-title').textContent = pageNames[id]||id;
+  document.getElementById('sidebar').classList.remove('open');
+
+  if(id!=='dashboard') logAction('ページ遷移', pageNames[id]||id);
+
+  if(id==='dashboard') loadDashboard();
+  if(id==='booking-list') loadBookingList();
+  if(id==='gross') loadGross();
+  if(id==='payment') loadPayments();
+  if(id==='accounts') loadAccounts();
+  if(id==='logs') loadLogs();
+}
+
+// ===== Dashboard =====
+async function loadDashboard(){
+  const {data, error} = await sb.from('bookings').select('*').order('created_at',{ascending:false});
+  if(error){ console.error(error); return; }
+
+  const totalSales = data.reduce((s,b)=>s+Number(b.gross_sales||0),0);
+  const totalCost  = data.reduce((s,b)=>s+Number(b.gross_cost||0),0);
+  const gross = totalSales - totalCost;
+  const rate = totalSales ? (gross/totalSales*100).toFixed(1) : '0.0';
+
+  document.getElementById('kpi-sales').textContent = yen(totalSales);
+  document.getElementById('kpi-count').textContent = data.length;
+  document.getElementById('kpi-gross').textContent = yen(gross);
+  document.getElementById('kpi-rate').textContent = rate + '%';
+
+  const tbody = document.getElementById('dash-bookings');
+  if(data.length===0){ tbody.innerHTML='<tr><td colspan="8" class="empty">予約データがありません</td></tr>'; return; }
+  tbody.innerHTML = data.slice(0,8).map(b=>{
+    const g = Number(b.gross_sales||0)-Number(b.gross_cost||0);
+    return `<tr>
+      <td class="lnk">${b.ref_no}</td><td>${b.agent_name||''}</td><td>${b.tour_name||''}</td>
+      <td>${b.in_date||''}</td><td>${b.out_date||''}</td><td>${b.pax||0}</td>
+      <td class="green">${yen(g)}</td><td>${statusPill(b.status)}</td>
+    </tr>`;
+  }).join('');
+}
+
+function statusPill(status){
+  const map={open:['s-open','Open'],invoiced:['s-invoiced','Invoiced'],pending:['s-pending','Pending'],paid:['s-paid','Paid'],closed:['s-closed','Closed']};
+  const [cls,label] = map[status] || ['s-open',status];
+  return `<span class="pill ${cls}">${label}</span>`;
+}
+
+// ===== New Booking =====
+async function saveBooking(){
+  const ref = document.getElementById('nb-ref').value.trim();
+  if(!ref){ alert('REF#を入力してください'); return; }
+  const payload = {
+    ref_no: ref,
+    agent_name: document.getElementById('nb-agent').value.trim(),
+    tour_name: document.getElementById('nb-tour').value.trim(),
+    pax: Number(document.getElementById('nb-pax').value)||0,
+    in_date: document.getElementById('nb-in').value || null,
+    out_date: document.getElementById('nb-out').value || null,
+    gross_sales: Number(document.getElementById('nb-sales').value)||0,
+    gross_cost: Number(document.getElementById('nb-cost').value)||0,
+    status: document.getElementById('nb-status').value
+  };
+  const {error} = await sb.from('bookings').insert(payload);
+  if(error){ alert('保存に失敗しました: '+error.message); return; }
+
+  await logAction('予約入力', ref);
+  document.getElementById('nb-msg').style.display='inline';
+  setTimeout(()=>document.getElementById('nb-msg').style.display='none', 3000);
+
+  // フォームクリア
+  ['nb-ref','nb-agent','nb-tour','nb-pax','nb-in','nb-out','nb-sales','nb-cost'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('nb-status').value='open';
+}
+
+// ===== Booking List =====
+async function loadBookingList(){
+  const {data, error} = await sb.from('bookings').select('*').order('created_at',{ascending:false});
+  const tbody = document.getElementById('bl-tbody');
+  if(error || !data || data.length===0){ tbody.innerHTML='<tr><td colspan="11" class="empty">予約データがありません</td></tr>'; return; }
+  tbody.innerHTML = data.map(b=>{
+    const sales=Number(b.gross_sales||0), cost=Number(b.gross_cost||0), g=sales-cost;
+    const rate = sales ? (g/sales*100).toFixed(1) : '0.0';
+    return `<tr>
+      <td class="lnk">${b.ref_no}</td><td>${b.agent_name||''}</td><td>${b.tour_name||''}</td>
+      <td>${b.in_date||''}</td><td>${b.out_date||''}</td><td>${b.pax||0}</td>
+      <td>${yen(sales)}</td><td>${yen(cost)}</td>
+      <td class="green">${yen(g)}</td><td class="green">${rate}%</td>
+      <td>${statusPill(b.status)}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ===== GROSS =====
+async function loadGross(){
+  const {data, error} = await sb.from('bookings').select('*').order('created_at',{ascending:false});
+  if(error || !data){ return; }
+  const totalSales = data.reduce((s,b)=>s+Number(b.gross_sales||0),0);
+  const totalCost  = data.reduce((s,b)=>s+Number(b.gross_cost||0),0);
+  const gross = totalSales-totalCost;
+  const rate = totalSales ? (gross/totalSales*100).toFixed(1) : '0.0';
+  document.getElementById('g-sales').textContent=yen(totalSales);
+  document.getElementById('g-cost').textContent=yen(totalCost);
+  document.getElementById('g-gross').textContent=yen(gross);
+  document.getElementById('g-rate').textContent=rate+'%';
+
+  const tbody=document.getElementById('g-tbody');
+  if(data.length===0){ tbody.innerHTML='<tr><td colspan="8" class="empty">データがありません</td></tr>'; return; }
+  tbody.innerHTML=data.map(b=>{
+    const sales=Number(b.gross_sales||0), cost=Number(b.gross_cost||0), g=sales-cost;
+    const r = sales ? (g/sales*100).toFixed(1) : '0.0';
+    const cls = r>=25 ? 'green' : 'amber';
+    return `<tr>
+      <td class="lnk">${b.ref_no}</td><td>${b.agent_name||''}</td><td>${b.tour_name||''}</td>
+      <td>${yen(sales)}</td><td>${yen(cost)}</td>
+      <td class="${cls}">${yen(g)}</td><td class="${cls}">${r}%</td>
+      <td>${statusPill(b.status)}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ===== Payments =====
+async function loadPayments(){
+  const {data, error} = await sb.from('payments').select('*').order('payment_date',{ascending:false});
+  if(error || !data){ return; }
+  const totalIn = data.reduce((s,p)=>s+Number(p.amount_in||0),0);
+  const totalOut = data.reduce((s,p)=>s+Number(p.amount_out||0),0);
+  document.getElementById('p-in').textContent=yen(totalIn);
+  document.getElementById('p-out').textContent=yen(totalOut);
+  document.getElementById('p-net').textContent=yen(totalIn-totalOut);
+  document.getElementById('p-count').textContent=data.length;
+
+  const tbody=document.getElementById('pay-tbody');
+  if(data.length===0){ tbody.innerHTML='<tr><td colspan="6" class="empty">入出金データがありません</td></tr>'; return; }
+  tbody.innerHTML=data.map(p=>{
+    const typePill = p.payment_type==='入金' ? '<span class="pill s-paid">入金</span>' : '<span class="pill" style="background:var(--red-lt);color:var(--red)">出金</span>';
+    return `<tr>
+      <td>${p.payment_date||''}</td><td>${typePill}</td><td>${p.counterparty||''}</td><td>${p.description||''}</td>
+      <td class="green">${p.amount_in?yen(p.amount_in):'—'}</td>
+      <td class="red">${p.amount_out?yen(p.amount_out):'—'}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ===== Accounts =====
+async function loadAccounts(){
+  const {data, error} = await sb.from('app_users').select('*').order('created_at');
+  const list=document.getElementById('user-list');
+  if(error || !data){ list.innerHTML='<div class="empty">読み込みエラー</div>'; return; }
+  const roleMap={admin:['role-admin','管理者'],staff:['role-staff','スタッフ'],view:['role-view','閲覧のみ']};
+  list.innerHTML=data.map(u=>{
+    const [cls,label]=roleMap[u.role]||['role-view',u.role];
+    const last = u.last_login ? new Date(u.last_login).toLocaleString('ja-JP') : '—';
+    return `<div class="user-card">
+      <div class="u-avatar">${(u.name||'U').slice(0,2)}</div>
+      <div><div style="font-weight:600">${u.name||''}</div><div class="u-meta">${u.email}　|　最終ログイン: ${last}</div></div>
+      <div style="margin-left:auto"><span class="role-badge ${cls}">${label}</span></div>
+    </div>`;
+  }).join('');
+}
+
+async function addUser(){
+  const name=document.getElementById('new-uname').value.trim();
+  const email=document.getElementById('new-email').value.trim();
+  const pw=document.getElementById('new-pw').value;
+  const role=document.getElementById('new-role').value;
+  if(!name||!email||pw.length<8){ alert('氏名・Email・パスワード(8文字以上)を入力してください'); return; }
+
+  const {error} = await sb.from('app_users').insert({email,password:pw,name,role});
+  if(error){ alert('追加に失敗しました: '+error.message); return; }
+
+  await logAction('ユーザー追加', email);
+  document.getElementById('add-user-msg').style.display='inline';
+  ['new-uname','new-email','new-pw'].forEach(id=>document.getElementById(id).value='');
+  setTimeout(()=>document.getElementById('add-user-msg').style.display='none',3000);
+  loadAccounts();
+}
+
+// ===== Logs =====
+async function loadLogs(){
+  const {data, error} = await sb.from('access_logs').select('*').order('created_at',{ascending:false}).limit(50);
+  const tbody=document.getElementById('log-tbody');
+  if(error || !data || data.length===0){ tbody.innerHTML='<tr><td colspan="6" class="empty">ログがありません</td></tr>'; return; }
+  tbody.innerHTML=data.map(l=>{
+    const ts=new Date(l.created_at).toLocaleString('ja-JP');
+    const res=l.result==='success' ? '<span class="pill s-paid">成功</span>' : '<span class="pill" style="background:var(--red-lt);color:var(--red)">失敗</span>';
+    return `<tr><td style="white-space:nowrap;font-size:11px">${ts}</td><td>${l.user_email}</td><td>${l.action}</td><td>${l.target}</td><td>${l.device}</td><td>${res}</td></tr>`;
+  }).join('');
+}
+</script>
+</body>
+</html>
