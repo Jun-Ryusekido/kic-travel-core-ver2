@@ -118,6 +118,14 @@ th.sortable:hover{color:var(--blue)}
 .li-table .li-amt{white-space:nowrap;text-align:right;width:64px}
 .li-total{text-align:right;margin-top:4px;font-size:11px;font-weight:700}
 @media(max-width:600px){.detail-summary{grid-template-columns:1fr 1fr}.detail-cols{grid-template-columns:1fr}}
+
+/* 印刷時：Invoiceプレビューのみ表示 */
+@media print{
+  body *{visibility:hidden}
+  #inv-preview-card, #inv-preview-card *{visibility:visible}
+  #inv-preview-card{position:absolute;left:0;top:0;width:100%;border:none;box-shadow:none;padding:0}
+  #inv-preview-card .card-title, #inv-preview-card button{display:none}
+}
 </style>
 </head>
 <body>
