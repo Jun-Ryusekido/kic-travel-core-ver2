@@ -124,6 +124,8 @@ tr:hover td{background:var(--bg)}
     <div class="sb-item active" data-pg="dashboard" onclick="go('dashboard')">📊 ダッシュボード</div>
     <div class="sb-item" data-pg="new-booking" onclick="go('new-booking')">➕ New Booking</div>
     <div class="sb-item" data-pg="booking-list" onclick="go('booking-list')">📋 Booking List</div>
+    <div class="sb-sec">請求・精算</div>
+    <div class="sb-item" data-pg="invoice" onclick="go('invoice')">🧾 Invoice</div>
     <div class="sb-sec">分析</div>
     <div class="sb-item" data-pg="gross" onclick="go('gross')">📈 GROSS / 粗利</div>
     <div class="sb-item" data-pg="payment" onclick="go('payment')">💱 入出金管理</div>
@@ -173,7 +175,12 @@ tr:hover td{background:var(--bg)}
         <div class="card">
           <div class="card-title">New Booking — 予約入力</div>
           <div class="form-grid">
-            <div class="form-field"><label>REF#</label><input id="nb-ref" placeholder="#2406-003"></div>
+            <div class="form-field"><label>REF#</label>
+              <div style="display:flex;gap:6px">
+                <input id="nb-ref" placeholder="#2406-003" style="flex:1">
+                <button class="btn" type="button" onclick="autoGenRef()" style="white-space:nowrap">自動採番</button>
+              </div>
+            </div>
             <div class="form-field"><label>Agent / Group</label><input id="nb-agent" placeholder="e.g. Kesari Tours Pvt. Ltd."></div>
             <div class="form-field"><label>Tour Name</label><input id="nb-tour" placeholder="e.g. Kyoto Classic 5D"></div>
             <div class="form-field"><label>Pax</label><input id="nb-pax" type="number" placeholder="24"></div>
@@ -201,6 +208,28 @@ tr:hover td{background:var(--bg)}
       <!-- Booking List -->
       <div id="pg-booking-list" class="page" style="display:none">
         <div class="card">
+          <div class="card-title">検索・絞り込み</div>
+          <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr 1fr">
+            <div class="form-field"><label>検索（REF# / Agent / Tour）</label><input id="bl-search" placeholder="例: Kesari, #1374, Kyoto" oninput="filterBookingList()"></div>
+            <div class="form-field"><label>出発日(From)</label><input id="bl-from" type="date" onchange="filterBookingList()"></div>
+            <div class="form-field"><label>出発日(To)</label><input id="bl-to" type="date" onchange="filterBookingList()"></div>
+            <div class="form-field"><label>Status</label>
+              <select id="bl-status" onchange="filterBookingList()">
+                <option value="">すべて</option>
+                <option value="open">Open</option>
+                <option value="invoiced">Invoiced</option>
+                <option value="pending">Pending</option>
+                <option value="paid">Paid</option>
+                <option value="closed">Closed</option>
+              </select>
+            </div>
+          </div>
+          <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center">
+            <span style="font-size:11px;color:var(--text3)" id="bl-count"></span>
+            <button class="btn" onclick="resetBookingFilter()">条件クリア</button>
+          </div>
+        </div>
+        <div class="card">
           <div class="card-title">Booking List</div>
           <div class="tbl-wrap"><table>
             <thead><tr><th>REF#</th><th>Agent</th><th>Tour</th><th>In</th><th>Out</th><th>Pax</th><th>売上</th><th>原価</th><th>GROSS</th><th>率</th><th>Status</th></tr></thead>
@@ -209,8 +238,38 @@ tr:hover td{background:var(--bg)}
         </div>
       </div>
 
-      <!-- GROSS -->
-      <div id="pg-gross" class="page" style="display:none">
+
+      <!-- Invoice -->
+      <div id="pg-invoice" class="page" style="display:none">
+        <div class="card">
+          <div class="card-title">未発行の予約 <span style="font-size:10px;color:var(--text3);font-weight:400">Invoice未発行のBookingのみ表示</span></div>
+          <div class="tbl-wrap"><table>
+            <thead><tr><th>REF#</th><th>Agent</th><th>Tour</th><th>売上 (JPY)</th><th>Status</th><th></th></tr></thead>
+            <tbody id="inv-pending-tbody"><tr><td colspan="6" class="empty">読み込み中...</td></tr></tbody>
+          </table></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">発行済みInvoice一覧</div>
+          <div class="tbl-wrap"><table>
+            <thead><tr><th>Invoice No.</th><th>REF#</th><th>Agent</th><th>Tour</th><th>通貨</th><th>金額</th><th>発行日</th><th>期限</th><th>Status</th><th></th></tr></thead>
+            <tbody id="inv-list-tbody"><tr><td colspan="10" class="empty">読み込み中...</td></tr></tbody>
+          </table></div>
+        </div>
+
+        <!-- Invoice Preview -->
+        <div class="card" id="inv-preview-card" style="display:none">
+          <div class="card-title">Invoice プレビュー
+            <span>
+              <button class="btn" onclick="window.print()">🖨 印刷 / PDF保存</button>
+              <button class="btn" onclick="document.getElementById('inv-preview-card').style.display='none'">閉じる</button>
+            </span>
+          </div>
+          <div id="inv-preview-body"></div>
+        </div>
+      </div>
+
+
         <div class="kpi-grid">
           <div class="kpi"><div class="kpi-lbl">総売上</div><div class="kpi-val" id="g-sales">-</div></div>
           <div class="kpi"><div class="kpi-lbl">総原価</div><div class="kpi-val" id="g-cost">-</div></div>
@@ -364,7 +423,7 @@ function doLogout(){
 // ===== ナビゲーション =====
 const pageNames={
   dashboard:'Dashboard','new-booking':'New Booking','booking-list':'Booking List',
-  gross:'GROSS / 粗利管理',payment:'入出金管理',accounts:'アカウント管理',logs:'アクセスログ'
+  invoice:'Invoice',gross:'GROSS / 粗利管理',payment:'入出金管理',accounts:'アカウント管理',logs:'アクセスログ'
 };
 function go(id){
   if((id==='accounts'||id==='logs') && currentUser && currentUser.role!=='admin') return;
@@ -379,16 +438,29 @@ function go(id){
 
   if(id==='dashboard') loadDashboard();
   if(id==='booking-list') loadBookingList();
+  if(id==='invoice') loadInvoicePage();
   if(id==='gross') loadGross();
   if(id==='payment') loadPayments();
   if(id==='accounts') loadAccounts();
   if(id==='logs') loadLogs();
 }
 
+// ===== 全件取得（1000件制限を回避） =====
+async function fetchAllBookings(){
+  let all=[]; let from=0; const pageSize=1000;
+  while(true){
+    const {data, error} = await sb.from('bookings').select('*').order('created_at',{ascending:false}).range(from, from+pageSize-1);
+    if(error){ console.error(error); break; }
+    all = all.concat(data);
+    if(data.length < pageSize) break;
+    from += pageSize;
+  }
+  return all;
+}
+
 // ===== Dashboard =====
 async function loadDashboard(){
-  const {data, error} = await sb.from('bookings').select('*').order('created_at',{ascending:false});
-  if(error){ console.error(error); return; }
+  const data = await fetchAllBookings();
 
   const totalSales = data.reduce((s,b)=>s+Number(b.gross_sales||0),0);
   const totalCost  = data.reduce((s,b)=>s+Number(b.gross_cost||0),0);
@@ -404,10 +476,11 @@ async function loadDashboard(){
   if(data.length===0){ tbody.innerHTML='<tr><td colspan="8" class="empty">予約データがありません</td></tr>'; return; }
   tbody.innerHTML = data.slice(0,8).map(b=>{
     const g = Number(b.gross_sales||0)-Number(b.gross_cost||0);
+    const gcls = g<0?'red':'green';
     return `<tr>
       <td class="lnk">${b.ref_no}</td><td>${b.agent_name||''}</td><td>${b.tour_name||''}</td>
       <td>${b.in_date||''}</td><td>${b.out_date||''}</td><td>${b.pax||0}</td>
-      <td class="green">${yen(g)}</td><td>${statusPill(b.status)}</td>
+      <td class="${gcls}">${yen(g)}</td><td>${statusPill(b.status)}</td>
     </tr>`;
   }).join('');
 }
@@ -419,6 +492,22 @@ function statusPill(status){
 }
 
 // ===== New Booking =====
+async function autoGenRef(){
+  const btn = event.target;
+  btn.textContent='採番中...'; btn.disabled=true;
+  try{
+    const data = await fetchAllBookings();
+    let maxNum = 0;
+    data.forEach(b=>{
+      const m = (b.ref_no||'').match(/(\d+)/);
+      if(m){ const n=parseInt(m[1],10); if(n>maxNum) maxNum=n; }
+    });
+    document.getElementById('nb-ref').value = '#' + (maxNum+1);
+  }finally{
+    btn.textContent='自動採番'; btn.disabled=false;
+  }
+}
+
 async function saveBooking(){
   const ref = document.getElementById('nb-ref').value.trim();
   if(!ref){ alert('REF#を入力してください'); return; }
@@ -446,27 +535,87 @@ async function saveBooking(){
 }
 
 // ===== Booking List =====
+let allBookingsCache = [];
+const BL_PAGE_SIZE = 100;
+let blCurrentPage = 1;
+
 async function loadBookingList(){
-  const {data, error} = await sb.from('bookings').select('*').order('created_at',{ascending:false});
+  document.getElementById('bl-tbody').innerHTML='<tr><td colspan="11" class="empty">読み込み中...</td></tr>';
+  allBookingsCache = await fetchAllBookings();
+  blCurrentPage = 1;
+  filterBookingList();
+}
+
+function resetBookingFilter(){
+  document.getElementById('bl-search').value='';
+  document.getElementById('bl-from').value='';
+  document.getElementById('bl-to').value='';
+  document.getElementById('bl-status').value='';
+  blCurrentPage = 1;
+  filterBookingList();
+}
+
+function filterBookingList(){
+  const q = document.getElementById('bl-search').value.trim().toLowerCase();
+  const from = document.getElementById('bl-from').value;
+  const to = document.getElementById('bl-to').value;
+  const status = document.getElementById('bl-status').value;
+
+  let filtered = allBookingsCache.filter(b=>{
+    if(q){
+      const hay = `${b.ref_no||''} ${b.agent_name||''} ${b.tour_name||''}`.toLowerCase();
+      if(!hay.includes(q)) return false;
+    }
+    if(from && (!b.in_date || b.in_date < from)) return false;
+    if(to && (!b.in_date || b.in_date > to)) return false;
+    if(status && b.status !== status) return false;
+    return true;
+  });
+
+  document.getElementById('bl-count').textContent = `${filtered.length}件 / 全${allBookingsCache.length}件`;
+
   const tbody = document.getElementById('bl-tbody');
-  if(error || !data || data.length===0){ tbody.innerHTML='<tr><td colspan="11" class="empty">予約データがありません</td></tr>'; return; }
-  tbody.innerHTML = data.map(b=>{
+  if(filtered.length===0){ tbody.innerHTML='<tr><td colspan="11" class="empty">該当する予約がありません</td></tr>'; return; }
+
+  // ページネーション
+  const totalPages = Math.ceil(filtered.length / BL_PAGE_SIZE);
+  if(blCurrentPage > totalPages) blCurrentPage = totalPages;
+  if(blCurrentPage < 1) blCurrentPage = 1;
+  const start = (blCurrentPage-1)*BL_PAGE_SIZE;
+  const pageData = filtered.slice(start, start+BL_PAGE_SIZE);
+
+  tbody.innerHTML = pageData.map(b=>{
     const sales=Number(b.gross_sales||0), cost=Number(b.gross_cost||0), g=sales-cost;
     const rate = sales ? (g/sales*100).toFixed(1) : '0.0';
+    const gcls = g<0?'red':'green';
     return `<tr>
       <td class="lnk">${b.ref_no}</td><td>${b.agent_name||''}</td><td>${b.tour_name||''}</td>
       <td>${b.in_date||''}</td><td>${b.out_date||''}</td><td>${b.pax||0}</td>
       <td>${yen(sales)}</td><td>${yen(cost)}</td>
-      <td class="green">${yen(g)}</td><td class="green">${rate}%</td>
+      <td class="${gcls}">${yen(g)}</td><td class="${gcls}">${rate}%</td>
       <td>${statusPill(b.status)}</td>
     </tr>`;
   }).join('');
+
+  // ページネーションUI
+  if(totalPages > 1){
+    let pager = `<tr><td colspan="11" style="text-align:center;padding:10px">`;
+    pager += `<button class="btn" ${blCurrentPage<=1?'disabled':''} onclick="blGoPage(${blCurrentPage-1})">← 前へ</button> `;
+    pager += `<span style="margin:0 10px;font-size:11px;color:var(--text3)">ページ ${blCurrentPage} / ${totalPages}</span>`;
+    pager += `<button class="btn" ${blCurrentPage>=totalPages?'disabled':''} onclick="blGoPage(${blCurrentPage+1})">次へ →</button>`;
+    pager += `</td></tr>`;
+    tbody.innerHTML += pager;
+  }
+}
+
+function blGoPage(p){
+  blCurrentPage = p;
+  filterBookingList();
 }
 
 // ===== GROSS =====
 async function loadGross(){
-  const {data, error} = await sb.from('bookings').select('*').order('created_at',{ascending:false});
-  if(error || !data){ return; }
+  const data = await fetchAllBookings();
   const totalSales = data.reduce((s,b)=>s+Number(b.gross_sales||0),0);
   const totalCost  = data.reduce((s,b)=>s+Number(b.gross_cost||0),0);
   const gross = totalSales-totalCost;
@@ -477,11 +626,21 @@ async function loadGross(){
   document.getElementById('g-rate').textContent=rate+'%';
 
   const tbody=document.getElementById('g-tbody');
-  if(data.length===0){ tbody.innerHTML='<tr><td colspan="8" class="empty">データがありません</td></tr>'; return; }
-  tbody.innerHTML=data.map(b=>{
+  // 売上または原価が発生している予約のみ、粗利額の大きい順に上位50件
+  const withAmount = data.filter(b=>Number(b.gross_sales||0)!==0 || Number(b.gross_cost||0)!==0);
+  const sorted = withAmount.sort((a,b)=>{
+    const ga=Number(a.gross_sales||0)-Number(a.gross_cost||0);
+    const gb=Number(b.gross_sales||0)-Number(b.gross_cost||0);
+    return Math.abs(gb)-Math.abs(ga);
+  }).slice(0,50);
+
+  if(sorted.length===0){ tbody.innerHTML='<tr><td colspan="8" class="empty">データがありません</td></tr>'; return; }
+  document.querySelector('#pg-gross .card-title').innerHTML =
+    `GROSS明細 — 金額の大きい順 上位${sorted.length}件 <span class="lnk" style="font-size:11px;font-weight:400" onclick="go('booking-list')">Booking Listで全件検索 →</span>`;
+  tbody.innerHTML=sorted.map(b=>{
     const sales=Number(b.gross_sales||0), cost=Number(b.gross_cost||0), g=sales-cost;
     const r = sales ? (g/sales*100).toFixed(1) : '0.0';
-    const cls = r>=25 ? 'green' : 'amber';
+    const cls = g<0 ? 'red' : (r>=25 ? 'green' : 'amber');
     return `<tr>
       <td class="lnk">${b.ref_no}</td><td>${b.agent_name||''}</td><td>${b.tour_name||''}</td>
       <td>${yen(sales)}</td><td>${yen(cost)}</td>
@@ -559,6 +718,145 @@ async function loadLogs(){
     return `<tr><td style="white-space:nowrap;font-size:11px">${ts}</td><td>${l.user_email}</td><td>${l.action}</td><td>${l.target}</td><td>${l.device}</td><td>${res}</td></tr>`;
   }).join('');
 }
+
+// ===== Invoice =====
+const USD_RATE = 155; // JPY per USD（簡易レート、必要に応じて変更）
+
+async function loadInvoicePage(){
+  document.getElementById('inv-pending-tbody').innerHTML='<tr><td colspan="6" class="empty">読み込み中...</td></tr>';
+  document.getElementById('inv-list-tbody').innerHTML='<tr><td colspan="10" class="empty">読み込み中...</td></tr>';
+
+  const bookings = await fetchAllBookings();
+  const {data: invoices} = await sb.from('invoices').select('*').order('created_at',{ascending:false});
+
+  // 未発行（status != invoiced かつ 売上>0）— 直近20件
+  const pending = bookings.filter(b=>b.status!=='invoiced' && Number(b.gross_sales||0)>0).slice(0,20);
+  const ptbody = document.getElementById('inv-pending-tbody');
+  if(pending.length===0){
+    ptbody.innerHTML='<tr><td colspan="6" class="empty">未発行の予約はありません</td></tr>';
+  }else{
+    ptbody.innerHTML = pending.map(b=>`
+      <tr>
+        <td class="lnk">${b.ref_no}</td><td>${b.agent_name||''}</td><td>${b.tour_name||''}</td>
+        <td>${yen(b.gross_sales)}</td><td>${statusPill(b.status)}</td>
+        <td>
+          <button class="btn btn-p" style="font-size:11px" onclick="generateInvoice('${b.id}','JPY')">JPY発行</button>
+          <button class="btn" style="font-size:11px" onclick="generateInvoice('${b.id}','USD')">USD発行</button>
+        </td>
+      </tr>`).join('');
+  }
+
+  // 発行済み一覧
+  const ltbody = document.getElementById('inv-list-tbody');
+  if(!invoices || invoices.length===0){
+    ltbody.innerHTML='<tr><td colspan="10" class="empty">発行済みのInvoiceはありません</td></tr>';
+    return;
+  }
+  const bookingMap = {};
+  bookings.forEach(b=>bookingMap[b.id]=b);
+
+  ltbody.innerHTML = invoices.map(inv=>{
+    const b = bookingMap[inv.booking_id] || {};
+    return `<tr>
+      <td class="lnk" onclick='showInvoicePreview(${JSON.stringify(inv).replace(/'/g,"&apos;")}, ${JSON.stringify(b).replace(/'/g,"&apos;")})'>${inv.invoice_no}</td>
+      <td>${b.ref_no||''}</td><td>${b.agent_name||''}</td><td>${b.tour_name||''}</td>
+      <td>${inv.currency}</td>
+      <td>${inv.currency==='USD' ? '$'+Number(inv.amount).toLocaleString() : yen(inv.amount)}</td>
+      <td>${inv.issue_date||''}</td><td>${inv.due_date||''}</td>
+      <td>${invoiceStatusPill(inv.status)}</td>
+      <td><button class="btn" style="font-size:11px" onclick='showInvoicePreview(${JSON.stringify(inv).replace(/'/g,"&apos;")}, ${JSON.stringify(b).replace(/'/g,"&apos;")})'>表示</button></td>
+    </tr>`;
+  }).join('');
+}
+
+function invoiceStatusPill(status){
+  const map={pending:['s-pending','Pending'],paid:['s-paid','Paid'],overdue:['s-over','Overdue']};
+  const [cls,label]=map[status]||['s-pending',status];
+  const bg = cls==='s-over' ? 'background:var(--red-lt);color:var(--red)' : '';
+  return `<span class="pill ${cls}" style="${bg}">${label}</span>`;
+}
+
+async function generateInvoice(bookingId, currency){
+  const bookings = await fetchAllBookings();
+  const booking = bookings.find(b=>b.id===bookingId);
+  if(!booking){ alert('予約データが見つかりません'); return; }
+
+  const today = new Date();
+  const issue = today.toISOString().slice(0,10);
+  const due = new Date(today.getTime()+30*86400000).toISOString().slice(0,10);
+  const ymd = issue.replace(/-/g,'').slice(2); // YYMMDD
+  const seq = Math.floor(Math.random()*900+100); // 簡易連番(下3桁ランダム)
+  const invoiceNo = `INV-${ymd}-${seq}`;
+
+  let amount = Number(booking.gross_sales||0);
+  if(currency==='USD') amount = Math.round((amount/USD_RATE)*100)/100;
+
+  const {data, error} = await sb.from('invoices').insert({
+    invoice_no: invoiceNo,
+    booking_id: bookingId,
+    currency: currency,
+    amount: amount,
+    issue_date: issue,
+    due_date: due,
+    status: 'pending'
+  }).select().single();
+
+  if(error){ alert('Invoice発行に失敗しました: '+error.message); return; }
+
+  // 予約ステータスを invoiced に更新
+  await sb.from('bookings').update({status:'invoiced'}).eq('id', bookingId);
+  await logAction('Invoice発行', invoiceNo + ' (' + booking.ref_no + ')');
+
+  await loadInvoicePage();
+  showInvoicePreview(data, booking);
+}
+
+function showInvoicePreview(inv, booking){
+  const isUSD = inv.currency==='USD';
+  const amount = Number(inv.amount);
+  const amountStr = isUSD ? '$'+amount.toLocaleString(undefined,{minimumFractionDigits:2}) : yen(amount);
+  const issueDate = inv.issue_date ? new Date(inv.issue_date).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'}) : '';
+
+  const html = `
+    <div style="background:#fff;border:1px solid #ddd;border-radius:10px;padding:24px;max-width:600px;font-size:12px;color:#222">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:1px solid #ddd;padding-bottom:12px;margin-bottom:14px">
+        <div>
+          <div style="font-size:15px;font-weight:700;color:var(--blue)">KIC Co., Ltd.</div>
+          <div style="font-size:11px;color:#666;margin-top:2px">Nishikasai, Edogawa-ku, Tokyo</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:20px;font-weight:600;color:var(--blue)">${isUSD?'USD ':''}INVOICE</div>
+          <div style="font-size:11px;color:#666;margin-top:2px">NO: ${inv.invoice_no}<br>Date: ${issueDate}</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;font-size:11px">
+        <div><div style="font-weight:600;margin-bottom:2px">BILL TO:</div><div>${booking.agent_name||''}</div><div style="color:#666">Ref: ${booking.ref_no} / ${booking.tour_name||''}</div></div>
+        <div><div style="font-weight:600;margin-bottom:2px">TOUR DETAILS:</div><div>In: ${booking.in_date||'-'} / Out: ${booking.out_date||'-'}</div><div style="color:#666">No. of pax: ${booking.pax||0}</div></div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:12px">
+        <thead><tr><th style="background:#f5f7fa;padding:6px 8px;text-align:left;border:1px solid #ddd">Description</th><th style="background:#f5f7fa;padding:6px 8px;text-align:right;border:1px solid #ddd">Amount</th></tr></thead>
+        <tbody>
+          <tr><td style="padding:6px 8px;border:1px solid #ddd">${booking.tour_name||'Tour Fee'}</td><td style="padding:6px 8px;border:1px solid #ddd;text-align:right">${amountStr}</td></tr>
+          <tr style="font-weight:700;background:#EEF3FA"><td style="padding:6px 8px;border:1px solid #ddd;text-align:right">TOTAL</td><td style="padding:6px 8px;border:1px solid #ddd;text-align:right;color:var(--blue)">${amountStr}</td></tr>
+        </tbody>
+      </table>
+      <div style="background:#EAF3DE;border-left:3px solid var(--green);border-radius:0 4px 4px 0;padding:8px 10px;font-size:11px;line-height:1.7">
+        <strong>Remittance may be made to the following account:</strong><br>
+        SUMITOMO MITSUI BANKING CORPORATION, Shimbashi Branch<br>
+        Account# 2428493 &nbsp;(Swift Code: SMBCJPJT)<br>
+        Account Name: <strong>KIC Co., Ltd.</strong>
+      </div>
+      <div style="margin-top:12px;font-size:10px;color:#666;border-top:1px solid #ddd;padding-top:8px;line-height:1.6">
+        Any discrepancy in this statement, please inform us in writing within 10 days.<br>
+        Bank transfer fee should be paid by sender.<br>
+        Due date: ${inv.due_date||''}
+      </div>
+    </div>`;
+  document.getElementById('inv-preview-body').innerHTML = html;
+  document.getElementById('inv-preview-card').style.display='';
+  document.getElementById('inv-preview-card').scrollIntoView({behavior:'smooth'});
+}
+
 </script>
 </body>
 </html>
