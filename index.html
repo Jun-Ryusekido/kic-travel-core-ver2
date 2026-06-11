@@ -426,7 +426,7 @@ tr:hover td{background:var(--bg)}
       <div>
         <h4 class="green">売上明細</h4>
         <div class="tbl-wrap"><table class="li-table">
-          <thead><tr><th>項目</th><th style="width:60px">単価</th><th style="width:42px">数量</th><th class="li-amt">金額</th><th style="width:108px">入金日</th><th class="li-del"></th></tr></thead>
+          <thead><tr><th>項目</th><th style="width:74px">単価</th><th style="width:42px">数量</th><th class="li-amt">金額</th><th style="width:108px">入金日</th><th class="li-del"></th></tr></thead>
           <tbody id="bd-sales-tbody"></tbody>
         </table></div>
         <button class="btn" style="font-size:10px;margin-top:4px" onclick="addSalesRow()">＋ 行追加</button>
@@ -435,7 +435,7 @@ tr:hover td{background:var(--bg)}
       <div>
         <h4 class="red">仕入明細</h4>
         <div class="tbl-wrap"><table class="li-table">
-          <thead><tr><th>仕入先</th><th style="width:80px">仕入額</th><th style="width:108px">出金日</th><th>備考</th><th class="li-del"></th></tr></thead>
+          <thead><tr><th>仕入先</th><th style="width:90px">仕入額</th><th style="width:108px">出金日</th><th>備考</th><th class="li-del"></th></tr></thead>
           <tbody id="bd-cost-tbody"></tbody>
         </table></div>
         <button class="btn" style="font-size:10px;margin-top:4px" onclick="addCostRow()">＋ 行追加</button>
@@ -702,8 +702,8 @@ function renderSalesTable(){
   }else{
     tbody.innerHTML = bdSalesItems.map((it,i)=>`
       <tr>
-        <td><input value="${(it.item_name||'').replace(/"/g,'&quot;')}" onchange="bdSalesItems[${i}].item_name=this.value"></td>
-        <td><input type="number" value="${it.unit_price||0}" onchange="bdSalesRowCalc(${i},this,'unit_price')"></td>
+        <td><input value="${(it.item_name||'').replace(/"/g,'&quot;')}" title="${(it.item_name||'').replace(/"/g,'&quot;')}" onchange="bdSalesItems[${i}].item_name=this.value"></td>
+        <td><input type="text" inputmode="numeric" value="${Number(it.unit_price||0).toLocaleString('ja-JP')}" onchange="bdSalesRowCalc(${i},this,'unit_price')"></td>
         <td><input type="number" value="${it.qty||1}" onchange="bdSalesRowCalc(${i},this,'qty')"></td>
         <td id="bd-sales-amt-${i}" class="li-amt">${yen(it.amount||0)}</td>
         <td><input type="date" value="${it.payment_date||''}" onchange="bdSalesItems[${i}].payment_date=this.value"></td>
@@ -720,26 +720,39 @@ function renderCostTable(){
   }else{
     tbody.innerHTML = bdCostItems.map((it,i)=>`
       <tr>
-        <td><input value="${(it.item_name||'').replace(/"/g,'&quot;')}" onchange="bdCostItems[${i}].item_name=this.value"></td>
-        <td><input type="number" value="${it.amount||0}" onchange="bdCostRowCalc(${i},this)"></td>
+        <td><input value="${(it.item_name||'').replace(/"/g,'&quot;')}" title="${(it.item_name||'').replace(/"/g,'&quot;')}" onchange="bdCostItems[${i}].item_name=this.value"></td>
+        <td><input type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="bdCostRowCalc(${i},this)"></td>
         <td><input type="date" value="${it.payment_date||''}" onchange="bdCostItems[${i}].payment_date=this.value"></td>
-        <td><input value="${(it.memo||'').replace(/"/g,'&quot;')}" onchange="bdCostItems[${i}].memo=this.value"></td>
+        <td><input value="${(it.memo||'').replace(/"/g,'&quot;')}" title="${(it.memo||'').replace(/"/g,'&quot;')}" onchange="bdCostItems[${i}].memo=this.value"></td>
         <td class="li-del"><span class="lnk" style="font-size:10px" onclick="removeCostRow(${i})">削除</span></td>
       </tr>`).join('');
   }
   updateDetailGrossPreview();
 }
 
+// カンマ・記号を除去して数値化
+function parseNum(str){
+  const n = Number(String(str).replace(/[^0-9.\-]/g,''));
+  return isNaN(n) ? 0 : n;
+}
+
 function bdSalesRowCalc(i, el, field){
-  if(field==='qty') bdSalesItems[i].qty = Number(el.value)||0;
-  else bdSalesItems[i].unit_price = Number(el.value)||0;
+  if(field==='qty'){
+    bdSalesItems[i].qty = Number(el.value)||0;
+  }else{
+    const v = parseNum(el.value);
+    bdSalesItems[i].unit_price = v;
+    el.value = v.toLocaleString('ja-JP');
+  }
   bdSalesItems[i].amount = (Number(bdSalesItems[i].unit_price)||0) * (Number(bdSalesItems[i].qty)||1);
   document.getElementById('bd-sales-amt-'+i).textContent = yen(bdSalesItems[i].amount);
   updateDetailGrossPreview();
 }
 
 function bdCostRowCalc(i, el){
-  bdCostItems[i].amount = Number(el.value)||0;
+  const v = parseNum(el.value);
+  bdCostItems[i].amount = v;
+  el.value = v.toLocaleString('ja-JP');
   updateDetailGrossPreview();
 }
 
