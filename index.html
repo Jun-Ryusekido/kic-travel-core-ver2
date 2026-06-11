@@ -104,7 +104,15 @@ tr:hover td{background:var(--bg)}
 .detail-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:4px}
 .detail-summary .kpi{padding:8px 10px}
 .detail-summary .kpi-val{font-size:15px}
-@media(max-width:600px){.detail-summary{grid-template-columns:1fr 1fr}}
+.detail-cols{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.detail-cols h4{font-size:11px;font-weight:700;margin-bottom:4px}
+.li-table{font-size:10px}
+.li-table th{padding:3px 4px;font-size:9px}
+.li-table td{padding:2px 3px}
+.li-table input{width:100%;border:1px solid var(--border);border-radius:5px;padding:3px 4px;font-size:10px;background:#fff;color:var(--text)}
+.li-table input:focus{outline:none;border-color:var(--blue)}
+.li-total{text-align:right;margin-top:4px;font-size:11px;font-weight:700}
+@media(max-width:600px){.detail-summary{grid-template-columns:1fr 1fr}.detail-cols{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -411,10 +419,26 @@ tr:hover td{background:var(--bg)}
       <div class="form-field"><label>Out-Date</label><input id="bd-out" type="date"></div>
     </div>
 
-    <div class="modal-section-title">金額</div>
-    <div class="form-grid">
-      <div class="form-field"><label>売上 (Sales, JPY)</label><input id="bd-sales" type="number" oninput="updateDetailGrossPreview()"></div>
-      <div class="form-field"><label>仕入 / 原価 (Cost, JPY)</label><input id="bd-cost" type="number" oninput="updateDetailGrossPreview()"></div>
+    <div class="modal-section-title">売上明細 / 仕入明細</div>
+    <div class="detail-cols">
+      <div>
+        <h4 class="green">売上明細</h4>
+        <div class="tbl-wrap"><table class="li-table">
+          <thead><tr><th>項目</th><th>単価</th><th>数量</th><th>金額</th><th>入金日</th><th></th></tr></thead>
+          <tbody id="bd-sales-tbody"></tbody>
+        </table></div>
+        <button class="btn" style="font-size:10px;margin-top:4px" onclick="addSalesRow()">＋ 行追加</button>
+        <div class="li-total">売上合計: <span id="bd-sales-total">¥0</span></div>
+      </div>
+      <div>
+        <h4 class="red">仕入明細</h4>
+        <div class="tbl-wrap"><table class="li-table">
+          <thead><tr><th>仕入先</th><th>仕入額</th><th>出金日</th><th>備考</th><th></th></tr></thead>
+          <tbody id="bd-cost-tbody"></tbody>
+        </table></div>
+        <button class="btn" style="font-size:10px;margin-top:4px" onclick="addCostRow()">＋ 行追加</button>
+        <div class="li-total">仕入合計: <span id="bd-cost-total">¥0</span></div>
+      </div>
     </div>
 
     <div class="modal-section-title">関連Invoice</div>
@@ -634,17 +658,25 @@ function statusPill(status){
 
 // ===== 予約台帳モーダル =====
 let currentDetailId = null;
+let bdSalesItems = [];
+let bdCostItems = [];
 
 function findBookingById(id){
   return allBookingsCache.find(b=>b.id===id);
 }
 
+function bdSalesTotal(){ return bdSalesItems.reduce((s,it)=>s+Number(it.amount||0),0); }
+function bdCostTotal(){ return bdCostItems.reduce((s,it)=>s+Number(it.amount||0),0); }
+
 function updateDetailGrossPreview(){
-  const sales = Number(document.getElementById('bd-sales').value)||0;
-  const cost = Number(document.getElementById('bd-cost').value)||0;
+  const sales = bdSalesTotal();
+  const cost = bdCostTotal();
   const gross = sales-cost;
   const rate = sales ? (gross/sales*100).toFixed(1) : '0.0';
   const cls = gross<0?'red':'green';
+
+  document.getElementById('bd-sales-total').textContent = yen(sales);
+  document.getElementById('bd-cost-total').textContent = yen(cost);
 
   const gEl = document.getElementById('bd-sum-gross');
   const rEl = document.getElementById('bd-sum-rate');
@@ -653,6 +685,65 @@ function updateDetailGrossPreview(){
   document.getElementById('bd-sum-sales').textContent = yen(sales);
   document.getElementById('bd-sum-cost').textContent = yen(cost);
 }
+
+function renderSalesTable(){
+  const tbody = document.getElementById('bd-sales-tbody');
+  if(bdSalesItems.length===0){
+    tbody.innerHTML = '<tr><td colspan="6" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
+  }else{
+    tbody.innerHTML = bdSalesItems.map((it,i)=>`
+      <tr>
+        <td><input value="${(it.item_name||'').replace(/"/g,'&quot;')}" onchange="bdSalesItems[${i}].item_name=this.value"></td>
+        <td><input type="number" value="${it.unit_price||0}" style="width:64px" onchange="bdSalesRowCalc(${i},this,'unit_price')"></td>
+        <td><input type="number" value="${it.qty||1}" style="width:46px" onchange="bdSalesRowCalc(${i},this,'qty')"></td>
+        <td id="bd-sales-amt-${i}" style="text-align:right;white-space:nowrap">${yen(it.amount||0)}</td>
+        <td><input type="date" value="${it.payment_date||''}" onchange="bdSalesItems[${i}].payment_date=this.value"></td>
+        <td><span class="lnk" style="font-size:10px" onclick="removeSalesRow(${i})">削除</span></td>
+      </tr>`).join('');
+  }
+  updateDetailGrossPreview();
+}
+
+function renderCostTable(){
+  const tbody = document.getElementById('bd-cost-tbody');
+  if(bdCostItems.length===0){
+    tbody.innerHTML = '<tr><td colspan="5" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
+  }else{
+    tbody.innerHTML = bdCostItems.map((it,i)=>`
+      <tr>
+        <td><input value="${(it.item_name||'').replace(/"/g,'&quot;')}" onchange="bdCostItems[${i}].item_name=this.value"></td>
+        <td><input type="number" value="${it.amount||0}" style="width:80px" onchange="bdCostRowCalc(${i},this)"></td>
+        <td><input type="date" value="${it.payment_date||''}" onchange="bdCostItems[${i}].payment_date=this.value"></td>
+        <td><input value="${(it.memo||'').replace(/"/g,'&quot;')}" onchange="bdCostItems[${i}].memo=this.value"></td>
+        <td><span class="lnk" style="font-size:10px" onclick="removeCostRow(${i})">削除</span></td>
+      </tr>`).join('');
+  }
+  updateDetailGrossPreview();
+}
+
+function bdSalesRowCalc(i, el, field){
+  if(field==='qty') bdSalesItems[i].qty = Number(el.value)||0;
+  else bdSalesItems[i].unit_price = Number(el.value)||0;
+  bdSalesItems[i].amount = (Number(bdSalesItems[i].unit_price)||0) * (Number(bdSalesItems[i].qty)||1);
+  document.getElementById('bd-sales-amt-'+i).textContent = yen(bdSalesItems[i].amount);
+  updateDetailGrossPreview();
+}
+
+function bdCostRowCalc(i, el){
+  bdCostItems[i].amount = Number(el.value)||0;
+  updateDetailGrossPreview();
+}
+
+function addSalesRow(){
+  bdSalesItems.push({item_name:'', unit_price:0, qty:1, amount:0, payment_date:null});
+  renderSalesTable();
+}
+function addCostRow(){
+  bdCostItems.push({item_name:'', amount:0, payment_date:null, memo:''});
+  renderCostTable();
+}
+function removeSalesRow(i){ bdSalesItems.splice(i,1); renderSalesTable(); }
+function removeCostRow(i){ bdCostItems.splice(i,1); renderCostTable(); }
 
 async function openBookingDetail(id){
   const b = findBookingById(id);
@@ -667,11 +758,31 @@ async function openBookingDetail(id){
   document.getElementById('bd-status').value = b.status||'open';
   document.getElementById('bd-in').value = b.in_date||'';
   document.getElementById('bd-out').value = b.out_date||'';
-  document.getElementById('bd-sales').value = b.gross_sales||0;
-  document.getElementById('bd-cost').value = b.gross_cost||0;
   document.getElementById('bd-updated').textContent = b.updated_at ? ('最終更新: '+new Date(b.updated_at).toLocaleString('ja-JP')) : '';
   document.getElementById('bd-msg').style.display='none';
-  updateDetailGrossPreview();
+
+  // 売上明細・仕入明細を読み込み
+  document.getElementById('bd-sales-tbody').innerHTML = '<tr><td colspan="6" class="empty" style="padding:6px;font-size:10px">読み込み中...</td></tr>';
+  document.getElementById('bd-cost-tbody').innerHTML = '<tr><td colspan="5" class="empty" style="padding:6px;font-size:10px">読み込み中...</td></tr>';
+
+  const [{data: salesRows}, {data: costRows}] = await Promise.all([
+    sb.from('booking_sales').select('*').eq('booking_id', id).order('created_at'),
+    sb.from('booking_costs').select('*').eq('booking_id', id).order('created_at')
+  ]);
+
+  bdSalesItems = (salesRows||[]).map(r=>({item_name:r.item_name, unit_price:r.unit_price, qty:r.qty, amount:r.amount, payment_date:r.payment_date}));
+  bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, memo:r.memo}));
+
+  // 明細が無く、過去の合計値がある場合は1行として復元
+  if(bdSalesItems.length===0 && Number(b.gross_sales||0)!==0){
+    bdSalesItems.push({item_name:'(インポート時の合計)', unit_price:Number(b.gross_sales), qty:1, amount:Number(b.gross_sales), payment_date:null});
+  }
+  if(bdCostItems.length===0 && Number(b.gross_cost||0)!==0){
+    bdCostItems.push({item_name:'(インポート時の合計)', amount:Number(b.gross_cost), payment_date:null, memo:''});
+  }
+
+  renderSalesTable();
+  renderCostTable();
 
   // 関連Invoiceを読み込み
   const invTbody = document.getElementById('bd-invoices');
@@ -699,6 +810,9 @@ function closeBookingDetail(){
 
 async function saveBookingDetail(){
   if(!currentDetailId) return;
+  const totalSales = bdSalesTotal();
+  const totalCost = bdCostTotal();
+
   const payload = {
     agent_name: document.getElementById('bd-agent').value.trim(),
     tour_name: document.getElementById('bd-tour').value.trim(),
@@ -706,12 +820,27 @@ async function saveBookingDetail(){
     status: document.getElementById('bd-status').value,
     in_date: document.getElementById('bd-in').value || null,
     out_date: document.getElementById('bd-out').value || null,
-    gross_sales: Number(document.getElementById('bd-sales').value)||0,
-    gross_cost: Number(document.getElementById('bd-cost').value)||0,
+    gross_sales: totalSales,
+    gross_cost: totalCost,
     updated_at: new Date().toISOString()
   };
   const {error} = await sb.from('bookings').update(payload).eq('id', currentDetailId);
   if(error){ alert('保存に失敗しました: '+error.message); return; }
+
+  // 明細の同期（既存削除→再挿入）
+  await sb.from('booking_sales').delete().eq('booking_id', currentDetailId);
+  await sb.from('booking_costs').delete().eq('booking_id', currentDetailId);
+
+  const salesToInsert = bdSalesItems.filter(it=>it.item_name||Number(it.amount)).map(it=>({
+    booking_id: currentDetailId, item_name: it.item_name||'', unit_price: Number(it.unit_price)||0,
+    qty: Number(it.qty)||1, amount: Number(it.amount)||0, payment_date: it.payment_date||null
+  }));
+  const costToInsert = bdCostItems.filter(it=>it.item_name||Number(it.amount)).map(it=>({
+    booking_id: currentDetailId, item_name: it.item_name||'', amount: Number(it.amount)||0,
+    payment_date: it.payment_date||null, memo: it.memo||''
+  }));
+  if(salesToInsert.length) await sb.from('booking_sales').insert(salesToInsert);
+  if(costToInsert.length) await sb.from('booking_costs').insert(costToInsert);
 
   const b = findBookingById(currentDetailId);
   await logAction('予約編集', b ? b.ref_no : currentDetailId);
