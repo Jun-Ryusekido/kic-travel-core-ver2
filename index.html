@@ -303,17 +303,63 @@ th.sortable:hover{color:var(--blue)}
       <!-- Invoice -->
       <div id="pg-invoice" class="page" style="display:none">
         <div class="card">
+          <div class="card-title">検索・絞り込み(未発行の予約)</div>
+          <div class="form-grid" style="grid-template-columns:2fr 1fr">
+            <div class="form-field"><label>検索（REF# / Agent / Tour）</label><input id="ip-search" placeholder="例: Kesari, #1374, Kyoto" oninput="filterInvoicePending()"></div>
+            <div class="form-field"><label>Status</label>
+              <select id="ip-status" onchange="filterInvoicePending()">
+                <option value="">すべて</option>
+                <option value="open">Open</option>
+                <option value="pending">Pending</option>
+                <option value="paid">Paid</option>
+                <option value="closed">Closed</option>
+              </select>
+            </div>
+          </div>
+          <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center">
+            <span style="font-size:11px;color:var(--text3)" id="ip-count"></span>
+            <button class="btn" onclick="resetInvoicePendingFilter()">条件クリア</button>
+          </div>
+        </div>
+
+        <div class="card">
           <div class="card-title">未発行の予約 <span style="font-size:10px;color:var(--text3);font-weight:400">Invoice未発行のBookingのみ表示</span></div>
           <div class="tbl-wrap"><table>
-            <thead><tr><th>REF#</th><th>Agent</th><th>Tour</th><th>売上 (JPY)</th><th>Status</th><th></th></tr></thead>
+            <thead id="ip-thead"></thead>
             <tbody id="inv-pending-tbody"><tr><td colspan="6" class="empty">読み込み中...</td></tr></tbody>
           </table></div>
         </div>
 
         <div class="card">
+          <div class="card-title">検索・絞り込み(発行済みInvoice)</div>
+          <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr">
+            <div class="form-field"><label>検索（Invoice No / REF# / Agent / Tour）</label><input id="il-search" placeholder="例: INV-260611, #1374, Kesari" oninput="filterInvoiceList()"></div>
+            <div class="form-field"><label>通貨</label>
+              <select id="il-currency" onchange="filterInvoiceList()">
+                <option value="">すべて</option>
+                <option value="JPY">JPY</option>
+                <option value="USD">USD</option>
+              </select>
+            </div>
+            <div class="form-field"><label>Status</label>
+              <select id="il-status" onchange="filterInvoiceList()">
+                <option value="">すべて</option>
+                <option value="pending">Pending</option>
+                <option value="paid">Paid</option>
+                <option value="overdue">Overdue</option>
+              </select>
+            </div>
+          </div>
+          <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center">
+            <span style="font-size:11px;color:var(--text3)" id="il-count"></span>
+            <button class="btn" onclick="resetInvoiceListFilter()">条件クリア</button>
+          </div>
+        </div>
+
+        <div class="card">
           <div class="card-title">発行済みInvoice一覧</div>
           <div class="tbl-wrap"><table>
-            <thead><tr><th>Invoice No.</th><th>REF#</th><th>Agent</th><th>Tour</th><th>通貨</th><th>金額</th><th>発行日</th><th>期限</th><th>Status</th><th></th></tr></thead>
+            <thead id="il-thead"></thead>
             <tbody id="inv-list-tbody"><tr><td colspan="10" class="empty">読み込み中...</td></tr></tbody>
           </table></div>
         </div>
@@ -1259,6 +1305,159 @@ async function loadLogs(){
 // ===== Invoice =====
 const USD_RATE = 155; // JPY per USD（簡易レート、必要に応じて変更）
 
+let pendingCache = [];
+let invoiceListCache = [];
+const ipState = {sortField:null, sortDir:1, page:1};
+const ilState = {sortField:null, sortDir:1, page:1};
+const IP_PAGE_SIZE = 50;
+const IL_PAGE_SIZE = 50;
+
+const IP_COLUMNS = [['ref_no','REF#'],['agent_name','Agent'],['tour_name','Tour'],['gross_sales','売上 (JPY)'],['status','Status'],['','',false]];
+const IL_COLUMNS = [['invoice_no','Invoice No.'],['ref_no','REF#'],['agent_name','Agent'],['tour_name','Tour'],['currency','通貨'],['amount','金額'],['issue_date','発行日'],['due_date','期限'],['status','Status'],['','',false]];
+
+function renderSortHeader(theadId, columns, state, sortFn){
+  document.getElementById(theadId).innerHTML = '<tr>' + columns.map(([field,label,sortable])=>{
+    if(sortable===false || !field) return `<th>${label}</th>`;
+    let arrow='';
+    if(state.sortField===field) arrow = ' <span class="sort-arrow">'+(state.sortDir===1?'▲':'▼')+'</span>';
+    return `<th class="sortable" onclick="${sortFn}('${field}')">${label}${arrow}</th>`;
+  }).join('') + '</tr>';
+}
+
+function genericSort(list, state){
+  if(!state.sortField) return list;
+  const f = state.sortField, dir = state.sortDir;
+  return list.slice().sort((a,b)=>{
+    let av=a[f], bv=b[f];
+    if(av==null && bv==null) return 0;
+    if(av==null) return 1;
+    if(bv==null) return -1;
+    if(typeof av==='string') return dir*av.localeCompare(bv,'ja');
+    return dir*(av-bv);
+  });
+}
+
+function pagerRow(state, totalPages, colspan, goFn){
+  if(totalPages<=1) return '';
+  const p = state.page;
+  return `<tr><td colspan="${colspan}" style="text-align:center;padding:10px">
+    <button class="btn" ${p<=1?'disabled':''} onclick="${goFn}(${p-1})">← 前へ</button>
+    <span style="margin:0 10px;font-size:11px;color:var(--text3)">ページ ${p} / ${totalPages}</span>
+    <button class="btn" ${p>=totalPages?'disabled':''} onclick="${goFn}(${p+1})">次へ →</button>
+  </td></tr>`;
+}
+
+function sortInvoicePending(field){
+  if(ipState.sortField===field) ipState.sortDir = -ipState.sortDir;
+  else { ipState.sortField=field; ipState.sortDir=1; }
+  ipState.page = 1;
+  filterInvoicePending();
+}
+function ipGoPage(p){ ipState.page=p; filterInvoicePending(); }
+
+function resetInvoicePendingFilter(){
+  document.getElementById('ip-search').value='';
+  document.getElementById('ip-status').value='';
+  ipState.page=1;
+  filterInvoicePending();
+}
+
+function filterInvoicePending(){
+  const q = toHalfWidth(document.getElementById('ip-search').value.trim().toLowerCase());
+  const status = document.getElementById('ip-status').value;
+
+  let filtered = pendingCache.filter(b=>{
+    if(q){
+      const hay = `${b.ref_no||''} ${b.agent_name||''} ${b.tour_name||''}`.toLowerCase();
+      if(!hay.includes(q)) return false;
+    }
+    if(status && b.status!==status) return false;
+    return true;
+  });
+
+  document.getElementById('ip-count').textContent = `${filtered.length}件 / 全${pendingCache.length}件`;
+  filtered = genericSort(filtered, ipState);
+  renderSortHeader('ip-thead', IP_COLUMNS, ipState, 'sortInvoicePending');
+
+  const tbody = document.getElementById('inv-pending-tbody');
+  if(filtered.length===0){ tbody.innerHTML='<tr><td colspan="6" class="empty">該当する予約がありません</td></tr>'; return; }
+
+  const totalPages = Math.ceil(filtered.length/IP_PAGE_SIZE);
+  if(ipState.page>totalPages) ipState.page=totalPages;
+  if(ipState.page<1) ipState.page=1;
+  const start=(ipState.page-1)*IP_PAGE_SIZE;
+  const pageData = filtered.slice(start, start+IP_PAGE_SIZE);
+
+  tbody.innerHTML = pageData.map(b=>`
+      <tr>
+        <td class="lnk" onclick="openBookingDetail('${b.id}')">${b.ref_no}</td><td>${b.agent_name||''}</td><td>${b.tour_name||''}</td>
+        <td>${yen(b.gross_sales)}</td><td>${statusPill(b.status)}</td>
+        <td>
+          <button class="btn btn-p" style="font-size:11px" onclick="generateInvoice('${b.id}','JPY')">JPY発行</button>
+          <button class="btn" style="font-size:11px" onclick="generateInvoice('${b.id}','USD')">USD発行</button>
+        </td>
+      </tr>`).join('') + pagerRow(ipState, totalPages, 6, 'ipGoPage');
+}
+
+function sortInvoiceList(field){
+  if(ilState.sortField===field) ilState.sortDir = -ilState.sortDir;
+  else { ilState.sortField=field; ilState.sortDir=1; }
+  ilState.page = 1;
+  filterInvoiceList();
+}
+function ilGoPage(p){ ilState.page=p; filterInvoiceList(); }
+
+function resetInvoiceListFilter(){
+  document.getElementById('il-search').value='';
+  document.getElementById('il-currency').value='';
+  document.getElementById('il-status').value='';
+  ilState.page=1;
+  filterInvoiceList();
+}
+
+function filterInvoiceList(){
+  const q = toHalfWidth(document.getElementById('il-search').value.trim().toLowerCase());
+  const currency = document.getElementById('il-currency').value;
+  const status = document.getElementById('il-status').value;
+
+  let filtered = invoiceListCache.filter(inv=>{
+    if(q){
+      const hay = `${inv.invoice_no||''} ${inv.ref_no||''} ${inv.agent_name||''} ${inv.tour_name||''}`.toLowerCase();
+      if(!hay.includes(q)) return false;
+    }
+    if(currency && inv.currency!==currency) return false;
+    if(status && inv.status!==status) return false;
+    return true;
+  });
+
+  document.getElementById('il-count').textContent = `${filtered.length}件 / 全${invoiceListCache.length}件`;
+  filtered = genericSort(filtered, ilState);
+  renderSortHeader('il-thead', IL_COLUMNS, ilState, 'sortInvoiceList');
+
+  const tbody = document.getElementById('inv-list-tbody');
+  if(filtered.length===0){ tbody.innerHTML='<tr><td colspan="10" class="empty">発行済みのInvoiceはありません</td></tr>'; return; }
+
+  const totalPages = Math.ceil(filtered.length/IL_PAGE_SIZE);
+  if(ilState.page>totalPages) ilState.page=totalPages;
+  if(ilState.page<1) ilState.page=1;
+  const start=(ilState.page-1)*IL_PAGE_SIZE;
+  const pageData = filtered.slice(start, start+IL_PAGE_SIZE);
+
+  tbody.innerHTML = pageData.map(inv=>{
+    const invJson = JSON.stringify(inv).replace(/'/g,"&apos;");
+    const bJson = JSON.stringify(inv._booking||{}).replace(/'/g,"&apos;");
+    return `<tr>
+      <td class="lnk" onclick='showInvoicePreview(${invJson}, ${bJson})'>${inv.invoice_no}</td>
+      <td>${inv.ref_no||''}</td><td>${inv.agent_name||''}</td><td>${inv.tour_name||''}</td>
+      <td>${inv.currency}</td>
+      <td>${inv.currency==='USD' ? '$'+Number(inv.amount).toLocaleString() : yen(inv.amount)}</td>
+      <td>${inv.issue_date||''}</td><td>${inv.due_date||''}</td>
+      <td>${invoiceStatusPill(inv.status)}</td>
+      <td><button class="btn" style="font-size:11px" onclick='showInvoicePreview(${invJson}, ${bJson})'>表示</button></td>
+    </tr>`;
+  }).join('') + pagerRow(ilState, totalPages, 10, 'ilGoPage');
+}
+
 async function loadInvoicePage(){
   document.getElementById('inv-pending-tbody').innerHTML='<tr><td colspan="6" class="empty">読み込み中...</td></tr>';
   document.getElementById('inv-list-tbody').innerHTML='<tr><td colspan="10" class="empty">読み込み中...</td></tr>';
@@ -1266,44 +1465,21 @@ async function loadInvoicePage(){
   const bookings = await fetchAllBookings();
   const {data: invoices} = await sb.from('invoices').select('*').order('created_at',{ascending:false});
 
-  // 未発行（status != invoiced かつ 売上>0）— 直近20件
-  const pending = bookings.filter(b=>b.status!=='invoiced' && Number(b.gross_sales||0)>0).slice(0,20);
-  const ptbody = document.getElementById('inv-pending-tbody');
-  if(pending.length===0){
-    ptbody.innerHTML='<tr><td colspan="6" class="empty">未発行の予約はありません</td></tr>';
-  }else{
-    ptbody.innerHTML = pending.map(b=>`
-      <tr>
-        <td class="lnk">${b.ref_no}</td><td>${b.agent_name||''}</td><td>${b.tour_name||''}</td>
-        <td>${yen(b.gross_sales)}</td><td>${statusPill(b.status)}</td>
-        <td>
-          <button class="btn btn-p" style="font-size:11px" onclick="generateInvoice('${b.id}','JPY')">JPY発行</button>
-          <button class="btn" style="font-size:11px" onclick="generateInvoice('${b.id}','USD')">USD発行</button>
-        </td>
-      </tr>`).join('');
-  }
-
-  // 発行済み一覧
-  const ltbody = document.getElementById('inv-list-tbody');
-  if(!invoices || invoices.length===0){
-    ltbody.innerHTML='<tr><td colspan="10" class="empty">発行済みのInvoiceはありません</td></tr>';
-    return;
-  }
   const bookingMap = {};
   bookings.forEach(b=>bookingMap[b.id]=b);
 
-  ltbody.innerHTML = invoices.map(inv=>{
+  // 未発行（status != invoiced かつ 売上>0）
+  pendingCache = bookings.filter(b=>b.status!=='invoiced' && Number(b.gross_sales||0)>0);
+  ipState.page = 1;
+  filterInvoicePending();
+
+  // 発行済み一覧
+  invoiceListCache = (invoices||[]).map(inv=>{
     const b = bookingMap[inv.booking_id] || {};
-    return `<tr>
-      <td class="lnk" onclick='showInvoicePreview(${JSON.stringify(inv).replace(/'/g,"&apos;")}, ${JSON.stringify(b).replace(/'/g,"&apos;")})'>${inv.invoice_no}</td>
-      <td>${b.ref_no||''}</td><td>${inv.agent_name||b.agent_name||''}</td><td>${b.tour_name||''}</td>
-      <td>${inv.currency}</td>
-      <td>${inv.currency==='USD' ? '$'+Number(inv.amount).toLocaleString() : yen(inv.amount)}</td>
-      <td>${inv.issue_date||''}</td><td>${inv.due_date||''}</td>
-      <td>${invoiceStatusPill(inv.status)}</td>
-      <td><button class="btn" style="font-size:11px" onclick='showInvoicePreview(${JSON.stringify(inv).replace(/'/g,"&apos;")}, ${JSON.stringify(b).replace(/'/g,"&apos;")})'>表示</button></td>
-    </tr>`;
-  }).join('');
+    return {...inv, ref_no:b.ref_no||'', agent_name:inv.agent_name||b.agent_name||'', tour_name:b.tour_name||'', _booking:b};
+  });
+  ilState.page = 1;
+  filterInvoiceList();
 }
 
 function invoiceStatusPill(status){
