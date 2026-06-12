@@ -2605,9 +2605,12 @@ async function generateInvoice(bookingId, currency, agentFilter){
   const today = new Date();
   const issue = today.toISOString().slice(0,10);
   const due = new Date(today.getTime()+30*86400000).toISOString().slice(0,10);
-  const ymd = issue.replace(/-/g,'').slice(2); // YYMMDD
-  const seq = Math.floor(Math.random()*900+100); // 簡易連番(下3桁ランダム)
-  const invoiceNo = `INV-${ymd}-${seq}`;
+
+  // Invoice No. は REF# をベースにした形式（例: INV-1060）
+  const refNum = (booking.ref_no||'').replace(/[^0-9]/g,'') || (booking.ref_no||'').replace(/[^A-Za-z0-9]/g,'');
+  const base = `INV-${refNum}`;
+  const {data: existingInvoices} = await sb.from('invoices').select('invoice_no').or(`invoice_no.eq.${base},invoice_no.like.${base}-%`);
+  const invoiceNo = (existingInvoices && existingInvoices.length>0) ? `${base}-${existingInvoices.length+1}` : base;
 
   // 請求先で金額を絞り込み（売上明細が登録されている場合）
   let amount;
@@ -2697,7 +2700,7 @@ async function showInvoicePreview(inv, booking){
         <div style="text-align:right;font-size:11px;line-height:1.7">
           <div style="font-size:13px;font-weight:700;color:var(--blue);margin-bottom:4px">Ref: ${booking.ref_no}${booking.tour_name?(' / '+booking.tour_name):''}</div>
           <img src="data:image/jpeg;base64,${KIC_LOGO_B64}" alt="KIC TRAVEL" style="height:36px;margin-bottom:4px">
-          <div style="font-size:15px;font-weight:700;color:var(--blue)">KIC Co., Ltd.</div>
+          <div style="font-size:15px;font-weight:700;color:var(--blue)">KIC Co. Ltd.</div>
           <div style="color:#666">Marusei Bldg. 3F-E, 6-13-14, Nishikasai,<br>Edogawa-ku, Tokyo, 134-0088 Japan</div>
         </div>
       </div>
@@ -2740,7 +2743,7 @@ async function showInvoicePreview(inv, booking){
         <strong>Remittance may be made to the following account:</strong><br>
         SUMITOMO MITSUI BANKING CORPORATION, Shimbashi Branch<br>
         Account# 2428493 &nbsp;(Swift Code: SMBCJPJT)<br>
-        Account Name: <strong>KIC Co., Ltd.</strong>
+        Account Name: <strong>KIC Co. Ltd.</strong>
       </div>
 
       <div style="font-size:10px;color:#666;border-top:1px solid #ddd;padding-top:8px;line-height:1.7">
