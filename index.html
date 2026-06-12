@@ -453,7 +453,7 @@ th.sortable:hover{color:var(--blue)}
       <div>
         <h4 class="green">売上明細</h4>
         <div class="tbl-wrap"><table class="li-table">
-          <thead><tr><th>項目</th><th style="width:74px">単価</th><th style="width:42px">数量</th><th class="li-amt">金額</th><th style="width:108px">入金日</th><th class="li-del"></th></tr></thead>
+          <thead><tr><th>項目</th><th style="width:74px">単価</th><th style="width:42px">数量</th><th class="li-amt">金額</th><th style="width:108px">入金日</th><th style="width:120px">請求先</th><th class="li-del"></th></tr></thead>
           <tbody id="bd-sales-tbody"></tbody>
         </table></div>
         <button class="btn" style="font-size:10px;margin-top:4px" onclick="addSalesRow()">＋ 行追加</button>
@@ -471,10 +471,7 @@ th.sortable:hover{color:var(--blue)}
     </div>
 
     <div class="modal-section-title">関連Invoice</div>
-    <div style="margin-bottom:6px">
-      <button class="btn btn-p" style="font-size:11px" onclick="issueInvoiceFromBookingDetail('JPY')">🧾 JPY Invoice発行</button>
-      <button class="btn" style="font-size:11px" onclick="issueInvoiceFromBookingDetail('USD')">🧾 USD Invoice発行</button>
-    </div>
+    <div id="bd-invoice-actions" style="margin-bottom:6px"></div>
     <div class="tbl-wrap"><table>
       <thead><tr><th>Invoice No.</th><th>通貨</th><th>金額</th><th>発行日</th><th>期限</th><th>Status</th></tr></thead>
       <tbody id="bd-invoices"><tr><td colspan="6" class="empty">なし</td></tr></tbody>
@@ -862,7 +859,7 @@ function updateDetailGrossPreview(){
 function renderSalesTable(){
   const tbody = document.getElementById('bd-sales-tbody');
   if(bdSalesItems.length===0){
-    tbody.innerHTML = '<tr><td colspan="6" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
   }else{
     tbody.innerHTML = bdSalesItems.map((it,i)=>`
       <tr>
@@ -871,10 +868,44 @@ function renderSalesTable(){
         <td><input type="number" value="${it.qty||1}" onchange="bdSalesRowCalc(${i},this,'qty')"></td>
         <td id="bd-sales-amt-${i}" class="li-amt">${yen(it.amount||0)}</td>
         <td><input type="date" value="${it.payment_date||''}" onchange="bdSalesItems[${i}].payment_date=this.value"></td>
+        <td><input value="${(it.agent_name||'').replace(/"/g,'&quot;')}" title="${(it.agent_name||'').replace(/"/g,'&quot;')}" placeholder="(予約のAgent)" onchange="bdSalesItems[${i}].agent_name=this.value;renderInvoiceActions()"></td>
         <td class="li-del"><span class="lnk" style="font-size:10px" onclick="removeSalesRow(${i})">削除</span></td>
       </tr>`).join('');
   }
   updateDetailGrossPreview();
+  renderInvoiceActions();
+}
+
+function getDistinctSalesAgents(){
+  const b = findBookingById(currentDetailId);
+  const defaultAgent = b ? (b.agent_name||'').trim() : '';
+  const set = new Set();
+  bdSalesItems.forEach(it=>{
+    const a = (it.agent_name && it.agent_name.trim()) ? it.agent_name.trim() : defaultAgent;
+    if(a) set.add(a);
+  });
+  return Array.from(set);
+}
+
+function renderInvoiceActions(){
+  const container = document.getElementById('bd-invoice-actions');
+  if(!container) return;
+  const agents = getDistinctSalesAgents();
+  if(agents.length<=1){
+    container.innerHTML = `
+      <button class="btn btn-p" style="font-size:11px" onclick="issueInvoiceFromBookingDetail('JPY')">🧾 JPY Invoice発行</button>
+      <button class="btn" style="font-size:11px" onclick="issueInvoiceFromBookingDetail('USD')">🧾 USD Invoice発行</button>`;
+  }else{
+    container.innerHTML = '<div style="font-size:10px;color:var(--text3);margin-bottom:4px">請求先ごとに発行できます:</div>' +
+      agents.map(a=>{
+        const esc = a.replace(/'/g,"\\'").replace(/"/g,'&quot;');
+        return `<div style="margin-bottom:4px;font-size:11px">
+          <span style="font-weight:600;margin-right:6px">${a.replace(/</g,'&lt;')}</span>
+          <button class="btn btn-p" style="font-size:11px" onclick="issueInvoiceFromBookingDetail('JPY','${esc}')">JPY発行</button>
+          <button class="btn" style="font-size:11px" onclick="issueInvoiceFromBookingDetail('USD','${esc}')">USD発行</button>
+        </div>`;
+      }).join('');
+  }
 }
 
 function renderCostTable(){
@@ -921,7 +952,7 @@ function bdCostRowCalc(i, el){
 }
 
 function addSalesRow(){
-  bdSalesItems.push({item_name:'', unit_price:0, qty:1, amount:0, payment_date:null});
+  bdSalesItems.push({item_name:'', unit_price:0, qty:1, amount:0, payment_date:null, agent_name:''});
   renderSalesTable();
 }
 function addCostRow(){
@@ -959,7 +990,7 @@ async function openBookingDetail(id){
     sb.from('booking_costs').select('*').eq('booking_id', id).order('created_at')
   ]);
 
-  bdSalesItems = (salesRows||[]).map(r=>({item_name:r.item_name, unit_price:r.unit_price, qty:r.qty, amount:r.amount, payment_date:r.payment_date}));
+  bdSalesItems = (salesRows||[]).map(r=>({item_name:r.item_name, unit_price:r.unit_price, qty:r.qty, amount:r.amount, payment_date:r.payment_date, agent_name:r.agent_name||''}));
   bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, memo:r.memo}));
 
   // 明細が無く、過去の合計値がある場合は1行として復元
@@ -997,14 +1028,14 @@ function closeBookingDetail(){
   currentDetailId = null;
 }
 
-async function issueInvoiceFromBookingDetail(currency){
+async function issueInvoiceFromBookingDetail(currency, agentFilter){
   if(!currentDetailId) return;
   const id = currentDetailId;
   // 売上明細を保存して合計を最新化
   await saveBookingDetail();
   closeBookingDetail();
   go('invoice');
-  await generateInvoice(id, currency);
+  await generateInvoice(id, currency, agentFilter);
 }
 
 async function saveBookingDetail(){
@@ -1039,7 +1070,8 @@ async function saveBookingDetail(){
 
   const salesToInsert = bdSalesItems.filter(it=>it.item_name||Number(it.amount)).map(it=>({
     booking_id: currentDetailId, item_name: it.item_name||'', unit_price: Number(it.unit_price)||0,
-    qty: Number(it.qty)||1, amount: Number(it.amount)||0, payment_date: it.payment_date||null
+    qty: Number(it.qty)||1, amount: Number(it.amount)||0, payment_date: it.payment_date||null,
+    agent_name: it.agent_name||null
   }));
   const costToInsert = bdCostItems.filter(it=>it.item_name||Number(it.amount)).map(it=>({
     booking_id: currentDetailId, item_name: it.item_name||'', amount: Number(it.amount)||0,
@@ -1264,7 +1296,7 @@ async function loadInvoicePage(){
     const b = bookingMap[inv.booking_id] || {};
     return `<tr>
       <td class="lnk" onclick='showInvoicePreview(${JSON.stringify(inv).replace(/'/g,"&apos;")}, ${JSON.stringify(b).replace(/'/g,"&apos;")})'>${inv.invoice_no}</td>
-      <td>${b.ref_no||''}</td><td>${b.agent_name||''}</td><td>${b.tour_name||''}</td>
+      <td>${b.ref_no||''}</td><td>${inv.agent_name||b.agent_name||''}</td><td>${b.tour_name||''}</td>
       <td>${inv.currency}</td>
       <td>${inv.currency==='USD' ? '$'+Number(inv.amount).toLocaleString() : yen(inv.amount)}</td>
       <td>${inv.issue_date||''}</td><td>${inv.due_date||''}</td>
@@ -1281,7 +1313,13 @@ function invoiceStatusPill(status){
   return `<span class="pill ${cls}" style="${bg}">${label}</span>`;
 }
 
-async function generateInvoice(bookingId, currency){
+function salesItemBelongsToAgent(row, agentFilter, bookingAgent){
+  if(!agentFilter) return true;
+  const a = (row.agent_name && row.agent_name.trim()) ? row.agent_name.trim() : bookingAgent;
+  return a === agentFilter;
+}
+
+async function generateInvoice(bookingId, currency, agentFilter){
   const bookings = await fetchAllBookings();
   const booking = bookings.find(b=>b.id===bookingId);
   if(!booking){ alert('予約データが見つかりません'); return; }
@@ -1293,7 +1331,15 @@ async function generateInvoice(bookingId, currency){
   const seq = Math.floor(Math.random()*900+100); // 簡易連番(下3桁ランダム)
   const invoiceNo = `INV-${ymd}-${seq}`;
 
-  let amount = Number(booking.gross_sales||0);
+  // 請求先で金額を絞り込み（売上明細が登録されている場合）
+  let amount;
+  const {data: salesRows} = await sb.from('booking_sales').select('*').eq('booking_id', bookingId);
+  if(salesRows && salesRows.length>0){
+    const filtered = salesRows.filter(r=>salesItemBelongsToAgent(r, agentFilter, booking.agent_name));
+    amount = filtered.reduce((s,r)=>s+Number(r.amount||0),0);
+  }else{
+    amount = Number(booking.gross_sales||0);
+  }
   if(currency==='USD') amount = Math.round((amount/USD_RATE)*100)/100;
 
   const {data, error} = await sb.from('invoices').insert({
@@ -1303,14 +1349,15 @@ async function generateInvoice(bookingId, currency){
     amount: amount,
     issue_date: issue,
     due_date: due,
-    status: 'pending'
+    status: 'pending',
+    agent_name: agentFilter || booking.agent_name || null
   }).select().single();
 
   if(error){ alert('Invoice発行に失敗しました: '+error.message); return; }
 
   // 予約ステータスを invoiced に更新
   await sb.from('bookings').update({status:'invoiced'}).eq('id', bookingId);
-  await logAction('Invoice発行', invoiceNo + ' (' + booking.ref_no + ')');
+  await logAction('Invoice発行', invoiceNo + ' (' + booking.ref_no + (agentFilter?(' / '+agentFilter):'') + ')');
 
   await loadInvoicePage();
   await showInvoicePreview(data, booking);
@@ -1322,14 +1369,23 @@ async function showInvoicePreview(inv, booking){
   const amountStr = isUSD ? '$'+amount.toLocaleString(undefined,{minimumFractionDigits:2}) : yen(amount);
   const issueDate = inv.issue_date ? new Date(inv.issue_date).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'}) : '';
 
-  // 売上明細を取得
+  // 売上明細を取得（請求先で絞り込み）
   const {data: salesRows} = await sb.from('booking_sales').select('*').eq('booking_id', booking.id).order('created_at');
-  const items = (salesRows && salesRows.length>0) ? salesRows : [{item_name: booking.tour_name||'Tour Fee', unit_price: Number(inv.amount), qty: 1, amount: Number(inv.amount)}];
+  let items;
+  if(salesRows && salesRows.length>0){
+    items = inv.agent_name
+      ? salesRows.filter(r=>salesItemBelongsToAgent(r, inv.agent_name, booking.agent_name))
+      : salesRows;
+    if(items.length===0) items = salesRows;
+  }else{
+    items = [{item_name: booking.tour_name||'Tour Fee', unit_price: Number(inv.amount), qty: 1, amount: Number(inv.amount)}];
+  }
 
-  // 取引先住所を取得
+  // 請求先名・住所を取得
+  const billToName = inv.agent_name || booking.agent_name || '';
   let agentAddress = '';
-  if(booking.agent_name){
-    const {data: agentRow} = await sb.from('agent_info').select('address').eq('name', booking.agent_name).maybeSingle();
+  if(billToName){
+    const {data: agentRow} = await sb.from('agent_info').select('address').eq('name', billToName).maybeSingle();
     if(agentRow) agentAddress = agentRow.address || '';
   }
 
@@ -1352,7 +1408,7 @@ async function showInvoicePreview(inv, booking){
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;gap:20px">
         <div style="font-size:11px;line-height:1.7;flex:1">
           <div style="font-weight:700;font-size:10px;color:#888;letter-spacing:1px;margin-bottom:2px">BILL TO</div>
-          <div style="font-size:13px;font-weight:700">${booking.agent_name||''}</div>
+          <div style="font-size:13px;font-weight:700">${(billToName||'').replace(/</g,'&lt;')}</div>
           <div contenteditable="true" data-placeholder="住所を入力..." style="color:#666;min-height:1.4em">${(agentAddress||'').replace(/</g,'&lt;')}</div>
           <div style="color:#666">Ref: ${booking.ref_no} ${booking.tour_name?(' / '+booking.tour_name):''}</div>
         </div>
