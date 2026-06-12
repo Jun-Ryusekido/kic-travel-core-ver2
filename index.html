@@ -2436,9 +2436,9 @@ const ivState = {sortField:null, sortDir:1, page:1};
 const IV_PAGE_SIZE = 50;
 
 const IV_COLUMNS = [
-  ['ref_no','REF#'], ['agent_name','Agent',true,'24%'], ['tour_name','Tour',true,'10%'],
+  ['ref_no','REF#'], ['agent_name','Agent',true,'20%'], ['tour_name','Tour',true,'12%'],
   ['gross_sales','売上'], ['invoice_no','Invoice No.'], ['issue_date','発行日'],
-  ['statusLabel','Status'], ['','',false]
+  ['statusLabel','Status'], ['','',false,'200px']
 ];
 
 function renderSortHeader(theadId, columns, state, sortFn){
@@ -2546,7 +2546,7 @@ function filterInvoiceUnified(){
       <td>${row.invoice_no||'-'}</td>
       <td>${row.issue_date||'-'}</td>
       <td>${statusCell}</td>
-      <td>${actionCell}</td>
+      <td style="white-space:nowrap">${actionCell}</td>
     </tr>`;
   }).join('') + pagerRow(ivState, totalPages, 8, 'ivGoPage');
 }
