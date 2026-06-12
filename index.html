@@ -2734,6 +2734,12 @@ async function showInvoicePreview(inv, booking){
         </tbody>
       </table>
 
+      <div style="font-size:10px;color:#666;border-top:1px solid #ddd;padding-top:8px;line-height:1.7;margin-bottom:14px">
+        Any discrepancy in this statement, please inform us in writing within 10 days.<br>
+        Bank transfer fee should be paid by sender.<br>
+        Due date: ${inv.due_date||''}
+      </div>
+
       <div style="margin-bottom:14px">
         <div style="font-weight:700;font-size:10px;color:#888;letter-spacing:1px;margin-bottom:4px">REMARKS</div>
         <div contenteditable="true" style="border:1px solid #ddd;border-radius:4px;min-height:50px;padding:8px 10px;font-size:11px;line-height:1.6" data-placeholder="クリックして備考を入力..."></div>
@@ -2744,12 +2750,6 @@ async function showInvoicePreview(inv, booking){
         SUMITOMO MITSUI BANKING CORPORATION, Shimbashi Branch<br>
         Account# 2428493 &nbsp;(Swift Code: SMBCJPJT)<br>
         Account Name: <strong>KIC Co. Ltd.</strong>
-      </div>
-
-      <div style="font-size:10px;color:#666;border-top:1px solid #ddd;padding-top:8px;line-height:1.7">
-        Any discrepancy in this statement, please inform us in writing within 10 days.<br>
-        Bank transfer fee should be paid by sender.<br>
-        Due date: ${inv.due_date||''}
       </div>
     </div>`;
   document.getElementById('inv-preview-body').innerHTML = html;
