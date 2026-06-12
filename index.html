@@ -165,7 +165,7 @@ th.sortable:hover{color:var(--blue)}
     <div class="sb-item" data-pg="invoice" onclick="go('invoice')">🧾 Invoice</div>
     <div class="sb-sec">分析</div>
     <div class="sb-item" data-pg="gross" onclick="go('gross')">📈 GROSS / 粗利</div>
-    <div class="sb-item" data-pg="payment" onclick="go('payment')">💱 入出金管理</div>
+    <div class="sb-item accounting-only" data-pg="payment" onclick="go('payment')">💱 入出金管理</div>
     <div class="sb-sec admin-only">管理</div>
     <div class="sb-item admin-only" data-pg="accounts" onclick="go('accounts')">🔐 アカウント管理</div>
     <div class="sb-item admin-only" data-pg="logs" onclick="go('logs')">📜 アクセスログ</div>
@@ -361,17 +361,52 @@ th.sortable:hover{color:var(--blue)}
 
       <!-- Payment -->
       <div id="pg-payment" class="page" style="display:none">
-        <div class="kpi-grid">
-          <div class="kpi"><div class="kpi-lbl">入金合計</div><div class="kpi-val green" id="p-in">-</div></div>
-          <div class="kpi"><div class="kpi-lbl">出金合計</div><div class="kpi-val red" id="p-out">-</div></div>
-          <div class="kpi"><div class="kpi-lbl">差引</div><div class="kpi-val" id="p-net">-</div></div>
-          <div class="kpi"><div class="kpi-lbl">件数</div><div class="kpi-val" id="p-count">-</div></div>
-        </div>
         <div class="card">
-          <div class="card-title">入出金明細 — KIC Co., Ltd. Account# 2428493 (SMBCJPJT)</div>
+          <div class="card-title">期間指定</div>
+          <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr">
+            <div class="form-field"><label>From</label><input id="pay-from" type="date" onchange="loadPayments()"></div>
+            <div class="form-field"><label>To</label><input id="pay-to" type="date" onchange="loadPayments()"></div>
+            <div class="form-field" style="align-self:end"><button class="btn" onclick="setPaymentRangeThisMonth()">今月</button></div>
+          </div>
+        </div>
+
+        <div class="kpi-grid">
+          <div class="kpi"><div class="kpi-lbl">期間内 入金合計</div><div class="kpi-val green" id="p-in">-</div></div>
+          <div class="kpi"><div class="kpi-lbl">期間内 出金合計</div><div class="kpi-val red" id="p-out">-</div></div>
+          <div class="kpi"><div class="kpi-lbl">差引</div><div class="kpi-val" id="p-net">-</div></div>
+          <div class="kpi"><div class="kpi-lbl">件数（入金/出金）</div><div class="kpi-val" id="p-count">-</div></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">月別レポート（直近12ヶ月）</div>
           <div class="tbl-wrap"><table>
-            <thead><tr><th>日付</th><th>種別</th><th>相手先</th><th>内容</th><th>入金</th><th>出金</th></tr></thead>
-            <tbody id="pay-tbody"><tr><td colspan="6" class="empty">読み込み中...</td></tr></tbody>
+            <thead><tr><th>月</th><th>入金合計（売上）</th><th>出金合計（仕入）</th><th>差引</th></tr></thead>
+            <tbody id="pay-monthly-tbody"><tr><td colspan="4" class="empty">読み込み中...</td></tr></tbody>
+          </table></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">検索・絞り込み（入金リスト / 出金リスト 共通）</div>
+          <div class="form-grid" style="grid-template-columns:2fr 1fr">
+            <div class="form-field"><label>検索（REF# / Agent / 仕入先 / 項目）</label><input id="pay-search" placeholder="例: #1374, Kesari, 輝岩商事" oninput="filterPaymentLists()"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">入金リスト（売上明細・入金日あり）</div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:6px" id="pin-count"></div>
+          <div class="tbl-wrap"><table>
+            <thead id="pin-thead"></thead>
+            <tbody id="pin-tbody"><tr><td colspan="5" class="empty">読み込み中...</td></tr></tbody>
+          </table></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">出金リスト（仕入明細・出金日あり）</div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:6px" id="pout-count"></div>
+          <div class="tbl-wrap"><table>
+            <thead id="pout-thead"></thead>
+            <tbody id="pout-tbody"><tr><td colspan="5" class="empty">読み込み中...</td></tr></tbody>
           </table></div>
         </div>
       </div>
@@ -508,6 +543,8 @@ const SUPABASE_KEY = 'sb_publishable_Cnloaxzb2Ati8gmCa-1o3Q_t3uy6_mB';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 let currentUser = null;
+const ACCOUNTING_EMAILS = ['admin@kictravel.jp','kanri@kictravel.jp'];
+function isAccountingUser(){ return currentUser && ACCOUNTING_EMAILS.includes(currentUser.email); }
 let currentPageId = 'dashboard';
 const SESSION_KEY = 'kic_session_v1';
 const SESSION_TIMEOUT_MS = 15*60*1000; // 15分操作がなければ自動ログアウト
@@ -600,6 +637,9 @@ function applyLoggedInUI(data){
   document.querySelectorAll('.admin-only').forEach(el=>{
     el.style.display = data.role==='admin' ? '' : 'none';
   });
+  document.querySelectorAll('.accounting-only').forEach(el=>{
+    el.style.display = isAccountingUser() ? '' : 'none';
+  });
 }
 
 function doLogout(){
@@ -655,6 +695,7 @@ const pageNames={
 };
 function go(id){
   if((id==='accounts'||id==='logs') && currentUser && currentUser.role!=='admin') return;
+  if(id==='payment' && !isAccountingUser()) return;
   if(!document.getElementById('pg-'+id)) return;
   currentPageId = id;
   document.querySelectorAll('.page').forEach(el=>el.style.display='none');
@@ -1200,27 +1241,145 @@ async function loadGross(){
 }
 
 // ===== Payments =====
-async function loadPayments(){
-  const {data, error} = await sb.from('payments').select('*').order('payment_date',{ascending:false});
-  if(error || !data){ return; }
-  const totalIn = data.reduce((s,p)=>s+Number(p.amount_in||0),0);
-  const totalOut = data.reduce((s,p)=>s+Number(p.amount_out||0),0);
-  document.getElementById('p-in').textContent=yen(totalIn);
-  document.getElementById('p-out').textContent=yen(totalOut);
-  document.getElementById('p-net').textContent=yen(totalIn-totalOut);
-  document.getElementById('p-count').textContent=data.length;
+// ===== 入出金管理（売上明細の入金日・仕入明細の出金日ベース） =====
+let salesPaymentsCache = [];
+let costPaymentsCache = [];
+const payState = { pin:{sortField:null,sortDir:1,page:1}, pout:{sortField:null,sortDir:1,page:1} };
+const PAY_PAGE_SIZE = 50;
+const PIN_COLUMNS  = [['payment_date','入金日'],['ref_no','REF#'],['agent_name','Agent'],['item_name','項目'],['amount','金額']];
+const POUT_COLUMNS = [['payment_date','出金日'],['ref_no','REF#'],['item_name','仕入先'],['amount','金額'],['memo','備考']];
 
-  const tbody=document.getElementById('pay-tbody');
-  if(data.length===0){ tbody.innerHTML='<tr><td colspan="6" class="empty">入出金データがありません</td></tr>'; return; }
-  tbody.innerHTML=data.map(p=>{
-    const typePill = p.payment_type==='入金' ? '<span class="pill s-paid">入金</span>' : '<span class="pill" style="background:var(--red-lt);color:var(--red)">出金</span>';
-    return `<tr>
-      <td>${p.payment_date||''}</td><td>${typePill}</td><td>${p.counterparty||''}</td><td>${p.description||''}</td>
-      <td class="green">${p.amount_in?yen(p.amount_in):'—'}</td>
-      <td class="red">${p.amount_out?yen(p.amount_out):'—'}</td>
-    </tr>`;
+function setPaymentRangeThisMonth(){
+  const now = new Date();
+  const first = new Date(now.getFullYear(), now.getMonth(), 1);
+  document.getElementById('pay-from').value = first.toISOString().slice(0,10);
+  document.getElementById('pay-to').value = now.toISOString().slice(0,10);
+  loadPayments();
+}
+
+async function loadPayments(){
+  if(!document.getElementById('pay-from').value || !document.getElementById('pay-to').value){
+    setPaymentRangeThisMonth();
+    return;
+  }
+
+  document.getElementById('pin-tbody').innerHTML='<tr><td colspan="5" class="empty">読み込み中...</td></tr>';
+  document.getElementById('pout-tbody').innerHTML='<tr><td colspan="5" class="empty">読み込み中...</td></tr>';
+  document.getElementById('pay-monthly-tbody').innerHTML='<tr><td colspan="4" class="empty">読み込み中...</td></tr>';
+
+  const [{data: sales}, {data: costs}] = await Promise.all([
+    sb.from('booking_sales').select('*, bookings(ref_no, agent_name, tour_name)').not('payment_date','is',null).order('payment_date',{ascending:false}),
+    sb.from('booking_costs').select('*, bookings(ref_no, agent_name, tour_name)').not('payment_date','is',null).order('payment_date',{ascending:false})
+  ]);
+
+  salesPaymentsCache = (sales||[]).map(r=>({
+    payment_date:r.payment_date, amount:Number(r.amount||0), item_name:r.item_name||'',
+    ref_no:r.bookings?.ref_no||'', agent_name:r.bookings?.agent_name||'', tour_name:r.bookings?.tour_name||''
+  }));
+  costPaymentsCache = (costs||[]).map(r=>({
+    payment_date:r.payment_date, amount:Number(r.amount||0), item_name:r.item_name||'', memo:r.memo||'',
+    ref_no:r.bookings?.ref_no||'', agent_name:r.bookings?.agent_name||'', tour_name:r.bookings?.tour_name||''
+  }));
+
+  renderPaymentMonthly();
+  payState.pin.page=1; payState.pout.page=1;
+  filterPaymentLists();
+}
+
+function renderPaymentMonthly(){
+  // 直近12ヶ月分のキー（YYYY-MM）を生成
+  const months = [];
+  const now = new Date();
+  for(let i=11;i>=0;i--){
+    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
+    months.push(d.toISOString().slice(0,7));
+  }
+  const inMap = {}, outMap = {};
+  salesPaymentsCache.forEach(r=>{
+    const m = (r.payment_date||'').slice(0,7);
+    inMap[m] = (inMap[m]||0) + r.amount;
+  });
+  costPaymentsCache.forEach(r=>{
+    const m = (r.payment_date||'').slice(0,7);
+    outMap[m] = (outMap[m]||0) + r.amount;
+  });
+
+  document.getElementById('pay-monthly-tbody').innerHTML = months.map(m=>{
+    const inAmt = inMap[m]||0, outAmt = outMap[m]||0, net = inAmt-outAmt;
+    const cls = net<0?'red':'green';
+    return `<tr><td>${m}</td><td class="green">${yen(inAmt)}</td><td class="red">${yen(outAmt)}</td><td class="${cls}">${yen(net)}</td></tr>`;
   }).join('');
 }
+
+function filterPaymentLists(){
+  const from = document.getElementById('pay-from').value;
+  const to = document.getElementById('pay-to').value;
+  const q = toHalfWidth(document.getElementById('pay-search').value.trim().toLowerCase());
+
+  const inRange = r => (!from || r.payment_date>=from) && (!to || r.payment_date<=to);
+  const matchQ = r => {
+    if(!q) return true;
+    const hay = `${r.ref_no||''} ${r.agent_name||''} ${r.item_name||''} ${r.memo||''}`.toLowerCase();
+    return hay.includes(q);
+  };
+
+  let inList = salesPaymentsCache.filter(r=>inRange(r) && matchQ(r));
+  let outList = costPaymentsCache.filter(r=>inRange(r) && matchQ(r));
+
+  const totalIn = inList.reduce((s,r)=>s+r.amount,0);
+  const totalOut = outList.reduce((s,r)=>s+r.amount,0);
+  document.getElementById('p-in').textContent = yen(totalIn);
+  document.getElementById('p-out').textContent = yen(totalOut);
+  const net = totalIn-totalOut;
+  const netEl = document.getElementById('p-net');
+  netEl.textContent = yen(net); netEl.className = 'kpi-val '+(net<0?'red':'green');
+  document.getElementById('p-count').textContent = `${inList.length} / ${outList.length}`;
+
+  document.getElementById('pin-count').textContent = `${inList.length}件`;
+  document.getElementById('pout-count').textContent = `${outList.length}件`;
+
+  inList = genericSort(inList, payState.pin);
+  outList = genericSort(outList, payState.pout);
+  renderSortHeader('pin-thead', PIN_COLUMNS, payState.pin, 'sortPaymentList_pin');
+  renderSortHeader('pout-thead', POUT_COLUMNS, payState.pout, 'sortPaymentList_pout');
+
+  renderPaymentTable('pin-tbody', inList, PIN_COLUMNS, payState.pin, 'green', 'pinGoPage');
+  renderPaymentTable('pout-tbody', outList, POUT_COLUMNS, payState.pout, 'red', 'poutGoPage');
+}
+
+function renderPaymentTable(tbodyId, list, columns, state, amtCls, goFn){
+  const tbody = document.getElementById(tbodyId);
+  if(list.length===0){ tbody.innerHTML=`<tr><td colspan="${columns.length}" class="empty">データがありません</td></tr>`; return; }
+
+  const totalPages = Math.ceil(list.length/PAY_PAGE_SIZE);
+  if(state.page>totalPages) state.page=totalPages;
+  if(state.page<1) state.page=1;
+  const start=(state.page-1)*PAY_PAGE_SIZE;
+  const pageData = list.slice(start, start+PAY_PAGE_SIZE);
+
+  tbody.innerHTML = pageData.map(r=>{
+    return '<tr>' + columns.map(([f])=>{
+      if(f==='amount') return `<td class="${amtCls}">${yen(r.amount)}</td>`;
+      return `<td>${r[f]||''}</td>`;
+    }).join('') + '</tr>';
+  }).join('') + pagerRow(state, totalPages, columns.length, goFn);
+}
+
+function sortPaymentList_pin(field){
+  if(payState.pin.sortField===field) payState.pin.sortDir=-payState.pin.sortDir;
+  else { payState.pin.sortField=field; payState.pin.sortDir=1; }
+  payState.pin.page=1;
+  filterPaymentLists();
+}
+function sortPaymentList_pout(field){
+  if(payState.pout.sortField===field) payState.pout.sortDir=-payState.pout.sortDir;
+  else { payState.pout.sortField=field; payState.pout.sortDir=1; }
+  payState.pout.page=1;
+  filterPaymentLists();
+}
+function pinGoPage(p){ payState.pin.page=p; filterPaymentLists(); }
+function poutGoPage(p){ payState.pout.page=p; filterPaymentLists(); }
+
 
 // ===== Accounts =====
 async function loadAccounts(){
