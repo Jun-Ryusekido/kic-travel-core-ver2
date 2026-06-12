@@ -99,7 +99,7 @@ th.sortable:hover{color:var(--blue)}
 .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:100;align-items:flex-start;justify-content:center;padding:30px 16px;overflow-y:auto}
 .modal-overlay.open{display:flex}
 .modal-box{background:var(--card);border-radius:12px;width:100%;max-width:min(960px,95vw);padding:18px 20px;max-height:92vh;overflow-y:auto}
-.modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--border)}
+.modal-header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--border)}
 .modal-title{font-size:14px;font-weight:700}
 .modal-close{cursor:pointer;font-size:18px;color:var(--text3);line-height:1;padding:2px 6px;border-radius:6px}
 .modal-close:hover{background:var(--bg)}
@@ -584,7 +584,12 @@ th.sortable:hover{color:var(--blue)}
   <div class="modal-box">
     <div class="modal-header">
       <div class="modal-title">予約台帳 <span id="bd-ref" style="color:var(--blue)"></span></div>
-      <div class="modal-close" onclick="closeBookingDetail()">✕</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span class="msg-ok" id="bd-msg-top" style="margin-top:0">✓ 保存しました</span>
+        <button class="btn btn-p" onclick="saveBookingDetail()">💾 保存</button>
+        <button class="btn" onclick="closeBookingDetail()">閉じる</button>
+        <div class="modal-close" onclick="closeBookingDetail()">✕</div>
+      </div>
     </div>
 
     <div class="detail-summary">
@@ -1265,6 +1270,7 @@ async function openBookingDetail(id){
   document.getElementById('bd-out').value = b.out_date||'';
   document.getElementById('bd-updated').textContent = b.updated_at ? ('最終更新: '+new Date(b.updated_at).toLocaleString('ja-JP')) : '';
   document.getElementById('bd-msg').style.display='none';
+  document.getElementById('bd-msg-top').style.display='none';
 
   // 売上明細・仕入明細を読み込み
   document.getElementById('bd-sales-tbody').innerHTML = '<tr><td colspan="6" class="empty" style="padding:6px;font-size:10px">読み込み中...</td></tr>';
@@ -2127,8 +2133,12 @@ async function saveBookingDetail(){
   // キャッシュ更新 & 再描画
   Object.assign(b, payload);
   document.getElementById('bd-msg').style.display='inline';
+  document.getElementById('bd-msg-top').style.display='inline';
   document.getElementById('bd-updated').textContent = '最終更新: '+new Date(payload.updated_at).toLocaleString('ja-JP');
-  setTimeout(()=>document.getElementById('bd-msg').style.display='none', 2500);
+  setTimeout(()=>{
+    document.getElementById('bd-msg').style.display='none';
+    document.getElementById('bd-msg-top').style.display='none';
+  }, 2500);
 
   ['db','bl'].forEach(p=>{
     if(document.getElementById(p+'-tbody')) filterBookingListGeneric(p);
