@@ -109,7 +109,7 @@ th.sortable:hover{color:var(--blue)}
 .detail-summary .kpi-val{font-size:15px}
 .detail-cols{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 .detail-cols h4{font-size:11px;font-weight:700;margin-bottom:4px}
-.li-table{font-size:10px;table-layout:fixed;width:100%}
+.li-table{font-size:10px;table-layout:fixed;width:100%;min-width:620px}
 .li-table th{padding:3px 4px;font-size:9px}
 .li-table td{padding:2px 3px;overflow:hidden}
 .li-table input{width:100%;border:1px solid var(--border);border-radius:5px;padding:3px 4px;font-size:10px;background:#fff;color:var(--text);box-sizing:border-box}
@@ -1009,7 +1009,13 @@ function filterBookingListGeneric(prefix){
     const f = state.sortField, dir = state.sortDir;
     filtered = filtered.slice().sort((a,b)=>{
       let av, bv;
-      if(f==='gross'){
+      if(f==='ref_no'){
+        const num = v => { const m = String(v||'').match(/(\d+)/); return m ? parseInt(m[1],10) : NaN; };
+        av = num(a.ref_no); bv = num(b.ref_no);
+        if(isNaN(av) && isNaN(bv)) return dir * String(a.ref_no||'').localeCompare(String(b.ref_no||''), 'ja');
+        if(isNaN(av)) return 1;
+        if(isNaN(bv)) return -1;
+      }else if(f==='gross'){
         av = Number(a.gross_sales||0)-Number(a.gross_cost||0);
         bv = Number(b.gross_sales||0)-Number(b.gross_cost||0);
       }else if(f==='rate'){
@@ -1271,14 +1277,6 @@ async function openBookingDetail(id){
 
   bdSalesItems = (salesRows||[]).map(r=>({item_name:r.item_name, unit_price:r.unit_price, qty:r.qty, amount:r.amount, payment_date:r.payment_date, agent_name:r.agent_name||''}));
   bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, memo:r.memo}));
-
-  // 明細が無く、過去の合計値がある場合は1行として復元
-  if(bdSalesItems.length===0 && Number(b.gross_sales||0)!==0){
-    bdSalesItems.push({item_name:'(インポート時の合計)', unit_price:Number(b.gross_sales), qty:1, amount:Number(b.gross_sales), payment_date:null});
-  }
-  if(bdCostItems.length===0 && Number(b.gross_cost||0)!==0){
-    bdCostItems.push({item_name:'(インポート時の合計)', amount:Number(b.gross_cost), payment_date:null, memo:''});
-  }
 
   renderSalesTable();
   renderCostTable();
@@ -2444,6 +2442,13 @@ function genericSort(list, state){
   const f = state.sortField, dir = state.sortDir;
   return list.slice().sort((a,b)=>{
     let av=a[f], bv=b[f];
+    if(f==='ref_no'){
+      const num = v => { const m = String(v||'').match(/(\d+)/); return m ? parseInt(m[1],10) : NaN; };
+      av = num(a.ref_no); bv = num(b.ref_no);
+      if(isNaN(av) && isNaN(bv)) return dir * String(a.ref_no||'').localeCompare(String(b.ref_no||''), 'ja');
+      if(isNaN(av)) return 1;
+      if(isNaN(bv)) return -1;
+    }
     if(av==null && bv==null) return 0;
     if(av==null) return 1;
     if(bv==null) return -1;
