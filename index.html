@@ -123,15 +123,27 @@ th.sortable:hover{color:var(--blue)}
 .pax-row .form-field input{width:100%}
 @media(max-width:480px){.pax-row{flex-wrap:wrap}.pax-row .form-field{flex:1 1 calc(50% - 8px)}}
 
-/* 印刷時：Invoiceプレビューのみ表示 */
+/* 手配書モーダル */
+.modal-box-wide{max-width:min(1200px,97vw)}
+.form-field textarea{padding:7px 9px;border-radius:8px;border:1px solid var(--border);background:#fff;font-size:12px;color:var(--text);font-family:inherit;resize:vertical;box-sizing:border-box;width:100%}
+.form-field textarea:focus{outline:none;border-color:var(--blue)}
+.arr-day-card{border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:10px;background:var(--bg)}
+.arr-day-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.arr-day-head .tag{font-size:11px;font-weight:700;color:var(--blue)}
+.arr-day-head .btn{font-size:10px;padding:3px 7px}
+
+/* 印刷時：Invoice / 手配書プレビューのみ表示 */
 @page{size:A4;margin:0}
 [contenteditable]:empty:before{content:attr(data-placeholder);color:#aaa}
 @media print{ [contenteditable]:empty:before{content:''} [contenteditable]{border-color:#fff !important} }
 @media print{
   body *{visibility:hidden}
-  #inv-preview-card, #inv-preview-card *{visibility:visible}
-  #inv-preview-card{position:absolute;left:0;top:0;width:100%;border:none;box-shadow:none;padding:0}
-  #inv-preview-card .card-title, #inv-preview-card button{display:none}
+  #inv-preview-card, #inv-preview-card *, #arr-preview-card, #arr-preview-card *{visibility:visible}
+  #inv-preview-card, #arr-preview-card{position:absolute;left:0;top:0;width:100%;border:none;box-shadow:none;padding:0}
+  #inv-preview-card .card-title, #inv-preview-card button,
+  #arr-preview-card .card-title, #arr-preview-card button{display:none}
+  #arrangement-modal.open{position:static !important;background:none !important;padding:0 !important;overflow:visible !important;display:block !important}
+  #arrangement-modal.open .modal-box{max-height:none !important;overflow:visible !important;box-shadow:none !important;max-width:none !important}
 }
 </style>
 </head>
@@ -524,11 +536,82 @@ th.sortable:hover{color:var(--blue)}
       <tbody id="bd-invoices"><tr><td colspan="6" class="empty">なし</td></tr></tbody>
     </table></div>
 
+    <div class="modal-section-title">手配書</div>
+    <div id="bd-arrangements" style="margin-bottom:6px"></div>
+    <button class="btn" style="font-size:10px" onclick="openArrangementEditor(null)">＋ 新規手配書作成</button>
+
     <div style="margin-top:16px;display:flex;gap:8px;align-items:center;border-top:1px solid var(--border);padding-top:12px">
       <button class="btn btn-p" onclick="saveBookingDetail()">💾 保存</button>
       <button class="btn" onclick="closeBookingDetail()">閉じる</button>
       <span class="msg-ok" id="bd-msg">✓ 保存しました</span>
       <span style="margin-left:auto;font-size:10px;color:var(--text3)" id="bd-updated"></span>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Tour Arrangement Modal (手配書) ===== -->
+<div class="modal-overlay" id="arrangement-modal">
+  <div class="modal-box modal-box-wide">
+    <div class="modal-header">
+      <div class="modal-title">手配書編集 <span id="arr-ref" style="color:var(--blue)"></span></div>
+      <div class="modal-close" onclick="closeArrangementEditor()">✕</div>
+    </div>
+
+    <div class="modal-section-title">ヘッダー情報</div>
+    <div class="form-grid">
+      <div class="form-field"><label>シート名(バス会社名等の識別)</label><input id="arr-sheet-label" placeholder="例: 総企, 狩野, 本四"></div>
+      <div class="form-field"><label>ツアーコード</label><input id="arr-tour-code"></div>
+      <div class="form-field"><label>バス看板名</label><input id="arr-bus-signboard"></div>
+      <div class="form-field"><label>国籍</label><input id="arr-nationality"></div>
+      <div class="form-field" style="grid-column:1/-1"><label>Pax情報</label><input id="arr-pax-info" placeholder="例: 18名+3 内:小0名 他、13*1, 17*1あり"></div>
+      <div class="form-field"><label>旅行会社名</label><input id="arr-agency-name"></div>
+      <div class="form-field"><label>旅行会社予約番号</label><input id="arr-agency-booking-no"></div>
+      <div class="form-field"><label>ガイド名</label><input id="arr-guide-name"></div>
+      <div class="form-field"><label>ガイド電話</label><input id="arr-guide-phone"></div>
+    </div>
+
+    <div class="modal-section-title">フライト情報</div>
+    <div class="form-grid">
+      <div class="form-field"><label>ARR 日付</label><input id="arr-arr-date" type="date"></div>
+      <div class="form-field"><label>ARR 空港/ターミナル</label><input id="arr-arr-airport" placeholder="例: NRT(T2)"></div>
+      <div class="form-field"><label>ARR フライト</label><input id="arr-arr-flight" placeholder="例: MH70"></div>
+      <div class="form-field"><label>ARR 時刻</label><input id="arr-arr-time" placeholder="例: 18:05"></div>
+      <div class="form-field"><label>DEP 日付</label><input id="arr-dep-date" type="date"></div>
+      <div class="form-field"><label>DEP 空港/ターミナル</label><input id="arr-dep-airport" placeholder="例: KIX"></div>
+      <div class="form-field"><label>DEP フライト</label><input id="arr-dep-flight" placeholder="例: MH53"></div>
+      <div class="form-field"><label>DEP 時刻</label><input id="arr-dep-time" placeholder="例: 09:40"></div>
+    </div>
+
+    <div class="modal-section-title">バス会社・ドライバー情報</div>
+    <div class="form-grid">
+      <div class="form-field"><label>バス会社名</label><input id="arr-bus-company-name"></div>
+      <div class="form-field"><label>バス会社連絡先</label><input id="arr-bus-company-contact"></div>
+      <div class="form-field" style="grid-column:1/-1"><label>ドライバー関連メモ</label><input id="arr-driver-notes"></div>
+    </div>
+
+    <div class="modal-section-title">日程(DAY BY DAY)</div>
+    <div id="arr-days"></div>
+    <button class="btn" style="font-size:10px;margin-bottom:10px" onclick="addArrDay()">＋ 日程を追加</button>
+
+    <div class="modal-section-title">フッター注意事項</div>
+    <div class="form-field"><textarea id="arr-footer-notes" rows="5" placeholder="全旅クーポン、ミネラルウォーター配布、バス会社連絡先などの注意事項を入力"></textarea></div>
+
+    <div style="margin-top:16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:12px">
+      <button class="btn btn-p" onclick="saveArrangement()">💾 保存</button>
+      <button class="btn" onclick="previewArrangement()">🖨 プレビュー/印刷</button>
+      <button class="btn" onclick="closeArrangementEditor()">閉じる</button>
+      <span class="msg-ok" id="arr-msg">✓ 保存しました</span>
+    </div>
+
+    <div class="card" id="arr-preview-card" style="display:none;margin-top:16px">
+      <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span>プレビュー</span>
+        <span>
+          <button class="btn" onclick="window.print()">🖨 印刷</button>
+          <button class="btn" onclick="document.getElementById('arr-preview-card').style.display='none'">閉じる</button>
+        </span>
+      </div>
+      <div id="arr-preview-body"></div>
     </div>
   </div>
 </div>
@@ -578,6 +661,8 @@ function clearSession(){
 
 // ===== ユーティリティ =====
 function yen(n){ return '¥' + Number(n||0).toLocaleString('ja-JP'); }
+function escHtml(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escAttr(s){ return escHtml(s).replace(/"/g,'&quot;'); }
 function isMobile(){ return /Mobile|iPhone|Android/.test(navigator.userAgent); }
 function deviceLabel(){ return isMobile() ? (/iPhone/.test(navigator.userAgent)?'iPhone':'Android') : 'PC'; }
 
@@ -876,6 +961,9 @@ function statusPill(status){
 let currentDetailId = null;
 let bdSalesItems = [];
 let bdCostItems = [];
+let arrangementsCache = [];
+let currentArrangementId = null;
+let arrDays = [];
 
 function findBookingById(id){
   return allBookingsCache.find(b=>b.id===id);
@@ -1073,12 +1161,310 @@ async function openBookingDetail(id){
       </tr>`).join('');
   }
 
+  // 手配書一覧を読み込み
+  await loadArrangementsList();
+
   document.getElementById('detail-modal').classList.add('open');
 }
 
 function closeBookingDetail(){
   document.getElementById('detail-modal').classList.remove('open');
   currentDetailId = null;
+}
+
+// ===================================================
+// 手配書 (Tour Arrangement)
+// ===================================================
+const ARR_HEADER_FIELDS = [
+  ['arr-sheet-label','sheet_label'],
+  ['arr-tour-code','tour_code'],
+  ['arr-bus-signboard','bus_signboard_name'],
+  ['arr-nationality','nationality'],
+  ['arr-pax-info','pax_info'],
+  ['arr-agency-name','travel_agency_name'],
+  ['arr-agency-booking-no','agency_booking_number'],
+  ['arr-guide-name','guide_name'],
+  ['arr-guide-phone','guide_phone'],
+  ['arr-arr-date','arr_date'],
+  ['arr-arr-airport','arr_airport'],
+  ['arr-arr-flight','arr_flight'],
+  ['arr-arr-time','arr_time'],
+  ['arr-dep-date','dep_date'],
+  ['arr-dep-airport','dep_airport'],
+  ['arr-dep-flight','dep_flight'],
+  ['arr-dep-time','dep_time'],
+  ['arr-bus-company-name','bus_company_name'],
+  ['arr-bus-company-contact','bus_company_contact'],
+  ['arr-driver-notes','driver_notes']
+];
+const ARR_DAY_BLANK = {day_date:'', day_of_week:'', bus_company:'', itinerary:'', others_notes:'',
+  hotel_name:'', hotel_area:'', hotel_area_phone:'', driver_info:'', breakfast_type:'',
+  lunch_restaurant:'', lunch_time:'', lunch_phone:'', dinner_restaurant:'', dinner_time:'', dinner_phone:''};
+
+async function loadArrangementsList(){
+  const b = findBookingById(currentDetailId);
+  if(!b) return;
+  const {data} = await sb.from('tour_arrangements').select('*').eq('booking_ref', b.ref_no).order('created_at');
+  arrangementsCache = data||[];
+  renderArrangementsList();
+}
+
+function renderArrangementsList(){
+  const el = document.getElementById('bd-arrangements');
+  if(!el) return;
+  if(arrangementsCache.length===0){
+    el.innerHTML = '<div class="empty" style="font-size:11px;padding:4px 0">登録された手配書はありません</div>';
+    return;
+  }
+  el.innerHTML = `<div class="tbl-wrap"><table>
+    <thead><tr><th>シート名</th><th>ツアーコード</th><th>バス会社</th><th>ガイド</th><th style="width:170px"></th></tr></thead>
+    <tbody>
+      ${arrangementsCache.map(a=>`
+        <tr>
+          <td>${escHtml(a.sheet_label||'(未設定)')}</td>
+          <td>${escHtml(a.tour_code||'')}</td>
+          <td>${escHtml(a.bus_company_name||'')}</td>
+          <td>${escHtml(a.guide_name||'')}</td>
+          <td style="white-space:nowrap">
+            <button class="btn" style="font-size:10px" onclick="openArrangementEditor('${a.id}')">編集</button>
+            <button class="btn" style="font-size:10px" onclick="previewArrangementById('${a.id}')">プレビュー</button>
+            <button class="btn" style="font-size:10px" onclick="deleteArrangement('${a.id}')">削除</button>
+          </td>
+        </tr>`).join('')}
+    </tbody>
+  </table></div>`;
+}
+
+async function deleteArrangement(id){
+  if(!confirm('この手配書を削除しますか?')) return;
+  await sb.from('tour_arrangements').delete().eq('id', id);
+  await loadArrangementsList();
+}
+
+async function openArrangementEditor(arrId){
+  const b = findBookingById(currentDetailId);
+  if(!b) return;
+  currentArrangementId = arrId;
+  document.getElementById('arr-ref').textContent = b.ref_no;
+  document.getElementById('arr-msg').style.display='none';
+  document.getElementById('arr-preview-card').style.display='none';
+
+  ARR_HEADER_FIELDS.forEach(([elId])=>{ const el=document.getElementById(elId); if(el) el.value=''; });
+  document.getElementById('arr-footer-notes').value='';
+  arrDays = [];
+
+  if(arrId){
+    const {data: arr} = await sb.from('tour_arrangements').select('*').eq('id', arrId).maybeSingle();
+    if(arr){
+      ARR_HEADER_FIELDS.forEach(([elId, col])=>{ const el=document.getElementById(elId); if(el) el.value = arr[col]||''; });
+      document.getElementById('arr-footer-notes').value = arr.footer_notes||'';
+
+      const {data: days} = await sb.from('tour_arrangement_days').select('*').eq('arrangement_id', arrId).order('sort_order');
+      arrDays = (days||[]).map(d=>({...ARR_DAY_BLANK, ...d}));
+    }
+  } else {
+    document.getElementById('arr-tour-code').value = b.ref_no || '';
+  }
+
+  renderArrDays();
+  document.getElementById('arrangement-modal').classList.add('open');
+}
+
+function closeArrangementEditor(){
+  document.getElementById('arrangement-modal').classList.remove('open');
+  currentArrangementId = null;
+}
+
+function renderArrDays(){
+  const el = document.getElementById('arr-days');
+  el.innerHTML = arrDays.length
+    ? arrDays.map((d,i)=>arrDayCardHtml(d,i)).join('')
+    : '<div class="empty" style="font-size:11px;padding:6px 0">日程がありません。「＋ 日程を追加」で追加してください。</div>';
+}
+
+function arrDayCardHtml(d, i){
+  return `<div class="arr-day-card">
+    <div class="arr-day-head">
+      <span class="tag">Day ${i+1}</span>
+      <span>
+        <button class="btn" onclick="moveArrDay(${i},-1)">↑</button>
+        <button class="btn" onclick="moveArrDay(${i},1)">↓</button>
+        <button class="btn" onclick="removeArrDay(${i})">削除</button>
+      </span>
+    </div>
+    <div class="form-grid">
+      <div class="form-field"><label>日付</label><input type="date" value="${escAttr(d.day_date)}" onchange="arrDays[${i}].day_date=this.value"></div>
+      <div class="form-field"><label>曜日</label><input value="${escAttr(d.day_of_week)}" placeholder="例: 月" onchange="arrDays[${i}].day_of_week=this.value"></div>
+      <div class="form-field"><label>バス会社</label><input value="${escAttr(d.bus_company)}" onchange="arrDays[${i}].bus_company=this.value"></div>
+      <div class="form-field"><label>ホテル名</label><input value="${escAttr(d.hotel_name)}" onchange="arrDays[${i}].hotel_name=this.value"></div>
+      <div class="form-field"><label>エリア</label><input value="${escAttr(d.hotel_area)}" placeholder="例: 東京、大阪" onchange="arrDays[${i}].hotel_area=this.value"></div>
+      <div class="form-field"><label>エリア代表番号</label><input value="${escAttr(d.hotel_area_phone)}" onchange="arrDays[${i}].hotel_area_phone=this.value"></div>
+      <div class="form-field" style="grid-column:1/-1"><label>ドライバー宿泊/バスP情報</label><input value="${escAttr(d.driver_info)}" placeholder="例: DRV同宿 P:あり" onchange="arrDays[${i}].driver_info=this.value"></div>
+      <div class="form-field"><label>朝食(B)</label><input value="${escAttr(d.breakfast_type)}" placeholder="例: ホテル / X / お弁当(店名)" onchange="arrDays[${i}].breakfast_type=this.value"></div>
+      <div class="form-field"><label>昼食レストラン(L)</label><input value="${escAttr(d.lunch_restaurant)}" onchange="arrDays[${i}].lunch_restaurant=this.value"></div>
+      <div class="form-field"><label>昼食時間</label><input value="${escAttr(d.lunch_time)}" placeholder="例: 12:30" onchange="arrDays[${i}].lunch_time=this.value"></div>
+      <div class="form-field"><label>昼食電話</label><input value="${escAttr(d.lunch_phone)}" onchange="arrDays[${i}].lunch_phone=this.value"></div>
+      <div class="form-field"><label>夕食レストラン(D)</label><input value="${escAttr(d.dinner_restaurant)}" onchange="arrDays[${i}].dinner_restaurant=this.value"></div>
+      <div class="form-field"><label>夕食時間</label><input value="${escAttr(d.dinner_time)}" placeholder="例: 19:00" onchange="arrDays[${i}].dinner_time=this.value"></div>
+      <div class="form-field"><label>夕食電話</label><input value="${escAttr(d.dinner_phone)}" onchange="arrDays[${i}].dinner_phone=this.value"></div>
+      <div class="form-field" style="grid-column:1/-1"><label>行程(ITINERARY)</label><textarea rows="3" onchange="arrDays[${i}].itinerary=this.value">${escHtml(d.itinerary)}</textarea></div>
+      <div class="form-field" style="grid-column:1/-1"><label>その他(OTHERS)</label><textarea rows="2" onchange="arrDays[${i}].others_notes=this.value">${escHtml(d.others_notes)}</textarea></div>
+    </div>
+  </div>`;
+}
+
+function addArrDay(){
+  arrDays.push({...ARR_DAY_BLANK});
+  renderArrDays();
+}
+function removeArrDay(i){
+  if(!confirm('この日程を削除しますか?')) return;
+  arrDays.splice(i,1);
+  renderArrDays();
+}
+function moveArrDay(i, dir){
+  const j = i+dir;
+  if(j<0 || j>=arrDays.length) return;
+  [arrDays[i], arrDays[j]] = [arrDays[j], arrDays[i]];
+  renderArrDays();
+}
+
+async function saveArrangement(){
+  const b = findBookingById(currentDetailId);
+  if(!b) return;
+
+  const payload = { booking_ref: b.ref_no, updated_at: new Date().toISOString() };
+  ARR_HEADER_FIELDS.forEach(([elId, col])=>{
+    let v = document.getElementById(elId).value;
+    if(col==='arr_date' || col==='dep_date'){ payload[col] = v || null; }
+    else payload[col] = v;
+  });
+  payload.footer_notes = document.getElementById('arr-footer-notes').value;
+
+  let arrId = currentArrangementId;
+  if(arrId){
+    const {error} = await sb.from('tour_arrangements').update(payload).eq('id', arrId);
+    if(error){ alert('保存に失敗しました: '+error.message); return; }
+  }else{
+    payload.created_by = currentUser ? currentUser.email : null;
+    const {data, error} = await sb.from('tour_arrangements').insert(payload).select().single();
+    if(error){ alert('保存に失敗しました: '+error.message); return; }
+    arrId = data.id;
+    currentArrangementId = arrId;
+  }
+
+  // 日程を保存（全削除→再挿入）
+  await sb.from('tour_arrangement_days').delete().eq('arrangement_id', arrId);
+  if(arrDays.length>0){
+    const rows = arrDays.map((d,i)=>({
+      arrangement_id: arrId,
+      day_number: i+1,
+      day_date: d.day_date || null,
+      day_of_week: d.day_of_week||'',
+      bus_company: d.bus_company||'',
+      itinerary: d.itinerary||'',
+      others_notes: d.others_notes||'',
+      hotel_name: d.hotel_name||'',
+      hotel_area: d.hotel_area||'',
+      hotel_area_phone: d.hotel_area_phone||'',
+      driver_info: d.driver_info||'',
+      breakfast_type: d.breakfast_type||'',
+      lunch_restaurant: d.lunch_restaurant||'',
+      lunch_time: d.lunch_time||'',
+      lunch_phone: d.lunch_phone||'',
+      dinner_restaurant: d.dinner_restaurant||'',
+      dinner_time: d.dinner_time||'',
+      dinner_phone: d.dinner_phone||'',
+      sort_order: i
+    }));
+    const {error: dayErr} = await sb.from('tour_arrangement_days').insert(rows);
+    if(dayErr){ alert('日程の保存に失敗しました: '+dayErr.message); return; }
+  }
+
+  await logAction('手配書保存', b.ref_no + (payload.sheet_label?(' / '+payload.sheet_label):''));
+  const msg = document.getElementById('arr-msg');
+  msg.style.display='';
+  setTimeout(()=>{ msg.style.display='none'; }, 2000);
+
+  await loadArrangementsList();
+}
+
+async function previewArrangementById(id){
+  await openArrangementEditor(id);
+  previewArrangement();
+}
+
+function previewArrangement(){
+  const get = id => document.getElementById(id).value;
+  const fmtDate = d => d ? new Date(d).toLocaleDateString('ja-JP',{month:'numeric',day:'numeric'}) : '';
+  const fmtFlight = (date,airport,flight,time) => [fmtDate(date), airport, flight, time].filter(Boolean).join(' ');
+
+  const headerHtml = `
+    <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:10px">
+      <tr>
+        <td style="border:1px solid #999;padding:6px;font-weight:700;width:18%;background:#f5f7fa">Tour Code</td>
+        <td style="border:1px solid #999;padding:6px;width:32%">${escHtml(get('arr-tour-code'))}</td>
+        <td style="border:1px solid #999;padding:6px;font-weight:700;width:18%;background:#f5f7fa">Guide</td>
+        <td style="border:1px solid #999;padding:6px;width:32%">${escHtml(get('arr-guide-name'))} ${escHtml(get('arr-guide-phone'))}</td>
+      </tr>
+      <tr>
+        <td style="border:1px solid #999;padding:6px;font-weight:700;background:#f5f7fa">バス看板名 / 国籍</td>
+        <td style="border:1px solid #999;padding:6px">${escHtml(get('arr-bus-signboard'))}${get('arr-nationality')?('　／　国籍：'+escHtml(get('arr-nationality'))):''}</td>
+        <td style="border:1px solid #999;padding:6px;font-weight:700;background:#f5f7fa">No. PAX</td>
+        <td style="border:1px solid #999;padding:6px">${escHtml(get('arr-pax-info'))}</td>
+      </tr>
+      <tr>
+        <td style="border:1px solid #999;padding:6px;font-weight:700;background:#f5f7fa">旅行会社 / 予約番号</td>
+        <td style="border:1px solid #999;padding:6px">${escHtml(get('arr-agency-name'))} ${escHtml(get('arr-agency-booking-no'))}</td>
+        <td style="border:1px solid #999;padding:6px;font-weight:700;background:#f5f7fa">ARR / DEP</td>
+        <td style="border:1px solid #999;padding:6px">
+          ARR: ${fmtFlight(get('arr-arr-date'),get('arr-arr-airport'),get('arr-arr-flight'),get('arr-arr-time'))}<br>
+          DEP: ${fmtFlight(get('arr-dep-date'),get('arr-dep-airport'),get('arr-dep-flight'),get('arr-dep-time'))}
+        </td>
+      </tr>
+    </table>`;
+
+  const dayRows = arrDays.map((d,i)=>{
+    const restaurant = `B: ${escHtml(d.breakfast_type)}<br>L: ${escHtml(d.lunch_restaurant)} ${escHtml(d.lunch_time)} ${escHtml(d.lunch_phone)}<br>D: ${escHtml(d.dinner_restaurant)} ${escHtml(d.dinner_time)} ${escHtml(d.dinner_phone)}`;
+    const hotel = `${escHtml(d.hotel_name)}<br><span style="color:#666">${escHtml(d.hotel_area)} ${escHtml(d.hotel_area_phone)}</span><br><span style="color:#666">${escHtml(d.driver_info)}</span>`;
+    return `<tr>
+      <td style="border:1px solid #999;padding:6px;text-align:center;vertical-align:top;white-space:nowrap">${i+1}<br>${fmtDate(d.day_date)}<br>(${escHtml(d.day_of_week)})</td>
+      <td style="border:1px solid #999;padding:6px;vertical-align:top;white-space:nowrap">${escHtml(d.bus_company)}</td>
+      <td style="border:1px solid #999;padding:6px;vertical-align:top;white-space:pre-wrap">${escHtml(d.itinerary)}</td>
+      <td style="border:1px solid #999;padding:6px;vertical-align:top;white-space:pre-wrap">${escHtml(d.others_notes)}</td>
+      <td style="border:1px solid #999;padding:6px;vertical-align:top">${hotel}</td>
+      <td style="border:1px solid #999;padding:6px;vertical-align:top;white-space:nowrap">${restaurant}</td>
+    </tr>`;
+  }).join('');
+
+  const footerExtra = [];
+  if(get('arr-bus-company-name')) footerExtra.push('バス会社: '+escHtml(get('arr-bus-company-name'))+' '+escHtml(get('arr-bus-company-contact')));
+  if(get('arr-driver-notes')) footerExtra.push(escHtml(get('arr-driver-notes')));
+
+  const html = `
+    <div style="background:#fff;border:1px solid #ddd;width:100%;margin:0 auto;padding:14px;font-size:11px;color:#222;box-sizing:border-box">
+      <div style="text-align:center;font-size:16px;font-weight:700;letter-spacing:2px;color:var(--blue);margin-bottom:10px">手配書${get('arr-sheet-label')?(' - '+escHtml(get('arr-sheet-label'))):''}</div>
+      ${headerHtml}
+      <div class="tbl-wrap"><table style="width:100%;border-collapse:collapse;font-size:10px;margin-bottom:10px">
+        <thead><tr>
+          <th style="border:1px solid #999;padding:5px;background:#f5f7fa;width:60px">DATE</th>
+          <th style="border:1px solid #999;padding:5px;background:#f5f7fa;width:90px">BUS</th>
+          <th style="border:1px solid #999;padding:5px;background:#f5f7fa">ITINERARY</th>
+          <th style="border:1px solid #999;padding:5px;background:#f5f7fa;width:140px">OTHERS</th>
+          <th style="border:1px solid #999;padding:5px;background:#f5f7fa;width:140px">HOTEL</th>
+          <th style="border:1px solid #999;padding:5px;background:#f5f7fa;width:170px">RESTAURANT</th>
+        </tr></thead>
+        <tbody>${dayRows || '<tr><td colspan="6" style="border:1px solid #999;padding:10px;text-align:center;color:#999">日程が登録されていません</td></tr>'}</tbody>
+      </table></div>
+      <div style="font-size:10px;color:#444;white-space:pre-wrap;border-top:1px solid #ddd;padding-top:8px;line-height:1.6">
+        ${escHtml(get('arr-footer-notes'))}${footerExtra.length?('<br>'+footerExtra.join('<br>')):''}
+      </div>
+      <div style="text-align:right;font-weight:700;margin-top:10px;color:var(--blue)">KIC TRAVEL</div>
+    </div>`;
+
+  document.getElementById('arr-preview-body').innerHTML = html;
+  document.getElementById('arr-preview-card').style.display='';
+  document.getElementById('arr-preview-card').scrollIntoView({behavior:'smooth'});
 }
 
 async function issueInvoiceFromBookingDetail(currency, agentFilter){
