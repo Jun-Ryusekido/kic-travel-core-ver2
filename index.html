@@ -295,11 +295,8 @@ th.sortable:hover{color:var(--blue)}
                 <div class="form-field"><label>子供 (CHD)</label><input id="nb-pax-chd" type="number" min="0" placeholder="0" oninput="updateNbPaxTotal()"></div>
                 <div class="form-field"><label>乳児 (INF)</label><input id="nb-pax-inf" type="number" min="0" placeholder="0" oninput="updateNbPaxTotal()"></div>
                 <div class="form-field"><label>合計 (TCP)</label><input id="nb-pax-total" type="number" disabled></div>
-              </div>
-            </div>
-            <div class="form-field" style="grid-column:1/-1">
-              <div class="field-row3">
-                <div class="form-field"><label>Status</label>
+                <div class="form-field" style="flex:1 1 160px">
+                  <label>Status</label>
                   <select id="nb-status">
                     <option value="open">Open</option>
                     <option value="invoiced">Invoiced</option>
@@ -308,6 +305,10 @@ th.sortable:hover{color:var(--blue)}
                     <option value="closed">Closed</option>
                   </select>
                 </div>
+              </div>
+            </div>
+            <div class="form-field" style="grid-column:1/-1">
+              <div class="field-row3">
                 <div class="form-field"><label>In-Date</label><input id="nb-in" type="date"></div>
                 <div class="form-field"><label>Out-Date</label><input id="nb-out" type="date"></div>
               </div>
@@ -610,11 +611,8 @@ th.sortable:hover{color:var(--blue)}
           <div class="form-field"><label>子供 (CHD)</label><input id="bd-pax-chd" type="number" min="0" oninput="updateBdPaxTotal()"></div>
           <div class="form-field"><label>乳児 (INF)</label><input id="bd-pax-inf" type="number" min="0" oninput="updateBdPaxTotal()"></div>
           <div class="form-field"><label>合計 (TCP)</label><input id="bd-pax-total" type="number" disabled></div>
-        </div>
-      </div>
-      <div class="form-field" style="grid-column:1/-1">
-        <div class="field-row3">
-          <div class="form-field"><label>手配状況 / Status</label>
+          <div class="form-field" style="flex:1 1 160px">
+            <label>手配状況 / Status</label>
             <select id="bd-status">
               <option value="open">Open（未対応）</option>
               <option value="pending">Pending（手配中）</option>
@@ -623,6 +621,10 @@ th.sortable:hover{color:var(--blue)}
               <option value="closed">Closed（完了）</option>
             </select>
           </div>
+        </div>
+      </div>
+      <div class="form-field" style="grid-column:1/-1">
+        <div class="field-row3">
           <div class="form-field"><label>In-Date</label><input id="bd-in" type="date"></div>
           <div class="form-field"><label>Out-Date</label><input id="bd-out" type="date"></div>
         </div>
