@@ -381,7 +381,7 @@ th.sortable:hover{color:var(--blue)}
         <div class="card">
           <div class="card-title">検索・絞り込み</div>
           <div class="form-grid" style="grid-template-columns:2fr 1fr">
-            <div class="form-field"><label>検索（REF# / Invoice No / Agent / Tour）</label><input id="iv-search" placeholder="例: Kesari, #1374, INV-260611" oninput="filterInvoiceUnified()"></div>
+            <div class="form-field"><label>検索（REF# / Invoice No / Agent / Tour）</label><input id="iv-search" placeholder="例: Kesari, #1374, INV-1374" oninput="filterInvoiceUnified()"></div>
             <div class="form-field"><label>Status</label>
               <select id="iv-status" onchange="filterInvoiceUnified()">
                 <option value="">すべて</option>
@@ -3092,8 +3092,8 @@ const ivState = {sortField:null, sortDir:1, page:1};
 const IV_PAGE_SIZE = 50;
 
 const IV_COLUMNS = [
-  ['ref_no','REF#'], ['agent_name','Agent',true,'20%'], ['tour_name','Tour',true,'12%'],
-  ['gross_sales','売上'], ['invoice_no','Invoice No.'], ['issue_date','発行日'],
+  ['ref_no','REF#'], ['agent_name','Agent',true,'26%'], ['tour_name','Tour',true,'18%'],
+  ['gross_sales','売上'], ['issue_date','発行日'],
   ['statusLabel','Status'], ['','',false,'200px']
 ];
 
@@ -3197,9 +3197,9 @@ function filterInvoiceUnified(){
     }
     return `<tr>
       <td class="lnk" onclick="openBookingDetail('${row.id}')">${row.ref_no}</td>
-      <td>${row.agent_name||''}</td><td>${row.tour_name||''}</td>
+      <td style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${row.agent_name||''}</td>
+      <td style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${row.tour_name||''}</td>
       <td>${yen(row.gross_sales)}</td>
-      <td>${row.invoice_no||'-'}</td>
       <td>${row.issue_date||'-'}</td>
       <td>${statusCell}</td>
       <td style="white-space:nowrap">${actionCell}</td>
