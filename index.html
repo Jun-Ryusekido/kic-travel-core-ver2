@@ -1122,17 +1122,24 @@ function sortBookingList(prefix, field){
   filterBookingListGeneric(prefix);
 }
 
+// 当面の間、出発日(From)の初期値として使用（必要に応じて変更・削除してください）
+const TEMP_DEFAULT_FROM = '2026-06-01';
+
 async function loadBookingListGeneric(prefix){
   document.getElementById(prefix+'-tbody').innerHTML='<tr><td colspan="11" class="empty">読み込み中...</td></tr>';
   renderListHeader(prefix);
   allBookingsCache = await fetchAllBookings();
   listState[prefix].page = 1;
+  const fromEl = document.getElementById(prefix+'-from');
+  const isAdmin = currentUser && currentUser.role==='admin';
+  if(fromEl && !fromEl.value && !isAdmin) fromEl.value = TEMP_DEFAULT_FROM;
   filterBookingListGeneric(prefix);
 }
 
 function resetBookingFilter(prefix){
   document.getElementById(prefix+'-search').value='';
-  document.getElementById(prefix+'-from').value='';
+  const isAdmin = currentUser && currentUser.role==='admin';
+  document.getElementById(prefix+'-from').value = isAdmin ? '' : TEMP_DEFAULT_FROM;
   document.getElementById(prefix+'-to').value='';
   document.getElementById(prefix+'-status').value='';
   listState[prefix].page = 1;
