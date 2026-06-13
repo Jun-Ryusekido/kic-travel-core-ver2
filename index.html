@@ -190,12 +190,13 @@ th.sortable:hover{color:var(--blue)}
 @media print{ [contenteditable]:empty:before{content:''} [contenteditable]{border-color:#fff !important} }
 @media print{
   body *{visibility:hidden}
-  #inv-preview-card, #inv-preview-card *, #arr-preview-card, #arr-preview-card *, #est-preview-card, #est-preview-card *, #gs-print-card, #gs-print-card *, #ga-print-card, #ga-print-card *{visibility:visible}
-  #inv-preview-card, #arr-preview-card, #est-preview-card, #gs-print-card, #ga-print-card{position:absolute;left:0;top:0;width:100%;border:none;box-shadow:none;padding:0}
+  #inv-preview-card, #inv-preview-card *, #arr-preview-card, #arr-preview-card *, #est-preview-card, #est-preview-card *, #gs-print-card, #gs-print-card *, #ga-print-card, #ga-print-card *, #gsl-print-card, #gsl-print-card *{visibility:visible}
+  #inv-preview-card, #arr-preview-card, #est-preview-card, #gs-print-card, #ga-print-card, #gsl-print-card{position:absolute;left:0;top:0;width:100%;border:none;box-shadow:none;padding:0}
   #inv-preview-card .card-title, #inv-preview-card button,
   #arr-preview-card .card-title, #arr-preview-card button,
   #est-preview-card .card-title, #est-preview-card button,
-  #gs-print-card .card-title, #gs-print-card button{display:none}
+  #gs-print-card .card-title, #gs-print-card button,
+  #gsl-print-card .card-title, #gsl-print-card button{display:none}
   #arrangement-modal.open{position:static !important;background:none !important;padding:0 !important;overflow:visible !important;display:block !important}
   #arrangement-modal.open .modal-box{max-height:none !important;overflow:visible !important;box-shadow:none !important;max-width:none !important}
   #est-preview-card table{font-size:8px !important}
@@ -235,6 +236,7 @@ th.sortable:hover{color:var(--blue)}
     <div class="sb-item" data-pg="invoice" onclick="go('invoice')">🧾 Invoice</div>
     <div class="sb-item" data-pg="estimation" onclick="go('estimation')">📝 見積もり</div>
     <div class="sb-item" data-pg="guide-advance" onclick="go('guide-advance')">🧑‍✈️ ガイド仮払い一覧</div>
+    <div class="sb-item" data-pg="guide-settlements" onclick="go('guide-settlements')">🧾 ガイド精算一覧</div>
     <div class="sb-sec">分析</div>
     <div class="sb-item" data-pg="gross" onclick="go('gross')">📈 GROSS / 粗利</div>
     <div class="sb-item accounting-only" data-pg="payment" onclick="go('payment')">💱 入出金管理</div>
@@ -345,6 +347,11 @@ th.sortable:hover{color:var(--blue)}
 
       <!-- Booking List -->
       <div id="pg-booking-list" class="page" style="display:none">
+        <div class="card" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <span style="font-size:11px;color:var(--text3)">ガイド関連:</span>
+          <button class="btn" onclick="go('guide-advance')">🧑‍✈️ ガイド仮払い一覧</button>
+          <button class="btn" onclick="go('guide-settlements')">🧾 ガイド精算一覧</button>
+        </div>
         <div class="card">
           <div class="card-title">検索・絞り込み</div>
           <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr 1fr">
@@ -505,6 +512,29 @@ th.sortable:hover{color:var(--blue)}
             <thead><tr><th>REF#</th><th>Tour</th><th>IN</th><th>OUT</th><th>人数</th><th>ガイド名</th><th>電話番号</th><th>想定ガイド費</th><th>仮払金</th></tr></thead>
             <tbody id="ga-tbody"><tr><td colspan="9" class="empty">読み込み中...</td></tr></tbody>
           </table></div>
+        </div>
+      </div>
+
+      <!-- ガイド精算一覧 -->
+      <div id="pg-guide-settlements" class="page" style="display:none">
+        <div class="card">
+          <div style="font-size:11px;color:var(--text3)">発行済みのガイド精算リンク一覧です。各行の「精算書を印刷」から、テンプレート形式のガイド精算書（A4縦）を印刷できます。</div>
+        </div>
+        <div class="card">
+          <div class="card-title">ガイド精算一覧</div>
+          <div class="tbl-wrap"><table id="gsl-table">
+            <thead><tr><th>REF#</th><th>Tour</th><th>ガイド名</th><th>電話番号</th><th>状態</th><th>件数</th><th>現地費用計</th><th>仮払金合計</th><th></th></tr></thead>
+            <tbody id="gsl-tbody"><tr><td colspan="9" class="empty">読み込み中...</td></tr></tbody>
+          </table></div>
+        </div>
+        <div class="card" id="gsl-print-card" style="display:none">
+          <div class="card-title">ガイド精算書 プレビュー
+            <span>
+              <button class="btn" onclick="printGuideSettlementListDoc()">🖨 印刷 / PDF保存（A4縦）</button>
+              <button class="btn" onclick="document.getElementById('gsl-print-card').style.display='none'">閉じる</button>
+            </span>
+          </div>
+          <div id="gsl-print-body"></div>
         </div>
       </div>
 
@@ -1023,7 +1053,7 @@ function restoreSession(){
 // ===== ナビゲーション =====
 const pageNames={
   dashboard:'Dashboard','new-booking':'New Booking','booking-list':'Booking List',
-  invoice:'Invoice',estimation:'見積もり','guide-advance':'ガイド仮払い一覧',gross:'GROSS / 粗利管理',payment:'入出金管理',accounts:'アカウント管理',logs:'アクセスログ'
+  invoice:'Invoice',estimation:'見積もり','guide-advance':'ガイド仮払い一覧','guide-settlements':'ガイド精算一覧',gross:'GROSS / 粗利管理',payment:'入出金管理',accounts:'アカウント管理',logs:'アクセスログ'
 };
 function go(id){
   if((id==='accounts'||id==='logs') && currentUser && currentUser.role!=='admin') return;
@@ -1044,6 +1074,7 @@ function go(id){
   if(id==='invoice') loadInvoicePage();
   if(id==='estimation') loadEstimations();
   if(id==='guide-advance') loadGuideAdvanceList();
+  if(id==='guide-settlements') loadGuideSettlementsListPage();
   if(id==='gross') loadGross();
   if(id==='payment') loadPayments();
   if(id==='accounts') loadAccounts();
@@ -2047,11 +2078,7 @@ async function updateGuideSettlementField(id, field, value){
   if(s) s[field]=v;
 }
 
-function printGuideSettlement(settlementId){
-  const s = guideSettlementsCache.find(x=>x.id===settlementId);
-  const b = findBookingById(currentDetailId);
-  if(!s || !b) return;
-
+function buildGuideSettlementPrintHtml(s, b){
   const items = (s.items||[]).filter(it=>it.status!=='rejected');
   const advanceTotal = Number(s.advance_payment||0) + Number(s.additional_advance_payment||0);
   const localTotal = items.reduce((sum,it)=>sum+Number(it.amount||0),0);
@@ -2080,7 +2107,7 @@ function printGuideSettlement(settlementId){
       <td style="border:1px solid #999;padding:8px"></td>
     </tr>`).join('');
 
-  const html = `
+  return `
     <div style="background:#fff;border:1px solid #ddd;width:100%;margin:0 auto;padding:14px;font-size:11px;color:#222;box-sizing:border-box">
       <div style="text-align:center;font-size:16px;font-weight:700;letter-spacing:2px;color:var(--blue);margin-bottom:10px">ガイド精算書</div>
       <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:10px">
@@ -2143,8 +2170,14 @@ function printGuideSettlement(settlementId){
         </tbody>
       </table>
     </div>`;
+}
 
-  document.getElementById('gs-print-body').innerHTML = html;
+function printGuideSettlement(settlementId){
+  const s = guideSettlementsCache.find(x=>x.id===settlementId);
+  const b = findBookingById(currentDetailId);
+  if(!s || !b) return;
+
+  document.getElementById('gs-print-body').innerHTML = buildGuideSettlementPrintHtml(s, b);
   document.getElementById('gs-print-card').style.display='';
   document.getElementById('gs-print-card').scrollIntoView({behavior:'smooth'});
 }
@@ -2984,6 +3017,78 @@ function printGuideAdvanceList(){
   style.textContent = '@page{size:A4 landscape;margin:10mm}';
   window.onafterprint = ()=>{
     const st = document.getElementById('ga-print-style');
+    if(st) st.remove();
+    window.onafterprint = null;
+  };
+  window.print();
+}
+
+// ===================================================
+// ガイド精算一覧（全予約分）
+// ===================================================
+let guideSettlementsListCache = [];
+
+async function loadGuideSettlementsListPage(){
+  const tbody = document.getElementById('gsl-tbody');
+  tbody.innerHTML = '<tr><td colspan="9" class="empty">読み込み中...</td></tr>';
+
+  const {data: settlements} = await sb.from('guide_settlements').select('*').order('created_at',{ascending:false});
+  if(!settlements || settlements.length===0){
+    guideSettlementsListCache = [];
+    tbody.innerHTML = '<tr><td colspan="9" class="empty">発行されたガイド精算リンクはありません</td></tr>';
+    return;
+  }
+
+  const ids = settlements.map(s=>s.id);
+  const {data: items} = await sb.from('guide_settlement_items').select('*').in('settlement_id', ids);
+  const itemsBySettlement = {};
+  (items||[]).forEach(it=>{ (itemsBySettlement[it.settlement_id]=itemsBySettlement[it.settlement_id]||[]).push(it); });
+
+  const data = await fetchAllBookings();
+  const bookingByRef = {};
+  data.forEach(b=>{ bookingByRef[b.ref_no]=b; });
+
+  guideSettlementsListCache = settlements.map(s=>({...s, items: itemsBySettlement[s.id]||[]}));
+
+  tbody.innerHTML = guideSettlementsListCache.map(s=>{
+    const b = bookingByRef[s.booking_ref];
+    const items = (s.items||[]).filter(it=>it.status!=='rejected');
+    const localTotal = items.reduce((sum,it)=>sum+Number(it.amount||0),0);
+    const advanceTotal = Number(s.advance_payment||0)+Number(s.additional_advance_payment||0);
+    const statusLabel = s.status==='closed' ? '締め済' : '受付中';
+    return `<tr>
+      <td class="lnk" onclick="${b?`openBookingDetail('${b.id}')`:''}">${escHtml(s.booking_ref||'')}</td>
+      <td>${escHtml(b?b.tour_name:'')}</td>
+      <td>${escHtml(s.guide_name||'')}</td>
+      <td>${escHtml(s.guide_phone||'')}</td>
+      <td>${statusLabel}</td>
+      <td>${items.length}</td>
+      <td style="text-align:right">${yen(localTotal)}</td>
+      <td style="text-align:right">${yen(advanceTotal)}</td>
+      <td><button class="btn" style="font-size:10px;white-space:nowrap" onclick="printGuideSettlementFromList('${s.id}')">🖨 精算書を印刷</button></td>
+    </tr>`;
+  }).join('');
+}
+
+function printGuideSettlementFromList(settlementId){
+  const s = guideSettlementsListCache.find(x=>x.id===settlementId);
+  if(!s) return;
+  const data = allBookingsCache.find(b=>b.ref_no===s.booking_ref) || {};
+  document.getElementById('gsl-print-body').innerHTML = buildGuideSettlementPrintHtml(s, data);
+  document.getElementById('gsl-print-card').style.display='';
+  document.getElementById('gsl-print-card').scrollIntoView({behavior:'smooth'});
+}
+
+function printGuideSettlementListDoc(){
+  let style = document.getElementById('gsl-print-style');
+  if(!style){
+    style = document.createElement('style');
+    style.id = 'gsl-print-style';
+    document.head.appendChild(style);
+  }
+  style.textContent = '@page{size:A4 portrait;margin:10mm}';
+  window.onafterprint = ()=>{
+    const st = document.getElementById('gsl-print-style');
     if(st) st.remove();
     window.onafterprint = null;
   };
