@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>ガイド精算 | KIC Travel Core</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{
+  --blue:#185FA5;--blue-lt:#E6F1FB;
+  --green:#0F6E56;--green-lt:#EAF3DE;
+  --amber:#854F0B;--amber-lt:#FAEEDA;
+  --red:#A32D2D;--red-lt:#FCEBEB;
+  --bg:#F4F3EE;--card:#FFFFFF;--border:#E3E1D9;
+  --text:#1F1E1B;--text2:#5F5E5A;--text3:#9B998F;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Hiragino Kaku Gothic ProN",sans-serif;background:var(--bg);color:var(--text);padding-bottom:40px}
+.header{background:var(--blue);color:#fff;padding:16px;text-align:center}
+.header .logo{font-weight:700;font-size:16px;letter-spacing:1px}
+.header .sub{font-size:11px;opacity:.85;margin-top:2px}
+.container{max-width:480px;margin:0 auto;padding:12px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:14px}
+.card-title{font-size:13px;font-weight:700;color:var(--text2);margin-bottom:10px}
+.tour-info{font-size:13px;line-height:1.7}
+.tour-info b{color:var(--blue)}
+.form-field{display:flex;flex-direction:column;gap:4px;margin-bottom:10px}
+.form-field label{font-size:11px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+.form-field input,.form-field select,.form-field textarea{padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:#fff;font-size:15px;color:var(--text);font-family:inherit}
+.form-field input:focus,.form-field select:focus,.form-field textarea:focus{outline:none;border-color:var(--blue)}
+.btn{padding:12px 16px;border-radius:10px;border:1px solid var(--border);background:#fff;color:var(--text);font-size:14px;font-weight:600;cursor:pointer;width:100%}
+.btn-p{background:var(--blue);color:#fff;border-color:var(--blue)}
+.btn:disabled{opacity:.5}
+.msg-ok{font-size:12px;color:var(--green);margin-top:8px;display:none;text-align:center}
+.msg-err{font-size:12px;color:var(--red);margin-top:8px;display:none;text-align:center}
+.item-row{display:flex;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px}
+.item-row:last-child{border-bottom:none}
+.item-row .main{flex:1;min-width:0}
+.item-row .cat{color:var(--text3);font-size:10px}
+.item-row .amt{font-weight:700;flex:0 0 auto}
+.pill{font-size:9px;padding:2px 6px;border-radius:8px;font-weight:600;flex:0 0 auto}
+.pill.pending{background:var(--amber-lt);color:var(--amber)}
+.pill.approved{background:var(--green-lt);color:#3B6D11}
+.pill.rejected{background:#F1EFE8;color:#5F5E5A}
+.total-row{display:flex;justify-content:space-between;align-items:center;font-size:14px;font-weight:700;padding-top:8px;margin-top:4px;border-top:1px solid var(--border)}
+.empty{color:var(--text3);font-size:12px;text-align:center;padding:10px 0}
+.error-box{background:var(--red-lt);color:var(--red);padding:16px;border-radius:10px;font-size:13px;text-align:center;margin:20px 12px}
+.closed-box{background:var(--amber-lt);color:var(--amber);padding:10px 14px;border-radius:8px;font-size:12px;text-align:center;margin-bottom:14px}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">KIC TRAVEL</div>
+  <div class="sub">ガイド精算 入力フォーム</div>
+</div>
+
+<div id="app" class="container">
+  <div class="empty">読み込み中...</div>
+</div>
+
+<script>
+const SUPABASE_URL = 'https://nzdygjlnzvtdezslnuoy.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_Cnloaxzb2Ati8gmCa-1o3Q_t3uy6_mB';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const CATEGORIES = ['食事代','交通費','入場料・拝観料の立替','チップ','駐車場・通行料','その他'];
+
+function yen(n){ return '¥' + Number(n||0).toLocaleString('ja-JP'); }
+function escHtml(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+const params = new URLSearchParams(location.search);
+const token = params.get('token');
+
+let settlement = null;
+let booking = null;
+let items = [];
+
+async function init(){
+  const app = document.getElementById('app');
+  if(!token){
+    app.innerHTML = '<div class="error-box">URLが正しくありません。担当者から共有されたリンクをご確認ください。</div>';
+    return;
+  }
+
+  const {data: s, error} = await sb.from('guide_settlements').select('*').eq('access_token', token).maybeSingle();
+  if(error || !s){
+    app.innerHTML = '<div class="error-box">リンクが見つかりませんでした。担当者にご確認ください。</div>';
+    return;
+  }
+  settlement = s;
+
+  const {data: b} = await sb.from('bookings').select('ref_no, tour_name, in_date, out_date').eq('ref_no', s.booking_ref).maybeSingle();
+  booking = b || null;
+
+  await reload();
+}
+
+async function reload(){
+  const {data} = await sb.from('guide_settlement_items').select('*').eq('settlement_id', settlement.id).order('submitted_at',{ascending:false});
+  items = data || [];
+  render();
+}
+
+function render(){
+  const app = document.getElementById('app');
+  const total = items.filter(it=>it.status!=='rejected').reduce((sum,it)=>sum+Number(it.amount||0),0);
+  const closed = settlement.status==='closed';
+
+  const tourInfoHtml = booking ? `
+    <div class="tour-info">
+      <div>REF# <b>${escHtml(booking.ref_no)}</b></div>
+      ${booking.tour_name?`<div>${escHtml(booking.tour_name)}</div>`:''}
+      ${(booking.in_date||booking.out_date)?`<div>${booking.in_date||''} 〜 ${booking.out_date||''}</div>`:''}
+      <div>ガイド: <b>${escHtml(settlement.guide_name||'')}</b></div>
+    </div>` : `<div class="tour-info">ガイド: <b>${escHtml(settlement.guide_name||'')}</b></div>`;
+
+  const formHtml = closed ? '' : `
+    <div class="card">
+      <div class="card-title">経費を登録</div>
+      <div class="form-field">
+        <label>日付</label>
+        <input type="date" id="f-date">
+      </div>
+      <div class="form-field">
+        <label>カテゴリ</label>
+        <select id="f-category">
+          ${CATEGORIES.map(c=>`<option value="${c}">${c}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-field">
+        <label>内容</label>
+        <input type="text" id="f-description" placeholder="例: 昼食代（〇〇レストラン）">
+      </div>
+      <div class="form-field">
+        <label>金額（円）</label>
+        <input type="number" id="f-amount" inputmode="numeric" placeholder="0">
+      </div>
+      <button class="btn btn-p" id="f-submit" onclick="submitItem()">送信する</button>
+      <div class="msg-ok" id="f-msg-ok">✓ 送信しました</div>
+      <div class="msg-err" id="f-msg-err"></div>
+    </div>`;
+
+  const itemsHtml = items.length>0 ? items.map(it=>{
+    const pillLabel = it.status==='approved' ? '承認済' : it.status==='rejected' ? '却下' : '未確認';
+    return `<div class="item-row">
+      <div class="main">
+        <div>${escHtml(it.expense_date||'')} <span class="cat">${escHtml(it.category||'')}</span></div>
+        <div>${escHtml(it.description||'')}</div>
+      </div>
+      <div class="amt">${yen(it.amount)}</div>
+      <span class="pill ${it.status}">${pillLabel}</span>
+    </div>`;
+  }).join('') : '<div class="empty">まだ送信した項目はありません</div>';
+
+  app.innerHTML = `
+    <div class="card">${tourInfoHtml}</div>
+    ${closed ? '<div class="closed-box">この精算は締め済みです。新しい項目は送信できません。</div>' : ''}
+    ${formHtml}
+    <div class="card">
+      <div class="card-title">送信済みの項目</div>
+      ${itemsHtml}
+      <div class="total-row"><span>合計</span><span>${yen(total)}</span></div>
+    </div>
+  `;
+
+  const dateInput = document.getElementById('f-date');
+  if(dateInput && !dateInput.value){
+    dateInput.value = new Date().toISOString().slice(0,10);
+  }
+}
+
+async function submitItem(){
+  const date = document.getElementById('f-date').value;
+  const category = document.getElementById('f-category').value;
+  const description = document.getElementById('f-description').value.trim();
+  const amount = Number(document.getElementById('f-amount').value)||0;
+  const errEl = document.getElementById('f-msg-err');
+  const okEl = document.getElementById('f-msg-ok');
+  const btn = document.getElementById('f-submit');
+  errEl.style.display='none'; okEl.style.display='none';
+
+  if(amount<=0){
+    errEl.textContent = '金額を入力してください';
+    errEl.style.display='block';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = '送信中...';
+
+  try{
+    const {error: insErr} = await sb.from('guide_settlement_items').insert({
+      settlement_id: settlement.id,
+      expense_date: date || null,
+      category, description, amount,
+      status: 'pending'
+    });
+    if(insErr) throw insErr;
+
+    okEl.style.display='block';
+    document.getElementById('f-description').value='';
+    document.getElementById('f-amount').value='';
+    await reload();
+    setTimeout(()=>{ const o=document.getElementById('f-msg-ok'); if(o) o.style.display='none'; }, 2500);
+  }catch(e){
+    errEl.textContent = '送信に失敗しました: '+(e.message||e);
+    errEl.style.display='block';
+  }finally{
+    btn.disabled = false;
+    btn.textContent = '送信する';
+  }
+}
+
+init();
+</script>
+</body>
+</html>
