@@ -243,7 +243,7 @@ th.sortable:hover{color:var(--blue)}
     <div class="sb-item" data-pg="guide-advance" onclick="go('guide-advance')">🧑‍✈️ ガイド仮払い一覧</div>
     <div class="sb-item" data-pg="guide-settlements" onclick="go('guide-settlements')">🧾 ガイド精算一覧</div>
     <div class="sb-sec">分析</div>
-    <div class="sb-item" data-pg="gross" onclick="go('gross')">📈 GROSS / 粗利</div>
+    <div class="sb-item admin-only" data-pg="gross" onclick="go('gross')">📈 GROSS / 粗利</div>
     <div class="sb-item accounting-only" data-pg="payment" onclick="go('payment')">💱 入出金管理</div>
     <div class="sb-sec admin-only">管理</div>
     <div class="sb-item admin-only" data-pg="accounts" onclick="go('accounts')">🔐 アカウント管理</div>
@@ -1062,7 +1062,7 @@ const pageNames={
   invoice:'Invoice',estimation:'見積もり','guide-advance':'ガイド仮払い一覧','guide-settlements':'ガイド精算一覧',gross:'GROSS / 粗利管理',payment:'入出金管理',accounts:'アカウント管理',logs:'アクセスログ'
 };
 function go(id){
-  if((id==='accounts'||id==='logs') && currentUser && currentUser.role!=='admin') return;
+  if((id==='accounts'||id==='logs'||id==='gross') && currentUser && currentUser.role!=='admin') return;
   if(id==='payment' && !isAccountingUser()) return;
   if(!document.getElementById('pg-'+id)) return;
   currentPageId = id;
