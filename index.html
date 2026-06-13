@@ -859,29 +859,33 @@ function escAttr(s){ return escHtml(s).replace(/"/g,'&quot;'); }
 // ===== 決算年度（3月〜翌2月）ヘルパー =====
 function fiscalYearOf(dateStr){
   if(!dateStr) return null;
-  const d = new Date(dateStr);
-  if(isNaN(d.getTime())) return null;
-  const y = d.getFullYear(), m = d.getMonth()+1; // m: 1-12
-  return m>=3 ? y : y-1;
+  const m = String(dateStr).match(/^(\d{4})-(\d{2})/);
+  if(!m) return null;
+  const y = Number(m[1]), mo = Number(m[2]);
+  return mo>=3 ? y : y-1;
 }
 function fiscalYearLabel(fy){
   return `${fy}年度（${fy}/3〜${fy+1}/2）`;
 }
 function fiscalYearRange(fy){
   const from = `${fy}-03-01`;
-  const lastDay = new Date(fy+1, 2, 0).getDate(); // 翌年2月の最終日（うるう年対応）
+  const isLeap = y => (y%4===0 && y%100!==0) || y%400===0;
+  const lastDay = isLeap(fy+1) ? 29 : 28;
   const to = `${fy+1}-02-${String(lastDay).padStart(2,'0')}`;
   return {from, to};
 }
 function currentFiscalYear(){
-  return fiscalYearOf(new Date().toISOString().slice(0,10));
+  const now = new Date();
+  const dateStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+  return fiscalYearOf(dateStr);
 }
 // 指定した決算年度の12ヶ月分のYYYY-MM配列（3月始まり）
 function fiscalYearMonths(fy){
   const months = [];
   for(let i=0;i<12;i++){
-    const d = new Date(fy, 2+i, 1); // 2 = March (0-indexed)
-    months.push(d.toISOString().slice(0,7));
+    let y = fy, mo = 3+i;
+    if(mo>12){ y+=1; mo-=12; }
+    months.push(`${y}-${String(mo).padStart(2,'0')}`);
   }
   return months;
 }
