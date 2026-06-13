@@ -240,7 +240,6 @@ th.sortable:hover{color:var(--blue)}
     <div class="sb-sec">請求・精算</div>
     <div class="sb-item" data-pg="invoice" onclick="go('invoice')">🧾 Invoice</div>
     <div class="sb-item" data-pg="estimation" onclick="go('estimation')">📝 見積もり</div>
-    <div class="sb-item" data-pg="guide-advance" onclick="go('guide-advance')">🧑‍✈️ ガイド仮払い一覧</div>
     <div class="sb-item" data-pg="guide-settlements" onclick="go('guide-settlements')">🧾 ガイド精算一覧</div>
     <div class="sb-sec">分析</div>
     <div class="sb-item admin-only" data-pg="gross" onclick="go('gross')">📈 GROSS / 粗利</div>
@@ -354,8 +353,24 @@ th.sortable:hover{color:var(--blue)}
       <div id="pg-booking-list" class="page" style="display:none">
         <div class="card" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
           <span style="font-size:11px;color:var(--text3)">ガイド関連:</span>
-          <button class="btn" onclick="go('guide-advance')">🧑‍✈️ ガイド仮払い一覧</button>
+          <button class="btn" onclick="toggleGuideAdvanceSection()" id="ga-toggle-btn">🧑‍✈️ ガイド仮払い一覧</button>
           <button class="btn" onclick="go('guide-settlements')">🧾 ガイド精算一覧</button>
+        </div>
+        <div class="card" id="bl-guide-advance-section" style="display:none">
+          <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+            <div class="form-field"><label>From（到着日）</label><input id="ga-from" type="date" onchange="loadGuideAdvanceList()"></div>
+            <div class="form-field"><label>To（到着日）</label><input id="ga-to" type="date" onchange="loadGuideAdvanceList()"></div>
+            <div class="form-field" style="align-self:end"><button class="btn" onclick="setGuideAdvanceRangeDefault()">直近60日</button></div>
+            <button class="btn" style="margin-left:auto" onclick="printGuideAdvanceList()">🖨 印刷（A4横）</button>
+          </div>
+          <div style="font-size:11px;color:var(--text3);margin:4px 0 10px">※ ガイド名・電話番号は手配書、想定ガイド費は見積もり（成約済み）から自動取得します。仮払金は予約台帳のガイド精算で入力した内容が反映されます。</div>
+          <div id="ga-print-card">
+            <div class="card-title">ガイド仮払い一覧</div>
+            <div class="tbl-wrap"><table id="ga-table">
+              <thead><tr><th>REF#</th><th>Tour</th><th>IN</th><th>OUT</th><th>人数</th><th>ガイド名</th><th>電話番号</th><th>想定ガイド費</th><th>仮払金</th></tr></thead>
+              <tbody id="ga-tbody"><tr><td colspan="9" class="empty">読み込み中...</td></tr></tbody>
+            </table></div>
+          </div>
         </div>
         <div class="card">
           <div class="card-title">検索・絞り込み</div>
@@ -497,26 +512,6 @@ th.sortable:hover{color:var(--blue)}
             </span>
           </div>
           <div id="est-preview-body"></div>
-        </div>
-      </div>
-
-      <!-- ガイド仮払い一覧 -->
-      <div id="pg-guide-advance" class="page" style="display:none">
-        <div class="card">
-          <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
-            <div class="form-field"><label>From（到着日）</label><input id="ga-from" type="date" onchange="loadGuideAdvanceList()"></div>
-            <div class="form-field"><label>To（到着日）</label><input id="ga-to" type="date" onchange="loadGuideAdvanceList()"></div>
-            <div class="form-field" style="align-self:end"><button class="btn" onclick="setGuideAdvanceRangeDefault()">直近60日</button></div>
-            <button class="btn" style="margin-left:auto" onclick="printGuideAdvanceList()">🖨 印刷（A4横）</button>
-          </div>
-          <div style="font-size:11px;color:var(--text3);margin-top:4px">※ ガイド名・電話番号は手配書、想定ガイド費は見積もり（成約済み）から自動取得します。仮払金は予約台帳のガイド精算で入力した内容が反映されます。</div>
-        </div>
-        <div class="card" id="ga-print-card">
-          <div class="card-title">ガイド仮払い一覧</div>
-          <div class="tbl-wrap"><table id="ga-table">
-            <thead><tr><th>REF#</th><th>Tour</th><th>IN</th><th>OUT</th><th>人数</th><th>ガイド名</th><th>電話番号</th><th>想定ガイド費</th><th>仮払金</th></tr></thead>
-            <tbody id="ga-tbody"><tr><td colspan="9" class="empty">読み込み中...</td></tr></tbody>
-          </table></div>
         </div>
       </div>
 
@@ -1059,7 +1054,7 @@ function restoreSession(){
 // ===== ナビゲーション =====
 const pageNames={
   dashboard:'Dashboard','new-booking':'New Booking','booking-list':'Booking List',
-  invoice:'Invoice',estimation:'見積もり','guide-advance':'ガイド仮払い一覧','guide-settlements':'ガイド精算一覧',gross:'GROSS / 粗利管理',payment:'入出金管理',accounts:'アカウント管理',logs:'アクセスログ'
+  invoice:'Invoice',estimation:'見積もり','guide-settlements':'ガイド精算一覧',gross:'GROSS / 粗利管理',payment:'入出金管理',accounts:'アカウント管理',logs:'アクセスログ'
 };
 function go(id){
   if((id==='accounts'||id==='logs'||id==='gross') && currentUser && currentUser.role!=='admin') return;
@@ -1079,7 +1074,6 @@ function go(id){
   if(id==='booking-list') loadBookingListGeneric('bl');
   if(id==='invoice') loadInvoicePage();
   if(id==='estimation') loadEstimations();
-  if(id==='guide-advance') loadGuideAdvanceList();
   if(id==='guide-settlements') loadGuideSettlementsListPage();
   if(id==='gross') loadGross();
   if(id==='payment') loadPayments();
@@ -3016,6 +3010,23 @@ function setGuideAdvanceRangeDefault(){
   document.getElementById('ga-from').value = today.toISOString().slice(0,10);
   document.getElementById('ga-to').value = future.toISOString().slice(0,10);
   loadGuideAdvanceList();
+}
+
+function toggleGuideAdvanceSection(){
+  const el = document.getElementById('bl-guide-advance-section');
+  const btn = document.getElementById('ga-toggle-btn');
+  const show = el.style.display==='none';
+  el.style.display = show ? '' : 'none';
+  if(show){
+    btn.classList.add('btn-p');
+    if(!document.getElementById('ga-from').value && !document.getElementById('ga-to').value){
+      setGuideAdvanceRangeDefault();
+    }else{
+      loadGuideAdvanceList();
+    }
+  }else{
+    btn.classList.remove('btn-p');
+  }
 }
 
 async function loadGuideAdvanceList(){
