@@ -3470,7 +3470,9 @@ function filterInvoiceUnified(){
   const q = toHalfWidth(document.getElementById('iv-search').value.trim().toLowerCase());
   const status = document.getElementById('iv-status').value;
 
+  const isAdmin = currentUser && currentUser.role==='admin';
   let filtered = invoiceUnifiedCache.filter(row=>{
+    if(!isAdmin && (!row.in_date || row.in_date < TEMP_DEFAULT_FROM)) return false;
     if(q){
       const hay = `${row.ref_no||''} ${row.invoice_no||''} ${row.agent_name||''} ${row.tour_name||''}`.toLowerCase();
       if(!hay.includes(q)) return false;
@@ -3482,7 +3484,8 @@ function filterInvoiceUnified(){
     return true;
   });
 
-  document.getElementById('iv-count').textContent = `${filtered.length}件 / 全${invoiceUnifiedCache.length}件`;
+  const baseTotal = isAdmin ? invoiceUnifiedCache.length : invoiceUnifiedCache.filter(row=>row.in_date && row.in_date>=TEMP_DEFAULT_FROM).length;
+  document.getElementById('iv-count').textContent = `${filtered.length}件 / 全${baseTotal}件`;
   filtered = genericSort(filtered, ivState);
   renderSortHeader('iv-thead', IV_COLUMNS, ivState, 'sortInvoiceUnified');
 
