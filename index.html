@@ -712,7 +712,7 @@ th.sortable:hover{color:var(--blue)}
       <button class="btn" onclick="exportBookingArchive()">📦 このツアーのデータをアーカイブ（ZIP）</button>
       <span style="font-size:10px;color:var(--text3)">予約情報・売上仕入明細・Invoice・手配書・見積もり・ガイド精算をまとめてZIPファイルでダウンロードします</span>
     </div>
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <div class="admin-only" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <button class="btn" style="color:var(--red);border-color:var(--red-lt)" onclick="deleteBookingData()">🗑 このツアーのデータをSupabaseから削除</button>
       <span style="font-size:10px;color:var(--text3)">アーカイブ済みであることを確認してから実行してください。この操作は取り消せません。</span>
     </div>
