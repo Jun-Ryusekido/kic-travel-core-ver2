@@ -3472,7 +3472,7 @@ function filterInvoiceUnified(){
 
   const isAdmin = currentUser && currentUser.role==='admin';
   let filtered = invoiceUnifiedCache.filter(row=>{
-    if(!isAdmin && (!row.in_date || row.in_date < TEMP_DEFAULT_FROM)) return false;
+    if(!isAdmin && row.in_date && row.in_date < TEMP_DEFAULT_FROM) return false;
     if(q){
       const hay = `${row.ref_no||''} ${row.invoice_no||''} ${row.agent_name||''} ${row.tour_name||''}`.toLowerCase();
       if(!hay.includes(q)) return false;
@@ -3484,7 +3484,7 @@ function filterInvoiceUnified(){
     return true;
   });
 
-  const baseTotal = isAdmin ? invoiceUnifiedCache.length : invoiceUnifiedCache.filter(row=>row.in_date && row.in_date>=TEMP_DEFAULT_FROM).length;
+  const baseTotal = isAdmin ? invoiceUnifiedCache.length : invoiceUnifiedCache.filter(row=>!row.in_date || row.in_date>=TEMP_DEFAULT_FROM).length;
   document.getElementById('iv-count').textContent = `${filtered.length}件 / 全${baseTotal}件`;
   filtered = genericSort(filtered, ivState);
   renderSortHeader('iv-thead', IV_COLUMNS, ivState, 'sortInvoiceUnified');
@@ -3539,8 +3539,8 @@ async function loadInvoicePage(){
     if(!cur || new Date(inv.created_at) > new Date(cur.created_at)) latestInvByBooking[inv.booking_id] = inv;
   });
 
-  // 売上のある予約のみ対象（未発行＋発行済み）
-  invoiceUnifiedCache = bookings.filter(b=>Number(b.gross_sales||0)>0).map(b=>{
+  // 全予約を対象（未発行＋発行済み）
+  invoiceUnifiedCache = bookings.map(b=>{
     const inv = latestInvByBooking[b.id];
     return {
       id: b.id, ref_no: b.ref_no, agent_name: b.agent_name, tour_name: b.tour_name,
