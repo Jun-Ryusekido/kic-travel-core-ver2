@@ -470,6 +470,13 @@ th.sortable:hover{color:var(--blue)}
 
       <!-- GROSS -->
       <div id="pg-gross" class="page" style="display:none">
+        <div class="card">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <label style="font-size:11px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.5px">決算年度</label>
+            <select id="g-fy" onchange="loadGross()" style="min-width:200px"></select>
+            <span style="font-size:11px;color:var(--text3)">※ OUT-DATE（ツアー終了日）基準</span>
+          </div>
+        </div>
         <div class="kpi-grid">
           <div class="kpi"><div class="kpi-lbl">総売上</div><div class="kpi-val" id="g-sales">-</div></div>
           <div class="kpi"><div class="kpi-lbl">総原価</div><div class="kpi-val" id="g-cost">-</div></div>
@@ -477,10 +484,17 @@ th.sortable:hover{color:var(--blue)}
           <div class="kpi"><div class="kpi-lbl">GROSS率</div><div class="kpi-val green" id="g-rate">-</div></div>
         </div>
         <div class="card">
+          <div class="card-title">月別集計</div>
+          <div class="tbl-wrap"><table>
+            <thead><tr><th>月</th><th>売上</th><th>原価</th><th>GROSS</th><th>GROSS率</th><th>件数</th></tr></thead>
+            <tbody id="g-monthly-tbody"><tr><td colspan="6" class="empty">読み込み中...</td></tr></tbody>
+          </table></div>
+        </div>
+        <div class="card">
           <div class="card-title">GROSS明細 — ツアー別</div>
           <div class="tbl-wrap"><table>
-            <thead><tr><th>REF#</th><th>Agent</th><th>Tour</th><th>売上</th><th>原価</th><th>GROSS</th><th>率</th><th>Status</th></tr></thead>
-            <tbody id="g-tbody"><tr><td colspan="8" class="empty">読み込み中...</td></tr></tbody>
+            <thead><tr><th>REF#</th><th>Agent</th><th>Tour</th><th>Out</th><th>売上</th><th>原価</th><th>GROSS</th><th>率</th><th>Status</th></tr></thead>
+            <tbody id="g-tbody"><tr><td colspan="9" class="empty">読み込み中...</td></tr></tbody>
           </table></div>
         </div>
       </div>
@@ -489,10 +503,16 @@ th.sortable:hover{color:var(--blue)}
       <div id="pg-payment" class="page" style="display:none">
         <div class="card">
           <div class="card-title">期間指定</div>
-          <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr">
+          <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr 1fr">
             <div class="form-field"><label>From</label><input id="pay-from" type="date" onchange="loadPayments()"></div>
             <div class="form-field"><label>To</label><input id="pay-to" type="date" onchange="loadPayments()"></div>
             <div class="form-field" style="align-self:end"><button class="btn" onclick="setPaymentRangeThisMonth()">今月</button></div>
+            <div class="form-field"><label>決算年度</label>
+              <div style="display:flex;gap:6px">
+                <select id="pay-fy" style="flex:1"></select>
+                <button class="btn" onclick="setPaymentRangeFiscalYear()">適用</button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -504,7 +524,7 @@ th.sortable:hover{color:var(--blue)}
         </div>
 
         <div class="card">
-          <div class="card-title">月別レポート（直近12ヶ月）</div>
+          <div class="card-title" id="pay-monthly-title">月別レポート</div>
           <div class="tbl-wrap"><table>
             <thead><tr><th>月</th><th>入金合計（売上）</th><th>出金合計（仕入）</th><th>差引</th></tr></thead>
             <tbody id="pay-monthly-tbody"><tr><td colspan="4" class="empty">読み込み中...</td></tr></tbody>
@@ -788,6 +808,36 @@ function clearSession(){
 function yen(n){ return '¥' + Number(n||0).toLocaleString('ja-JP'); }
 function escHtml(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function escAttr(s){ return escHtml(s).replace(/"/g,'&quot;'); }
+
+// ===== 決算年度（3月〜翌2月）ヘルパー =====
+function fiscalYearOf(dateStr){
+  if(!dateStr) return null;
+  const d = new Date(dateStr);
+  if(isNaN(d.getTime())) return null;
+  const y = d.getFullYear(), m = d.getMonth()+1; // m: 1-12
+  return m>=3 ? y : y-1;
+}
+function fiscalYearLabel(fy){
+  return `${fy}年度（${fy}/3〜${fy+1}/2）`;
+}
+function fiscalYearRange(fy){
+  const from = `${fy}-03-01`;
+  const lastDay = new Date(fy+1, 2, 0).getDate(); // 翌年2月の最終日（うるう年対応）
+  const to = `${fy+1}-02-${String(lastDay).padStart(2,'0')}`;
+  return {from, to};
+}
+function currentFiscalYear(){
+  return fiscalYearOf(new Date().toISOString().slice(0,10));
+}
+// 指定した決算年度の12ヶ月分のYYYY-MM配列（3月始まり）
+function fiscalYearMonths(fy){
+  const months = [];
+  for(let i=0;i<12;i++){
+    const d = new Date(fy, 2+i, 1); // 2 = March (0-indexed)
+    months.push(d.toISOString().slice(0,7));
+  }
+  return months;
+}
 function isMobile(){ return /Mobile|iPhone|Android/.test(navigator.userAgent); }
 function deviceLabel(){ return isMobile() ? (/iPhone/.test(navigator.userAgent)?'iPhone':'Android') : 'PC'; }
 
@@ -2209,8 +2259,26 @@ async function saveBooking(){
 // ===== GROSS =====
 async function loadGross(){
   const data = await fetchAllBookings();
-  const totalSales = data.reduce((s,b)=>s+Number(b.gross_sales||0),0);
-  const totalCost  = data.reduce((s,b)=>s+Number(b.gross_cost||0),0);
+
+  // 決算年度セレクターの初期化（データ範囲＋現在年度を含む）
+  const fySel = document.getElementById('g-fy');
+  if(fySel.options.length===0){
+    const fySet = new Set();
+    data.forEach(b=>{ const fy = fiscalYearOf(b.out_date); if(fy!=null) fySet.add(fy); });
+    const cur = currentFiscalYear();
+    fySet.add(cur); fySet.add(cur-1); fySet.add(cur+1);
+    const years = Array.from(fySet).sort((a,b)=>b-a);
+    fySel.innerHTML = years.map(fy=>`<option value="${fy}">${fiscalYearLabel(fy)}</option>`).join('');
+    fySel.value = String(cur);
+  }
+  const selectedFy = Number(fySel.value);
+  const {from, to} = fiscalYearRange(selectedFy);
+
+  // 選択した決算年度（OUT-DATE基準）に絞り込み
+  const inFy = data.filter(b => b.out_date && b.out_date>=from && b.out_date<=to);
+
+  const totalSales = inFy.reduce((s,b)=>s+Number(b.gross_sales||0),0);
+  const totalCost  = inFy.reduce((s,b)=>s+Number(b.gross_cost||0),0);
   const gross = totalSales-totalCost;
   const rate = totalSales ? (gross/totalSales*100).toFixed(1) : '0.0';
   document.getElementById('g-sales').textContent=yen(totalSales);
@@ -2218,24 +2286,43 @@ async function loadGross(){
   document.getElementById('g-gross').textContent=yen(gross);
   document.getElementById('g-rate').textContent=rate+'%';
 
-  const tbody=document.getElementById('g-tbody');
-  // 売上または原価が発生している予約のみ、粗利額の大きい順に上位50件
-  const withAmount = data.filter(b=>Number(b.gross_sales||0)!==0 || Number(b.gross_cost||0)!==0);
-  const sorted = withAmount.sort((a,b)=>{
-    const ga=Number(a.gross_sales||0)-Number(a.gross_cost||0);
-    const gb=Number(b.gross_sales||0)-Number(b.gross_cost||0);
-    return Math.abs(gb)-Math.abs(ga);
-  }).slice(0,50);
+  // 月別集計（その決算年度の3月〜翌2月）
+  const months = fiscalYearMonths(selectedFy);
+  const monthMap = {};
+  months.forEach(m=>{ monthMap[m] = {sales:0, cost:0, count:0}; });
+  inFy.forEach(b=>{
+    const m = (b.out_date||'').slice(0,7);
+    if(monthMap[m]){
+      monthMap[m].sales += Number(b.gross_sales||0);
+      monthMap[m].cost  += Number(b.gross_cost||0);
+      monthMap[m].count += 1;
+    }
+  });
+  document.getElementById('g-monthly-tbody').innerHTML = months.map(m=>{
+    const v = monthMap[m];
+    const g = v.sales - v.cost;
+    const r = v.sales ? (g/v.sales*100).toFixed(1) : '0.0';
+    const cls = g<0 ? 'red' : 'green';
+    const [yy,mm] = m.split('-');
+    return `<tr><td>${yy}年${Number(mm)}月</td><td>${yen(v.sales)}</td><td>${yen(v.cost)}</td><td class="${cls}">${yen(g)}</td><td class="${cls}">${r}%</td><td>${v.count}</td></tr>`;
+  }).join('');
 
-  if(sorted.length===0){ tbody.innerHTML='<tr><td colspan="8" class="empty">データがありません</td></tr>'; return; }
+  const tbody=document.getElementById('g-tbody');
+  // 選択した決算年度内で、売上または原価が発生している予約をOUT-DATE順に表示
+  const withAmount = inFy.filter(b=>Number(b.gross_sales||0)!==0 || Number(b.gross_cost||0)!==0)
+    .sort((a,b)=> (a.out_date||'').localeCompare(b.out_date||''));
+
   document.querySelector('#pg-gross .card-title').innerHTML =
-    `GROSS明細 — 金額の大きい順 上位${sorted.length}件 <span class="lnk" style="font-size:11px;font-weight:400" onclick="go('booking-list')">Booking Listで全件検索 →</span>`;
-  tbody.innerHTML=sorted.map(b=>{
+    `GROSS明細 — ツアー別（${fiscalYearLabel(selectedFy)}、${withAmount.length}件） <span class="lnk" style="font-size:11px;font-weight:400" onclick="go('booking-list')">Booking Listで全件検索 →</span>`;
+
+  if(withAmount.length===0){ tbody.innerHTML='<tr><td colspan="9" class="empty">この決算年度のデータがありません</td></tr>'; return; }
+  tbody.innerHTML=withAmount.map(b=>{
     const sales=Number(b.gross_sales||0), cost=Number(b.gross_cost||0), g=sales-cost;
     const r = sales ? (g/sales*100).toFixed(1) : '0.0';
     const cls = g<0 ? 'red' : (r>=25 ? 'green' : 'amber');
     return `<tr ondblclick="openBookingDetail('${b.id}')">
       <td class="lnk" onclick="openBookingDetail('${b.id}')">${b.ref_no}</td><td>${b.agent_name||''}</td><td>${b.tour_name||''}</td>
+      <td>${b.out_date||''}</td>
       <td>${yen(sales)}</td><td>${yen(cost)}</td>
       <td class="${cls}">${yen(g)}</td><td class="${cls}">${r}%</td>
       <td>${statusPill(b.status)}</td>
@@ -2260,7 +2347,26 @@ function setPaymentRangeThisMonth(){
   loadPayments();
 }
 
+function initPaymentFiscalYearSelect(){
+  const sel = document.getElementById('pay-fy');
+  if(sel.options.length>0) return;
+  const cur = currentFiscalYear();
+  const years = [];
+  for(let fy=cur+1; fy>=cur-4; fy--) years.push(fy);
+  sel.innerHTML = years.map(fy=>`<option value="${fy}">${fiscalYearLabel(fy)}</option>`).join('');
+  sel.value = String(cur);
+}
+
+function setPaymentRangeFiscalYear(){
+  const fy = Number(document.getElementById('pay-fy').value);
+  const {from, to} = fiscalYearRange(fy);
+  document.getElementById('pay-from').value = from;
+  document.getElementById('pay-to').value = to;
+  loadPayments();
+}
+
 async function loadPayments(){
+  initPaymentFiscalYearSelect();
   if(!document.getElementById('pay-from').value || !document.getElementById('pay-to').value){
     setPaymentRangeThisMonth();
     return;
@@ -2290,13 +2396,12 @@ async function loadPayments(){
 }
 
 function renderPaymentMonthly(){
-  // 直近12ヶ月分のキー（YYYY-MM）を生成
-  const months = [];
-  const now = new Date();
-  for(let i=11;i>=0;i--){
-    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
-    months.push(d.toISOString().slice(0,7));
-  }
+  // 「To」日付が属する決算年度の12ヶ月分（3月〜翌2月）
+  const toVal = document.getElementById('pay-to').value;
+  const fy = fiscalYearOf(toVal) ?? currentFiscalYear();
+  const months = fiscalYearMonths(fy);
+  document.getElementById('pay-monthly-title').textContent = `月別レポート（${fiscalYearLabel(fy)}）`;
+
   const inMap = {}, outMap = {};
   salesPaymentsCache.forEach(r=>{
     const m = (r.payment_date||'').slice(0,7);
@@ -2310,7 +2415,8 @@ function renderPaymentMonthly(){
   document.getElementById('pay-monthly-tbody').innerHTML = months.map(m=>{
     const inAmt = inMap[m]||0, outAmt = outMap[m]||0, net = inAmt-outAmt;
     const cls = net<0?'red':'green';
-    return `<tr><td>${m}</td><td class="green">${yen(inAmt)}</td><td class="red">${yen(outAmt)}</td><td class="${cls}">${yen(net)}</td></tr>`;
+    const [yy,mm] = m.split('-');
+    return `<tr><td>${yy}年${Number(mm)}月</td><td class="green">${yen(inAmt)}</td><td class="red">${yen(outAmt)}</td><td class="${cls}">${yen(net)}</td></tr>`;
   }).join('');
 }
 
