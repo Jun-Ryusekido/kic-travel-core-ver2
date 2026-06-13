@@ -190,8 +190,8 @@ th.sortable:hover{color:var(--blue)}
 @media print{ [contenteditable]:empty:before{content:''} [contenteditable]{border-color:#fff !important} }
 @media print{
   body *{visibility:hidden}
-  #inv-preview-card, #inv-preview-card *, #arr-preview-card, #arr-preview-card *, #est-preview-card, #est-preview-card *, #gs-print-card, #gs-print-card *{visibility:visible}
-  #inv-preview-card, #arr-preview-card, #est-preview-card, #gs-print-card{position:absolute;left:0;top:0;width:100%;border:none;box-shadow:none;padding:0}
+  #inv-preview-card, #inv-preview-card *, #arr-preview-card, #arr-preview-card *, #est-preview-card, #est-preview-card *, #gs-print-card, #gs-print-card *, #ga-print-card, #ga-print-card *{visibility:visible}
+  #inv-preview-card, #arr-preview-card, #est-preview-card, #gs-print-card, #ga-print-card{position:absolute;left:0;top:0;width:100%;border:none;box-shadow:none;padding:0}
   #inv-preview-card .card-title, #inv-preview-card button,
   #arr-preview-card .card-title, #arr-preview-card button,
   #est-preview-card .card-title, #est-preview-card button,
@@ -234,6 +234,7 @@ th.sortable:hover{color:var(--blue)}
     <div class="sb-sec">請求・精算</div>
     <div class="sb-item" data-pg="invoice" onclick="go('invoice')">🧾 Invoice</div>
     <div class="sb-item" data-pg="estimation" onclick="go('estimation')">📝 見積もり</div>
+    <div class="sb-item" data-pg="guide-advance" onclick="go('guide-advance')">🧑‍✈️ ガイド仮払い一覧</div>
     <div class="sb-sec">分析</div>
     <div class="sb-item" data-pg="gross" onclick="go('gross')">📈 GROSS / 粗利</div>
     <div class="sb-item accounting-only" data-pg="payment" onclick="go('payment')">💱 入出金管理</div>
@@ -484,6 +485,26 @@ th.sortable:hover{color:var(--blue)}
             </span>
           </div>
           <div id="est-preview-body"></div>
+        </div>
+      </div>
+
+      <!-- ガイド仮払い一覧 -->
+      <div id="pg-guide-advance" class="page" style="display:none">
+        <div class="card">
+          <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+            <div class="form-field"><label>From（到着日）</label><input id="ga-from" type="date" onchange="loadGuideAdvanceList()"></div>
+            <div class="form-field"><label>To（到着日）</label><input id="ga-to" type="date" onchange="loadGuideAdvanceList()"></div>
+            <div class="form-field" style="align-self:end"><button class="btn" onclick="setGuideAdvanceRangeDefault()">直近60日</button></div>
+            <button class="btn" style="margin-left:auto" onclick="printGuideAdvanceList()">🖨 印刷（A4横）</button>
+          </div>
+          <div style="font-size:11px;color:var(--text3);margin-top:4px">※ ガイド名・電話番号は手配書、想定ガイド費は見積もり（成約済み）から自動取得します。仮払金は予約台帳のガイド精算で入力した内容が反映されます。</div>
+        </div>
+        <div class="card" id="ga-print-card">
+          <div class="card-title">ガイド仮払い一覧</div>
+          <div class="tbl-wrap"><table id="ga-table">
+            <thead><tr><th>REF#</th><th>Tour</th><th>IN</th><th>OUT</th><th>人数</th><th>ガイド名</th><th>電話番号</th><th>想定ガイド費</th><th>仮払金</th></tr></thead>
+            <tbody id="ga-tbody"><tr><td colspan="9" class="empty">読み込み中...</td></tr></tbody>
+          </table></div>
         </div>
       </div>
 
@@ -1002,7 +1023,7 @@ function restoreSession(){
 // ===== ナビゲーション =====
 const pageNames={
   dashboard:'Dashboard','new-booking':'New Booking','booking-list':'Booking List',
-  invoice:'Invoice',estimation:'見積もり',gross:'GROSS / 粗利管理',payment:'入出金管理',accounts:'アカウント管理',logs:'アクセスログ'
+  invoice:'Invoice',estimation:'見積もり','guide-advance':'ガイド仮払い一覧',gross:'GROSS / 粗利管理',payment:'入出金管理',accounts:'アカウント管理',logs:'アクセスログ'
 };
 function go(id){
   if((id==='accounts'||id==='logs') && currentUser && currentUser.role!=='admin') return;
@@ -1022,6 +1043,7 @@ function go(id){
   if(id==='booking-list') loadBookingListGeneric('bl');
   if(id==='invoice') loadInvoicePage();
   if(id==='estimation') loadEstimations();
+  if(id==='guide-advance') loadGuideAdvanceList();
   if(id==='gross') loadGross();
   if(id==='payment') loadPayments();
   if(id==='accounts') loadAccounts();
@@ -2880,6 +2902,92 @@ async function loadGross(){
       <td>${statusPill(b.status)}</td>
     </tr>`;
   }).join('');
+}
+
+// ===================================================
+// ガイド仮払い一覧
+// ===================================================
+function setGuideAdvanceRangeDefault(){
+  const today = new Date();
+  const future = new Date(today.getTime()+60*86400000);
+  document.getElementById('ga-from').value = today.toISOString().slice(0,10);
+  document.getElementById('ga-to').value = future.toISOString().slice(0,10);
+  loadGuideAdvanceList();
+}
+
+async function loadGuideAdvanceList(){
+  const fromEl = document.getElementById('ga-from'), toEl = document.getElementById('ga-to');
+  if(!fromEl.value && !toEl.value){
+    setGuideAdvanceRangeDefault();
+    return;
+  }
+  const from = fromEl.value, to = toEl.value;
+  const data = await fetchAllBookings();
+  const filtered = data.filter(b=> b.in_date && (!from || b.in_date>=from) && (!to || b.in_date<=to))
+    .sort((a,b)=>(a.in_date||'').localeCompare(b.in_date||''));
+
+  const tbody = document.getElementById('ga-tbody');
+  if(filtered.length===0){ tbody.innerHTML='<tr><td colspan="9" class="empty">該当する予約がありません</td></tr>'; return; }
+
+  const refNos = filtered.map(b=>b.ref_no);
+  const ids = filtered.map(b=>b.id);
+
+  const [{data: arrangements}, {data: estimations}, {data: settlements}] = await Promise.all([
+    sb.from('tour_arrangements').select('booking_ref, guide_name, guide_phone').in('booking_ref', refNos),
+    sb.from('estimations').select('id, converted_booking_id').in('converted_booking_id', ids),
+    sb.from('guide_settlements').select('booking_ref, guide_name, guide_phone, advance_payment, additional_advance_payment').in('booking_ref', refNos)
+  ]);
+
+  let estGuideSumByEstId = {};
+  if(estimations && estimations.length>0){
+    const estIds = estimations.map(e=>e.id);
+    const {data: edays} = await sb.from('estimation_days').select('estimation_id, guide_fee, guide_tip, guide_meal').in('estimation_id', estIds);
+    (edays||[]).forEach(d=>{
+      estGuideSumByEstId[d.estimation_id] = (estGuideSumByEstId[d.estimation_id]||0) + Number(d.guide_fee||0)+Number(d.guide_tip||0)+Number(d.guide_meal||0);
+    });
+  }
+  const estGuideSumByBooking = {};
+  (estimations||[]).forEach(e=>{ estGuideSumByBooking[e.converted_booking_id] = estGuideSumByEstId[e.id]||0; });
+
+  const arrByRef = {}; (arrangements||[]).forEach(a=>{ if(!arrByRef[a.booking_ref]) arrByRef[a.booking_ref]=a; });
+  const setByRef = {}; (settlements||[]).forEach(s=>{ if(!setByRef[s.booking_ref]) setByRef[s.booking_ref]=s; });
+
+  tbody.innerHTML = filtered.map(b=>{
+    const arr = arrByRef[b.ref_no];
+    const set = setByRef[b.ref_no];
+    const pax = Number(b.pax_adult||0)+Number(b.pax_child||0)+Number(b.pax_infant||0);
+    const expectedGuide = (estGuideSumByBooking[b.id]!=null) ? yen(estGuideSumByBooking[b.id]) : '-';
+    const guideName = (set && set.guide_name) || (arr && arr.guide_name) || '';
+    const guidePhone = (set && set.guide_phone) || (arr && arr.guide_phone) || '';
+    const advance = set ? yen(Number(set.advance_payment||0)+Number(set.additional_advance_payment||0)) : '-';
+    return `<tr ondblclick="openBookingDetail('${b.id}')">
+      <td class="lnk" onclick="openBookingDetail('${b.id}')">${b.ref_no}</td>
+      <td>${escHtml(b.tour_name||'')}</td>
+      <td>${b.in_date||''}</td>
+      <td>${b.out_date||''}</td>
+      <td>${pax}</td>
+      <td>${escHtml(guideName)}</td>
+      <td>${escHtml(guidePhone)}</td>
+      <td style="text-align:right">${expectedGuide}</td>
+      <td style="text-align:right">${advance}</td>
+    </tr>`;
+  }).join('');
+}
+
+function printGuideAdvanceList(){
+  let style = document.getElementById('ga-print-style');
+  if(!style){
+    style = document.createElement('style');
+    style.id = 'ga-print-style';
+    document.head.appendChild(style);
+  }
+  style.textContent = '@page{size:A4 landscape;margin:10mm}';
+  window.onafterprint = ()=>{
+    const st = document.getElementById('ga-print-style');
+    if(st) st.remove();
+    window.onafterprint = null;
+  };
+  window.print();
 }
 
 // ===== Payments =====
