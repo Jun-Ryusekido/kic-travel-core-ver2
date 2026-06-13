@@ -178,6 +178,11 @@ th.sortable:hover{color:var(--blue)}
 .gs-pill.approved{background:var(--green-lt);color:#3B6D11}
 .gs-pill.rejected{background:#F1EFE8;color:#5F5E5A}
 .gs-pill.reflected{background:var(--blue-lt);color:var(--blue)}
+.gs-fields-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.gs-field{display:flex;flex-direction:column;gap:2px}
+.gs-field label{font-size:9px;color:var(--text3);font-weight:600;white-space:nowrap}
+.gs-field input{padding:4px 6px;font-size:11px;border-radius:6px;border:1px solid var(--border);width:110px;background:#fff;color:var(--text)}
+.gs-field input:focus{outline:none;border-color:var(--blue)}
 
 /* 印刷時：Invoice / 手配書プレビューのみ表示 */
 @page{size:A4;margin:0}
@@ -185,11 +190,12 @@ th.sortable:hover{color:var(--blue)}
 @media print{ [contenteditable]:empty:before{content:''} [contenteditable]{border-color:#fff !important} }
 @media print{
   body *{visibility:hidden}
-  #inv-preview-card, #inv-preview-card *, #arr-preview-card, #arr-preview-card *, #est-preview-card, #est-preview-card *{visibility:visible}
-  #inv-preview-card, #arr-preview-card, #est-preview-card{position:absolute;left:0;top:0;width:100%;border:none;box-shadow:none;padding:0}
+  #inv-preview-card, #inv-preview-card *, #arr-preview-card, #arr-preview-card *, #est-preview-card, #est-preview-card *, #gs-print-card, #gs-print-card *{visibility:visible}
+  #inv-preview-card, #arr-preview-card, #est-preview-card, #gs-print-card{position:absolute;left:0;top:0;width:100%;border:none;box-shadow:none;padding:0}
   #inv-preview-card .card-title, #inv-preview-card button,
   #arr-preview-card .card-title, #arr-preview-card button,
-  #est-preview-card .card-title, #est-preview-card button{display:none}
+  #est-preview-card .card-title, #est-preview-card button,
+  #gs-print-card .card-title, #gs-print-card button{display:none}
   #arrangement-modal.open{position:static !important;background:none !important;padding:0 !important;overflow:visible !important;display:block !important}
   #arrangement-modal.open .modal-box{max-height:none !important;overflow:visible !important;box-shadow:none !important;max-width:none !important}
   #est-preview-card table{font-size:8px !important}
@@ -705,6 +711,15 @@ th.sortable:hover{color:var(--blue)}
       <input id="bd-new-guide-name" placeholder="ガイド名" style="max-width:160px;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:12px">
       <button class="btn" style="font-size:10px" onclick="createGuideSettlement()">＋ ガイド精算リンクを発行</button>
       <span class="msg-ok" id="gs-msg">✓ リンクを発行しました</span>
+    </div>
+    <div class="card" id="gs-print-card" style="display:none;margin-top:10px">
+      <div class="card-title">ガイド精算書 プレビュー
+        <span>
+          <button class="btn" onclick="printGuideSettlementDoc()">🖨 印刷 / PDF保存（A4縦）</button>
+          <button class="btn" onclick="document.getElementById('gs-print-card').style.display='none'">閉じる</button>
+        </span>
+      </div>
+      <div id="gs-print-body"></div>
     </div>
 
     <div class="modal-section-title">データ管理</div>
@@ -1972,7 +1987,7 @@ function renderGuideSettlements(){
 
     return `<div class="gs-card">
       <div class="gs-card-head">
-        <div><strong>${escHtml(s.guide_name||'(ガイド名未設定)')}</strong> <span style="font-size:10px;color:var(--text3)">${s.status==='closed'?'（締め済）':'（受付中）'}</span></div>
+        <div><strong>${escHtml(s.booking_ref||'')} / ${escHtml(s.guide_name||'(ガイド名未設定)')}</strong> <span style="font-size:10px;color:var(--text3)">${s.status==='closed'?'（締め済）':'（受付中）'}</span></div>
         <div style="font-size:11px">
           合計: <strong>${yen(total)}</strong>
           ${pendingCount>0?` / 未確認 ${pendingCount}件`:''}
@@ -1982,13 +1997,146 @@ function renderGuideSettlements(){
         <span style="flex:1">${escHtml(url)}</span>
         <button class="btn" style="font-size:10px" onclick="navigator.clipboard.writeText('${escAttr(url)}');this.textContent='コピーしました';setTimeout(()=>this.textContent='リンクをコピー',1500)">リンクをコピー</button>
       </div>
+      <div class="gs-fields-row">
+        <div class="gs-field"><label>携帯番号</label><input value="${escAttr(s.guide_phone)}" onchange="updateGuideSettlementField('${s.id}','guide_phone',this.value)"></div>
+        <div class="gs-field"><label>仮払金</label><input type="number" value="${s.advance_payment||0}" onchange="updateGuideSettlementField('${s.id}','advance_payment',this.value)"></div>
+        <div class="gs-field"><label>仮払金追加</label><input type="number" value="${s.additional_advance_payment||0}" onchange="updateGuideSettlementField('${s.id}','additional_advance_payment',this.value)"></div>
+        <div class="gs-field"><label>ガイド費(日当)</label><input type="number" value="${s.guide_fee||0}" onchange="updateGuideSettlementField('${s.id}','guide_fee',this.value)"></div>
+      </div>
       ${itemsHtml}
       <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
         <button class="btn btn-p" style="font-size:10px" ${approvedNotReflected===0?'disabled':''} onclick="reflectGuideItems('${s.id}')">承認済みを仕入明細に反映（${approvedNotReflected}件）</button>
+        <button class="btn" style="font-size:10px" onclick="printGuideSettlement('${s.id}')">🖨 精算書を印刷</button>
         ${s.status!=='closed' ? `<button class="btn" style="font-size:10px" onclick="closeGuideSettlement('${s.id}')">この精算を締める</button>` : ''}
       </div>
     </div>`;
   }).join('');
+}
+
+async function updateGuideSettlementField(id, field, value){
+  const numFields = ['advance_payment','additional_advance_payment','guide_fee'];
+  const v = numFields.includes(field) ? (Number(value)||0) : value;
+  await sb.from('guide_settlements').update({[field]:v}).eq('id', id);
+  const s = guideSettlementsCache.find(x=>x.id===id);
+  if(s) s[field]=v;
+}
+
+function printGuideSettlement(settlementId){
+  const s = guideSettlementsCache.find(x=>x.id===settlementId);
+  const b = findBookingById(currentDetailId);
+  if(!s || !b) return;
+
+  const items = (s.items||[]).filter(it=>it.status!=='rejected');
+  const advanceTotal = Number(s.advance_payment||0) + Number(s.additional_advance_payment||0);
+  const localTotal = items.reduce((sum,it)=>sum+Number(it.amount||0),0);
+  const guideFee = Number(s.guide_fee||0);
+  const grandTotal = localTotal + guideFee;
+  const transferAmount = grandTotal - advanceTotal;
+
+  const paxTotal = Number(b.pax_adult||0)+Number(b.pax_child||0)+Number(b.pax_infant||0);
+
+  const rows = items.map((it,i)=>`
+    <tr>
+      <td style="border:1px solid #999;padding:4px;text-align:center">${i+1}</td>
+      <td style="border:1px solid #999;padding:4px;text-align:center">${it.expense_date||''}</td>
+      <td style="border:1px solid #999;padding:4px">${escHtml(it.category||'')}${it.description?(' '+escHtml(it.description)):''}</td>
+      <td style="border:1px solid #999;padding:4px;text-align:right">${yen(it.amount)}</td>
+      <td style="border:1px solid #999;padding:4px"></td>
+    </tr>`).join('');
+
+  const blankRowsCount = Math.max(0, 15-items.length);
+  const blankRows = Array.from({length:blankRowsCount}).map((_,i)=>`
+    <tr>
+      <td style="border:1px solid #999;padding:4px;text-align:center;color:#bbb">${items.length+i+1}</td>
+      <td style="border:1px solid #999;padding:8px"></td>
+      <td style="border:1px solid #999;padding:8px"></td>
+      <td style="border:1px solid #999;padding:8px"></td>
+      <td style="border:1px solid #999;padding:8px"></td>
+    </tr>`).join('');
+
+  const html = `
+    <div style="background:#fff;border:1px solid #ddd;width:100%;margin:0 auto;padding:14px;font-size:11px;color:#222;box-sizing:border-box">
+      <div style="text-align:center;font-size:16px;font-weight:700;letter-spacing:2px;color:var(--blue);margin-bottom:10px">ガイド精算書</div>
+      <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:10px">
+        <tr>
+          <td style="padding:3px 6px;width:90px;color:#666">TOUR CODE：</td>
+          <td style="padding:3px 6px" colspan="3">${escHtml(b.ref_no||'')} ${escHtml(b.tour_name||'')}</td>
+        </tr>
+        <tr>
+          <td style="padding:3px 6px;color:#666">日にち：</td>
+          <td style="padding:3px 6px">${b.in_date||''} ～ ${b.out_date||''}</td>
+          <td style="padding:3px 6px;color:#666;width:70px">人数：</td>
+          <td style="padding:3px 6px">${paxTotal}名</td>
+        </tr>
+        <tr>
+          <td style="padding:3px 6px;color:#666">ガイド名：</td>
+          <td style="padding:3px 6px">${escHtml(s.guide_name||'')}</td>
+          <td style="padding:3px 6px;color:#666">携帯番号：</td>
+          <td style="padding:3px 6px">${escHtml(s.guide_phone||'')}</td>
+        </tr>
+      </table>
+
+      <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:10px">
+        <tr style="background:#f5f7fa">
+          <td style="border:1px solid #999;padding:5px;font-weight:700">(A) 仮払金合計</td>
+          <td style="border:1px solid #999;padding:5px;text-align:right">${yen(advanceTotal)}</td>
+          <td style="border:1px solid #999;padding:5px;font-weight:700">(B) 現地費用計</td>
+          <td style="border:1px solid #999;padding:5px;text-align:right">${yen(localTotal)}</td>
+        </tr>
+        <tr style="background:#f5f7fa">
+          <td style="border:1px solid #999;padding:5px;font-weight:700">(C) ガイド費(日当)</td>
+          <td style="border:1px solid #999;padding:5px;text-align:right">${yen(guideFee)}</td>
+          <td style="border:1px solid #999;padding:5px;font-weight:700">(D) B+C＝総合計</td>
+          <td style="border:1px solid #999;padding:5px;text-align:right">${yen(grandTotal)}</td>
+        </tr>
+        <tr style="background:#EAF3DE">
+          <td style="border:1px solid #999;padding:5px;font-weight:700" colspan="2">(D)-(A)＝(E) 振込予定額</td>
+          <td style="border:1px solid #999;padding:5px;text-align:right;font-weight:700;color:var(--blue)" colspan="2">${yen(transferAmount)}</td>
+        </tr>
+        <tr>
+          <td colspan="4" style="padding:3px 6px;font-size:10px;color:#888">※(E)がマイナスの場合は、ガイドより戻してもらう金額です。ガイド費は別途請求書を発行してください。</td>
+        </tr>
+      </table>
+
+      <table style="width:100%;border-collapse:collapse;font-size:10px">
+        <thead><tr style="background:#f5f7fa">
+          <th style="border:1px solid #999;padding:5px;width:30px">№</th>
+          <th style="border:1px solid #999;padding:5px;width:80px">日にち</th>
+          <th style="border:1px solid #999;padding:5px">項目</th>
+          <th style="border:1px solid #999;padding:5px;width:100px">金額</th>
+          <th style="border:1px solid #999;padding:5px;width:120px">備考</th>
+        </tr></thead>
+        <tbody>
+          ${rows}
+          ${blankRows}
+          <tr style="font-weight:700;background:#EEF3FA">
+            <td colspan="3" style="border:1px solid #999;padding:6px;text-align:right">合計（B）</td>
+            <td style="border:1px solid #999;padding:6px;text-align:right;color:var(--blue)">${yen(localTotal)}</td>
+            <td style="border:1px solid #999;padding:6px"></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>`;
+
+  document.getElementById('gs-print-body').innerHTML = html;
+  document.getElementById('gs-print-card').style.display='';
+  document.getElementById('gs-print-card').scrollIntoView({behavior:'smooth'});
+}
+
+function printGuideSettlementDoc(){
+  let style = document.getElementById('gs-print-style');
+  if(!style){
+    style = document.createElement('style');
+    style.id = 'gs-print-style';
+    document.head.appendChild(style);
+  }
+  style.textContent = '@page{size:A4 portrait;margin:10mm}';
+  window.onafterprint = ()=>{
+    const st = document.getElementById('gs-print-style');
+    if(st) st.remove();
+    window.onafterprint = null;
+  };
+  window.print();
 }
 
 async function createGuideSettlement(){
