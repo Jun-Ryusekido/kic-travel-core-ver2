@@ -58,7 +58,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Hiragino Kaku Goth
 table{width:100%;border-collapse:collapse;font-size:12px}
 .iv-table{table-layout:fixed}
 .iv-table th, .iv-table td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.iv-table td:nth-child(6), .iv-table td:nth-child(7){overflow:visible;white-space:normal}
+.iv-table td:nth-child(8), .iv-table td:nth-child(9){overflow:visible;white-space:normal}
 th{font-size:10px;color:var(--text3);font-weight:600;padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);white-space:nowrap}
 td{padding:8px 8px;border-bottom:1px solid var(--border);vertical-align:middle}
 tr:last-child td{border:none}
@@ -433,7 +433,7 @@ th.sortable:hover{color:var(--blue)}
           <div class="card-title">Invoice一覧</div>
           <div class="tbl-wrap"><table class="iv-table">
             <thead id="iv-thead"></thead>
-            <tbody id="iv-tbody"><tr><td colspan="7" class="empty">読み込み中...</td></tr></tbody>
+            <tbody id="iv-tbody"><tr><td colspan="9" class="empty">読み込み中...</td></tr></tbody>
           </table></div>
         </div>
 
@@ -3400,9 +3400,10 @@ const ivState = {sortField:null, sortDir:1, page:1};
 const IV_PAGE_SIZE = 50;
 
 const IV_COLUMNS = [
-  ['ref_no','REF#',true,'8%'], ['agent_name','Agent',true,'22%'], ['tour_name','Tour',true,'15%'],
-  ['gross_sales','売上',true,'12%'], ['issue_date','発行日',true,'10%'],
-  ['statusLabel','Status',true,'10%'], ['','',false,'23%']
+  ['ref_no','REF#',true,'7%'], ['agent_name','Agent',true,'18%'], ['tour_name','Tour',true,'13%'],
+  ['in_date','IN',true,'8%'], ['out_date','OUT',true,'8%'],
+  ['gross_sales','売上',true,'10%'], ['issue_date','発行日',true,'8%'],
+  ['statusLabel','Status',true,'8%'], ['','',false,'20%']
 ];
 
 function renderSortHeader(theadId, columns, state, sortFn){
@@ -3481,7 +3482,7 @@ function filterInvoiceUnified(){
   renderSortHeader('iv-thead', IV_COLUMNS, ivState, 'sortInvoiceUnified');
 
   const tbody = document.getElementById('iv-tbody');
-  if(filtered.length===0){ tbody.innerHTML='<tr><td colspan="7" class="empty">該当するデータがありません</td></tr>'; return; }
+  if(filtered.length===0){ tbody.innerHTML='<tr><td colspan="9" class="empty">該当するデータがありません</td></tr>'; return; }
 
   const totalPages = Math.ceil(filtered.length/IV_PAGE_SIZE);
   if(ivState.page>totalPages) ivState.page=totalPages;
@@ -3507,16 +3508,18 @@ function filterInvoiceUnified(){
       <td class="lnk" onclick="openBookingDetail('${row.id}')">${row.ref_no}</td>
       <td style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${row.agent_name||''}</td>
       <td style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${row.tour_name||''}</td>
+      <td>${row.in_date||'-'}</td>
+      <td>${row.out_date||'-'}</td>
       <td>${yen(row.gross_sales)}</td>
       <td>${row.issue_date||'-'}</td>
       <td>${statusCell}</td>
       <td style="white-space:nowrap">${actionCell}</td>
     </tr>`;
-  }).join('') + pagerRow(ivState, totalPages, 7, 'ivGoPage');
+  }).join('') + pagerRow(ivState, totalPages, 9, 'ivGoPage');
 }
 
 async function loadInvoicePage(){
-  document.getElementById('iv-tbody').innerHTML='<tr><td colspan="8" class="empty">読み込み中...</td></tr>';
+  document.getElementById('iv-tbody').innerHTML='<tr><td colspan="9" class="empty">読み込み中...</td></tr>';
 
   const bookings = await fetchAllBookings();
   const {data: invoices} = await sb.from('invoices').select('*').order('created_at',{ascending:false});
@@ -3533,6 +3536,7 @@ async function loadInvoicePage(){
     const inv = latestInvByBooking[b.id];
     return {
       id: b.id, ref_no: b.ref_no, agent_name: b.agent_name, tour_name: b.tour_name,
+      in_date: b.in_date, out_date: b.out_date,
       gross_sales: b.gross_sales, status: b.status,
       invoice_no: inv ? inv.invoice_no : null,
       issue_date: inv ? inv.issue_date : null,
