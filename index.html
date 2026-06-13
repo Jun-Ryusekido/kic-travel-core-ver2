@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>KIC Travel Core Ver2</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{--blue:#185FA5;--blue-lt:#E6F1FB;--blue-bd:#B5D4F4;--green:#0F6E56;--green-lt:#EAF3DE;--amber:#854F0B;--amber-lt:#FAEEDA;--red:#A32D2D;--red-lt:#FCEBEB;--bg:#F4F3EE;--card:#FFFFFF;--border:#E3E1D9;--text:#1F1E1B;--text2:#5F5E5A;--text3:#9B998F}
@@ -172,7 +173,6 @@ th.sortable:hover{color:var(--blue)}
 .gs-link-box{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:11px;background:#fff;border:1px solid var(--border);border-radius:8px;padding:6px 8px;margin-bottom:8px;word-break:break-all}
 .gs-item-row{display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:11px;flex-wrap:wrap}
 .gs-item-row:last-child{border-bottom:none}
-.gs-receipt-thumb{width:36px;height:36px;object-fit:cover;border-radius:4px;border:1px solid var(--border);flex:0 0 auto}
 .gs-pill{font-size:9px;padding:2px 6px;border-radius:8px;font-weight:600}
 .gs-pill.pending{background:var(--amber-lt);color:var(--amber)}
 .gs-pill.approved{background:var(--green-lt);color:#3B6D11}
@@ -488,6 +488,7 @@ th.sortable:hover{color:var(--blue)}
             <label style="font-size:11px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.5px">決算年度</label>
             <select id="g-fy" onchange="loadGross()" style="min-width:200px"></select>
             <span style="font-size:11px;color:var(--text3)">※ OUT-DATE（ツアー終了日）基準</span>
+            <button class="btn" style="margin-left:auto" onclick="exportFiscalYearArchive()">📦 この決算年度を一括アーカイブ（ZIP）</button>
           </div>
         </div>
         <div class="kpi-grid">
@@ -708,8 +709,12 @@ th.sortable:hover{color:var(--blue)}
 
     <div class="modal-section-title">データ管理</div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
-      <button class="btn" onclick="exportBookingArchive()">📦 このツアーのデータをアーカイブ（JSON）</button>
-      <span style="font-size:10px;color:var(--text3)">予約情報・売上仕入明細・Invoice・手配書・見積もり・ガイド精算をまとめてダウンロードします</span>
+      <button class="btn" onclick="exportBookingArchive()">📦 このツアーのデータをアーカイブ（ZIP）</button>
+      <span style="font-size:10px;color:var(--text3)">予約情報・売上仕入明細・Invoice・手配書・見積もり・ガイド精算をまとめてZIPファイルでダウンロードします</span>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <button class="btn" style="color:var(--red);border-color:var(--red-lt)" onclick="deleteBookingData()">🗑 このツアーのデータをSupabaseから削除</button>
+      <span style="font-size:10px;color:var(--text3)">アーカイブ済みであることを確認してから実行してください。この操作は取り消せません。</span>
     </div>
 
     <div style="margin-top:16px;display:flex;gap:8px;align-items:center;border-top:1px solid var(--border);padding-top:12px">
@@ -1755,18 +1760,162 @@ async function exportBookingArchive(){
     guide_settlements: settlementsWithItems
   };
 
-  const blob = new Blob([JSON.stringify(archive, null, 2)], {type:'application/json'});
+  const json = JSON.stringify(archive, null, 2);
+  const safeRef = (b.ref_no||'booking').replace(/[^A-Za-z0-9]/g,'');
+
+  const zip = new JSZip();
+  zip.file(`archive_${safeRef}.json`, json);
+  const blob = await zip.generateAsync({type:'blob', compression:'DEFLATE', compressionOptions:{level:9}});
+
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  const safeRef = (b.ref_no||'booking').replace(/[^A-Za-z0-9]/g,'');
   a.href = url;
-  a.download = `archive_${safeRef}_${new Date().toISOString().slice(0,10)}.json`;
+  a.download = `archive_${safeRef}_${new Date().toISOString().slice(0,10)}.zip`;
   document.body.appendChild(a);
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
 
   await logAction('データアーカイブ出力', b.ref_no);
+}
+
+async function exportFiscalYearArchive(){
+  const fySel = document.getElementById('g-fy');
+  if(!fySel || !fySel.value){ alert('決算年度を選択してください'); return; }
+  const selectedFy = Number(fySel.value);
+  const {from, to} = fiscalYearRange(selectedFy);
+
+  const data = await fetchAllBookings();
+  const inFy = data.filter(b => b.out_date && b.out_date>=from && b.out_date<=to);
+  if(inFy.length===0){ alert('この決算年度に該当する予約データがありません。'); return; }
+  if(!confirm(`${fiscalYearLabel(selectedFy)}の予約 ${inFy.length}件を1つのZIPファイルにまとめます。\nよろしいですか？`)) return;
+
+  const ids = inFy.map(b=>b.id);
+  const refNos = inFy.map(b=>b.ref_no);
+
+  const [{data: sales}, {data: costs}, {data: invoices}, {data: arrangements}, {data: estimations}, {data: settlements}] = await Promise.all([
+    sb.from('booking_sales').select('*').in('booking_id', ids),
+    sb.from('booking_costs').select('*').in('booking_id', ids),
+    sb.from('invoices').select('*').in('booking_id', ids),
+    sb.from('tour_arrangements').select('*').in('booking_ref', refNos),
+    sb.from('estimations').select('*').in('converted_booking_id', ids),
+    sb.from('guide_settlements').select('*').in('booking_ref', refNos)
+  ]);
+
+  let arrDays = [], estDaysAll = [], estFixedRowsAll = [], gItems = [];
+  if(arrangements && arrangements.length>0){
+    const arrIds = arrangements.map(a=>a.id);
+    const r = await sb.from('tour_arrangement_days').select('*').in('arrangement_id', arrIds).order('sort_order');
+    arrDays = r.data||[];
+  }
+  if(estimations && estimations.length>0){
+    const estIds = estimations.map(e=>e.id);
+    const [r1, r2] = await Promise.all([
+      sb.from('estimation_days').select('*').in('estimation_id', estIds).order('sort_order'),
+      sb.from('estimation_fixed_rows').select('*').in('estimation_id', estIds).order('sort_order')
+    ]);
+    estDaysAll = r1.data||[]; estFixedRowsAll = r2.data||[];
+  }
+  if(settlements && settlements.length>0){
+    const setIds = settlements.map(s=>s.id);
+    const r = await sb.from('guide_settlement_items').select('*').in('settlement_id', setIds).order('submitted_at');
+    gItems = r.data||[];
+  }
+
+  const zip = new JSZip();
+  const exportedAt = new Date().toISOString();
+  inFy.forEach(b=>{
+    const safeRef = (b.ref_no||'booking').replace(/[^A-Za-z0-9]/g,'');
+    const archive = {
+      exported_at: exportedAt,
+      ref_no: b.ref_no,
+      booking: b,
+      sales_items: (sales||[]).filter(s=>s.booking_id===b.id),
+      cost_items: (costs||[]).filter(c=>c.booking_id===b.id),
+      invoices: (invoices||[]).filter(i=>i.booking_id===b.id),
+      arrangements: (arrangements||[]).filter(a=>a.booking_ref===b.ref_no).map(a=>({...a, days: arrDays.filter(d=>d.arrangement_id===a.id)})),
+      estimations: (estimations||[]).filter(e=>e.converted_booking_id===b.id).map(e=>({...e,
+        days: estDaysAll.filter(d=>d.estimation_id===e.id),
+        fixed_rows: estFixedRowsAll.filter(r=>r.estimation_id===e.id)
+      })),
+      guide_settlements: (settlements||[]).filter(s=>s.booking_ref===b.ref_no).map(s=>({...s, items: gItems.filter(it=>it.settlement_id===s.id)}))
+    };
+    zip.file(`${safeRef}.json`, JSON.stringify(archive, null, 2));
+  });
+
+  const blob = await zip.generateAsync({type:'blob', compression:'DEFLATE', compressionOptions:{level:9}});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `archive_FY${selectedFy}_${new Date().toISOString().slice(0,10)}.zip`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+
+  await logAction('決算年度一括アーカイブ出力', `${fiscalYearLabel(selectedFy)} / ${inFy.length}件`);
+}
+
+async function deleteBookingData(){
+  const b = findBookingById(currentDetailId);
+  if(!b) return;
+  const refNo = b.ref_no;
+
+  if(!confirm(`「${refNo}」の予約データ（売上仕入明細・Invoice・手配書・ガイド精算・予約本体）をSupabaseから完全に削除します。\n\nアーカイブ（JSON）は取得済みですか？\nこの操作は取り消せません。`)) return;
+
+  const typed = prompt(`削除を実行するには、確認のため予約番号「${refNo}」を入力してください。`);
+  if(typed !== refNo){
+    alert('入力された予約番号が一致しないため、削除を中止しました。');
+    return;
+  }
+
+  try{
+    // ガイド精算（レシート画像を含む）
+    const {data: settlements} = await sb.from('guide_settlements').select('id, access_token').eq('booking_ref', refNo);
+    if(settlements && settlements.length>0){
+      for(const s of settlements){
+        const {data: files} = await sb.storage.from('guide-receipts').list(s.access_token);
+        if(files && files.length>0){
+          await sb.storage.from('guide-receipts').remove(files.map(f=>`${s.access_token}/${f.name}`));
+        }
+      }
+      await sb.from('guide_settlement_items').delete().in('settlement_id', settlements.map(s=>s.id));
+      await sb.from('guide_settlements').delete().eq('booking_ref', refNo);
+    }
+
+    // 手配書
+    const {data: arrangements} = await sb.from('tour_arrangements').select('id').eq('booking_ref', refNo);
+    if(arrangements && arrangements.length>0){
+      await sb.from('tour_arrangement_days').delete().in('arrangement_id', arrangements.map(a=>a.id));
+      await sb.from('tour_arrangements').delete().eq('booking_ref', refNo);
+    }
+
+    // 見積もりの変換リンクのみ解除（見積もり自体は残す）
+    await sb.from('estimations').update({converted_booking_id:null}).eq('converted_booking_id', b.id);
+
+    // Invoice・売上明細・仕入明細
+    await sb.from('invoices').delete().eq('booking_id', b.id);
+    await sb.from('booking_sales').delete().eq('booking_id', b.id);
+    await sb.from('booking_costs').delete().eq('booking_id', b.id);
+
+    // 予約本体
+    const {error} = await sb.from('bookings').delete().eq('id', b.id);
+    if(error) throw error;
+
+    await logAction('予約データ削除', refNo);
+    alert(`${refNo} のデータを削除しました。`);
+
+    closeBookingDetail();
+    allBookingsCache = await fetchAllBookings();
+    ['db','bl'].forEach(prefix=>{
+      if(document.getElementById(prefix+'-tbody')){
+        listState[prefix].page = 1;
+        filterBookingListGeneric(prefix);
+      }
+    });
+  }catch(e){
+    alert('削除中にエラーが発生しました: '+(e.message||e));
+  }
 }
 
 // ===================================================
@@ -1808,12 +1957,10 @@ function renderGuideSettlements(){
     const itemsHtml = items.length>0 ? items.map(it=>{
       const pillClass = it.reflected ? 'reflected' : it.status;
       const pillLabel = it.reflected ? '反映済' : (it.status==='approved'?'承認済':it.status==='rejected'?'却下':'未確認');
-      const thumb = it.receipt_image_url ? `<a href="${escAttr(it.receipt_image_url)}" target="_blank"><img class="gs-receipt-thumb" src="${escAttr(it.receipt_image_url)}"></a>` : `<span class="gs-receipt-thumb" style="display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:9px">なし</span>`;
       const actions = (it.status==='pending') ? `
         <button class="btn" style="font-size:9px" onclick="reviewGuideItem('${it.id}','approved')">承認</button>
         <button class="btn" style="font-size:9px" onclick="reviewGuideItem('${it.id}','rejected')">却下</button>` : '';
       return `<div class="gs-item-row">
-        ${thumb}
         <div style="flex:0 0 80px">${it.expense_date||''}</div>
         <div style="flex:0 0 110px">${escHtml(it.category||'')}</div>
         <div style="flex:1;min-width:120px">${escHtml(it.description||'')}</div>
