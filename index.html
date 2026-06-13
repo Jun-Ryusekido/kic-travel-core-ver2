@@ -166,6 +166,19 @@ th.sortable:hover{color:var(--blue)}
 .est-table input.lbl-input{min-width:90px;font-weight:600}
 .est-table th .btn, .est-table td .btn{font-size:9px;padding:2px 5px}
 
+/* ガイド精算 */
+.gs-card{border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:10px;background:var(--bg)}
+.gs-card-head{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.gs-link-box{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:11px;background:#fff;border:1px solid var(--border);border-radius:8px;padding:6px 8px;margin-bottom:8px;word-break:break-all}
+.gs-item-row{display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:11px;flex-wrap:wrap}
+.gs-item-row:last-child{border-bottom:none}
+.gs-receipt-thumb{width:36px;height:36px;object-fit:cover;border-radius:4px;border:1px solid var(--border);flex:0 0 auto}
+.gs-pill{font-size:9px;padding:2px 6px;border-radius:8px;font-weight:600}
+.gs-pill.pending{background:var(--amber-lt);color:var(--amber)}
+.gs-pill.approved{background:var(--green-lt);color:#3B6D11}
+.gs-pill.rejected{background:#F1EFE8;color:#5F5E5A}
+.gs-pill.reflected{background:var(--blue-lt);color:var(--blue)}
+
 /* 印刷時：Invoice / 手配書プレビューのみ表示 */
 @page{size:A4;margin:0}
 [contenteditable]:empty:before{content:attr(data-placeholder);color:#aaa}
@@ -685,6 +698,20 @@ th.sortable:hover{color:var(--blue)}
     <div id="bd-arrangements" style="margin-bottom:6px"></div>
     <button class="btn" style="font-size:10px" onclick="openArrangementEditor(null)">＋ 新規手配書作成</button>
 
+    <div class="modal-section-title">ガイド精算</div>
+    <div id="bd-guide-settlements" style="margin-bottom:6px"></div>
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+      <input id="bd-new-guide-name" placeholder="ガイド名" style="max-width:160px;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:12px">
+      <button class="btn" style="font-size:10px" onclick="createGuideSettlement()">＋ ガイド精算リンクを発行</button>
+      <span class="msg-ok" id="gs-msg">✓ リンクを発行しました</span>
+    </div>
+
+    <div class="modal-section-title">データ管理</div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+      <button class="btn" onclick="exportBookingArchive()">📦 このツアーのデータをアーカイブ（JSON）</button>
+      <span style="font-size:10px;color:var(--text3)">予約情報・売上仕入明細・Invoice・手配書・見積もり・ガイド精算をまとめてダウンロードします</span>
+    </div>
+
     <div style="margin-top:16px;display:flex;gap:8px;align-items:center;border-top:1px solid var(--border);padding-top:12px">
       <button class="btn btn-p" onclick="saveBookingDetail()">💾 保存</button>
       <button class="btn" onclick="closeBookingDetail()">閉じる</button>
@@ -1147,6 +1174,10 @@ let arrangementsCache = [];
 let currentArrangementId = null;
 let arrDays = [];
 
+// ===== ガイド精算 (Guide Settlement) =====
+let guideSettlementsCache = [];
+const GS_CATEGORIES = ['食事代','交通費','入場料・拝観料の立替','チップ','駐車場・通行料','その他'];
+
 // ===== 見積もり (Estimation) =====
 let estimationsCache = [];
 let currentEstimationId = null;
@@ -1359,6 +1390,9 @@ async function openBookingDetail(id){
 
   // 手配書一覧を読み込み
   await loadArrangementsList();
+
+  // ガイド精算一覧を読み込み
+  await loadGuideSettlements();
 
   document.getElementById('detail-modal').classList.add('open');
 }
@@ -1661,6 +1695,225 @@ function previewArrangement(){
   document.getElementById('arr-preview-body').innerHTML = html;
   document.getElementById('arr-preview-card').style.display='';
   document.getElementById('arr-preview-card').scrollIntoView({behavior:'smooth'});
+}
+
+// ===================================================
+// データアーカイブ（予約単位でのエクスポート）
+// ===================================================
+async function exportBookingArchive(){
+  const b = findBookingById(currentDetailId);
+  if(!b) return;
+
+  const [
+    {data: sales}, {data: costs}, {data: invoices},
+    {data: arrangements}, {data: estimations}, {data: settlements}
+  ] = await Promise.all([
+    sb.from('booking_sales').select('*').eq('booking_id', b.id),
+    sb.from('booking_costs').select('*').eq('booking_id', b.id),
+    sb.from('invoices').select('*').eq('booking_id', b.id),
+    sb.from('tour_arrangements').select('*').eq('booking_ref', b.ref_no),
+    sb.from('estimations').select('*').eq('converted_booking_id', b.id),
+    sb.from('guide_settlements').select('*').eq('booking_ref', b.ref_no)
+  ]);
+
+  let arrangementsWithDays = [];
+  if(arrangements && arrangements.length>0){
+    const ids = arrangements.map(a=>a.id);
+    const {data: days} = await sb.from('tour_arrangement_days').select('*').in('arrangement_id', ids).order('sort_order');
+    arrangementsWithDays = arrangements.map(a=>({...a, days:(days||[]).filter(d=>d.arrangement_id===a.id)}));
+  }
+
+  let estimationsWithDetails = [];
+  if(estimations && estimations.length>0){
+    const ids = estimations.map(e=>e.id);
+    const [{data: edays}, {data: efrows}] = await Promise.all([
+      sb.from('estimation_days').select('*').in('estimation_id', ids).order('sort_order'),
+      sb.from('estimation_fixed_rows').select('*').in('estimation_id', ids).order('sort_order')
+    ]);
+    estimationsWithDetails = estimations.map(e=>({...e,
+      days:(edays||[]).filter(d=>d.estimation_id===e.id),
+      fixed_rows:(efrows||[]).filter(r=>r.estimation_id===e.id)
+    }));
+  }
+
+  let settlementsWithItems = [];
+  if(settlements && settlements.length>0){
+    const ids = settlements.map(s=>s.id);
+    const {data: items} = await sb.from('guide_settlement_items').select('*').in('settlement_id', ids).order('submitted_at');
+    settlementsWithItems = settlements.map(s=>({...s, items:(items||[]).filter(it=>it.settlement_id===s.id)}));
+  }
+
+  const archive = {
+    exported_at: new Date().toISOString(),
+    ref_no: b.ref_no,
+    booking: b,
+    sales_items: sales||[],
+    cost_items: costs||[],
+    invoices: invoices||[],
+    arrangements: arrangementsWithDays,
+    estimations: estimationsWithDetails,
+    guide_settlements: settlementsWithItems
+  };
+
+  const blob = new Blob([JSON.stringify(archive, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const safeRef = (b.ref_no||'booking').replace(/[^A-Za-z0-9]/g,'');
+  a.href = url;
+  a.download = `archive_${safeRef}_${new Date().toISOString().slice(0,10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+
+  await logAction('データアーカイブ出力', b.ref_no);
+}
+
+// ===================================================
+// ガイド精算 (Guide Settlement)
+// ===================================================
+function gsGuideUrl(token){
+  return `${location.origin}${location.pathname.replace(/index\.html$/,'').replace(/\/$/,'')}/guide.html?token=${token}`;
+}
+
+async function loadGuideSettlements(){
+  const b = findBookingById(currentDetailId);
+  if(!b) return;
+  const {data: settlements} = await sb.from('guide_settlements').select('*').eq('booking_ref', b.ref_no).order('created_at');
+  const list = settlements||[];
+  if(list.length>0){
+    const {data: items} = await sb.from('guide_settlement_items').select('*').in('settlement_id', list.map(s=>s.id)).order('submitted_at');
+    const itemsBySettlement = {};
+    (items||[]).forEach(it=>{ (itemsBySettlement[it.settlement_id]=itemsBySettlement[it.settlement_id]||[]).push(it); });
+    guideSettlementsCache = list.map(s=>({...s, items: itemsBySettlement[s.id]||[]}));
+  }else{
+    guideSettlementsCache = [];
+  }
+  renderGuideSettlements();
+}
+
+function renderGuideSettlements(){
+  const el = document.getElementById('bd-guide-settlements');
+  if(guideSettlementsCache.length===0){
+    el.innerHTML = '<div class="empty" style="font-size:11px;padding:4px 0">発行されたガイド精算リンクはありません</div>';
+    return;
+  }
+  el.innerHTML = guideSettlementsCache.map(s=>{
+    const items = s.items||[];
+    const total = items.filter(it=>it.status!=='rejected').reduce((sum,it)=>sum+Number(it.amount||0),0);
+    const pendingCount = items.filter(it=>it.status==='pending').length;
+    const approvedNotReflected = items.filter(it=>it.status==='approved' && !it.reflected).length;
+    const url = gsGuideUrl(s.access_token);
+
+    const itemsHtml = items.length>0 ? items.map(it=>{
+      const pillClass = it.reflected ? 'reflected' : it.status;
+      const pillLabel = it.reflected ? '反映済' : (it.status==='approved'?'承認済':it.status==='rejected'?'却下':'未確認');
+      const thumb = it.receipt_image_url ? `<a href="${escAttr(it.receipt_image_url)}" target="_blank"><img class="gs-receipt-thumb" src="${escAttr(it.receipt_image_url)}"></a>` : `<span class="gs-receipt-thumb" style="display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:9px">なし</span>`;
+      const actions = (it.status==='pending') ? `
+        <button class="btn" style="font-size:9px" onclick="reviewGuideItem('${it.id}','approved')">承認</button>
+        <button class="btn" style="font-size:9px" onclick="reviewGuideItem('${it.id}','rejected')">却下</button>` : '';
+      return `<div class="gs-item-row">
+        ${thumb}
+        <div style="flex:0 0 80px">${it.expense_date||''}</div>
+        <div style="flex:0 0 110px">${escHtml(it.category||'')}</div>
+        <div style="flex:1;min-width:120px">${escHtml(it.description||'')}</div>
+        <div style="flex:0 0 80px;text-align:right;font-weight:600">${yen(it.amount)}</div>
+        <span class="gs-pill ${pillClass}">${pillLabel}</span>
+        <div style="flex:0 0 auto">${actions}</div>
+      </div>`;
+    }).join('') : '<div class="empty" style="font-size:11px;padding:4px 0">まだ送信された項目はありません</div>';
+
+    return `<div class="gs-card">
+      <div class="gs-card-head">
+        <div><strong>${escHtml(s.guide_name||'(ガイド名未設定)')}</strong> <span style="font-size:10px;color:var(--text3)">${s.status==='closed'?'（締め済）':'（受付中）'}</span></div>
+        <div style="font-size:11px">
+          合計: <strong>${yen(total)}</strong>
+          ${pendingCount>0?` / 未確認 ${pendingCount}件`:''}
+        </div>
+      </div>
+      <div class="gs-link-box">
+        <span style="flex:1">${escHtml(url)}</span>
+        <button class="btn" style="font-size:10px" onclick="navigator.clipboard.writeText('${escAttr(url)}');this.textContent='コピーしました';setTimeout(()=>this.textContent='リンクをコピー',1500)">リンクをコピー</button>
+      </div>
+      ${itemsHtml}
+      <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn btn-p" style="font-size:10px" ${approvedNotReflected===0?'disabled':''} onclick="reflectGuideItems('${s.id}')">承認済みを仕入明細に反映（${approvedNotReflected}件）</button>
+        ${s.status!=='closed' ? `<button class="btn" style="font-size:10px" onclick="closeGuideSettlement('${s.id}')">この精算を締める</button>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function createGuideSettlement(){
+  const b = findBookingById(currentDetailId);
+  if(!b) return;
+  const guideName = document.getElementById('bd-new-guide-name').value.trim();
+  const token = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random())).replace(/-/g,'');
+
+  const {error} = await sb.from('guide_settlements').insert({
+    booking_ref: b.ref_no,
+    guide_name: guideName,
+    access_token: token,
+    created_by: currentUser ? currentUser.email : null
+  });
+  if(error){ alert('発行に失敗しました: '+error.message); return; }
+
+  document.getElementById('bd-new-guide-name').value='';
+  await logAction('ガイド精算リンク発行', b.ref_no + (guideName?(' / '+guideName):''));
+
+  const msg = document.getElementById('gs-msg');
+  msg.style.display='inline';
+  setTimeout(()=>{ msg.style.display='none'; }, 2500);
+
+  await loadGuideSettlements();
+}
+
+async function reviewGuideItem(itemId, status){
+  await sb.from('guide_settlement_items').update({status, reviewed_at: new Date().toISOString()}).eq('id', itemId);
+  await loadGuideSettlements();
+}
+
+async function closeGuideSettlement(settlementId){
+  if(!confirm('この精算を締めますか？締めると、ガイド側からの新規送信ができなくなります。')) return;
+  await sb.from('guide_settlements').update({status:'closed', closed_at: new Date().toISOString()}).eq('id', settlementId);
+  await loadGuideSettlements();
+}
+
+async function reflectGuideItems(settlementId){
+  const s = guideSettlementsCache.find(x=>x.id===settlementId);
+  if(!s) return;
+  const targets = (s.items||[]).filter(it=>it.status==='approved' && !it.reflected);
+  if(targets.length===0) return;
+  if(!confirm(`${targets.length}件を仕入明細に追加します。よろしいですか？`)) return;
+
+  const b = findBookingById(currentDetailId);
+  if(!b) return;
+
+  const rows = targets.map(it=>({
+    booking_id: b.id,
+    item_name: `${it.category||''}${it.description?(' / '+it.description):''}（ガイド精算: ${s.guide_name||''}）`,
+    amount: Number(it.amount||0),
+    payment_date: it.expense_date || null,
+    memo: 'ガイド精算より自動反映'
+  }));
+  const {error} = await sb.from('booking_costs').insert(rows);
+  if(error){ alert('仕入明細への反映に失敗しました: '+error.message); return; }
+
+  await sb.from('guide_settlement_items').update({reflected:true}).in('id', targets.map(it=>it.id));
+
+  // gross_costを再計算
+  const {data: allCosts} = await sb.from('booking_costs').select('amount').eq('booking_id', b.id);
+  const newGrossCost = (allCosts||[]).reduce((sum,c)=>sum+Number(c.amount||0),0);
+  await sb.from('bookings').update({gross_cost:newGrossCost, updated_at: new Date().toISOString()}).eq('id', b.id);
+  b.gross_cost = newGrossCost;
+
+  await logAction('ガイド精算→仕入明細反映', b.ref_no + ' / ' + targets.length + '件');
+
+  // 仕入明細・KPIを再読み込み
+  const {data: costRows} = await sb.from('booking_costs').select('*').eq('booking_id', b.id).order('created_at');
+  bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, memo:r.memo}));
+  renderCostTable();
+  await loadGuideSettlements();
 }
 
 // ===================================================
