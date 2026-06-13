@@ -85,6 +85,8 @@ tr:hover td{background:var(--bg)}
 .u-meta{font-size:10px;color:var(--text3)}
 .msg-ok{font-size:11px;color:var(--green);margin-top:6px;display:none}
 .lnk{color:var(--blue);cursor:pointer;font-weight:600}
+.row-link{cursor:pointer}
+.row-link:hover{background:var(--bg)}
 .empty{text-align:center;padding:24px;color:var(--text3);font-size:12px}
 th.sortable{cursor:pointer;user-select:none;white-space:nowrap}
 th.sortable:hover{color:var(--blue)}
@@ -3497,15 +3499,15 @@ function filterInvoiceUnified(){
       statusCell = invoiceStatusPill(row.invStatus);
       const invJson = JSON.stringify(row._inv||{}).replace(/'/g,"&apos;");
       const bJson = JSON.stringify(row._booking||{}).replace(/'/g,"&apos;");
-      actionCell = `<button class="btn" style="font-size:11px" onclick='showInvoicePreview(${invJson}, ${bJson})'>表示</button>`;
+      actionCell = `<button class="btn" style="font-size:11px" onclick='event.stopPropagation();showInvoicePreview(${invJson}, ${bJson})'>表示</button>`;
     }else{
       statusCell = '<span class="pill" style="background:var(--bg);color:var(--text3)">未発行</span>';
       actionCell = `
-        <button class="btn btn-p" style="font-size:11px" onclick="generateInvoice('${row.id}','JPY')">JPY発行</button>
-        <button class="btn" style="font-size:11px" onclick="generateInvoice('${row.id}','USD')">USD発行</button>`;
+        <button class="btn btn-p" style="font-size:11px" onclick="event.stopPropagation();generateInvoice('${row.id}','JPY')">JPY発行</button>
+        <button class="btn" style="font-size:11px" onclick="event.stopPropagation();generateInvoice('${row.id}','USD')">USD発行</button>`;
     }
-    return `<tr>
-      <td class="lnk" onclick="openBookingDetail('${row.id}')">${row.ref_no}</td>
+    return `<tr class="row-link" onclick="openBookingDetail('${row.id}')">
+      <td class="lnk">${row.ref_no}</td>
       <td style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${row.agent_name||''}</td>
       <td style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${row.tour_name||''}</td>
       <td>${row.in_date||'-'}</td>
