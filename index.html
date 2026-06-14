@@ -2218,6 +2218,7 @@ function renderGuideSettlements(){
           ? guideList.map((g,i)=>`<button class="btn" style="font-size:10px" onclick="printGuideSettlement('${s.id}',${i})">🖨 ${escHtml(g.name)}の精算書を印刷</button>`).join('')
           : `<button class="btn" style="font-size:10px" onclick="printGuideSettlement('${s.id}',0)">🖨 精算書を印刷</button>`}
         ${s.status!=='closed' ? `<button class="btn" style="font-size:10px" onclick="closeGuideSettlement('${s.id}')">この精算を締める</button>` : ''}
+        <button class="btn" style="font-size:10px;color:var(--red)" onclick="deleteGuideSettlement('${s.id}')">🗑 このリンクを削除</button>
       </div>
     </div>`;
   }).join('');
@@ -2459,6 +2460,26 @@ async function reviewGuideItem(itemId, status){
 async function closeGuideSettlement(settlementId){
   if(!confirm('この精算を締めますか？締めると、ガイド側からの新規送信ができなくなります。')) return;
   await sb.from('guide_settlements').update({status:'closed', closed_at: new Date().toISOString()}).eq('id', settlementId);
+  await loadGuideSettlements();
+}
+
+async function deleteGuideSettlement(settlementId){
+  const s = guideSettlementsCache.find(x=>x.id===settlementId);
+  if(!s) return;
+  const items = s.items||[];
+  const reflectedCount = items.filter(it=>it.reflected).length;
+  let msg = 'このガイド精算リンクと、送信された経費項目をすべて削除します。\nこの操作は取り消せません。';
+  if(reflectedCount>0){
+    msg += `\n\n※ ${reflectedCount}件は既に仕入明細へ反映済みですが、仕入明細自体は削除されません（このリンクとの紐付けのみ削除されます）。`;
+  }
+  if(!confirm(msg)) return;
+
+  const {error} = await sb.from('guide_settlement_items').delete().eq('settlement_id', settlementId);
+  if(error){ alert('削除に失敗しました: '+error.message); return; }
+  const {error: error2} = await sb.from('guide_settlements').delete().eq('id', settlementId);
+  if(error2){ alert('削除に失敗しました: '+error2.message); return; }
+
+  await logAction('ガイド精算リンク削除', s.booking_ref + (s.guide_name?(' / '+s.guide_name):''));
   await loadGuideSettlements();
 }
 
