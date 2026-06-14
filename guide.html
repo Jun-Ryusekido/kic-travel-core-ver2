@@ -107,17 +107,30 @@ function render(){
   const total = items.filter(it=>it.status!=='rejected').reduce((sum,it)=>sum+Number(it.amount||0),0);
   const closed = settlement.status==='closed';
 
+  const guideList = Array.isArray(settlement.guide_names) && settlement.guide_names.length>0
+    ? settlement.guide_names
+    : (settlement.guide_name ? [{name: settlement.guide_name, phone: settlement.guide_phone||''}] : []);
+
   const tourInfoHtml = booking ? `
     <div class="tour-info">
       <div>REF# <b>${escHtml(booking.ref_no)}</b></div>
       ${booking.tour_name?`<div>${escHtml(booking.tour_name)}</div>`:''}
       ${(booking.in_date||booking.out_date)?`<div>${booking.in_date||''} 〜 ${booking.out_date||''}</div>`:''}
-      <div>ガイド: <b>${escHtml(settlement.guide_name||'')}</b></div>
-    </div>` : `<div class="tour-info">ガイド: <b>${escHtml(settlement.guide_name||'')}</b></div>`;
+      <div>担当ガイド: <b>${escHtml(guideList.map(g=>g.name).join('・')||'')}</b></div>
+    </div>` : `<div class="tour-info">担当ガイド: <b>${escHtml(guideList.map(g=>g.name).join('・')||'')}</b></div>`;
+
+  const guideOptionsHtml = guideList.map(g=>`<option value="${escHtml(g.name)}">${escHtml(g.name)}</option>`).join('');
 
   const formHtml = closed ? '' : `
     <div class="card">
       <div class="card-title">経費を登録</div>
+      ${guideList.length>1 ? `
+      <div class="form-field">
+        <label>ご自身の名前</label>
+        <select id="f-guide-name">
+          ${guideOptionsHtml}
+        </select>
+      </div>` : ''}
       <div class="form-field">
         <label>日付</label>
         <input type="date" id="f-date">
@@ -145,7 +158,7 @@ function render(){
     const pillLabel = it.status==='approved' ? '承認済' : it.status==='rejected' ? '却下' : '未確認';
     return `<div class="item-row">
       <div class="main">
-        <div>${escHtml(it.expense_date||'')} <span class="cat">${escHtml(it.category||'')}</span></div>
+        <div>${escHtml(it.expense_date||'')} <span class="cat">${escHtml(it.category||'')}</span>${it.guide_name?` <span class="cat">/ ${escHtml(it.guide_name)}</span>`:''}</div>
         <div>${escHtml(it.description||'')}</div>
       </div>
       <div class="amt">${yen(it.amount)}</div>
@@ -175,6 +188,8 @@ async function submitItem(){
   const category = document.getElementById('f-category').value;
   const description = document.getElementById('f-description').value.trim();
   const amount = Number(document.getElementById('f-amount').value)||0;
+  const guideNameEl = document.getElementById('f-guide-name');
+  const guideName = guideNameEl ? guideNameEl.value : (settlement.guide_name || '');
   const errEl = document.getElementById('f-msg-err');
   const okEl = document.getElementById('f-msg-ok');
   const btn = document.getElementById('f-submit');
@@ -193,7 +208,7 @@ async function submitItem(){
     const {error: insErr} = await sb.from('guide_settlement_items').insert({
       settlement_id: settlement.id,
       expense_date: date || null,
-      category, description, amount,
+      category, description, amount, guide_name: guideName,
       status: 'pending'
     });
     if(insErr) throw insErr;
