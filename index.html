@@ -362,6 +362,7 @@ th.sortable:hover{color:var(--blue)}
           <span style="font-size:11px;color:var(--text3)">ガイド関連:</span>
           <button class="btn" onclick="toggleGuideAdvanceSection()" id="ga-toggle-btn">🧑‍✈️ ガイド仮払い一覧</button>
           <button class="btn" onclick="go('guide-settlements')">🧾 ガイド精算一覧</button>
+          <button class="btn" onclick="toggleGuideRegistrySection()" id="gr-toggle-btn">📇 ガイド登録一覧</button>
         </div>
         <div class="card" id="bl-guide-advance-section" style="display:none">
           <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
@@ -378,6 +379,15 @@ th.sortable:hover{color:var(--blue)}
               <tbody id="ga-tbody"><tr><td colspan="9" class="empty">読み込み中...</td></tr></tbody>
             </table></div>
           </div>
+        </div>
+        <div class="card" id="bl-guide-registry-section" style="display:none">
+          <div class="card-title">ガイド登録一覧
+            <span><button class="btn btn-p" onclick="openGuideEditor(null)">＋ 新規ガイド登録</button></span>
+          </div>
+          <div class="tbl-wrap"><table class="bl-table">
+            <thead><tr><th style="width:14%">氏名</th><th style="width:12%">カタカナ</th><th style="width:12%">携帯番号</th><th style="width:6%">年齢</th><th style="width:36%">言語・メモ</th><th style="width:20%"></th></tr></thead>
+            <tbody id="gr-tbody"><tr><td colspan="6" class="empty">読み込み中...</td></tr></tbody>
+          </table></div>
         </div>
         <div class="card">
           <div class="card-title">検索・絞り込み</div>
@@ -766,10 +776,21 @@ th.sortable:hover{color:var(--blue)}
 
     <div class="modal-section-title">ガイド精算</div>
     <div id="bd-guide-settlements" style="margin-bottom:6px"></div>
-    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-      <input id="bd-new-guide-name" placeholder="ガイド名" style="max-width:160px;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:12px">
-      <button class="btn" style="font-size:10px" onclick="createGuideSettlement()">＋ ガイド精算リンクを発行</button>
-      <span class="msg-ok" id="gs-msg">✓ リンクを発行しました</span>
+    <div style="border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:6px">
+      <div style="font-size:10px;color:var(--text3);font-weight:600;margin-bottom:6px">新しく精算リンクを発行（このツアーを担当するガイドを1名以上登録）</div>
+      <div id="bd-new-guide-list" style="display:flex;flex-direction:column;gap:4px;margin-bottom:6px"></div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <input id="bd-new-guide-name" placeholder="ガイド名" style="max-width:160px;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:12px">
+        <input id="bd-new-guide-phone" placeholder="電話番号" style="max-width:130px;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:12px">
+        <select id="bd-new-guide-select" onchange="applyGuideFromRegistryAndAdd(this)" style="max-width:90px;font-size:11px;padding:6px;border-radius:8px;border:1px solid var(--border)">
+          <option value="">登録一覧</option>
+        </select>
+        <button class="btn" style="font-size:10px" onclick="addGuideToNewList()">＋ ガイドを追加</button>
+      </div>
+      <div style="margin-top:6px">
+        <button class="btn btn-p" style="font-size:10px" onclick="createGuideSettlement()">＋ ガイド精算リンクを発行</button>
+        <span class="msg-ok" id="gs-msg">✓ リンクを発行しました</span>
+      </div>
     </div>
     <div class="card" id="gs-print-card" style="display:none;margin-top:10px">
       <div class="card-title">ガイド精算書 プレビュー
@@ -817,7 +838,14 @@ th.sortable:hover{color:var(--blue)}
       <div class="form-field" style="grid-column:1/-1"><label>Pax情報</label><input id="arr-pax-info" placeholder="例: 18名+3 内:小0名 他、13*1, 17*1あり"></div>
       <div class="form-field"><label>旅行会社名</label><input id="arr-agency-name"></div>
       <div class="form-field"><label>旅行会社予約番号</label><input id="arr-agency-booking-no"></div>
-      <div class="form-field"><label>ガイド名</label><input id="arr-guide-name"></div>
+      <div class="form-field"><label>ガイド名</label>
+        <div style="display:flex;gap:4px">
+          <input id="arr-guide-name" style="flex:1">
+          <select onchange="applyGuideFromRegistry(this,'arr-guide-name','arr-guide-phone')" style="max-width:90px;font-size:11px">
+            <option value="">登録一覧</option>
+          </select>
+        </div>
+      </div>
       <div class="form-field"><label>ガイド電話</label><input id="arr-guide-phone"></div>
     </div>
 
@@ -1549,6 +1577,11 @@ async function openBookingDetail(id){
   // ガイド精算一覧を読み込み
   await loadGuideSettlements();
 
+  // ガイド登録一覧プルダウンを読み込み
+  await populateGuideRegistrySelects([document.getElementById('bd-new-guide-select')]);
+  bdNewGuideList = [];
+  renderBdNewGuideList();
+
   document.getElementById('detail-modal').classList.add('open');
 }
 
@@ -1652,6 +1685,7 @@ async function openArrangementEditor(arrId){
   }
 
   renderArrDays();
+  await populateGuideRegistrySelects(document.querySelectorAll('#arrangement-modal select[onchange*="applyGuideFromRegistry"]'));
   document.getElementById('arrangement-modal').classList.add('open');
 }
 
@@ -2104,7 +2138,11 @@ function renderGuideSettlements(){
     const approvedNotReflected = items.filter(it=>it.status==='approved' && !it.reflected).length;
     const url = gsGuideUrl(s.access_token);
 
-    const itemsHtml = items.length>0 ? items.map(it=>{
+    const guideList = (Array.isArray(s.guide_names) && s.guide_names.length>0)
+      ? s.guide_names
+      : [{name: s.guide_name||'', phone: s.guide_phone||'', advance_payment: s.advance_payment||0, additional_advance_payment: s.additional_advance_payment||0, guide_fee: s.guide_fee||0}];
+
+    const renderItemRow = it => {
       const pillClass = it.reflected ? 'reflected' : it.status;
       const pillLabel = it.reflected ? '反映済' : (it.status==='approved'?'承認済':it.status==='rejected'?'却下':'未確認');
       const actions = (it.status==='pending') ? `
@@ -2118,11 +2156,51 @@ function renderGuideSettlements(){
         <span class="gs-pill ${pillClass}">${pillLabel}</span>
         <div style="flex:0 0 auto">${actions}</div>
       </div>`;
-    }).join('') : '<div class="empty" style="font-size:11px;padding:4px 0">まだ送信された項目はありません</div>';
+    };
+
+    let itemsHtml;
+    if(items.length===0){
+      itemsHtml = '<div class="empty" style="font-size:11px;padding:4px 0">まだ送信された項目はありません</div>';
+    }else if(guideList.length<=1){
+      itemsHtml = items.map(renderItemRow).join('');
+    }else{
+      // ガイドごとにグループ表示
+      itemsHtml = guideList.map(g=>{
+        const gItems = items.filter(it=>it.guide_name===g.name);
+        const gTotal = gItems.filter(it=>it.status!=='rejected').reduce((sum,it)=>sum+Number(it.amount||0),0);
+        const rows = gItems.length>0 ? gItems.map(renderItemRow).join('') : '<div class="empty" style="font-size:10px;padding:2px 0">項目なし</div>';
+        return `<div style="margin-top:6px">
+          <div style="font-size:11px;font-weight:700;color:var(--blue);display:flex;justify-content:space-between">
+            <span>👤 ${escHtml(g.name)}</span><span>${yen(gTotal)}</span>
+          </div>
+          ${rows}
+        </div>`;
+      }).join('');
+      // ガイド名が一致しない（旧データ等）項目があれば最後にまとめて表示
+      const guideNamesSet = new Set(guideList.map(g=>g.name));
+      const others = items.filter(it=>!guideNamesSet.has(it.guide_name));
+      if(others.length>0){
+        itemsHtml += `<div style="margin-top:6px">
+          <div style="font-size:11px;font-weight:700;color:var(--text3)">👤 その他</div>
+          ${others.map(renderItemRow).join('')}
+        </div>`;
+      }
+    }
+
+    const guideFieldsHtml = guideList.map((g,i)=>`
+      <div style="border:1px solid var(--border);border-radius:8px;padding:6px 8px;margin-bottom:4px">
+        <div style="font-size:11px;font-weight:700;margin-bottom:4px">${escHtml(g.name)}</div>
+        <div class="gs-fields-row" style="margin-bottom:0">
+          <div class="gs-field"><label>携帯番号</label><input value="${escAttr(g.phone)}" onchange="updateGuideEntryField('${s.id}',${i},'phone',this.value)"></div>
+          <div class="gs-field"><label>仮払金</label><input type="number" value="${g.advance_payment||0}" onchange="updateGuideEntryField('${s.id}',${i},'advance_payment',this.value)"></div>
+          <div class="gs-field"><label>仮払金追加</label><input type="number" value="${g.additional_advance_payment||0}" onchange="updateGuideEntryField('${s.id}',${i},'additional_advance_payment',this.value)"></div>
+          <div class="gs-field"><label>ガイド費(日当)</label><input type="number" value="${g.guide_fee||0}" onchange="updateGuideEntryField('${s.id}',${i},'guide_fee',this.value)"></div>
+        </div>
+      </div>`).join('');
 
     return `<div class="gs-card">
       <div class="gs-card-head">
-        <div><strong>${escHtml(s.booking_ref||'')} / ${escHtml(s.guide_name||'(ガイド名未設定)')}</strong> <span style="font-size:10px;color:var(--text3)">${s.status==='closed'?'（締め済）':'（受付中）'}</span></div>
+        <div><strong>${escHtml(s.booking_ref||'')} / ${escHtml(guideList.map(g=>g.name).join('・')||'(ガイド名未設定)')}</strong> <span style="font-size:10px;color:var(--text3)">${s.status==='closed'?'（締め済）':'（受付中）'}</span></div>
         <div style="font-size:11px">
           合計: <strong>${yen(total)}</strong>
           ${pendingCount>0?` / 未確認 ${pendingCount}件`:''}
@@ -2132,20 +2210,30 @@ function renderGuideSettlements(){
         <span style="flex:1">${escHtml(url)}</span>
         <button class="btn" style="font-size:10px" onclick="navigator.clipboard.writeText('${escAttr(url)}');this.textContent='コピーしました';setTimeout(()=>this.textContent='リンクをコピー',1500)">リンクをコピー</button>
       </div>
-      <div class="gs-fields-row">
-        <div class="gs-field"><label>携帯番号</label><input value="${escAttr(s.guide_phone)}" onchange="updateGuideSettlementField('${s.id}','guide_phone',this.value)"></div>
-        <div class="gs-field"><label>仮払金</label><input type="number" value="${s.advance_payment||0}" onchange="updateGuideSettlementField('${s.id}','advance_payment',this.value)"></div>
-        <div class="gs-field"><label>仮払金追加</label><input type="number" value="${s.additional_advance_payment||0}" onchange="updateGuideSettlementField('${s.id}','additional_advance_payment',this.value)"></div>
-        <div class="gs-field"><label>ガイド費(日当)</label><input type="number" value="${s.guide_fee||0}" onchange="updateGuideSettlementField('${s.id}','guide_fee',this.value)"></div>
-      </div>
+      ${guideFieldsHtml}
       ${itemsHtml}
       <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
         <button class="btn btn-p" style="font-size:10px" ${approvedNotReflected===0?'disabled':''} onclick="reflectGuideItems('${s.id}')">承認済みを仕入明細に反映（${approvedNotReflected}件）</button>
-        <button class="btn" style="font-size:10px" onclick="printGuideSettlement('${s.id}')">🖨 精算書を印刷</button>
+        ${guideList.length>1
+          ? guideList.map((g,i)=>`<button class="btn" style="font-size:10px" onclick="printGuideSettlement('${s.id}',${i})">🖨 ${escHtml(g.name)}の精算書を印刷</button>`).join('')
+          : `<button class="btn" style="font-size:10px" onclick="printGuideSettlement('${s.id}',0)">🖨 精算書を印刷</button>`}
         ${s.status!=='closed' ? `<button class="btn" style="font-size:10px" onclick="closeGuideSettlement('${s.id}')">この精算を締める</button>` : ''}
       </div>
     </div>`;
   }).join('');
+}
+
+async function updateGuideEntryField(id, idx, field, value){
+  const numFields = ['advance_payment','additional_advance_payment','guide_fee'];
+  const v = numFields.includes(field) ? (Number(value)||0) : value;
+  const s = guideSettlementsCache.find(x=>x.id===id);
+  if(!s) return;
+  let guideList = Array.isArray(s.guide_names) && s.guide_names.length>0
+    ? s.guide_names
+    : [{name: s.guide_name||'', phone: s.guide_phone||'', advance_payment: s.advance_payment||0, additional_advance_payment: s.additional_advance_payment||0, guide_fee: s.guide_fee||0}];
+  guideList = guideList.map((g,i)=> i===idx ? {...g, [field]:v} : g);
+  await sb.from('guide_settlements').update({guide_names: guideList}).eq('id', id);
+  s.guide_names = guideList;
 }
 
 async function updateGuideSettlementField(id, field, value){
@@ -2156,11 +2244,21 @@ async function updateGuideSettlementField(id, field, value){
   if(s) s[field]=v;
 }
 
-function buildGuideSettlementPrintHtml(s, b){
-  const items = (s.items||[]).filter(it=>it.status!=='rejected');
-  const advanceTotal = Number(s.advance_payment||0) + Number(s.additional_advance_payment||0);
+function buildGuideSettlementPrintHtml(s, b, guideIndex){
+  const guideList = (Array.isArray(s.guide_names) && s.guide_names.length>0)
+    ? s.guide_names
+    : [{name: s.guide_name||'', phone: s.guide_phone||'', advance_payment: s.advance_payment||0, additional_advance_payment: s.additional_advance_payment||0, guide_fee: s.guide_fee||0}];
+  const g = guideList[guideIndex] || guideList[0] || {};
+
+  const allItems = (s.items||[]).filter(it=>it.status!=='rejected');
+  // 複数ガイドの場合はガイド名で絞り込み（旧データ等、ガイド名未設定の項目は1人目に含める）
+  const items = guideList.length>1
+    ? allItems.filter(it => it.guide_name===g.name || (!it.guide_name && guideIndex===0))
+    : allItems;
+
+  const advanceTotal = Number(g.advance_payment||0) + Number(g.additional_advance_payment||0);
   const localTotal = items.reduce((sum,it)=>sum+Number(it.amount||0),0);
-  const guideFee = Number(s.guide_fee||0);
+  const guideFee = Number(g.guide_fee||0);
   const grandTotal = localTotal + guideFee;
   const transferAmount = grandTotal - advanceTotal;
 
@@ -2201,10 +2299,11 @@ function buildGuideSettlementPrintHtml(s, b){
         </tr>
         <tr>
           <td style="padding:3px 6px;color:#666">ガイド名：</td>
-          <td style="padding:3px 6px">${escHtml(s.guide_name||'')}</td>
+          <td style="padding:3px 6px">${escHtml(g.name||'')}</td>
           <td style="padding:3px 6px;color:#666">携帯番号：</td>
-          <td style="padding:3px 6px">${escHtml(s.guide_phone||'')}</td>
+          <td style="padding:3px 6px">${escHtml(g.phone||'')}</td>
         </tr>
+        ${guideList.length>1 ? `<tr><td colspan="4" style="padding:3px 6px;font-size:10px;color:#888">※このツアーは${guideList.length}名のガイドが担当しています（${escHtml(guideList.map(x=>x.name).join('・'))}）。本紙は${escHtml(g.name||'')}様分です。</td></tr>` : ''}
       </table>
 
       <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:10px">
@@ -2250,12 +2349,12 @@ function buildGuideSettlementPrintHtml(s, b){
     </div>`;
 }
 
-function printGuideSettlement(settlementId){
+function printGuideSettlement(settlementId, guideIndex){
   const s = guideSettlementsCache.find(x=>x.id===settlementId);
   const b = findBookingById(currentDetailId);
   if(!s || !b) return;
 
-  document.getElementById('gs-print-body').innerHTML = buildGuideSettlementPrintHtml(s, b);
+  document.getElementById('gs-print-body').innerHTML = buildGuideSettlementPrintHtml(s, b, guideIndex||0);
   document.getElementById('gs-print-card').style.display='';
   document.getElementById('gs-print-card').scrollIntoView({behavior:'smooth'});
 }
@@ -2276,22 +2375,74 @@ function printGuideSettlementDoc(){
   window.print();
 }
 
+// 新規ガイド精算リンク発行用：複数ガイドのリスト
+let bdNewGuideList = [];
+
+function renderBdNewGuideList(){
+  const el = document.getElementById('bd-new-guide-list');
+  if(bdNewGuideList.length===0){
+    el.innerHTML = '<div style="font-size:11px;color:var(--text3)">担当ガイドが追加されていません</div>';
+    return;
+  }
+  el.innerHTML = bdNewGuideList.map((g,i)=>`
+    <div style="display:flex;gap:6px;align-items:center;font-size:11px;background:var(--bg);border-radius:6px;padding:4px 8px">
+      <span style="flex:1">${escHtml(g.name)}${g.phone?(' / '+escHtml(g.phone)):''}</span>
+      <button class="btn" style="font-size:9px" onclick="removeGuideFromNewList(${i})">削除</button>
+    </div>`).join('');
+}
+
+function addGuideToNewList(){
+  const name = document.getElementById('bd-new-guide-name').value.trim();
+  const phone = document.getElementById('bd-new-guide-phone').value.trim();
+  if(!name){ alert('ガイド名を入力してください'); return; }
+  bdNewGuideList.push({name, phone});
+  document.getElementById('bd-new-guide-name').value='';
+  document.getElementById('bd-new-guide-phone').value='';
+  renderBdNewGuideList();
+}
+
+function removeGuideFromNewList(i){
+  bdNewGuideList.splice(i,1);
+  renderBdNewGuideList();
+}
+
+// 登録一覧から選択 → 名前/電話欄に反映してすぐリストに追加
+function applyGuideFromRegistryAndAdd(selectEl){
+  if(!selectEl.value) return;
+  const g = JSON.parse(selectEl.value);
+  bdNewGuideList.push({name: g.name||'', phone: g.phone||''});
+  selectEl.value='';
+  renderBdNewGuideList();
+}
+
 async function createGuideSettlement(){
   const b = findBookingById(currentDetailId);
   if(!b) return;
-  const guideName = document.getElementById('bd-new-guide-name').value.trim();
+
+  // 入力欄に残っている分も追加対象にする
+  const pendingName = document.getElementById('bd-new-guide-name').value.trim();
+  if(pendingName){
+    addGuideToNewList();
+  }
+
+  if(bdNewGuideList.length===0){ alert('担当するガイドを1名以上追加してください'); return; }
+
   const token = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random())).replace(/-/g,'');
+  const guideNames = bdNewGuideList.map(g=>({name:g.name, phone:g.phone||''}));
+  const summaryLabel = guideNames.map(g=>g.name).join('・');
 
   const {error} = await sb.from('guide_settlements').insert({
     booking_ref: b.ref_no,
-    guide_name: guideName,
+    guide_name: summaryLabel,
+    guide_names: guideNames,
     access_token: token,
     created_by: currentUser ? currentUser.email : null
   });
   if(error){ alert('発行に失敗しました: '+error.message); return; }
 
-  document.getElementById('bd-new-guide-name').value='';
-  await logAction('ガイド精算リンク発行', b.ref_no + (guideName?(' / '+guideName):''));
+  bdNewGuideList = [];
+  renderBdNewGuideList();
+  await logAction('ガイド精算リンク発行', b.ref_no + (summaryLabel?(' / '+summaryLabel):''));
 
   const msg = document.getElementById('gs-msg');
   msg.style.display='inline';
@@ -3064,7 +3215,7 @@ async function loadGuideAdvanceList(){
   const [{data: arrangements}, {data: estimations}, {data: settlements}] = await Promise.all([
     sb.from('tour_arrangements').select('booking_ref, guide_name, guide_phone').in('booking_ref', refNos),
     sb.from('estimations').select('id, converted_booking_id').in('converted_booking_id', ids),
-    sb.from('guide_settlements').select('booking_ref, guide_name, guide_phone, advance_payment, additional_advance_payment').in('booking_ref', refNos)
+    sb.from('guide_settlements').select('booking_ref, guide_name, guide_phone, guide_names, advance_payment, additional_advance_payment').in('booking_ref', refNos)
   ]);
 
   let estGuideSumByEstId = {};
@@ -3085,21 +3236,35 @@ async function loadGuideAdvanceList(){
     const arr = arrByRef[b.ref_no];
     const set = setByRef[b.ref_no];
     const pax = Number(b.pax_adult||0)+Number(b.pax_child||0)+Number(b.pax_infant||0);
-    const expectedGuide = (estGuideSumByBooking[b.id]!=null) ? yen(estGuideSumByBooking[b.id]) : '-';
-    const guideName = (set && set.guide_name) || (arr && arr.guide_name) || '';
-    const guidePhone = (set && set.guide_phone) || (arr && arr.guide_phone) || '';
-    const advance = set ? yen(Number(set.advance_payment||0)+Number(set.additional_advance_payment||0)) : '-';
-    return `<tr ondblclick="openBookingDetail('${b.id}')">
-      <td class="lnk" onclick="openBookingDetail('${b.id}')">${b.ref_no}</td>
+    const expectedGuideTotal = (estGuideSumByBooking[b.id]!=null) ? estGuideSumByBooking[b.id] : null;
+
+    // 複数ガイド対応：guide_namesがあればガイドごとに1行
+    let guideRows;
+    if(set && Array.isArray(set.guide_names) && set.guide_names.length>0){
+      guideRows = set.guide_names;
+    }else{
+      const guideName = (set && set.guide_name) || (arr && arr.guide_name) || '';
+      const guidePhone = (set && set.guide_phone) || (arr && arr.guide_phone) || '';
+      guideRows = [{name: guideName, phone: guidePhone, advance_payment: set?set.advance_payment:0, additional_advance_payment: set?set.additional_advance_payment:0}];
+    }
+
+    const n = guideRows.length;
+    const expectedGuideEach = expectedGuideTotal!=null ? yen(n>0 ? Math.round(expectedGuideTotal/n) : expectedGuideTotal) : '-';
+
+    return guideRows.map((g,i)=>{
+      const advance = (g.advance_payment!=null) ? yen(Number(g.advance_payment||0)+Number(g.additional_advance_payment||0)) : '-';
+      return `<tr ondblclick="openBookingDetail('${b.id}')">
+      <td class="lnk" onclick="openBookingDetail('${b.id}')">${b.ref_no}${i>0?'':''}</td>
       <td>${escHtml(b.tour_name||'')}</td>
       <td>${b.in_date||''}</td>
       <td>${b.out_date||''}</td>
       <td>${pax}</td>
-      <td>${escHtml(guideName)}</td>
-      <td>${escHtml(guidePhone)}</td>
-      <td style="text-align:right">${expectedGuide}</td>
+      <td>${escHtml(g.name||'')}</td>
+      <td>${escHtml(g.phone||'')}</td>
+      <td style="text-align:right">${expectedGuideEach}</td>
       <td style="text-align:right">${advance}</td>
     </tr>`;
+    }).join('');
   }).join('');
 }
 
@@ -3117,6 +3282,125 @@ function printGuideAdvanceList(){
     window.onafterprint = null;
   };
   window.print();
+}
+
+// ===================================================
+// ガイド登録一覧
+// ===================================================
+let guideRegistryCache = [];
+let currentGuideEditId = null;
+
+// 登録一覧プルダウンに反映（select要素のリスト）
+async function populateGuideRegistrySelects(selectEls){
+  if(guideRegistryCache.length===0){
+    const {data} = await sb.from('guides').select('*').order('name_kana',{ascending:true});
+    guideRegistryCache = data || [];
+  }
+  const optionsHtml = '<option value="">登録一覧</option>' + guideRegistryCache.map(g=>
+    `<option value='${JSON.stringify({name:g.name, phone:g.phone||''}).replace(/'/g,"&apos;")}'>${escHtml(g.name)}${g.age!=null?`（${g.age}歳）`:''}</option>`
+  ).join('');
+  selectEls.forEach(el=>{ if(el) el.innerHTML = optionsHtml; });
+}
+
+// 登録一覧プルダウンの選択値を、名前・電話番号の入力欄に反映
+function applyGuideFromRegistry(selectEl, nameFieldId, phoneFieldId){
+  if(!selectEl.value) return;
+  const g = JSON.parse(selectEl.value);
+  document.getElementById(nameFieldId).value = g.name || '';
+  if(phoneFieldId && g.phone) document.getElementById(phoneFieldId).value = g.phone;
+  selectEl.value = '';
+}
+
+function toggleGuideRegistrySection(){
+  const el = document.getElementById('bl-guide-registry-section');
+  const btn = document.getElementById('gr-toggle-btn');
+  const show = el.style.display==='none';
+  el.style.display = show ? '' : 'none';
+  if(show){
+    btn.classList.add('btn-p');
+    loadGuideRegistry();
+  }else{
+    btn.classList.remove('btn-p');
+  }
+}
+
+async function loadGuideRegistry(){
+  const tbody = document.getElementById('gr-tbody');
+  tbody.innerHTML = '<tr><td colspan="6" class="empty">読み込み中...</td></tr>';
+  const {data, error} = await sb.from('guides').select('*').order('name_kana',{ascending:true});
+  if(error){ tbody.innerHTML = `<tr><td colspan="6" class="empty">読み込みエラー: ${error.message}</td></tr>`; return; }
+  guideRegistryCache = data || [];
+  if(guideRegistryCache.length===0){
+    tbody.innerHTML = '<tr><td colspan="6" class="empty">登録されたガイドはありません</td></tr>';
+    return;
+  }
+  tbody.innerHTML = guideRegistryCache.map(g=>`
+    <tr>
+      <td>${escHtml(g.name||'')}</td>
+      <td>${escHtml(g.name_kana||'')}</td>
+      <td>${escHtml(g.phone||'')}</td>
+      <td>${g.age!=null ? g.age+'歳' : ''}</td>
+      <td style="white-space:normal">${escHtml(g.languages||'')}${g.memo?(' / '+escHtml(g.memo)):''}${g.bank_info?(`<br><span style="color:var(--text3);font-size:10px">🏦 ${escHtml(g.bank_info)}</span>`):''}</td>
+      <td style="white-space:nowrap">
+        <button class="btn" style="font-size:11px" onclick="openGuideEditor('${g.id}')">編集</button>
+        <button class="btn" style="font-size:11px;color:var(--red)" onclick="deleteGuide('${g.id}')">削除</button>
+      </td>
+    </tr>`).join('');
+}
+
+function openGuideEditor(id){
+  currentGuideEditId = id;
+  const g = id ? guideRegistryCache.find(x=>x.id===id) : null;
+  document.getElementById('guide-modal-title').textContent = id ? 'ガイド編集' : 'ガイド登録';
+  document.getElementById('gr-name').value = g ? (g.name||'') : '';
+  document.getElementById('gr-kana').value = g ? (g.name_kana||'') : '';
+  document.getElementById('gr-phone').value = g ? (g.phone||'') : '';
+  document.getElementById('gr-age').value = g && g.age!=null ? g.age : '';
+  document.getElementById('gr-memo').value = g ? [g.languages, g.memo].filter(Boolean).join(g.languages&&g.memo?'\n':'') : '';
+  document.getElementById('gr-bank').value = g ? (g.bank_info||'') : '';
+  document.getElementById('gr-msg').style.display='none';
+  document.getElementById('guide-modal').classList.add('open');
+}
+
+function closeGuideEditor(){
+  document.getElementById('guide-modal').classList.remove('open');
+}
+
+async function saveGuide(){
+  const name = document.getElementById('gr-name').value.trim();
+  if(!name){ alert('氏名を入力してください'); return; }
+  const payload = {
+    name,
+    name_kana: document.getElementById('gr-kana').value.trim() || null,
+    phone: document.getElementById('gr-phone').value.trim() || null,
+    age: document.getElementById('gr-age').value ? Number(document.getElementById('gr-age').value) : null,
+    languages: document.getElementById('gr-memo').value.trim() || null,
+    bank_info: document.getElementById('gr-bank').value.trim() || null,
+    updated_at: new Date().toISOString()
+  };
+
+  let error;
+  if(currentGuideEditId){
+    ({error} = await sb.from('guides').update(payload).eq('id', currentGuideEditId));
+  }else{
+    payload.created_by = currentUser ? currentUser.email : null;
+    ({error} = await sb.from('guides').insert(payload));
+  }
+  if(error){ alert('保存に失敗しました: '+error.message); return; }
+
+  await logAction('ガイド登録更新', name);
+  const msg = document.getElementById('gr-msg');
+  msg.style.display='inline';
+  await loadGuideRegistry();
+  setTimeout(()=>{ closeGuideEditor(); }, 600);
+}
+
+async function deleteGuide(id){
+  const g = guideRegistryCache.find(x=>x.id===id);
+  if(!confirm(`「${g ? g.name : 'このガイド'}」を削除しますか？`)) return;
+  const {error} = await sb.from('guides').delete().eq('id', id);
+  if(error){ alert('削除に失敗しました: '+error.message); return; }
+  await loadGuideRegistry();
 }
 
 // ===================================================
@@ -3738,5 +4022,29 @@ async function showInvoicePreview(inv, booking){
 restoreSession();
 
 </script>
+
+<!-- ガイド編集モーダル -->
+<div class="modal-overlay" id="guide-modal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div class="modal-title" id="guide-modal-title">ガイド登録</div>
+      <div class="modal-close" onclick="closeGuideEditor()">✕</div>
+    </div>
+    <div class="form-grid">
+      <div class="form-field"><label>氏名</label><input id="gr-name" placeholder="例: 田中 太郎"></div>
+      <div class="form-field"><label>カタカナ</label><input id="gr-kana" placeholder="例: タナカ タロウ"></div>
+      <div class="form-field"><label>携帯番号</label><input id="gr-phone" placeholder="例: 090-1234-5678"></div>
+      <div class="form-field"><label>年齢</label><input id="gr-age" type="number" min="0"></div>
+      <div class="form-field" style="grid-column:1/-1"><label>言語・メモ（得意語・対応エリア・単価メモ等）</label><textarea id="gr-memo" rows="3" placeholder="例: 英語・中国語、関西エリア対応可"></textarea></div>
+      <div class="form-field" style="grid-column:1/-1"><label>銀行口座</label><textarea id="gr-bank" rows="2" placeholder="例: 三井住友銀行 渋谷支店 普通1234567 ヤマダタロウ"></textarea></div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:12px">
+      <button class="btn btn-p" onclick="saveGuide()">💾 保存</button>
+      <button class="btn" onclick="closeGuideEditor()">閉じる</button>
+      <span class="msg-ok" id="gr-msg">✓ 保存しました</span>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
