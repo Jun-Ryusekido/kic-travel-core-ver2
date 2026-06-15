@@ -386,7 +386,7 @@ th.sortable:hover{color:var(--blue)}
           </div>
           <div class="tbl-wrap"><table class="bl-table">
             <thead><tr><th style="width:11%">氏名</th><th style="width:9%">カタカナ</th><th style="width:10%">携帯番号</th><th style="width:5%">年齢</th><th style="width:23%">言語・メモ</th><th style="width:15%">銀行口座</th><th style="width:10%">マイナンバー</th><th style="width:17%"></th></tr></thead>
-            <tbody id="gr-tbody"><tr><td colspan="6" class="empty">読み込み中...</td></tr></tbody>
+            <tbody id="gr-tbody"><tr><td colspan="8" class="empty">読み込み中...</td></tr></tbody>
           </table></div>
         </div>
         <div class="card">
@@ -575,7 +575,7 @@ th.sortable:hover{color:var(--blue)}
           <div class="card-title">月別集計</div>
           <div class="tbl-wrap"><table>
             <thead><tr><th>月</th><th>売上</th><th>原価</th><th>GROSS</th><th>GROSS率</th><th>件数</th></tr></thead>
-            <tbody id="g-monthly-tbody"><tr><td colspan="6" class="empty">読み込み中...</td></tr></tbody>
+            <tbody id="g-monthly-tbody"><tr><td colspan="8" class="empty">読み込み中...</td></tr></tbody>
           </table></div>
         </div>
         <div class="card">
@@ -678,7 +678,7 @@ th.sortable:hover{color:var(--blue)}
           <div class="card-title">アクセスログ <span style="font-size:10px;color:var(--text3);font-weight:400">直近50件</span></div>
           <div class="tbl-wrap"><table>
             <thead><tr><th>日時</th><th>ユーザー</th><th>操作</th><th>対象</th><th>デバイス</th><th>結果</th></tr></thead>
-            <tbody id="log-tbody"><tr><td colspan="6" class="empty">読み込み中...</td></tr></tbody>
+            <tbody id="log-tbody"><tr><td colspan="8" class="empty">読み込み中...</td></tr></tbody>
           </table></div>
         </div>
       </div>
@@ -1614,7 +1614,7 @@ async function openBookingDetail(id){
 
   // 関連Invoiceを読み込み
   const invTbody = document.getElementById('bd-invoices');
-  invTbody.innerHTML = '<tr><td colspan="6" class="empty">読み込み中...</td></tr>';
+  invTbody.innerHTML = '<tr><td colspan="8" class="empty">読み込み中...</td></tr>';
   const {data: invoices} = await sb.from('invoices').select('*').eq('booking_id', id).order('created_at',{ascending:false});
   if(!invoices || invoices.length===0){
     invTbody.innerHTML = '<tr><td colspan="6" class="empty">関連するInvoiceはありません</td></tr>';
@@ -3411,7 +3411,7 @@ function toggleGuideRegistrySection(){
 
 async function loadGuideRegistry(){
   const tbody = document.getElementById('gr-tbody');
-  tbody.innerHTML = '<tr><td colspan="6" class="empty">読み込み中...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="8" class="empty">読み込み中...</td></tr>';
   const {data, error} = await sb.from('guides').select('*').order('name_kana',{ascending:true});
   if(error){ tbody.innerHTML = `<tr><td colspan="6" class="empty">読み込みエラー: ${error.message}</td></tr>`; return; }
   guideRegistryCache = data || [];
