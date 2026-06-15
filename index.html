@@ -3404,6 +3404,11 @@ function toggleGuideRegistrySection(){
   const btn = document.getElementById('gr-toggle-btn');
   const show = el.style.display==='none';
   el.style.display = show ? '' : 'none';
+  document.querySelectorAll('#pg-booking-list .card').forEach(card=>{
+    if(card.id!=='bl-guide-advance-section' && card.id!=='bl-guide-registry-section'){
+      card.style.display = show ? 'none' : '';
+    }
+  });
   if(show){
     btn.classList.add('btn-p');
     loadGuideRegistry();
