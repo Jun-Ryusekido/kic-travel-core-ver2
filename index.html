@@ -3413,7 +3413,7 @@ async function loadGuideRegistry(){
   const tbody = document.getElementById('gr-tbody');
   tbody.innerHTML = '<tr><td colspan="8" class="empty">読み込み中...</td></tr>';
   const {data, error} = await sb.from('guides').select('*').order('name_kana',{ascending:true});
-  if(error){ tbody.innerHTML = `<tr><td colspan="6" class="empty">読み込みエラー: ${error.message}</td></tr>`; return; }
+  if(error){ tbody.innerHTML = `<tr><td colspan="8" class="empty">読み込みエラー: ${error.message}</td></tr>`; return; }
   guideRegistryCache = data || [];
   if(guideRegistryCache.length===0){
     tbody.innerHTML = '<tr><td colspan="6" class="empty">登録されたガイドはありません</td></tr>';
