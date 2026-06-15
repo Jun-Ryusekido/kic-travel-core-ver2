@@ -757,7 +757,7 @@ th.sortable:hover{color:var(--blue)}
         <h4 class="green">売上明細</h4>
         <button class="btn" id="bd-agent-toggle-btn" style="font-size:10px;margin-bottom:4px" onclick="toggleBdAgentColumn()">＋ 請求先を分ける</button>
         <div class="tbl-wrap"><table class="li-table">
-          <thead><tr><th>項目</th><th style="width:74px">単価</th><th style="width:42px">数量</th><th class="li-amt">金額</th><th style="width:120px" class="bd-agent-col" style="display:none">PLACEHOLDER</th><th style="width:78px">入金日</th><th style="width:80px" class="li-amt">入金金額</th><th style="width:80px">入金先銀行</th><th style="width:64px" class="li-amt">未収</th><th class="li-del"></th></tr></thead>
+          <thead><tr><th>項目</th><th style="width:74px">単価</th><th style="width:42px">数量</th><th class="li-amt">金額</th><th style="width:78px">入金日</th><th style="width:80px" class="li-amt">入金金額</th><th style="width:80px">入金先銀行</th><th style="width:64px" class="li-amt">未収</th><th class="bd-agent-col" style="width:120px;display:none">請求先</th><th class="li-del"></th></tr></thead>
           <tbody id="bd-sales-tbody"></tbody>
         </table></div>
         <button class="btn" id="bd-sales-add-btn" style="font-size:10px;margin-top:4px" onclick="addSalesRow()">＋ 行追加</button>
