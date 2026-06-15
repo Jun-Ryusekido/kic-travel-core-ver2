@@ -1468,7 +1468,7 @@ function renderCostTable(){
   }else{
     tbody.innerHTML = bdCostItems.map((it,i)=>`
       <tr>
-        <td><input ${dis} value="${(it.item_name||'').replace(/"/g,'&quot;')}" title="${(it.item_name||'').replace(/"/g,'&quot;')}" onchange="bdCostItems[${i}].item_name=this.value"></td>
+        <td><input ${dis} list="suppliers-datalist" value="${(it.item_name||'').replace(/"/g,'&quot;')}" title="${(it.item_name||'').replace(/"/g,'&quot;')}" onchange="bdCostItems[${i}].item_name=this.value"></td>
         <td><input ${dis} type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="bdCostRowCalc(${i},this)"></td>
         <td><input ${dis} type="date" value="${it.payment_date||''}" onchange="bdCostItems[${i}].payment_date=this.value"></td>
         <td><input ${dis} value="${(it.memo||'').replace(/"/g,'&quot;')}" title="${(it.memo||'').replace(/"/g,'&quot;')}" onchange="bdCostItems[${i}].memo=this.value"></td>
