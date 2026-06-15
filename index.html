@@ -1468,7 +1468,7 @@ function renderCostTable(){
   }else{
     tbody.innerHTML = bdCostItems.map((it,i)=>`
       <tr>
-        <td><input ${dis} list="suppliers-datalist" value="${(it.item_name||'').replace(/"/g,'&quot;')}" title="${(it.item_name||'').replace(/"/g,'&quot;')}" onchange="bdCostItems[${i}].item_name=this.value"></td>
+        <td><input ${dis} value="${(it.item_name||'').replace(/"/g,'&quot;')}" title="${(it.item_name||'').replace(/"/g,'&quot;')}" oninput="bdCostItems[${i}].item_name=this.value;showSupplierSuggestions(this,${i})" onblur="setTimeout(hideSupplierSuggestions,150)" onfocus="showSupplierSuggestions(this,${i})"></td>
         <td><input ${dis} type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="bdCostRowCalc(${i},this)"></td>
         <td><input ${dis} type="date" value="${it.payment_date||''}" onchange="bdCostItems[${i}].payment_date=this.value"></td>
         <td><input ${dis} value="${(it.memo||'').replace(/"/g,'&quot;')}" title="${(it.memo||'').replace(/"/g,'&quot;')}" onchange="bdCostItems[${i}].memo=this.value"></td>
@@ -1486,13 +1486,43 @@ async function loadSuppliersCache(){
 }
 
 function renderSuppliersDatalist(){
-  let dl = document.getElementById('suppliers-datalist');
-  if(!dl){
-    dl = document.createElement('datalist');
-    dl.id = 'suppliers-datalist';
-    document.body.appendChild(dl);
-  }
-  dl.innerHTML = suppliersCache.map(n=>`<option value="${escAttr(n)}">`).join('');
+  // カスタムサジェスト方式のため何もしない（互換性のため残置）
+}
+
+function showSupplierSuggestions(inputEl, idx){
+  hideSupplierSuggestions();
+  const q = inputEl.value.trim().toLowerCase();
+  if(!q) return;
+  const matches = suppliersCache.filter(n=>n.toLowerCase().includes(q)).slice(0,10);
+  if(matches.length===0) return;
+
+  const box = document.createElement('div');
+  box.id = 'supplier-suggest-box';
+  box.style.cssText = 'position:absolute;z-index:200;background:#fff;border:1px solid var(--border);border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.12);max-height:160px;overflow-y:auto;font-size:11px';
+  const rect = inputEl.getBoundingClientRect();
+  box.style.left = (rect.left+window.scrollX)+'px';
+  box.style.top = (rect.bottom+window.scrollY)+'px';
+  box.style.width = Math.max(rect.width,160)+'px';
+
+  box.innerHTML = matches.map(n=>`<div class="supplier-suggest-item" style="padding:4px 8px;cursor:pointer" data-name="${escAttr(n)}">${escHtml(n)}</div>`).join('');
+  document.body.appendChild(box);
+
+  box.querySelectorAll('.supplier-suggest-item').forEach(item=>{
+    item.addEventListener('mousedown', e=>{
+      e.preventDefault();
+      const name = item.getAttribute('data-name');
+      inputEl.value = name;
+      bdCostItems[idx].item_name = name;
+      hideSupplierSuggestions();
+    });
+    item.addEventListener('mouseenter', ()=>{ item.style.background='var(--bg)'; });
+    item.addEventListener('mouseleave', ()=>{ item.style.background=''; });
+  });
+}
+
+function hideSupplierSuggestions(){
+  const box = document.getElementById('supplier-suggest-box');
+  if(box) box.remove();
 }
 
 async function registerNewSupplier(name){
