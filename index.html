@@ -107,7 +107,7 @@ th.sortable:hover{color:var(--blue)}
 .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:100;align-items:flex-start;justify-content:center;padding:30px 16px;overflow-y:auto}
 .modal-overlay.open{display:flex}
 .modal-box{background:var(--card);border-radius:12px;width:100%;max-width:min(960px,95vw);padding:18px 20px;max-height:92vh;overflow-y:auto} #detail-modal .modal-box{max-width:96vw;max-height:96vh}
-.modal-header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--border)}
+.modal-header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--card);z-index:10}
 .modal-title{font-size:14px;font-weight:700}
 .modal-close{cursor:pointer;font-size:18px;color:var(--text3);line-height:1;padding:2px 6px;border-radius:6px}
 .modal-close:hover{background:var(--bg)}
