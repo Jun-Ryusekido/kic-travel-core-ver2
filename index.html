@@ -1410,7 +1410,7 @@ async function unlockBooking(){
   renderCostTable();
 }
 
-function renderSalesTable(){
+function salesPaymentsTotal(it){   return (it.payments||[]).reduce((s,p)=>s+(Number(p.amount)||0),0); }  function renderSalesPaymentsCell(it,i,dis){   const payments = it.payments||[];   const rows = payments.map((p,j)=>`     <div style="display:flex;gap:4px;align-items:center;margin-bottom:2px">       <input ${dis} type="date" value="${p.date||''}" style="flex:1;min-width:0" onchange="bdSalesItems[${i}].payments[${j}].date=this.value;updateDetailGrossPreview()">       <input ${dis} type="text" inputmode="numeric" value="${Number(p.amount||0).toLocaleString('ja-JP')}" style="width:70px;text-align:right" onchange="bdSalesPaymentAmountCalc(${i},${j},this)">       ${dis?'':`<span class="lnk" style="font-size:10px" onclick="removeSalesPayment(${i},${j})">✕</span>`}     </div>`).join('');   const addBtn = dis?'':`<button class="btn" style="font-size:9px;padding:2px 5px" onclick="addSalesPayment(${i})">＋入金追加</button>`;   return `${rows}${addBtn}`; }  function bdSalesPaymentAmountCalc(i,j,el){   const v = parseNum(el.value);   bdSalesItems[i].payments[j].amount = v;   el.value = v.toLocaleString('ja-JP');   renderSalesTable(); }  function addSalesPayment(i){   if(bdLocked) return;   if(!bdSalesItems[i].payments) bdSalesItems[i].payments=[];   bdSalesItems[i].payments.push({date:'', amount:0});   renderSalesTable(); }  function removeSalesPayment(i,j){   if(bdLocked) return;   bdSalesItems[i].payments.splice(j,1);   renderSalesTable(); }  function renderSalesTable(){
   const tbody = document.getElementById('bd-sales-tbody');
   const dis = bdLocked ? 'disabled' : '';
   if(bdSalesItems.length===0){
