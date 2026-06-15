@@ -1414,7 +1414,7 @@ function renderSalesTable(){
   const tbody = document.getElementById('bd-sales-tbody');
   const dis = bdLocked ? 'disabled' : '';
   if(bdSalesItems.length===0){
-    tbody.innerHTML = '<tr><td colspan="7" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
   }else{
     tbody.innerHTML = bdSalesItems.map((it,i)=>`
       <tr>
