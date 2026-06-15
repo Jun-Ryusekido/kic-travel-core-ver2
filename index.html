@@ -1347,7 +1347,7 @@ function updateDetailGrossPreview(){
   const paidEl = document.getElementById('bd-sum-paid');
   const unpaidEl = document.getElementById('bd-sum-unpaid');
   if(paidEl) paidEl.textContent = yen(totalPaid);
-  if(unpaidEl){ unpaidEl.textContent = yen(unpaid); unpaidEl.className = 'kpi-val '+(unpaid>0?'red':'green'); 
+  if(unpaidEl){ unpaidEl.textContent = yen(unpaid); unpaidEl.className = 'kpi-val '+(unpaid>0?'red':'green'); }
   const cost = bdCostTotal();
   const gross = sales-cost;
   const rate = sales ? (gross/sales*100).toFixed(1) : '0.0';
