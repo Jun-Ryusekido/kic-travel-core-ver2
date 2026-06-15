@@ -385,7 +385,7 @@ th.sortable:hover{color:var(--blue)}
             <span><button class="btn btn-p" onclick="openGuideEditor(null)">＋ 新規ガイド登録</button></span>
           </div>
           <div class="tbl-wrap"><table class="bl-table">
-            <thead><tr><th style="width:14%">氏名</th><th style="width:12%">カタカナ</th><th style="width:12%">携帯番号</th><th style="width:6%">年齢</th><th style="width:36%">言語・メモ</th><th style="width:20%"></th></tr></thead>
+            <thead><tr><th style="width:12%">氏名</th><th style="width:10%">カタカナ</th><th style="width:11%">携帯番号</th><th style="width:5%">年齢</th><th style="width:27%">言語・メモ</th><th style="width:17%">銀行口座</th><th style="width:18%"></th></tr></thead>
             <tbody id="gr-tbody"><tr><td colspan="6" class="empty">読み込み中...</td></tr></tbody>
           </table></div>
         </div>
@@ -3425,7 +3425,7 @@ async function loadGuideRegistry(){
       <td>${escHtml(g.name_kana||'')}</td>
       <td>${escHtml(g.phone||'')}</td>
       <td>${g.age!=null ? g.age+'歳' : ''}</td>
-      <td style="white-space:normal">${escHtml(g.languages||'')}${g.memo?(' / '+escHtml(g.memo)):''}${g.bank_info?(`<br><span style="color:var(--text3);font-size:10px">🏦 ${escHtml(g.bank_info)}</span>`):''}</td>
+      <td style="white-space:normal">${escHtml(g.languages||'')}${g.memo?(' / '+escHtml(g.memo)):''}</td>       <td style="white-space:normal;font-size:10px;color:var(--text3)">${escHtml(g.bank_info||'')}</td>
       <td style="white-space:nowrap">
         <button class="btn" style="font-size:11px" onclick="openGuideEditor('${g.id}')">編集</button>
         <button class="btn" style="font-size:11px;color:var(--red)" onclick="deleteGuide('${g.id}')">削除</button>
