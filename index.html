@@ -1578,7 +1578,7 @@ async function openBookingDetail(id){
   await loadGuideSettlements();
 
   // ガイド登録一覧プルダウンを読み込み
-  // 仕入先マスタを読み込み   await loadSuppliersCache();    // ガイド登録一覧プルダウンを読み込み   await populateGuideRegistrySelects([document.getElementById('bd-new-guide-select')]);
+  // 仕入先マスタを読み込み   await loadSuppliersCache();   renderSuppliersDatalist();    // ガイド登録一覧プルダウンを読み込み   await populateGuideRegistrySelects([document.getElementById('bd-new-guide-select')]);
   bdNewGuideList = [];
   renderBdNewGuideList();
 
