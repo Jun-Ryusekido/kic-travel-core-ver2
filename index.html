@@ -1484,7 +1484,7 @@ function renderSalesTable(){
         <td><input ${dis} type="text" inputmode="numeric" value="${Number(it.unit_price||0).toLocaleString('ja-JP')}" onchange="bdSalesRowCalc(${i},this,'unit_price')"></td>
         <td><input ${dis} type="number" value="${it.qty||1}" onchange="bdSalesRowCalc(${i},this,'qty')"></td>
         <td id="bd-sales-amt-${i}" class="li-amt">${yen(it.amount||0)}</td>
-        <td>${renderSalesPaymentDates(it,i,dis)}</td>         <td>${renderSalesPaymentAmounts(it,i,dis)}</td>         <td class="li-amt" style="${(Number(it.amount||0)-salesPaymentsTotal(it))>0?'color:var(--red)':'color:var(--green)'}">${yen(Number(it.amount||0)-salesPaymentsTotal(it))}</td>
+        <td>${renderSalesPaymentDates(it,i,dis)}</td>         <td>${renderSalesPaymentAmounts(it,i,dis)}</td>         <td>${renderSalesPaymentBanks(it,i,dis)}</td>         <td class="li-amt" style="${(Number(it.amount||0)-salesPaymentsTotal(it))>0?'color:var(--red)':'color:var(--green)'}">${yen(Number(it.amount||0)-salesPaymentsTotal(it))}</td>
         <td><input ${dis} value="${(it.agent_name||'').replace(/"/g,'&quot;')}" title="${(it.agent_name||'').replace(/"/g,'&quot;')}" placeholder="(予約のAgent)" onchange="bdSalesItems[${i}].agent_name=this.value;renderInvoiceActions()"></td>
         <td class="li-del">${bdLocked?'':`<span class="lnk" style="font-size:10px" onclick="removeSalesRow(${i})">削除</span>`}</td>
       </tr>`).join('');
