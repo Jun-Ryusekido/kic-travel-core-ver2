@@ -709,6 +709,10 @@ th.sortable:hover{color:var(--blue)}
       <div class="kpi"><div class="kpi-lbl">仕入</div><div class="kpi-val" id="bd-sum-cost">-</div></div>
       <div class="kpi"><div class="kpi-lbl">粗利</div><div class="kpi-val" id="bd-sum-gross">-</div></div>
       <div class="kpi"><div class="kpi-lbl">粗利率</div><div class="kpi-val" id="bd-sum-rate">-</div></div>
+      </div>
+    <div class="detail-summary">
+      <div class="kpi"><div class="kpi-lbl">入金合計</div><div class="kpi-val" id="bd-sum-paid">-</div></div>
+      <div class="kpi"><div class="kpi-lbl">未収金額</div><div class="kpi-val" id="bd-sum-unpaid">-</div></div>
     </div>
 
     <div class="modal-section-title">基本情報</div>
@@ -1338,6 +1342,12 @@ function updateBdPaxTotal(){
 
 function updateDetailGrossPreview(){
   const sales = bdSalesTotal();
+  const totalPaid = bdSalesItems.reduce((s,it)=>s+salesPaymentsTotal(it),0);
+  const unpaid = sales - totalPaid;
+  const paidEl = document.getElementById('bd-sum-paid');
+  const unpaidEl = document.getElementById('bd-sum-unpaid');
+  if(paidEl) paidEl.textContent = yen(totalPaid);
+  if(unpaidEl){ unpaidEl.textContent = yen(unpaid); unpaidEl.className = 'kpi-val '+(unpaid>0?'red':'green'); 
   const cost = bdCostTotal();
   const gross = sales-cost;
   const rate = sales ? (gross/sales*100).toFixed(1) : '0.0';
@@ -1422,7 +1432,7 @@ function salesPaymentsTotal(it){   return (it.payments||[]).reduce((s,p)=>s+(Num
         <td><input ${dis} type="text" inputmode="numeric" value="${Number(it.unit_price||0).toLocaleString('ja-JP')}" onchange="bdSalesRowCalc(${i},this,'unit_price')"></td>
         <td><input ${dis} type="number" value="${it.qty||1}" onchange="bdSalesRowCalc(${i},this,'qty')"></td>
         <td id="bd-sales-amt-${i}" class="li-amt">${yen(it.amount||0)}</td>
-        <td>${renderSalesPaymentsCell(it,i,dis)}</td>         <td class="li-amt" style="${(Number(it.amount||0)-salesPaymentsTotal(it))>0?'color:var(--red)':'color:var(--green)'}">${yen(Number(it.amount||0)-salesPaymentsTotal(it))}</td>
+        <td>${renderSalesPaymentDates(it,i,dis)}</td>         <td>${renderSalesPaymentAmounts(it,i,dis)}</td>         <td class="li-amt" style="${(Number(it.amount||0)-salesPaymentsTotal(it))>0?'color:var(--red)':'color:var(--green)'}">${yen(Number(it.amount||0)-salesPaymentsTotal(it))}</td>
         <td><input ${dis} value="${(it.agent_name||'').replace(/"/g,'&quot;')}" title="${(it.agent_name||'').replace(/"/g,'&quot;')}" placeholder="(予約のAgent)" onchange="bdSalesItems[${i}].agent_name=this.value;renderInvoiceActions()"></td>
         <td class="li-del">${bdLocked?'':`<span class="lnk" style="font-size:10px" onclick="removeSalesRow(${i})">削除</span>`}</td>
       </tr>`).join('');
