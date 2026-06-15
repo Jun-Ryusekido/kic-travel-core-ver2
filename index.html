@@ -1479,9 +1479,37 @@ function renderCostTable(){
 }
 
 // カンマ・記号を除去して数値化
-async function loadSuppliersCache(){   if(suppliersCache.length>0) return;   const {data} = await sb.from('suppliers').select('name').order('name');   suppliersCache = (data||[]).map(r=>r.name); }  function renderSuppliersDatalist(){   let dl = document.getElementById('suppliers-datalist');   if(!dl){     dl = document.createElement('datalist');     dl.id = 'suppliers-datalist';     document.body.appendChild(dl);   }   dl.innerHTML = suppliersCache.map(n=>`<option value="${escAttr(n)}">`).join(''); }  async function registerNewSupplier(name){   name = (name||'').trim();   if(!name) return;   if(suppliersCache.includes(name)) return;   const {error} = await sb.from('suppliers').insert({name}).select();   if(!error){     suppliersCache.push(name);     renderSuppliersDatalist();   } }  function parseNum(str){
+async function loadSuppliersCache(){
+  if(suppliersCache.length>0) return;
+  const {data} = await sb.from('suppliers').select('name').order('name');
+  suppliersCache = (data||[]).map(r=>r.name);
+}
+
+function renderSuppliersDatalist(){
+  let dl = document.getElementById('suppliers-datalist');
+  if(!dl){
+    dl = document.createElement('datalist');
+    dl.id = 'suppliers-datalist';
+    document.body.appendChild(dl);
+  }
+  dl.innerHTML = suppliersCache.map(n=>`<option value="${escAttr(n)}">`).join('');
+}
+
+async function registerNewSupplier(name){
+  name = (name||'').trim();
+  if(!name) return;
+  if(suppliersCache.includes(name)) return;
+  const {error} = await sb.from('suppliers').insert({name}).select();
+  if(!error){
+    suppliersCache.push(name);
+    renderSuppliersDatalist();
+  }
+}
+
+function parseNum(str){
   const n = Number(String(str).replace(/[^0-9.\-]/g,''));
   return isNaN(n) ? 0 : n;
+} 
 }
 
 function bdSalesRowCalc(i, el, field){
@@ -3039,6 +3067,10 @@ async function saveBookingDetail(){
   }));
   if(salesToInsert.length) await sb.from('booking_sales').insert(salesToInsert);
   if(costToInsert.length) await sb.from('booking_costs').insert(costToInsert);
+  
+  for(const it of costToInsert){
+    if(it.item_name) await registerNewSupplier(it.item_name);
+  }
 
   const b = findBookingById(currentDetailId);
   await logAction('予約編集', b ? b.ref_no : currentDetailId);
