@@ -382,7 +382,10 @@ th.sortable:hover{color:var(--blue)}
         </div>
         <div class="card" id="bl-guide-registry-section" style="display:none">
           <div class="card-title">ガイド登録一覧
-            <span><button class="btn btn-p" onclick="openGuideEditor(null)">＋ 新規ガイド登録</button></span>
+            <span>
+              <button class="btn btn-p" onclick="openGuideEditor(null)">＋ 新規ガイド登録</button>
+              <button class="btn" onclick="toggleGuideRegistrySection()">✕ 閉じる</button>
+            </span>
           </div>
           <div class="form-field" style="margin-bottom:10px"><label>検索（氏名・カタカナ・携帯番号・言語/メモ・銀行口座）</label><input id="gr-search" placeholder="例: 英語, 090, 三井住友" oninput="filterGuideRegistry()"></div>
           <div style="font-size:11px;color:var(--text3);margin-bottom:6px" id="gr-count"></div>
