@@ -1456,7 +1456,7 @@ function bdSalesPaymentAmountCalc(i,j,el){
 function addSalesPayment(i){
   if(bdLocked) return;
   if(!bdSalesItems[i].payments) bdSalesItems[i].payments=[];
-  bdSalesItems[i].payments.push({date:'', amount:0});
+  bdSalesItems[i].payments.push({date:'', amount:0, bank:''});
   renderSalesTable();
 }
 
