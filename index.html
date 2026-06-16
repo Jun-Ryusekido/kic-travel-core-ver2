@@ -1308,7 +1308,7 @@ let arrDays = [];
 
 // ===== ガイド精算 (Guide Settlement) =====
 let guideSettlementsCache = [];
-const GS_CATEGORIES = ['食事代','交通費','入場料・拝観料の立替','チップ','駐車場・通行料','その他'];
+const GS_CATEGORIES = ['食事代','交通費','入場料・拝観料の立替','お茶代','駐車場・通行料','その他'];
 
 // ===== 見積もり (Estimation) =====
 let estimationsCache = [];
@@ -1346,11 +1346,12 @@ function updateBdPaxTotal(){
 
 function updateDetailGrossPreview(){
   const sales = bdSalesTotal();
-  const deposit = Number(document.getElementById('bd-deposit').value)||0;   const totalPaid = deposit + bdSalesItems.reduce((s,it)=>s+salesPaymentsTotal(it),0);
+     const totalPaid = bdSalesItems.reduce((s,it)=>s+salesPaymentsTotal(it),0);
   const unpaid = sales - totalPaid;
   const paidEl = document.getElementById('bd-sum-paid');
   const unpaidEl = document.getElementById('bd-sum-unpaid');
-  if(paidEl) paidEl.textContent = yen(totalPaid);   const depositElInput = document.getElementById('bd-deposit');   if(depositElInput) depositElInput.value = totalPaid;   const depositEl = document.getElementById('bd-deposit');   if(depositEl) depositEl.value = totalPaid;
+  if(paidEl) paidEl.textContent = yen(totalPaid);
+  const depositElInput = document.getElementById('bd-deposit'); if(depositElInput) depositElInput.value = totalPaid;
   if(unpaidEl){ unpaidEl.textContent = yen(unpaid); unpaidEl.className = 'kpi-val '+(unpaid>0?'red':'green'); }
   const cost = bdCostTotal();
   const gross = sales-cost;
@@ -1661,7 +1662,7 @@ async function openBookingDetail(id){
   document.getElementById('bd-status').value = b.status||'open';
   document.getElementById('bd-in').value = b.in_date||'';
   document.getElementById('bd-out').value = b.out_date||'';
-  document.getElementById('bd-deposit').value = 0;
+  // deposit reset handled after sales load
   document.getElementById('bd-updated').textContent = b.updated_at ? ('最終更新: '+new Date(b.updated_at).toLocaleString('ja-JP')) : '';
   document.getElementById('bd-msg').style.display='none';
   document.getElementById('bd-msg-top').style.display='none';
@@ -1680,7 +1681,7 @@ async function openBookingDetail(id){
 
   bdLocked = !!b.locked;
   renderLockBanner();
-  renderSalesTable();
+  document.getElementById('bd-deposit').value = 0;renderSalesTable();
   renderCostTable();
 
   // 関連Invoiceを読み込み
@@ -3149,7 +3150,7 @@ async function saveBookingDetail(){
     out_date: document.getElementById('bd-out').value || null,
     gross_sales: totalSales,
     gross_cost: totalCost,
-    deposit_amount: Number(document.getElementById('bd-deposit').value)||0,
+    deposit_amount: bdSalesItems.reduce((s,it)=>s+(it.payments||[]).reduce((ps,p)=>ps+(Number(p.amount)||0),0),0),
     updated_at: new Date().toISOString()
   };
   const {error} = await sb.from('bookings').update(payload).eq('id', currentDetailId);

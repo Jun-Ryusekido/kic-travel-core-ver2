@@ -64,7 +64,7 @@ const SUPABASE_URL = 'https://nzdygjlnzvtdezslnuoy.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Cnloaxzb2Ati8gmCa-1o3Q_t3uy6_mB';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-const CATEGORIES = ['食事代','交通費','入場料・拝観料の立替','チップ','駐車場・通行料','その他'];
+const CATEGORIES = ['食事代','交通費','入場料・拝観料の立替','お茶代','駐車場・通行料','その他'];
 
 function yen(n){ return '¥' + Number(n||0).toLocaleString('ja-JP'); }
 function escHtml(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -137,10 +137,14 @@ function render(){
       </div>
       <div class="form-field">
         <label>カテゴリ</label>
-        <select id="f-category">
+        <select id="f-category" onchange="document.getElementById('f-category-other-wrap').style.display=this.value==='その他'?'':'none'">
           ${CATEGORIES.map(c=>`<option value="${c}">${c}</option>`).join('')}
         </select>
       </div>
+      <div class="form-field" id="f-category-other-wrap" style="display:none">
+      <label>その他の内容</label>
+      <input type="text" id="f-category-other" placeholder="例: お土産代">
+    </div>
       <div class="form-field">
         <label>内容</label>
         <input type="text" id="f-description" placeholder="例: 昼食代（〇〇レストラン）">
@@ -187,6 +191,7 @@ async function submitItem(){
   const date = document.getElementById('f-date').value;
   const category = document.getElementById('f-category').value;
   const description = document.getElementById('f-description').value.trim();
+  const categoryOther = (category==='その他') ? document.getElementById('f-category-other').value.trim() : '';
   const amount = Number(document.getElementById('f-amount').value)||0;
   const guideNameEl = document.getElementById('f-guide-name');
   const guideName = guideNameEl ? guideNameEl.value : (settlement.guide_name || '');
@@ -208,7 +213,7 @@ async function submitItem(){
     const {error: insErr} = await sb.from('guide_settlement_items').insert({
       settlement_id: settlement.id,
       expense_date: date || null,
-      category, description, amount, guide_name: guideName,
+      category, description: categoryOther ? (description ? `${categoryOther} / ${description}` : categoryOther) : description, amount, guide_name: guideName,
       status: 'pending'
     });
     if(insErr) throw insErr;
