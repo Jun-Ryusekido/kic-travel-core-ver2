@@ -1350,7 +1350,7 @@ function updateDetailGrossPreview(){
   const unpaid = sales - totalPaid;
   const paidEl = document.getElementById('bd-sum-paid');
   const unpaidEl = document.getElementById('bd-sum-unpaid');
-  if(paidEl) paidEl.textContent = yen(totalPaid);   const depositEl = document.getElementById('bd-deposit');   if(depositEl) depositEl.value = totalPaid;
+  if(paidEl) paidEl.textContent = yen(totalPaid);   const depositEl = document.getElementById('bd-deposit');   if(depositEl) depositEl.value = totalPaid;   const depositEl = document.getElementById('bd-deposit');   if(depositEl) depositEl.value = totalPaid;
   if(unpaidEl){ unpaidEl.textContent = yen(unpaid); unpaidEl.className = 'kpi-val '+(unpaid>0?'red':'green'); }
   const cost = bdCostTotal();
   const gross = sales-cost;
