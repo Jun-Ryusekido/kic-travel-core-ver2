@@ -259,6 +259,7 @@ th.sortable:hover{color:var(--blue)}
         <div class="sb-avatar" id="sb-avatar">AD</div>
         <div><div class="sb-uname" id="sb-uname">Admin</div><div class="sb-urole" id="sb-urole">管理者</div></div>
       </div>
+      <div class="sb-logout" onclick="changePassword()" style="margin-bottom:4px">🔑 パスワード変更</div>
       <div class="sb-logout" onclick="doLogout()">ログアウト</div>
     </div>
   </div>
@@ -1049,6 +1050,14 @@ function applyLoggedInUI(data){
   document.querySelectorAll('.accounting-only').forEach(el=>{
     el.style.display = isAccountingUser() ? '' : 'none';
   });
+}
+
+async function changePassword(){
+  const newPw = prompt('新しいパスワードを入力してください（8文字以上）');
+  if(!newPw || newPw.length<8){ alert('8文字以上のパスワードを入力してください'); return; }
+  const {error} = await sb.from('app_users').update({password:newPw}).eq('id', currentUser.id);
+  if(error){ alert('変更に失敗しました: '+error.message); return; }
+  alert('パスワードを変更しました。次回ログインから新しいパスワードをご使用ください。');
 }
 
 function doLogout(){
