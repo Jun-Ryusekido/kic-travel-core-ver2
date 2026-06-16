@@ -373,7 +373,8 @@ th.sortable:hover{color:var(--blue)}
             <div class="form-field" style="align-self:end"><button class="btn" onclick="setGuideAdvanceRangeDefault()">直近60日</button></div>
             <button class="btn" style="margin-left:auto" onclick="printGuideAdvanceList()">🖨 印刷（A4横）</button>
           </div>
-          <div style="font-size:11px;color:var(--text3);margin:4px 0 10px">※ ガイド名・電話番号は手配書、想定ガイド費は見積もり（成約済み）から自動取得します。仮払金は予約台帳のガイド精算で入力した内容が反映されます。</div>
+          <div style="font-size:11px;color:var(--text3);margin:4px 0 6px">※ ガイド名・電話番号は手配書、想定ガイド費は見積もり（成約済み）から自動取得します。仮払金は予約台帳のガイド精算で入力した内容が反映されます。</div>
+          <div style="margin-bottom:8px"><input id="ga-search" placeholder="REF# / Tour / ガイド名で検索" style="width:300px;padding:6px 10px;border-radius:8px;border:1px solid var(--border);font-size:12px" oninput="filterGuideAdvanceList()"></div>
           <div id="ga-print-card">
             <div class="card-title">ガイド仮払い一覧</div>
             <div class="tbl-wrap"><table id="ga-table">
@@ -3681,6 +3682,15 @@ async function loadGuideAdvanceList(){
       return mainRow + (i===0 && localItems.length>0 ? detailRows : '');
     }).join('');
   }).join('');
+}
+
+function filterGuideAdvanceList(){
+  const q = toHalfWidth((document.getElementById('ga-search')?.value||'').trim().toLowerCase());
+  if(!q){ document.querySelectorAll('#ga-tbody tr').forEach(tr=>tr.style.display=''); return; }
+  document.querySelectorAll('#ga-tbody tr').forEach(tr=>{
+    const text = tr.textContent.toLowerCase();
+    tr.style.display = text.includes(q) ? '' : 'none';
+  });
 }
 
 function printGuideAdvanceList(){
