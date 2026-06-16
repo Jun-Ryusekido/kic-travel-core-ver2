@@ -271,6 +271,7 @@ th.sortable:hover{color:var(--blue)}
         <span class="tb-title" id="pg-title">Dashboard</span>
         <span class="ver-badge">KIC Ver 2.0</span>
       </div>
+      <span id="backup-btn-wrap" style="display:none"><button class="btn" onclick="exportFullBackup()" style="margin-right:8px">📦 バックアップ</button></span>
       <button class="btn btn-p" onclick="go('new-booking')">＋ New Booking</button>
     </div>
 
@@ -918,6 +919,8 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 let currentUser = null;
 const ACCOUNTING_EMAILS = ['admin@kictravel.jp','kanri@kictravel.jp'];
+const BACKUP_EMAILS = ['admin@kictravel.jp','jr@kictravel.jp'];
+function isBackupUser(){ return currentUser && BACKUP_EMAILS.includes(currentUser.email); }
 function isAccountingUser(){ return currentUser && ACCOUNTING_EMAILS.includes(currentUser.email); }
 let currentPageId = 'dashboard';
 const SESSION_KEY = 'kic_session_v1';
@@ -1050,6 +1053,8 @@ function applyLoggedInUI(data){
   document.querySelectorAll('.accounting-only').forEach(el=>{
     el.style.display = isAccountingUser() ? '' : 'none';
   });
+  const backupWrap = document.getElementById('backup-btn-wrap');
+  if(backupWrap) backupWrap.style.display = isBackupUser() ? '' : 'none';
 }
 
 async function changePassword(){
@@ -2141,6 +2146,46 @@ async function exportBookingArchive(){
   URL.revokeObjectURL(url);
 
   await logAction('データアーカイブ出力', b.ref_no);
+}
+
+async function exportFullBackup(){
+  if(!confirm('全予約データをZIPでダウンロードします。よろしいですか？')) return;
+  const data = await fetchAllBookings();
+  if(data.length===0){ alert('予約データがありません'); return; }
+  const ids = data.map(b=>b.id);
+  const refNos = data.map(b=>b.ref_no);
+
+  const [{data:sales},{data:costs},{data:invoices},{data:arrangements},{data:settlements}] = await Promise.all([
+    sb.from('booking_sales').select('*').in('booking_id',ids),
+    sb.from('booking_costs').select('*').in('booking_id',ids),
+    sb.from('invoices').select('*').in('booking_id',ids),
+    sb.from('tour_arrangements').select('*').in('booking_ref',refNos),
+    sb.from('guide_settlements').select('*').in('booking_ref',refNos)
+  ]);
+
+  const zip = new JSZip();
+  const exportedAt = new Date().toISOString();
+  data.forEach(b=>{
+    const safeRef = (b.ref_no||'booking').replace(/[^A-Za-z0-9]/g,'');
+    const archive = {
+      exported_at: exportedAt, ref_no: b.ref_no, booking: b,
+      sales_items: (sales||[]).filter(s=>s.booking_id===b.id),
+      cost_items: (costs||[]).filter(c=>c.booking_id===b.id),
+      invoices: (invoices||[]).filter(i=>i.booking_id===b.id),
+      arrangements: (arrangements||[]).filter(a=>a.booking_ref===b.ref_no),
+      guide_settlements: (settlements||[]).filter(s=>s.booking_ref===b.ref_no)
+    };
+    zip.file(`${safeRef}.json`, JSON.stringify(archive,null,2));
+  });
+
+  const blob = await zip.generateAsync({type:'blob',compression:'DEFLATE',compressionOptions:{level:9}});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href=url;
+  a.download=`KIC_backup_${new Date().toISOString().slice(0,10)}.zip`;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+  await logAction('全データバックアップ','—');
 }
 
 async function exportFiscalYearArchive(){
