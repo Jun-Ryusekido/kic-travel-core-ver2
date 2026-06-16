@@ -3699,6 +3699,7 @@ async function loadGuideSettlementsListPage(){
   (items||[]).forEach(it=>{ (itemsBySettlement[it.settlement_id]=itemsBySettlement[it.settlement_id]||[]).push(it); });
 
   const data = await fetchAllBookings();
+  allBookingsCache = data;
   const bookingByRef = {};
   data.forEach(b=>{ bookingByRef[b.ref_no]=b; });
 
