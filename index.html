@@ -3192,6 +3192,12 @@ async function saveBookingDetail(){
   ['db','bl'].forEach(p=>{
     if(document.getElementById(p+'-tbody')) filterBookingListGeneric(p);
   });
+
+  // 入金合計が売上合計以上になったらInvoiceをpaidに自動更新
+  const totalPaidNow = bdSalesItems.reduce((s,it)=>s+(it.payments||[]).reduce((ps,p)=>ps+(Number(p.amount)||0),0),0);
+  if(totalPaidNow>0 && totalPaidNow>=totalSales){
+    await sb.from('invoices').update({status:'paid'}).eq('booking_id', currentDetailId).eq('status','pending');
+  }
 }
 
 // ===== New Booking =====
