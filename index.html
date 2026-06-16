@@ -3697,14 +3697,31 @@ async function loadPayments(){
   document.getElementById('pay-monthly-tbody').innerHTML='<tr><td colspan="4" class="empty">読み込み中...</td></tr>';
 
   const [{data: sales}, {data: costs}] = await Promise.all([
-    sb.from('booking_sales').select('*, bookings(ref_no, agent_name, tour_name)').not('payment_date','is',null).order('payment_date',{ascending:false}),
+    sb.from('booking_sales').select('*, bookings(ref_no, agent_name, tour_name)'),
     sb.from('booking_costs').select('*, bookings(ref_no, agent_name, tour_name)').not('payment_date','is',null).order('payment_date',{ascending:false})
   ]);
 
-  salesPaymentsCache = (sales||[]).map(r=>({
-    payment_date:r.payment_date, amount:Number(r.amount||0), item_name:r.item_name||'',
-    ref_no:r.bookings?.ref_no||'', agent_name:r.bookings?.agent_name||'', tour_name:r.bookings?.tour_name||''
-  }));
+  // payments[]配列の各要素を1行として展開
+  salesPaymentsCache = [];
+  (sales||[]).forEach(r=>{
+    const payments = r.payments||[];
+    if(payments.length>0){
+      payments.forEach(p=>{
+        if(!p.date) return;
+        salesPaymentsCache.push({
+          payment_date: p.date,
+          amount: Number(p.amount||0),
+          item_name: r.item_name||'',
+          bank: p.bank||'',
+          ref_no: r.bookings?.ref_no||'',
+          agent_name: r.bookings?.agent_name||'',
+          tour_name: r.bookings?.tour_name||''
+        });
+      });
+    }
+  });
+  salesPaymentsCache.sort((a,b)=>b.payment_date.localeCompare(a.payment_date));
+
   costPaymentsCache = (costs||[]).map(r=>({
     payment_date:r.payment_date, amount:Number(r.amount||0), item_name:r.item_name||'', memo:r.memo||'',
     ref_no:r.bookings?.ref_no||'', agent_name:r.bookings?.agent_name||'', tour_name:r.bookings?.tour_name||''
