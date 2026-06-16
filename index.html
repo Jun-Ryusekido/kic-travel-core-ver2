@@ -333,11 +333,14 @@ th.sortable:hover{color:var(--blue)}
                 <div class="form-field" style="flex:1 1 160px">
                   <label>Status</label>
                   <select id="nb-status">
-                    <option value="open">Open</option>
-                    <option value="invoiced">Invoiced</option>
-                    <option value="pending">Pending</option>
-                    <option value="paid">Paid</option>
-                    <option value="closed">Closed</option>
+                    <option value="open">Open / 新規</option>
+                    <option value="pending">Pending / 手配中</option>
+                    <option value="confirmed">Confirmed / 催行確定</option>
+                    <option value="invoiced">Invoiced / 請求済</option>
+                    <option value="paid">Paid / 入金済</option>
+                    <option value="settlement">Settlement / 精算中</option>
+                    <option value="closed">Closed / 完了</option>
+                    <option value="cancelled">Cancelled / 中止</option>
                   </select>
                 </div>
               </div>
@@ -408,10 +411,13 @@ th.sortable:hover{color:var(--blue)}
               <select id="bl-status" onchange="filterBookingListGeneric('bl')">
                 <option value="">すべて</option>
                 <option value="open">Open</option>
-                <option value="invoiced">Invoiced</option>
                 <option value="pending">Pending</option>
+                <option value="confirmed">Confirmed</option>
+                <option value="invoiced">Invoiced</option>
                 <option value="paid">Paid</option>
+                <option value="settlement">精算中</option>
                 <option value="closed">Closed</option>
+                <option value="cancelled">中止</option>
               </select>
             </div>
           </div>
@@ -735,11 +741,14 @@ th.sortable:hover{color:var(--blue)}
           <div class="form-field" style="flex:1 1 160px">
             <label>手配状況 / Status</label>
             <select id="bd-status">
-              <option value="open">Open（未対応）</option>
-              <option value="pending">Pending（手配中）</option>
-              <option value="invoiced">Invoiced（請求済）</option>
-              <option value="paid">Paid（入金済）</option>
-              <option value="closed">Closed（完了）</option>
+              <option value="open">Open / 新規</option>
+              <option value="pending">Pending / 手配中</option>
+              <option value="confirmed">Confirmed / 催行確定</option>
+              <option value="invoiced">Invoiced / 請求済</option>
+              <option value="paid">Paid / 入金済</option>
+              <option value="settlement">Settlement / 精算中</option>
+              <option value="closed">Closed / 完了</option>
+              <option value="cancelled">Cancelled / 中止</option>
             </select>
           </div>
         </div>
@@ -1328,11 +1337,19 @@ function listGoPage(prefix,p){
   filterBookingListGeneric(prefix);
 }
 
-function statusPill(status){
-  const map={open:['s-open','Open'],invoiced:['s-invoiced','Invoiced'],pending:['s-pending','Pending'],paid:['s-paid','Paid'],closed:['s-closed','Closed']};
-  const [cls,label] = map[status] || ['s-open',status];
-  return `<span class="pill ${cls}">${label}</span>`;
-}
+<div class="form-field"><label>Status</label>
+              <select id="db-status" onchange="filterBookingListGeneric('db')">
+                <option value="">すべて</option>
+                <option value="open">Open</option>
+                <option value="pending">Pending</option>
+                <option value="confirmed">Confirmed</option>
+                <option value="invoiced">Invoiced</option>
+                <option value="paid">Paid</option>
+                <option value="settlement">精算中</option>
+                <option value="closed">Closed</option>
+                <option value="cancelled">中止</option>
+              </select>
+            </div>
 
 // ===== 予約台帳モーダル =====
 let currentDetailId = null;
