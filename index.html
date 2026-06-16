@@ -3557,7 +3557,7 @@ async function loadGuideAdvanceList(){
     sb.from('tour_arrangements').select('booking_ref, guide_name, guide_phone').in('booking_ref', refNos),
     sb.from('estimations').select('id, converted_booking_id').in('converted_booking_id', ids),
     sb.from('guide_settlements').select('booking_ref, guide_name, guide_phone, guide_names, advance_payment, additional_advance_payment').in('booking_ref', refNos),
-    sb.from('local_expenses').select('booking_id, amount').in('booking_id', ids)
+    sb.from('local_expenses').select('booking_id, expense_date, content, category, unit_price, qty, amount, payment_method').in('booking_id', ids).order('sort_order')
   ]);
 
   // 予約IDごとの仮払い合計
@@ -3599,11 +3599,14 @@ async function loadGuideAdvanceList(){
     const n = guideRows.length;
     const expectedGuideEach = expectedGuideTotal!=null ? yen(n>0 ? Math.round(expectedGuideTotal/n) : expectedGuideTotal) : '-';
 
+    // 仮払い明細行を取得
+    const localItems = (localExpenses||[]).filter(r=>r.booking_id===b.id);
+
     return guideRows.map((g,i)=>{
       const localTotal = localExpenseTotalById[b.id]||0;
       const advance = localTotal>0 ? yen(localTotal) : ((g.advance_payment!=null) ? yen(Number(g.advance_payment||0)+Number(g.additional_advance_payment||0)) : '-');
-      return `<tr ondblclick="openBookingDetail('${b.id}')">
-      <td class="lnk" onclick="openBookingDetail('${b.id}')">${b.ref_no}${i>0?'':''}</td>
+      const mainRow = `<tr ondblclick="openBookingDetail('${b.id}')">
+      <td class="lnk" onclick="openBookingDetail('${b.id}')">${b.ref_no}</td>
       <td>${escHtml(b.tour_name||'')}</td>
       <td>${b.in_date||''}</td>
       <td>${b.out_date||''}</td>
@@ -3613,6 +3616,17 @@ async function loadGuideAdvanceList(){
       <td style="text-align:right">${expectedGuideEach}</td>
       <td style="text-align:right">${advance}</td>
     </tr>`;
+      const detailRows = localItems.map(it=>`<tr style="background:#f9f8f4;font-size:10px;color:var(--text2)">
+      <td style="padding:2px 8px;color:var(--text3)"></td>
+      <td style="padding:2px 8px" colspan="2">　└ ${it.expense_date||''} ${escHtml(it.content||'')}</td>
+      <td style="padding:2px 8px">${escHtml(it.category||'')}</td>
+      <td style="padding:2px 8px;text-align:right">${Number(it.unit_price||0).toLocaleString()}×${it.qty||1}</td>
+      <td></td>
+      <td style="padding:2px 8px">${escHtml(it.payment_method||'')}</td>
+      <td></td>
+      <td style="padding:2px 8px;text-align:right;font-weight:600">${yen(it.amount||0)}</td>
+    </tr>`).join('');
+      return mainRow + (i===0 && localItems.length>0 ? detailRows : '');
     }).join('');
   }).join('');
 }
