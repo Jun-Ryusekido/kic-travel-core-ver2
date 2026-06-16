@@ -4104,7 +4104,8 @@ async function showInvoicePreview(inv, booking){
   const issueDate = inv.issue_date ? new Date(inv.issue_date).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'}) : '';
 
   const fmtAmt = v => isUSD ? '$'+Number(v).toLocaleString(undefined,{minimumFractionDigits:2}) : yen(v);
-  const depositJPY = Number(booking.deposit_amount||0);
+  const {data: salesForDeposit} = await sb.from('booking_sales').select('payments').eq('booking_id', booking.id);
+  const depositJPY = (salesForDeposit||[]).reduce((s,r)=>s+(r.payments||[]).reduce((ps,p)=>ps+(Number(p.amount)||0),0),0);
   const depositConverted = isUSD ? depositJPY/USD_RATE : depositJPY;
   const balance = amount - depositConverted;
 
