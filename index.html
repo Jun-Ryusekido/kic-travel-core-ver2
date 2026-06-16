@@ -3782,7 +3782,7 @@ function filterGuideRegistry(){
       <td>${escHtml(g.name||'')}</td>
       <td>${escHtml(g.name_kana||'')}</td>
       <td>${escHtml(g.phone||'')}</td>
-      <td>${g.age!=null ? g.age+'歳' : ''}</td>
+      <td>${(()=>{ if(g.age!=null && g.age!=='') return g.age+'歳'; if(g.birthday){ const b=new Date(g.birthday),t=new Date(); let a=t.getFullYear()-b.getFullYear(); if(t<new Date(t.getFullYear(),b.getMonth(),b.getDate())) a--; return a+'歳'; } return ''; })()}</td>
       <td style="white-space:normal">${escHtml(g.languages||'')}${g.memo?(' / '+escHtml(g.memo)):''}</td>       <td style="white-space:normal;font-size:10px;color:var(--text3)">${escHtml(g.bank_info||'')}</td>       <td>${g.my_number ? '<span class="pill s-paid">📋 登録済</span>' : ''}</td>
       <td style="white-space:nowrap">
         <button class="btn" style="font-size:11px" onclick="openGuideEditor('${g.id}')">編集</button>
