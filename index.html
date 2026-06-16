@@ -3553,11 +3553,18 @@ async function loadGuideAdvanceList(){
   const refNos = filtered.map(b=>b.ref_no);
   const ids = filtered.map(b=>b.id);
 
-  const [{data: arrangements}, {data: estimations}, {data: settlements}] = await Promise.all([
+  const [{data: arrangements}, {data: estimations}, {data: settlements}, {data: localExpenses}] = await Promise.all([
     sb.from('tour_arrangements').select('booking_ref, guide_name, guide_phone').in('booking_ref', refNos),
     sb.from('estimations').select('id, converted_booking_id').in('converted_booking_id', ids),
-    sb.from('guide_settlements').select('booking_ref, guide_name, guide_phone, guide_names, advance_payment, additional_advance_payment').in('booking_ref', refNos)
+    sb.from('guide_settlements').select('booking_ref, guide_name, guide_phone, guide_names, advance_payment, additional_advance_payment').in('booking_ref', refNos),
+    sb.from('local_expenses').select('booking_id, amount').in('booking_id', ids)
   ]);
+
+  // 予約IDごとの仮払い合計
+  const localExpenseTotalById = {};
+  (localExpenses||[]).forEach(r=>{
+    localExpenseTotalById[r.booking_id] = (localExpenseTotalById[r.booking_id]||0) + Number(r.amount||0);
+  });
 
   let estGuideSumByEstId = {};
   if(estimations && estimations.length>0){
@@ -3593,7 +3600,8 @@ async function loadGuideAdvanceList(){
     const expectedGuideEach = expectedGuideTotal!=null ? yen(n>0 ? Math.round(expectedGuideTotal/n) : expectedGuideTotal) : '-';
 
     return guideRows.map((g,i)=>{
-      const advance = (g.advance_payment!=null) ? yen(Number(g.advance_payment||0)+Number(g.additional_advance_payment||0)) : '-';
+      const localTotal = localExpenseTotalById[b.id]||0;
+      const advance = localTotal>0 ? yen(localTotal) : ((g.advance_payment!=null) ? yen(Number(g.advance_payment||0)+Number(g.additional_advance_payment||0)) : '-');
       return `<tr ondblclick="openBookingDetail('${b.id}')">
       <td class="lnk" onclick="openBookingDetail('${b.id}')">${b.ref_no}${i>0?'':''}</td>
       <td>${escHtml(b.tour_name||'')}</td>
