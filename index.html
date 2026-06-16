@@ -3798,7 +3798,16 @@ function openGuideEditor(id){
   document.getElementById('gr-name').value = g ? (g.name||'') : '';
   document.getElementById('gr-kana').value = g ? (g.name_kana||'') : '';
   document.getElementById('gr-phone').value = g ? (g.phone||'') : '';
-  document.getElementById('gr-age').value = g && g.age!=null ? g.age : '';   document.getElementById('gr-birthday').value = g ? (g.birthday||'') : '';   document.getElementById('gr-birthday').value = g ? (g.birthday||'') : '';
+  if(g && g.age!=null && g.age!==''){
+    document.getElementById('gr-age').value = g.age;
+  }else if(g && g.birthday){
+    const b=new Date(g.birthday),t=new Date();
+    let a=t.getFullYear()-b.getFullYear();
+    if(t<new Date(t.getFullYear(),b.getMonth(),b.getDate())) a--;
+    document.getElementById('gr-age').value = a;
+  }else{
+    document.getElementById('gr-age').value = '';
+  }   document.getElementById('gr-birthday').value = g ? (g.birthday||'') : '';   document.getElementById('gr-birthday').value = g ? (g.birthday||'') : '';
   document.getElementById('gr-memo').value = g ? [g.languages, g.memo].filter(Boolean).join(g.languages&&g.memo?'\n':'') : '';
   document.getElementById('gr-bank').value = g ? (g.bank_info||'') : '';   document.getElementById('gr-mynumber').value = g ? (g.my_number||'') : '';
   document.getElementById('gr-msg').style.display='none';
