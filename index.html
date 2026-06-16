@@ -776,7 +776,22 @@ th.sortable:hover{color:var(--blue)}
       </div>
     </div>
 
-    <div class="modal-section-title">仮払い一覧表</div>
+    <div class="modal-section-title">関連Invoice</div>
+    <div id="bd-invoice-actions" style="margin-bottom:6px"></div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Invoice No.</th><th>通貨</th><th>金額</th><th>発行日</th><th>期限</th><th>Status</th></tr></thead>
+      <tbody id="bd-invoices"><tr><td colspan="6" class="empty">なし</td></tr></tbody>
+    </table></div>
+
+    <div class="modal-section-title">手配書</div>
+    <div id="bd-arrangements" style="margin-bottom:6px"></div>
+    <button class="btn" style="font-size:10px" onclick="openArrangementEditor(null)">＋ 新規手配書作成</button>
+
+    <div class="modal-section-title" style="display:flex;justify-content:space-between;align-items:center">
+      <span>仮払い一覧表</span>
+      <button class="btn" style="font-size:10px" onclick="printLocalExpenses()">🖨 印刷</button>
+    </div>
+    <div id="local-expenses-print-area">
     <div class="tbl-wrap"><table class="li-table" style="min-width:700px">
       <thead><tr>
         <th style="width:100px">日付</th>
@@ -792,17 +807,7 @@ th.sortable:hover{color:var(--blue)}
     </table></div>
     <button class="btn" style="font-size:10px;margin-top:4px" onclick="addLocalExpenseRow()">＋ 行追加</button>
     <div class="li-total">仮払い合計: <span id="bd-local-total">¥0</span></div>
-
-    <div class="modal-section-title">関連Invoice</div>
-    <div id="bd-invoice-actions" style="margin-bottom:6px"></div>
-    <div class="tbl-wrap"><table>
-      <thead><tr><th>Invoice No.</th><th>通貨</th><th>金額</th><th>発行日</th><th>期限</th><th>Status</th></tr></thead>
-      <tbody id="bd-invoices"><tr><td colspan="6" class="empty">なし</td></tr></tbody>
-    </table></div>
-
-    <div class="modal-section-title">手配書</div>
-    <div id="bd-arrangements" style="margin-bottom:6px"></div>
-    <button class="btn" style="font-size:10px" onclick="openArrangementEditor(null)">＋ 新規手配書作成</button>
+    </div>
 
     <div class="modal-section-title">ガイド精算</div>
     <div id="bd-guide-settlements" style="margin-bottom:6px"></div>
@@ -2667,6 +2672,53 @@ function printGuideSettlement(settlementId, guideIndex){
   document.getElementById('gs-print-body').innerHTML = buildGuideSettlementPrintHtml(s, b, guideIndex||0);
   document.getElementById('gs-print-card').style.display='';
   document.getElementById('gs-print-card').scrollIntoView({behavior:'smooth'});
+}
+
+function printLocalExpenses(){
+  const b = findBookingById(currentDetailId);
+  if(!b) return;
+  const total = bdLocalExpenses.reduce((s,it)=>s+Number(it.amount||0),0);
+  const rows = bdLocalExpenses.map((it,i)=>`
+    <tr>
+      <td style="border:1px solid #999;padding:4px">${it.expense_date||''}</td>
+      <td style="border:1px solid #999;padding:4px">${escHtml(it.content||'')}</td>
+      <td style="border:1px solid #999;padding:4px">${escHtml(it.category||'')}</td>
+      <td style="border:1px solid #999;padding:4px;text-align:right">${Number(it.unit_price||0).toLocaleString()}</td>
+      <td style="border:1px solid #999;padding:4px;text-align:right">${it.qty||1}</td>
+      <td style="border:1px solid #999;padding:4px;text-align:right;font-weight:600">${yen(it.amount||0)}</td>
+      <td style="border:1px solid #999;padding:4px">${escHtml(it.payment_method||'')}</td>
+    </tr>`).join('');
+
+  const html = `
+    <div style="background:#fff;padding:14px;font-size:11px;color:#222">
+      <div style="text-align:center;font-size:16px;font-weight:700;color:var(--blue);margin-bottom:10px">仮払い一覧表</div>
+      <div style="margin-bottom:10px">
+        <strong>${escHtml(b.ref_no)}</strong> ${escHtml(b.tour_name||'')}　
+        ${b.in_date||''} ～ ${b.out_date||''}　${Number(b.pax||0)}名
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:10px">
+        <thead><tr style="background:#f5f7fa">
+          <th style="border:1px solid #999;padding:5px;width:90px">日付</th>
+          <th style="border:1px solid #999;padding:5px">内容</th>
+          <th style="border:1px solid #999;padding:5px;width:100px">区分</th>
+          <th style="border:1px solid #999;padding:5px;width:70px">単価</th>
+          <th style="border:1px solid #999;padding:5px;width:40px">数量</th>
+          <th style="border:1px solid #999;padding:5px;width:80px">金額</th>
+          <th style="border:1px solid #999;padding:5px;width:90px">支払方法</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+        <tfoot><tr style="font-weight:700;background:#EEF3FA">
+          <td colspan="5" style="border:1px solid #999;padding:6px;text-align:right">合計</td>
+          <td style="border:1px solid #999;padding:6px;text-align:right;color:var(--blue)">${yen(total)}</td>
+          <td style="border:1px solid #999;padding:6px"></td>
+        </tr></tfoot>
+      </table>
+      <div style="text-align:right;font-weight:700;color:var(--blue)">KIC TRAVEL</div>
+    </div>`;
+
+  const win = window.open('','_blank','width=800,height=600');
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><style>@page{size:A4;margin:15mm}body{margin:0}</style></head><body>${html}<script>window.onload=()=>{window.print();window.close()}<\/script></body></html>`);
+  win.document.close();
 }
 
 function printGuideSettlementDoc(){
