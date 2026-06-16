@@ -1675,7 +1675,7 @@ async function openBookingDetail(id){
     sb.from('booking_costs').select('*').eq('booking_id', id).order('created_at')
   ]);
 
-  bdSalesItems = (salesRows||[]).map(r=>({item_name:r.item_name, unit_price:r.unit_price, qty:r.qty, amount:r.amount, payment_date:r.payment_date, agent_name:r.agent_name||''}));
+  bdSalesItems = (salesRows||[]).map(r=>({item_name:r.item_name, unit_price:r.unit_price, qty:r.qty, amount:r.amount, payment_date:r.payment_date, agent_name:r.agent_name||'', payments:r.payments||[]}));
   bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, memo:r.memo}));
 
   bdLocked = !!b.locked;
