@@ -1346,7 +1346,7 @@ function updateBdPaxTotal(){
 
 function updateDetailGrossPreview(){
   const sales = bdSalesTotal();
-  const totalPaid = bdSalesItems.reduce((s,it)=>s+salesPaymentsTotal(it),0);
+  const deposit = Number(document.getElementById('bd-deposit').value)||0;   const totalPaid = deposit + bdSalesItems.reduce((s,it)=>s+salesPaymentsTotal(it),0);
   const unpaid = sales - totalPaid;
   const paidEl = document.getElementById('bd-sum-paid');
   const unpaidEl = document.getElementById('bd-sum-unpaid');
