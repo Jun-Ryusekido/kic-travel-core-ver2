@@ -3821,6 +3821,18 @@ function closeGuideEditor(){
 async function saveGuide(){
   const name = document.getElementById('gr-name').value.trim();
   if(!name){ alert('氏名を入力してください'); return; }
+
+  // 新規登録時のみ重複チェック
+  if(!currentGuideEditId){
+    const phone = document.getElementById('gr-phone').value.trim();
+    const dupName = guideRegistryCache.find(g=>g.name===name);
+    const dupPhone = phone && guideRegistryCache.find(g=>g.phone===phone);
+    if(dupName){
+      if(!confirm(`「${name}」と同じ氏名のガイドが既に登録されています。続けて登録しますか？`)) return;
+    }else if(dupPhone){
+      if(!confirm(`「${phone}」と同じ携帯番号のガイドが既に登録されています。続けて登録しますか？`)) return;
+    }
+  }
   const payload = {
     name,
     name_kana: document.getElementById('gr-kana').value.trim() || null,
