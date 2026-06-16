@@ -776,6 +776,23 @@ th.sortable:hover{color:var(--blue)}
       </div>
     </div>
 
+    <div class="modal-section-title">現地費用明細</div>
+    <div class="tbl-wrap"><table class="li-table" style="min-width:700px">
+      <thead><tr>
+        <th style="width:100px">日付</th>
+        <th>内容</th>
+        <th style="width:110px">区分</th>
+        <th style="width:80px">単価</th>
+        <th style="width:50px">数量</th>
+        <th style="width:70px" class="li-amt">金額</th>
+        <th style="width:100px">支払方法</th>
+        <th class="li-del"></th>
+      </tr></thead>
+      <tbody id="bd-local-tbody"></tbody>
+    </table></div>
+    <button class="btn" style="font-size:10px;margin-top:4px" onclick="addLocalExpenseRow()">＋ 行追加</button>
+    <div class="li-total">現地費用合計: <span id="bd-local-total">¥0</span></div>
+
     <div class="modal-section-title">関連Invoice</div>
     <div id="bd-invoice-actions" style="margin-bottom:6px"></div>
     <div class="tbl-wrap"><table>
@@ -1315,6 +1332,9 @@ function statusPill(status){
 let currentDetailId = null;
 let bdSalesItems = [];
 let bdCostItems = [];
+let bdLocalExpenses = [];
+const LOCAL_EXPENSE_CATEGORIES = ['D（ドライバー）','ゲスト','ゲスト・TG','その他'];
+const LOCAL_EXPENSE_PAYMENT_METHODS = ['現地払い','前振込み','後請求','全旅クーポン'];
 let bdLocked = false; let suppliersCache = [];
 let arrangementsCache = [];
 let currentArrangementId = null;
@@ -1699,6 +1719,62 @@ function addCostRow(){
 function removeSalesRow(i){ if(bdLocked) return; bdSalesItems.splice(i,1); renderSalesTable(); }
 function removeCostRow(i){ if(bdLocked) return; bdCostItems.splice(i,1); renderCostTable(); }
 
+function renderLocalExpenses(){
+  const tbody = document.getElementById('bd-local-tbody');
+  if(!tbody) return;
+  const total = bdLocalExpenses.reduce((s,it)=>s+Number(it.amount||0),0);
+  if(bdLocalExpenses.length===0){
+    tbody.innerHTML='<tr><td colspan="8" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
+  }else{
+    tbody.innerHTML = bdLocalExpenses.map((it,i)=>`
+      <tr>
+        <td><input type="date" value="${it.expense_date||''}" onchange="bdLocalExpenses[${i}].expense_date=this.value" style="width:100%"></td>
+        <td><input value="${(it.content||'').replace(/"/g,'&quot;')}" onchange="bdLocalExpenses[${i}].content=this.value" style="width:100%"></td>
+        <td><select onchange="bdLocalExpenses[${i}].category=this.value" style="width:100%">
+          ${LOCAL_EXPENSE_CATEGORIES.map(c=>`<option value="${c}" ${it.category===c?'selected':''}>${c}</option>`).join('')}
+        </select></td>
+        <td><input type="text" inputmode="numeric" value="${Number(it.unit_price||0).toLocaleString('ja-JP')}" onchange="localExpenseCalc(${i},this)" style="width:70px;text-align:right"></td>
+        <td><input type="number" value="${it.qty||1}" onchange="bdLocalExpenses[${i}].qty=Number(this.value);bdLocalExpenses[${i}].amount=Math.round(Number(bdLocalExpenses[${i}].unit_price||0)*Number(this.value||1));renderLocalExpenses()" style="width:45px"></td>
+        <td style="text-align:right;white-space:nowrap">${yen(it.amount||0)}</td>
+        <td><select onchange="bdLocalExpenses[${i}].payment_method=this.value" style="width:100%">
+          ${LOCAL_EXPENSE_PAYMENT_METHODS.map(m=>`<option value="${m}" ${it.payment_method===m?'selected':''}>${m}</option>`).join('')}
+        </select></td>
+        <td class="li-del"><span class="lnk" style="font-size:10px" onclick="bdLocalExpenses.splice(${i},1);renderLocalExpenses()">削除</span></td>
+      </tr>`).join('');
+  }
+  document.getElementById('bd-local-total').textContent = yen(total);
+}
+
+function localExpenseCalc(i, el){
+  const v = parseNum(el.value);
+  bdLocalExpenses[i].unit_price = v;
+  el.value = v.toLocaleString('ja-JP');
+  bdLocalExpenses[i].amount = Math.round(v * Number(bdLocalExpenses[i].qty||1));
+  renderLocalExpenses();
+}
+
+function addLocalExpenseRow(){
+  bdLocalExpenses.push({expense_date:'', content:'', category:'ゲスト', unit_price:0, qty:1, amount:0, payment_method:'現地払い'});
+  renderLocalExpenses();
+}
+
+async function saveLocalExpenses(){
+  if(!currentDetailId) return;
+  await sb.from('local_expenses').delete().eq('booking_id', currentDetailId);
+  const rows = bdLocalExpenses.filter(it=>it.content||Number(it.amount)).map((it,i)=>({
+    booking_id: currentDetailId,
+    expense_date: it.expense_date||null,
+    content: it.content||'',
+    category: it.category||'',
+    unit_price: Number(it.unit_price)||0,
+    qty: Number(it.qty)||1,
+    amount: Number(it.amount)||0,
+    payment_method: it.payment_method||'',
+    sort_order: i
+  }));
+  if(rows.length) await sb.from('local_expenses').insert(rows);
+}
+
 async function openBookingDetail(id){
   const b = findBookingById(id);
   if(!b) return;
@@ -1766,6 +1842,14 @@ async function openBookingDetail(id){
   // ガイド登録一覧プルダウンを読み込み
   await populateGuideRegistrySelects([document.getElementById('bd-new-guide-select')]);
   bdNewGuideList = [];  renderBdNewGuideList();
+
+  // 現地費用明細を読み込み
+  const {data: localRows} = await sb.from('local_expenses').select('*').eq('booking_id', id).order('sort_order');
+  bdLocalExpenses = (localRows||[]).map(r=>({
+    expense_date: r.expense_date||'', content: r.content||'', category: r.category||'',
+    unit_price: r.unit_price||0, qty: r.qty||1, amount: r.amount||0, payment_method: r.payment_method||''
+  }));
+  renderLocalExpenses();
 
   document.getElementById('detail-modal').classList.add('open');
 }
@@ -3268,6 +3352,7 @@ async function saveBookingDetail(){
   for(const it of costToInsert){
     if(it.item_name) await registerNewSupplier(it.item_name);
   }
+  await saveLocalExpenses();
 
   const b = findBookingById(currentDetailId);
   await logAction('予約編集', b ? b.ref_no : currentDetailId);
