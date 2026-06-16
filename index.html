@@ -1661,7 +1661,7 @@ async function openBookingDetail(id){
   document.getElementById('bd-status').value = b.status||'open';
   document.getElementById('bd-in').value = b.in_date||'';
   document.getElementById('bd-out').value = b.out_date||'';
-  document.getElementById('bd-deposit').value = b.deposit_amount||0;
+  // deposit_amount は入金合計から自動計算するため手動セット不要
   document.getElementById('bd-updated').textContent = b.updated_at ? ('最終更新: '+new Date(b.updated_at).toLocaleString('ja-JP')) : '';
   document.getElementById('bd-msg').style.display='none';
   document.getElementById('bd-msg-top').style.display='none';
