@@ -3162,7 +3162,7 @@ async function saveBookingDetail(){
   const salesToInsert = bdSalesItems.filter(it=>it.item_name||Number(it.amount)).map(it=>({
     booking_id: currentDetailId, item_name: it.item_name||'', unit_price: Number(it.unit_price)||0,
     qty: Number(it.qty)||1, amount: Number(it.amount)||0, payment_date: it.payment_date||null,
-    agent_name: it.agent_name||null
+    agent_name: it.agent_name||null, payments: it.payments||[]
   }));
   const costToInsert = bdCostItems.filter(it=>it.item_name||Number(it.amount)).map(it=>({
     booking_id: currentDetailId, item_name: it.item_name||'', amount: Number(it.amount)||0,
