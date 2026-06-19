@@ -1184,6 +1184,7 @@ function go(id){
   currentPageId = id;
   document.querySelectorAll('.page').forEach(el=>el.style.display='none');
   document.getElementById('pg-'+id).style.display='';
+  document.querySelector('.content').style.maxWidth = (id==='partners') ? '1500px' : '1100px';
   document.querySelectorAll('.sb-item').forEach(n=>n.classList.remove('active'));
   document.querySelectorAll('.sb-item[data-pg="'+id+'"]').forEach(n=>n.classList.add('active'));
   document.getElementById('pg-title').textContent = pageNames[id]||id;
