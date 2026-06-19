@@ -788,6 +788,7 @@ th.sortable:hover{color:var(--blue)}
         </div>
       </div>
       <div class="form-field"><label>入金合計 (Deposit, JPY)</label><input id="bd-deposit" type="number" disabled style="background:var(--bg);color:var(--text)"></div>
+      <div class="form-field"><label>ツアー担当者（社内）</label><input id="bd-staff" placeholder="例: 熊谷"></div>
     </div>
 
     <div class="modal-section-title">売上明細 / 仕入明細</div>
@@ -1844,6 +1845,7 @@ async function openBookingDetail(id){
   document.getElementById('bd-status').value = b.status||'open';
   document.getElementById('bd-in').value = b.in_date||'';
   document.getElementById('bd-out').value = b.out_date||'';
+  document.getElementById('bd-staff').value = b.staff_in_charge||'';
   // deposit reset handled after sales load
   document.getElementById('bd-updated').textContent = b.updated_at ? ('最終更新: '+new Date(b.updated_at).toLocaleString('ja-JP')) : '';
   document.getElementById('bd-msg').style.display='none';
@@ -3425,6 +3427,7 @@ async function saveBookingDetail(){
     status: document.getElementById('bd-status').value,
     in_date: document.getElementById('bd-in').value || null,
     out_date: document.getElementById('bd-out').value || null,
+    staff_in_charge: document.getElementById('bd-staff').value.trim() || null,
     gross_sales: totalSales,
     gross_cost: totalCost,
     deposit_amount: bdSalesItems.reduce((s,it)=>s+(it.payments||[]).reduce((ps,p)=>ps+(Number(p.amount)||0),0),0),
