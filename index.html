@@ -4266,7 +4266,7 @@ async function handleCardUpload(event){
     statusEl.textContent = '✓ 読み取り完了。内容を確認して保存してください。';
     statusEl.style.color = 'var(--green)';
   }catch(e){
-    statusEl.textContent = '読み取りに失敗しました。手動で入力してください。';
+    statusEl.textContent = '読み取りに失敗しました: '+(e.message||e)+' 手動で入力してください。';
     statusEl.style.color = 'var(--red)';
     console.error(e);
   }
