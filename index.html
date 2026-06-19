@@ -1598,13 +1598,10 @@ function renderCostTable(){
   const tbody = document.getElementById('bd-cost-tbody');
   const dis = bdLocked ? 'disabled' : '';
 
-  // 検索ボックスHTML（theadの上に）
-  const searchHtml = `<tr><td colspan="5" style="padding:2px 0 6px">
-    <input placeholder="仕入先・備考で絞り込み" value="${bdCostSearch.replace(/"/g,'&quot;')}"
-      style="width:100%;padding:4px 8px;border-radius:6px;border:1px solid var(--border);font-size:11px"
-      oninput="bdCostSearch=this.value;renderCostTable()">
-  </td></tr>
-  <tr>
+  const searchEl = document.getElementById('bd-cost-search');
+  if(searchEl && searchEl.value !== bdCostSearch) searchEl.value = bdCostSearch;
+
+  const searchHtml = `<tr>
     ${[['item_name','仕入先'],['amount','仕入額'],['payment_date','出金日'],['memo','備考']].map(([f,l])=>{
       const arrow = bdCostSortField===f ? (bdCostSortDir===1?'▲':'▼') : '';
       return `<th class="sortable" onclick="bdCostSortField=bdCostSortField==='${f}'?(bdCostSortDir*=-1,'${f}'):(bdCostSortDir=1,'${f}');renderCostTable()" style="cursor:pointer;user-select:none">${l}${arrow?` <span class="sort-arrow">${arrow}</span>`:''}</th>`;
