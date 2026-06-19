@@ -673,7 +673,7 @@ th.sortable:hover{color:var(--blue)}
             <div class="form-field"><label>種別</label>
               <select id="pt-category-filter" onchange="filterPartners()">
                 <option value="">すべて</option>
-                <option value="バス会社">バス会社</option>
+                <option value="バス・ハイヤー等">バス・ハイヤー等</option>
                 <option value="レストラン">レストラン</option>
                 <option value="ホテル">ホテル</option>
                 <option value="その他">その他</option>
@@ -4212,7 +4212,7 @@ function openPartnerEditor(id){
   currentPartnerEditId = id;
   const p = id ? partnersCache.find(x=>x.id===id) : null;
   document.getElementById('partner-modal-title').textContent = id ? '取引先編集' : '取引先登録';
-  document.getElementById('pt-category').value = p ? (p.category||'バス会社') : 'バス会社';
+  document.getElementById('pt-category').value = p ? (p.category||'バス・ハイヤー等') : 'バス・ハイヤー等';
   document.getElementById('pt-company').value = p ? (p.company_name||'') : '';
   document.getElementById('pt-branch').value = p ? (p.branch_name||'') : '';
   document.getElementById('pt-contact').value = p ? (p.contact_person||'') : '';
@@ -4693,7 +4693,7 @@ restoreSession();
     <div class="form-grid">
       <div class="form-field"><label>種別</label>
         <select id="pt-category">
-          <option value="バス会社">バス会社</option>
+          <option value="バス・ハイヤー等">バス・ハイヤー等</option>
           <option value="レストラン">レストラン</option>
           <option value="ホテル">ホテル</option>
           <option value="その他">その他</option>
