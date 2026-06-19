@@ -4208,6 +4208,63 @@ function filterPartners(){
     </tr>`).join('');
 }
 
+async function handleCardUpload(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const statusEl = document.getElementById('pt-card-status');
+  statusEl.textContent = '読み取り中...';
+
+  const toBase64 = f => new Promise((resolve,reject)=>{
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(f);
+  });
+
+  try{
+    const base64 = await toBase64(file);
+    const mediaType = file.type || 'image/jpeg';
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 1000,
+        messages: [{
+          role: 'user',
+          content: [
+            {type:'image', source:{type:'base64', media_type:mediaType, data:base64}},
+            {type:'text', text:'この名刺画像から、会社名・拠点名/支店名・担当者名・役職・会社電話番号・担当者携帯番号・FAX番号・メール・住所を読み取り、以下のJSON形式のみで返答してください。情報が読み取れない項目は空文字にしてください。前置きや説明文、マークダウンのコードブロック記号は一切含めないでください。\n{"company_name":"","branch_name":"","contact_person":"","position":"","company_phone":"","phone":"","fax":"","email":"","address":""}'}
+          ]
+        }]
+      })
+    });
+    const data = await response.json();
+    const textBlock = data.content.find(b=>b.type==='text');
+    const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
+    const parsed = JSON.parse(cleaned);
+
+    document.getElementById('pt-company').value = parsed.company_name||'';
+    document.getElementById('pt-branch').value = parsed.branch_name||'';
+    document.getElementById('pt-contact').value = parsed.contact_person||'';
+    document.getElementById('pt-position').value = parsed.position||'';
+    document.getElementById('pt-company-phone').value = parsed.company_phone||'';
+    document.getElementById('pt-phone').value = parsed.phone||'';
+    document.getElementById('pt-fax').value = parsed.fax||'';
+    document.getElementById('pt-email').value = parsed.email||'';
+    document.getElementById('pt-address').value = parsed.address||'';
+
+    statusEl.textContent = '✓ 読み取り完了。内容を確認して保存してください。';
+    statusEl.style.color = 'var(--green)';
+  }catch(e){
+    statusEl.textContent = '読み取りに失敗しました。手動で入力してください。';
+    statusEl.style.color = 'var(--red)';
+    console.error(e);
+  }
+  event.target.value = '';
+}
+
 function openPartnerEditor(id){
   currentPartnerEditId = id;
   const p = id ? partnersCache.find(x=>x.id===id) : null;
@@ -4689,6 +4746,13 @@ restoreSession();
     <div class="modal-header">
       <div class="modal-title" id="partner-modal-title">取引先登録</div>
       <div class="modal-close" onclick="closePartnerEditor()">✕</div>
+    </div>
+    <div style="border:1px dashed var(--border);border-radius:8px;padding:10px;margin-bottom:10px;background:var(--bg)">
+      <label class="btn btn-p" style="font-size:11px;cursor:pointer">
+        📷 名刺から読み取る
+        <input type="file" accept="image/*" id="pt-card-input" style="display:none" onchange="handleCardUpload(event)">
+      </label>
+      <span id="pt-card-status" style="font-size:11px;color:var(--text3);margin-left:8px"></span>
     </div>
     <div class="form-grid">
       <div class="form-field"><label>種別</label>
