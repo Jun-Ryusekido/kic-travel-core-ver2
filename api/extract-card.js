@@ -29,7 +29,7 @@ export default async function handler(req, res) {
           role: 'user',
           content: [
             { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
-            { type: 'text', text: 'この名刺画像から、会社名・拠点名/支店名・担当者名・役職・会社電話番号・担当者携帯番号・FAX番号・メール・住所を読み取り、以下のJSON形式のみで返答してください。情報が読み取れない項目は空文字にしてください。前置きや説明文、マークダウンのコードブロック記号は一切含めないでください。\n{"company_name":"","branch_name":"","contact_person":"","position":"","company_phone":"","phone":"","fax":"","email":"","address":""}' }
+            { type: 'text', text: 'この名刺画像から、会社名・拠点名/支店名・担当者名・役職・会社電話番号・担当者携帯番号・FAX番号・メール・住所を読み取り、以下のJSON形式のみで返答してください。\n\n重要な注意事項:\n- company_name・branch_name・contact_person・positionには、名刺に印字されている「日本語表記」を入れてください。\n- company_name_en・branch_name_en・contact_person_en・position_enには、名刺に印字されている「英語（ローマ字）表記」のみを入れてください。名刺に英語表記が無い場合は空文字にしてください。日本語から英語への翻訳や推測による生成は行わないでください。\n- 担当者名の英語表記がローマ字氏名（例: Taro Tanaka）として印字されている場合はそれを使ってください。\n- 情報が読み取れない項目は空文字にしてください。\n- 前置きや説明文、マークダウンのコードブロック記号は一切含めないでください。\n\n{"company_name":"","company_name_en":"","branch_name":"","branch_name_en":"","contact_person":"","contact_person_en":"","position":"","position_en":"","company_phone":"","phone":"","fax":"","email":"","address":""}' }
           ]
         }]
       })
