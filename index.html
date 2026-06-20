@@ -666,7 +666,10 @@ th.sortable:hover{color:var(--blue)}
       <div id="pg-partners" class="page" style="display:none">
         <div class="card">
           <div class="card-title">取引先マスタ
-            <span><button class="btn btn-p" onclick="openPartnerEditor(null)">＋ 新規登録</button></span>
+            <span>
+              <button class="btn admin-only" style="display:none" onclick="openDeletedPartnersModal()">🗑 削除済み一覧</button>
+              <button class="btn btn-p" onclick="openPartnerEditor(null)">＋ 新規登録</button>
+            </span>
           </div>
           <div class="form-grid" style="grid-template-columns:1fr 1fr">
             <div class="form-field"><label>検索（会社名・担当者・電話・メモ）</label><input id="pt-search" placeholder="例: 神戸交通, 田中" oninput="filterPartners()"></div>
@@ -4180,7 +4183,7 @@ const PARTNER_CATEGORIES = ['バス会社','レストラン','ホテル','その
 
 async function loadPartners(){
   document.getElementById('pt-tbody').innerHTML = '<tr><td colspan="7" class="empty">読み込み中...</td></tr>';
-  const {data, error} = await sb.from('business_partners').select('*').order('company_name');
+  const {data, error} = await sb.from('business_partners').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('company_name');
   if(error){ document.getElementById('pt-tbody').innerHTML = `<tr><td colspan="7" class="empty">読み込みエラー: ${error.message}</td></tr>`; return; }
   partnersCache = data||[];
   filterPartners();
@@ -4420,11 +4423,41 @@ async function savePartner(){
   setTimeout(()=>{ closePartnerEditor(); }, 600);
 }
 
+function openDeletedPartnersModal(){
+  document.getElementById('deleted-partners-modal').classList.add('open');
+  loadDeletedPartners();
+}
+function closeDeletedPartnersModal(){
+  document.getElementById('deleted-partners-modal').classList.remove('open');
+}
+async function loadDeletedPartners(){
+  const tbody = document.getElementById('deleted-pt-tbody');
+  tbody.innerHTML = '<tr><td colspan="4" class="empty">読み込み中...</td></tr>';
+  const {data, error} = await sb.from('business_partners').select('*').eq('is_deleted', true).order('deleted_at', {ascending:false});
+  if(error){ tbody.innerHTML = `<tr><td colspan="4" class="empty">読み込みエラー: ${error.message}</td></tr>`; return; }
+  if(!data || data.length===0){ tbody.innerHTML = '<tr><td colspan="4" class="empty">削除済みの取引先はありません</td></tr>'; return; }
+  tbody.innerHTML = data.map(p=>`
+    <tr>
+      <td>${escHtml(p.company_name||'')}</td>
+      <td>${p.deleted_at ? new Date(p.deleted_at).toLocaleString('ja-JP') : ''}</td>
+      <td>${escHtml(p.deleted_by||'')}</td>
+      <td><button class="btn btn-p" style="font-size:11px" onclick="restorePartner('${p.id}')">復元</button></td>
+    </tr>`).join('');
+}
+async function restorePartner(id){
+  if(!confirm('この取引先を復元しますか？')) return;
+  const {error} = await sb.from('business_partners').update({is_deleted:false, deleted_at:null, deleted_by:null}).eq('id', id);
+  if(error){ alert('復元に失敗しました: '+error.message); return; }
+  await logAction('取引先復元', id);
+  await loadDeletedPartners();
+  await loadPartners();
+}
 async function deletePartner(id){
   const p = partnersCache.find(x=>x.id===id);
-  if(!confirm(`「${p?p.company_name:'この取引先'}」を削除しますか？`)) return;
-  const {error} = await sb.from('business_partners').delete().eq('id', id);
+  if(!confirm(`「${p?p.company_name:'この取引先'}」を削除しますか？\n（一覧から非表示になります。管理者は後で復元できます）`)) return;
+  const {error} = await sb.from('business_partners').update({is_deleted:true, deleted_at:new Date().toISOString(), deleted_by: currentUser?currentUser.email:null}).eq('id', id);
   if(error){ alert('削除に失敗しました: '+error.message); return; }
+  await logAction('取引先削除', p?p.company_name:id);
   await loadPartners();
 }
 
@@ -4837,6 +4870,20 @@ restoreSession();
       <button class="btn" onclick="closeGuideEditor()">閉じる</button>
       <span class="msg-ok" id="gr-msg">✓ 保存しました</span>
     </div>
+  </div>
+</div>
+
+<!-- 削除済み取引先一覧モーダル -->
+<div class="modal-overlay" id="deleted-partners-modal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div class="modal-title">削除済み取引先一覧</div>
+      <div class="modal-close" onclick="closeDeletedPartnersModal()">✕</div>
+    </div>
+    <div class="tbl-wrap"><table class="bl-table">
+      <thead><tr><th>会社名</th><th>削除日時</th><th>削除者</th><th style="width:100px"></th></tr></thead>
+      <tbody id="deleted-pt-tbody"><tr><td colspan="4" class="empty">読み込み中...</td></tr></tbody>
+    </table></div>
   </div>
 </div>
 
