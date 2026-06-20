@@ -4321,7 +4321,7 @@ const validCategories = ['ホテル','レストラン','バス・ハイヤー等
     const formatPhoneJP = s => {
       if(!s) return '';
       let v = String(s).trim();
-      v = v.replace(/^\+81[-\s]?/, '0');
+      v = v.replace(/^\+?81[-\s]?/, '0');
       v = v.replace(/[()]/g, '');
       v = v.replace(/[\s.]+/g, '-');
       v = v.replace(/-+/g, '-');
