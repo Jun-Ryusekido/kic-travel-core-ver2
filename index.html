@@ -4264,6 +4264,43 @@ const response = await fetch('/api/extract-card', {
     const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
     const parsed = JSON.parse(cleaned);
 
+const norm = s => (s||'').replace(/[^0-9a-zA-Z]/g,'').toLowerCase();
+    const newPhone = norm(parsed.company_phone);
+    const newEmail = norm(parsed.email);
+    const newCompany = norm(parsed.company_name);
+
+    const dup = partnersCache.find(p=>{
+      const pPhone = norm(p.company_phone);
+      const pEmail = norm(p.email);
+      const pCompany = norm(p.company_name);
+      const phoneMatch = newPhone && pPhone && newPhone===pPhone;
+      const emailMatch = newEmail && pEmail && newEmail===pEmail;
+      const companyMatch = newCompany && pCompany && (newCompany===pCompany || newCompany.includes(pCompany) || pCompany.includes(newCompany));
+      return phoneMatch || emailMatch || companyMatch;
+    });
+
+    if(dup && dup.id !== currentPartnerEditId){
+      const merge = confirm(`類似する取引先「${dup.company_name}」が既に登録されています。\nこの情報をマージしますか？\n\n「OK」: 既存データに統合（空欄のみ上書き）\n「キャンセル」: 別の新規取引先として登録`);
+      if(merge){
+        currentPartnerEditId = dup.id;
+        document.getElementById('partner-modal-title').textContent = '取引先編集（マージ）';
+        document.getElementById('pt-category').value = dup.category || document.getElementById('pt-category').value;
+        document.getElementById('pt-company').value = dup.company_name || parsed.company_name || '';
+        document.getElementById('pt-branch').value = dup.branch_name || parsed.branch_name || '';
+        document.getElementById('pt-contact').value = dup.contact_person || parsed.contact_person || '';
+        document.getElementById('pt-position').value = dup.position || parsed.position || '';
+        document.getElementById('pt-company-phone').value = dup.company_phone || parsed.company_phone || '';
+        document.getElementById('pt-phone').value = dup.phone || parsed.phone || '';
+        document.getElementById('pt-fax').value = dup.fax || parsed.fax || '';
+        document.getElementById('pt-email').value = dup.email || parsed.email || '';
+        document.getElementById('pt-address').value = dup.address || parsed.address || '';
+        statusEl.textContent = '✓ 既存の取引先にマージしました。内容を確認して保存してください。';
+        statusEl.style.color = 'var(--green)';
+        event.target.value = '';
+        return;
+      }
+    }
+
     document.getElementById('pt-company').value = parsed.company_name||'';
     document.getElementById('pt-branch').value = parsed.branch_name||'';
     document.getElementById('pt-contact').value = parsed.contact_person||'';
@@ -4276,7 +4313,7 @@ const response = await fetch('/api/extract-card', {
 
     statusEl.textContent = '✓ 読み取り完了。内容を確認して保存してください。';
     statusEl.style.color = 'var(--green)';
-  }catch(e){
+    }catch(e){
     statusEl.textContent = '読み取りに失敗しました: '+(e.message||e)+' 手動で入力してください。';
     statusEl.style.color = 'var(--red)';
     console.error(e);
