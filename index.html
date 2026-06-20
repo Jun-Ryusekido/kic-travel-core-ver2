@@ -4280,12 +4280,13 @@ const guessCategory = (text) => {
     if(guessed) document.getElementById('pt-category').value = guessed;
 
     const norm = s => (s||'').replace(/[^0-9a-zA-Z]/g,'').toLowerCase();
-    const newPhone = norm(parsed.company_phone);
+    const normPhone = s => { let v = norm(s); if(v.startsWith('81')) v = '0'+v.slice(2); return v; };
+    const newPhone = normPhone(parsed.company_phone);
     const newEmail = norm(parsed.email);
     const newCompany = norm(parsed.company_name);
 
     const dup = partnersCache.find(p=>{
-      const pPhone = norm(p.company_phone);
+      const pPhone = normPhone(p.company_phone);
       const pEmail = norm(p.email);
       const pCompany = norm(p.company_name);
       const phoneMatch = newPhone && pPhone && newPhone===pPhone;
