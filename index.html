@@ -4222,12 +4222,28 @@ async function handleCardUpload(event){
   const statusEl = document.getElementById('pt-card-status');
   statusEl.textContent = '読み取り中...';
 
-  const toBase64 = f => new Promise((resolve,reject)=>{
+  const compressImage = f => new Promise((resolve,reject)=>{
+    const img = new Image();
     const reader = new FileReader();
-    reader.onload = () => resolve(reader.result.split(',')[1]);
+    reader.onload = () => { img.src = reader.result; };
     reader.onerror = reject;
+    img.onload = () => {
+      const maxDim = 1600;
+      let w = img.width, h = img.height;
+      if(w>maxDim || h>maxDim){
+        if(w>h){ h = Math.round(h*maxDim/w); w = maxDim; }
+        else { w = Math.round(w*maxDim/h); h = maxDim; }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+      resolve(dataUrl.split(',')[1]);
+    };
+    img.onerror = reject;
     reader.readAsDataURL(f);
   });
+  const toBase64 = compressImage;
 
   try{
     const base64 = await toBase64(file);
