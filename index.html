@@ -4827,13 +4827,6 @@ restoreSession();
       <div class="modal-title" id="partner-modal-title">取引先登録</div>
       <div class="modal-close" onclick="closePartnerEditor()">✕</div>
     </div>
-    <div style="border:1px dashed var(--border);border-radius:8px;padding:10px;margin-bottom:10px;background:var(--bg)">
-      <label class="btn btn-p" style="font-size:11px;cursor:pointer;display:inline-flex">
-        📷 名刺を撮影・選択
-        <input type="file" accept="image/*" capture="user" id="pt-card-input" style="display:none" onchange="handleCardUpload(event)">
-      </label>
-      <span id="pt-card-status" style="font-size:11px;color:var(--text3);margin-left:8px"></span>
-    </div>
     <div class="form-grid">
       <div class="form-field"><label>種別</label>
         <select id="pt-category">
@@ -4865,6 +4858,13 @@ restoreSession();
       <button class="btn btn-p" onclick="savePartner()">💾 保存</button>
       <button class="btn" onclick="closePartnerEditor()">閉じる</button>
       <span class="msg-ok" id="pt-msg">✓ 保存しました</span>
+    </div>
+    <div style="border:1px dashed var(--border);border-radius:8px;padding:10px;margin-top:12px;background:var(--bg)">
+      <label class="btn btn-p" style="font-size:11px;cursor:pointer;display:inline-flex">
+        📷 名刺を撮影・選択
+        <input type="file" accept="image/*" capture="user" id="pt-card-input" style="display:none" onchange="handleCardUpload(event)">
+      </label>
+      <span id="pt-card-status" style="font-size:11px;color:var(--text3);margin-left:8px"></span>
     </div>
   </div>
 </div>
