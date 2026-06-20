@@ -4272,15 +4272,10 @@ const response = await fetch('/api/extract-card', {
     const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
     const parsed = JSON.parse(cleaned);
 
-const guessCategory = (text) => {
-      const t = (text||'').toLowerCase();
-      if(/hotel|ホテル|旅館|inn|resort|hilton|ヒルトン|marriott|マリオット|sheraton|シェラトン|hyatt|ハイアット|westin|ウェスティン|ritz|リッツ|ana|jal|prince|プリンス|tokyu|東急|royal|ロイヤル|grand|グランド|spa|スパ|onsen|温泉|doubletree|ダブルツリー/.test(t)) return 'ホテル';
-      if(/restaurant|レストラン|食堂|飲食|dining|cafe|カフェ|indian|nepali|インド|ネパール|curry|カレー|kitchen|キッチン|sushi|寿司|ramen|ラーメン|居酒屋|izakaya|bar|バー|food|グルメ|料理|焼肉|中華|chinese|thai|タイ/.test(t)) return 'レストラン';
-      if(/bus|タクシー|ハイヤー|交通|運輸|travel|タクシー会社|transport/.test(t)) return 'バス・ハイヤー等';
-      return null;
-    };
-    const guessed = guessCategory((parsed.company_name||'') + ' ' + (parsed.branch_name||'') + ' ' + (parsed.address||''));
-    if(guessed) document.getElementById('pt-category').value = guessed;
+const validCategories = ['ホテル','レストラン','バス・ハイヤー等','その他'];
+    if(parsed.category && validCategories.includes(parsed.category)){
+      document.getElementById('pt-category').value = parsed.category;
+    }
 
     const norm = s => (s||'').replace(/[^0-9a-zA-Z]/g,'').toLowerCase();
     const normPhone = s => { let v = norm(s); if(v.startsWith('81')) v = '0'+v.slice(2); return v; };
