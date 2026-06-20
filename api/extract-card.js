@@ -3,13 +3,63 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
   try {
-    const { base64, mediaType } = req.body;
-    if (!base64) {
+    const { variants, mediaType, base64 } = req.body;
+    const images = Array.isArray(variants) && variants.length > 0 ? variants : (base64 ? [base64] : []);
+    if (images.length === 0) {
       return res.status(400).json({ error: '画像データがありません' });
     }
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
       return res.status(500).json({ error: 'サーバー側にAPIキーが設定されていません' });
+    }
+
+    const callClaude = async (content, maxTokens) => {
+      const r = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-6',
+          max_tokens: maxTokens,
+          messages: [{ role: 'user', content }]
+        })
+      });
+      if (!r.ok) {
+        const t = await r.text();
+        throw new Error(t);
+      }
+      const d = await r.json();
+      const blocks = d.content || [];
+      let text = '';
+      for (let i = 0; i < blocks.length; i++) {
+        if (blocks[i].type === 'text') { text = blocks[i].text; break; }
+      }
+      return text;
+    };
+
+    const orientCheckLines = [
+      'この画像に写っている名刺は、文字が正しい向き(上下左右が正立)で読める状態ですか？',
+      '「はい」または「いいえ」のどちらか一語のみで答えてください。説明は不要です。'
+    ];
+    const orientCheckPrompt = orientCheckLines.join('\n');
+
+    let bestImage = images[0];
+    for (let i = 0; i < images.length; i++) {
+      try {
+        const answer = await callClaude([
+          { type: 'image', source: { type: 'base64', media_type: mediaType, data: images[i] } },
+          { type: 'text', text: orientCheckPrompt }
+        ], 10);
+        if (answer && answer.indexOf('はい') !== -1) {
+          bestImage = images[i];
+          break;
+        }
+      } catch (e) {
+        console.error('orientation check failed for variant ' + i, e);
+      }
     }
 
     const step1Lines = [
@@ -34,42 +84,10 @@ export default async function handler(req, res) {
     ];
     const step1Prompt = step1Lines.join('\n');
 
-    const step1Response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1200,
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
-            { type: 'text', text: step1Prompt }
-          ]
-        }]
-      })
-    });
-
-    if (!step1Response.ok) {
-      const errText1 = await step1Response.text();
-      console.error('Anthropic API error step1:', errText1);
-      const msg1 = 'Anthropic APIエラー(読み取り): ' + errText1;
-      return res.status(step1Response.status).json({ error: msg1 });
-    }
-
-    const step1Data = await step1Response.json();
-    const step1Blocks = step1Data.content || [];
-    let transcription = '';
-    for (let i = 0; i < step1Blocks.length; i++) {
-      if (step1Blocks[i].type === 'text') {
-        transcription = step1Blocks[i].text;
-        break;
-      }
-    }
+    const transcription = await callClaude([
+      { type: 'image', source: { type: 'base64', media_type: mediaType, data: bestImage } },
+      { type: 'text', text: step1Prompt }
+    ], 1200);
 
     const step2Lines = [
       '以下は、ある名刺画像から読み取った内容の書き出しです。',
@@ -94,32 +112,11 @@ export default async function handler(req, res) {
     ];
     const step2Prompt = step2Lines.join('\n');
 
-    const step2Response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1000,
-        messages: [{
-          role: 'user',
-          content: [{ type: 'text', text: step2Prompt }]
-        }]
-      })
-    });
+    const step2Text = await callClaude([
+      { type: 'text', text: step2Prompt }
+    ], 1000);
 
-    if (!step2Response.ok) {
-      const errText2 = await step2Response.text();
-      console.error('Anthropic API error step2:', errText2);
-      const msg2 = 'Anthropic APIエラー(整形): ' + errText2;
-      return res.status(step2Response.status).json({ error: msg2 });
-    }
-
-    const step2Data = await step2Response.json();
-    return res.status(200).json(step2Data);
+    return res.status(200).json({ content: [{ type: 'text', text: step2Text }] });
 
   } catch (e) {
     console.error('extract-card error:', e);

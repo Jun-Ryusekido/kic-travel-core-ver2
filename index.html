@@ -4257,10 +4257,26 @@ async function handleCardUpload(event){
     const base64 = await toBase64(file);
     const mediaType = file.type || 'image/jpeg';
 
-const response = await fetch('/api/extract-card', {
+const rotateImage = (b64, mt, deg) => new Promise((resolve)=>{
+      if(deg===0){ resolve(b64); return; }
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if(deg===90 || deg===270){ canvas.width = img.height; canvas.height = img.width; }
+        else { canvas.width = img.width; canvas.height = img.height; }
+        ctx.translate(canvas.width/2, canvas.height/2);
+        ctx.rotate(deg*Math.PI/180);
+        ctx.drawImage(img, -img.width/2, -img.height/2);
+        resolve(canvas.toDataURL(mt, 0.85).split(',')[1]);
+      };
+      img.src = 'data:'+mt+';base64,'+b64;
+    });
+    const variants = await Promise.all([0,90,180,270].map(deg=>rotateImage(base64, mediaType, deg)));
+    const response = await fetch('/api/extract-card', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ base64, mediaType })
+      body: JSON.stringify({ variants, mediaType })
     });
 
     if(!response.ok){
