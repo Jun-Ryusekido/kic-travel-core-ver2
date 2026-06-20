@@ -4342,6 +4342,7 @@ const guessCategory = (text) => {
     document.getElementById('pt-fax').value = formatPhoneJP(parsed.fax);
     document.getElementById('pt-email').value = parsed.email||'';
     document.getElementById('pt-address').value = parsed.address||'';
+    document.getElementById('pt-address-en').value = parsed.address_en||'';
 
     statusEl.textContent = '✓ 読み取り完了。内容を確認して保存してください。';
     statusEl.style.color = 'var(--green)';
@@ -4371,6 +4372,7 @@ function openPartnerEditor(id){
   document.getElementById('pt-fax').value = p ? (p.fax||'') : '';
   document.getElementById('pt-email').value = p ? (p.email||'') : '';
   document.getElementById('pt-address').value = p ? (p.address||'') : '';
+  document.getElementById('pt-address-en').value = p ? (p.address_en||'') : '';
   document.getElementById('pt-notes').value = p ? (p.notes||'') : '';
   document.getElementById('pt-msg').style.display='none';
   document.getElementById('partner-modal').classList.add('open');
@@ -4399,6 +4401,7 @@ async function savePartner(){
     fax: document.getElementById('pt-fax').value.trim() || null,
     email: document.getElementById('pt-email').value.trim() || null,
     address: document.getElementById('pt-address').value.trim() || null,
+    address_en: document.getElementById('pt-address-en').value.trim() || null,
     notes: document.getElementById('pt-notes').value.trim() || null,
     updated_at: new Date().toISOString()
   };
@@ -4871,7 +4874,8 @@ restoreSession();
           <div class="form-field"><label>メール</label><input id="pt-email" placeholder="例: tanaka@example.com"></div>
         </div>
       </div>
-      <div class="form-field" style="grid-column:1/-1"><label>住所</label><input id="pt-address" placeholder="例: 兵庫県神戸市..."></div>
+      <div class="form-field"><label>住所</label><input id="pt-address" placeholder="例: 兵庫県神戸市..."></div>
+      <div class="form-field"><label>住所（英語）</label><input id="pt-address-en" placeholder="e.g. 1-1 Kobe-shi, Hyogo"></div>
       <div class="form-field" style="grid-column:1/-1"><label>備考・補足</label><textarea id="pt-notes" rows="3" placeholder="単価、特徴、注意事項など"></textarea></div>
     </div>
     <div style="display:flex;gap:8px;align-items:center;margin-top:12px">
