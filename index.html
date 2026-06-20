@@ -4204,8 +4204,8 @@ function filterPartners(){
   tbody.innerHTML = filtered.map(p=>`
     <tr>
       <td>${escHtml(p.category||'')}</td>
-      <td>${escHtml(p.company_name||'')}${p.branch_name?(' / '+escHtml(p.branch_name)):''}</td>
-      <td>${escHtml(p.contact_person||'')}${p.position?(' / '+escHtml(p.position)):''}</td>
+      <td>${escHtml(p.company_name||'')}${p.branch_name?(' / '+escHtml(p.branch_name)):''}${p.company_name_en?('<br><span style="color:var(--text3);font-size:10px">'+escHtml(p.company_name_en)+'</span>'):''}</td>
+      <td>${escHtml(p.contact_person||'')}${p.position?(' / '+escHtml(p.position)):''}${(p.contact_person_en||p.position_en)?('<br><span style="color:var(--text3);font-size:10px">'+escHtml([p.contact_person_en,p.position_en].filter(Boolean).join(' / '))+'</span>'):''}</td>
       <td>${escHtml(p.phone||p.company_phone||'')}</td>
       <td>${escHtml(p.email||'')}</td>
       <td style="white-space:normal;font-size:10px;color:var(--text3)">${escHtml(p.notes||'')}</td>
@@ -4317,9 +4317,12 @@ const guessCategory = (text) => {
     }
 
     document.getElementById('pt-company').value = parsed.company_name||'';
+    document.getElementById('pt-company-en').value = parsed.company_name_en||'';
     document.getElementById('pt-branch').value = parsed.branch_name||'';
     document.getElementById('pt-contact').value = parsed.contact_person||'';
+    document.getElementById('pt-contact-en').value = parsed.contact_person_en||'';
     document.getElementById('pt-position').value = parsed.position||'';
+    document.getElementById('pt-position-en').value = parsed.position_en||'';
     document.getElementById('pt-company-phone').value = parsed.company_phone||'';
     document.getElementById('pt-phone').value = parsed.phone||'';
     document.getElementById('pt-fax').value = parsed.fax||'';
@@ -4342,9 +4345,12 @@ function openPartnerEditor(id){
   document.getElementById('partner-modal-title').textContent = id ? '取引先編集' : '取引先登録';
   document.getElementById('pt-category').value = p ? (p.category||'バス・ハイヤー等') : 'バス・ハイヤー等';
   document.getElementById('pt-company').value = p ? (p.company_name||'') : '';
+  document.getElementById('pt-company-en').value = p ? (p.company_name_en||'') : '';
   document.getElementById('pt-branch').value = p ? (p.branch_name||'') : '';
   document.getElementById('pt-contact').value = p ? (p.contact_person||'') : '';
+  document.getElementById('pt-contact-en').value = p ? (p.contact_person_en||'') : '';
   document.getElementById('pt-position').value = p ? (p.position||'') : '';
+  document.getElementById('pt-position-en').value = p ? (p.position_en||'') : '';
   document.getElementById('pt-company-phone').value = p ? (p.company_phone||'') : '';
   document.getElementById('pt-phone').value = p ? (p.phone||'') : '';
   document.getElementById('pt-fax').value = p ? (p.fax||'') : '';
@@ -4365,9 +4371,12 @@ async function savePartner(){
   const payload = {
     category: document.getElementById('pt-category').value,
     company_name: company,
+    company_name_en: document.getElementById('pt-company-en').value.trim() || null,
     branch_name: document.getElementById('pt-branch').value.trim() || null,
     contact_person: document.getElementById('pt-contact').value.trim() || null,
+    contact_person_en: document.getElementById('pt-contact-en').value.trim() || null,
     position: document.getElementById('pt-position').value.trim() || null,
+    position_en: document.getElementById('pt-position-en').value.trim() || null,
     company_phone: document.getElementById('pt-company-phone').value.trim() || null,
     phone: document.getElementById('pt-phone').value.trim() || null,
     fax: document.getElementById('pt-fax').value.trim() || null,
@@ -4834,11 +4843,13 @@ restoreSession();
           <option value="その他">その他</option>
         </select>
       </div>
-      <div class="form-field"><label>会社名</label><input id="pt-company" placeholder="例: 神戸交通バス"></div>
+<div class="form-field"><label>会社名</label><input id="pt-company" placeholder="例: 神戸交通バス"></div>
+      <div class="form-field"><label>会社名（英語）</label><input id="pt-company-en" placeholder="e.g. Kobe Kotsu Bus"></div>
       <div class="form-field"><label>拠点名・支店名</label><input id="pt-branch" placeholder="例: 新宿店"></div>
       <div class="form-field"><label>担当者名</label><input id="pt-contact" placeholder="例: 田中太郎"></div>
+      <div class="form-field"><label>担当者名（英語）</label><input id="pt-contact-en" placeholder="e.g. Taro Tanaka"></div>
       <div class="form-field"><label>役職</label><input id="pt-position" placeholder="例: 営業部長"></div>
-      <div class="form-field"><label>会社電話番号</label><input id="pt-company-phone" placeholder="例: 078-123-4567"></div>
+      <div class="form-field"><label>役職（英語）</label><input id="pt-position-en" placeholder="e.g. Sales Manager"></div>      <div class="form-field"><label>会社電話番号</label><input id="pt-company-phone" placeholder="例: 078-123-4567"></div>
       <div class="form-field"><label>担当者携帯番号</label><input id="pt-phone" placeholder="例: 090-1234-5678"></div>
       <div class="form-field"><label>FAX番号</label><input id="pt-fax" placeholder="例: 078-123-4568"></div>
       <div class="form-field"><label>メール</label><input id="pt-email" placeholder="例: tanaka@example.com"></div>
