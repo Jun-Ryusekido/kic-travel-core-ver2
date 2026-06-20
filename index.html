@@ -4368,10 +4368,11 @@ function closePartnerEditor(){
 
 async function savePartner(){
   const company = document.getElementById('pt-company').value.trim();
-  if(!company){ alert('会社名を入力してください'); return; }
+  const companyEn = document.getElementById('pt-company-en').value.trim();
+  if(!company && !companyEn){ alert('会社名（日本語）または会社名（英語）のいずれかを入力してください'); return; }
   const payload = {
     category: document.getElementById('pt-category').value,
-    company_name: company,
+    company_name: company || companyEn,
     company_name_en: document.getElementById('pt-company-en').value.trim() || null,
     branch_name: document.getElementById('pt-branch').value.trim() || null,
     branch_name_en: document.getElementById('pt-branch-en').value.trim() || null,
