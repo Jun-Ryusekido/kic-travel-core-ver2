@@ -4283,15 +4283,18 @@ const guessCategory = (text) => {
     const normPhone = s => { let v = norm(s); if(v.startsWith('81')) v = '0'+v.slice(2); return v; };
     const newPhone = normPhone(parsed.company_phone);
     const newEmail = norm(parsed.email);
-    const newCompany = norm(parsed.company_name);
+    const newCompanyJa = norm(parsed.company_name);
+    const newCompanyEn = norm(parsed.company_name_en);
 
     const dup = partnersCache.find(p=>{
       const pPhone = normPhone(p.company_phone);
       const pEmail = norm(p.email);
-      const pCompany = norm(p.company_name);
+      const pCompanyJa = norm(p.company_name);
+      const pCompanyEn = norm(p.company_name_en);
       const phoneMatch = newPhone && pPhone && newPhone===pPhone;
       const emailMatch = newEmail && pEmail && newEmail===pEmail;
-      const companyMatch = newCompany && pCompany && (newCompany===pCompany || newCompany.includes(pCompany) || pCompany.includes(newCompany));
+      const cm = (a,b) => a && b && (a===b || a.includes(b) || b.includes(a));
+      const companyMatch = cm(newCompanyJa,pCompanyJa) || cm(newCompanyEn,pCompanyEn) || cm(newCompanyJa,pCompanyEn) || cm(newCompanyEn,pCompanyJa);
       return phoneMatch || emailMatch || companyMatch;
     });
 
@@ -4305,9 +4308,9 @@ const guessCategory = (text) => {
         document.getElementById('pt-branch').value = dup.branch_name || parsed.branch_name || '';
         document.getElementById('pt-contact').value = dup.contact_person || parsed.contact_person || '';
         document.getElementById('pt-position').value = dup.position || parsed.position || '';
-        document.getElementById('pt-company-phone').value = dup.company_phone || parsed.company_phone || '';
-        document.getElementById('pt-phone').value = dup.phone || parsed.phone || '';
-        document.getElementById('pt-fax').value = dup.fax || parsed.fax || '';
+        document.getElementById('pt-company-phone').value = dup.company_phone || formatPhoneJP(parsed.company_phone) || '';
+        document.getElementById('pt-phone').value = dup.phone || formatPhoneJP(parsed.phone) || '';
+        document.getElementById('pt-fax').value = dup.fax || formatPhoneJP(parsed.fax) || '';
         document.getElementById('pt-email').value = dup.email || parsed.email || '';
         document.getElementById('pt-address').value = dup.address || parsed.address || '';
         statusEl.textContent = '✓ 既存の取引先にマージしました。内容を確認して保存してください。';
@@ -4317,16 +4320,26 @@ const guessCategory = (text) => {
       }
     }
 
-    document.getElementById('pt-company').value = parsed.company_name||'';
-    document.getElementById('pt-company-en').value = parsed.company_name_en||'';
+    const formatPhoneJP = s => {
+      if(!s) return '';
+      let v = String(s).trim();
+      v = v.replace(/^\+81[-\s]?/, '0');
+      v = v.replace(/[()]/g, '');
+      v = v.replace(/[\s.]+/g, '-');
+      v = v.replace(/-+/g, '-');
+      v = v.replace(/^-|-$/g, '');
+      return v;
+    };
+    document.getElementById('pt-company').value = parsed.company_name || parsed.company_name_en || '';
+    document.getElementById('pt-company-en').value = parsed.company_name_en || (parsed.company_name && !/[ぁ-んァ-ヶ一-龠]/.test(parsed.company_name) ? '' : '') || '';
     document.getElementById('pt-branch').value = parsed.branch_name||'';
     document.getElementById('pt-contact').value = parsed.contact_person||'';
     document.getElementById('pt-contact-en').value = parsed.contact_person_en||'';
     document.getElementById('pt-position').value = parsed.position||'';
     document.getElementById('pt-position-en').value = parsed.position_en||'';
-    document.getElementById('pt-company-phone').value = parsed.company_phone||'';
-    document.getElementById('pt-phone').value = parsed.phone||'';
-    document.getElementById('pt-fax').value = parsed.fax||'';
+    document.getElementById('pt-company-phone').value = formatPhoneJP(parsed.company_phone);
+    document.getElementById('pt-phone').value = formatPhoneJP(parsed.phone);
+    document.getElementById('pt-fax').value = formatPhoneJP(parsed.fax);
     document.getElementById('pt-email').value = parsed.email||'';
     document.getElementById('pt-address').value = parsed.address||'';
 
