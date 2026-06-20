@@ -4236,7 +4236,7 @@ async function handleCardUpload(event){
     reader.onload = () => { img.src = reader.result; };
     reader.onerror = reject;
     img.onload = () => {
-      const maxDim = 1600;
+      const maxDim = 2000;
       let w = img.width, h = img.height;
       if(w>maxDim || h>maxDim){
         if(w>h){ h = Math.round(h*maxDim/w); w = maxDim; }
@@ -4245,7 +4245,7 @@ async function handleCardUpload(event){
       const canvas = document.createElement('canvas');
       canvas.width = w; canvas.height = h;
       canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
       resolve(dataUrl.split(',')[1]);
     };
     img.onerror = reject;
