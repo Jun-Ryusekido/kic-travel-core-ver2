@@ -4436,7 +4436,7 @@ async function loadDeletedPartners(){
       <td>${escHtml(p.company_name||'')}</td>
       <td>${p.deleted_at ? new Date(p.deleted_at).toLocaleString('ja-JP') : ''}</td>
       <td>${escHtml(p.deleted_by||'')}</td>
-      <td style="white-space:nowrap">
+      <td style="white-space:nowrap;display:flex;flex-direction:column;gap:4px">
         <button class="btn btn-p" style="font-size:11px" onclick="restorePartner('${p.id}')">復元</button>
         <button class="btn" style="font-size:11px;color:var(--red)" onclick="permanentlyDeletePartner('${p.id}','${escAttr(p.company_name||'')}')">完全削除</button>
       </td>
@@ -4444,11 +4444,7 @@ async function loadDeletedPartners(){
 }
 
 async function permanentlyDeletePartner(id, companyName){
-  const typed = prompt(`この取引先を完全に削除します。この操作は取り消せません。\n\n削除を実行するには、確認のため会社名「${companyName}」を入力してください。`);
-  if(typed !== companyName){
-    if(typed !== null) alert('入力された会社名が一致しないため、削除を中止しました。');
-    return;
-  }
+  if(!confirm(`「${companyName}」を完全に削除します。この操作は取り消せません。よろしいですか？`)) return;
   const {error} = await sb.from('business_partners').delete().eq('id', id);
   if(error){ alert('削除に失敗しました: '+error.message); return; }
   await logAction('取引先完全削除', companyName);
