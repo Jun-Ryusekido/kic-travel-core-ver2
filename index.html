@@ -4222,6 +4222,11 @@ async function handleCardUpload(event){
   const statusEl = document.getElementById('pt-card-status');
   statusEl.textContent = '読み取り中...';
 
+  try{
+    const {data: freshPartners} = await sb.from('business_partners').select('*').order('company_name');
+    if(freshPartners) partnersCache = freshPartners;
+  }catch(e){ console.error('partnersCache再読込エラー', e); }
+
   const compressImage = f => new Promise((resolve,reject)=>{
     const img = new Image();
     const reader = new FileReader();
@@ -4264,7 +4269,17 @@ const response = await fetch('/api/extract-card', {
     const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
     const parsed = JSON.parse(cleaned);
 
-const norm = s => (s||'').replace(/[^0-9a-zA-Z]/g,'').toLowerCase();
+const guessCategory = (text) => {
+      const t = (text||'').toLowerCase();
+      if(/hotel|ホテル|旅館|inn|resort/.test(t)) return 'ホテル';
+      if(/restaurant|レストラン|食堂|飲食|dining|cafe|カフェ/.test(t)) return 'レストラン';
+      if(/bus|タクシー|ハイヤー|交通|運輸|travel|タクシー会社|transport/.test(t)) return 'バス・ハイヤー等';
+      return null;
+    };
+    const guessed = guessCategory((parsed.company_name||'') + ' ' + (parsed.branch_name||'') + ' ' + (parsed.address||''));
+    if(guessed) document.getElementById('pt-category').value = guessed;
+
+    const norm = s => (s||'').replace(/[^0-9a-zA-Z]/g,'').toLowerCase();
     const newPhone = norm(parsed.company_phone);
     const newEmail = norm(parsed.email);
     const newCompany = norm(parsed.company_name);
