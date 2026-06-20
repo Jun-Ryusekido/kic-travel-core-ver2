@@ -4955,8 +4955,12 @@ restoreSession();
     </div>
     <div style="border:1px dashed var(--border);border-radius:8px;padding:10px;margin-top:12px;background:var(--bg)">
       <label class="btn btn-p" style="font-size:11px;cursor:pointer;display:inline-flex">
-        📷 名刺を撮影・選択
-        <input type="file" accept="image/*" id="pt-card-input" style="display:none" onchange="handleCardUpload(event)">
+        📷 カメラで撮影
+        <input type="file" accept="image/*" capture="environment" id="pt-card-input-camera" style="display:none" onchange="handleCardUpload(event)">
+      </label>
+      <label class="btn" style="font-size:11px;cursor:pointer;display:inline-flex;margin-left:6px">
+        🖼 ギャラリーから選択
+        <input type="file" accept="image/*" id="pt-card-input-gallery" style="display:none" onchange="handleCardUpload(event)">
       </label>
       <span id="pt-card-status" style="font-size:11px;color:var(--text3);margin-left:8px"></span>
     </div>
