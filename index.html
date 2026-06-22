@@ -4338,6 +4338,7 @@ const validCategories = ['ホテル','レストラン','バス・ハイヤー等
       if(!s) return '';
       let v = String(s).trim();
       v = v.replace(/^\+?81[-\s]?/, '0');
+v = v.replace(/^0+(\d)/, '0$1');
       v = v.replace(/[()]/g, '');
       v = v.replace(/[\s.]+/g, '-');
       v = v.replace(/-+/g, '-');
@@ -4401,6 +4402,7 @@ const fmtPhone = s => {
     if(!s) return '';
     let v = String(s).trim();
     v = v.replace(/^\+?81[-\s]?/, '0');
+    v = v.replace(/^0+(\d)/, '0$1');
     v = v.replace(/[()]/g, '');
     v = v.replace(/[\s.]+/g, '-');
     v = v.replace(/-+/g, '-');
