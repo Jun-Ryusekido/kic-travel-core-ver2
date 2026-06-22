@@ -4397,6 +4397,19 @@ function closePartnerEditor(){
 }
 
 async function savePartner(){
+const fmtPhone = s => {
+    if(!s) return '';
+    let v = String(s).trim();
+    v = v.replace(/^\+?81[-\s]?/, '0');
+    v = v.replace(/[()]/g, '');
+    v = v.replace(/[\s.]+/g, '-');
+    v = v.replace(/-+/g, '-');
+    v = v.replace(/^-|-$/g, '');
+    return v;
+  };
+  document.getElementById('pt-company-phone').value = fmtPhone(document.getElementById('pt-company-phone').value);
+  document.getElementById('pt-phone').value = fmtPhone(document.getElementById('pt-phone').value);
+  document.getElementById('pt-fax').value = fmtPhone(document.getElementById('pt-fax').value);
   const company = document.getElementById('pt-company').value.trim();
   const companyEn = document.getElementById('pt-company-en').value.trim();
   if(!company && !companyEn){ alert('会社名（日本語）または会社名（英語）のいずれかを入力してください'); return; }
