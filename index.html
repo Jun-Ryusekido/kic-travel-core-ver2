@@ -4639,27 +4639,37 @@ async function saveHotelConfirm(hotels){
   const statusEl = document.getElementById('hotel-confirm-status');
   statusEl.textContent = '保存中...';
   let savedCount = 0;
-  for(let i=0; i<hotels.length; i++){
-    const bookingId = document.getElementById(`hm-confirm-booking-${i}`)?.value || window._pendingHotels?.[i]?._bookingId;
-    const h = hotels[i];
+  const rows = hotels.map((h,i)=>{
+    const sel = document.getElementById(`hm-confirm-booking-${i}`);
+    const bookingId = (sel ? sel.value : null) || h._bookingId || null;
     const nights = calcHotelNights(h.check_in||'', h.check_out||'');
-    const row = {
+    return {
       booking_id: bookingId,
-      hotel_name: h.hotel_name||'', check_in: h.check_in||null, check_out: h.check_out||null,
-      room_type: h.room_type||'', rooms: Number(h.rooms)||1, breakfast: !!h.breakfast,
+      hotel_name: h.hotel_name||'',
+      check_in: h.check_in||null,
+      check_out: h.check_out||null,
+      room_type: h.room_type||'',
+      rooms: Number(h.rooms)||1,
+      breakfast: !!h.breakfast,
       unit_price: Number(h.unit_price)||0,
       amount: Number(h.unit_price||0)*Number(h.rooms||1)*nights,
-      confirmation_no: h.confirmation_no||'', memo: h.memo||'', sort_order: i
+      confirmation_no: h.confirmation_no||'',
+      memo: h.memo||'',
+      sort_order: i
     };
-    const {error} = await sb.from('booking_hotels').insert(row);
-    if(!error) savedCount++;
+  });
+  const {error} = await sb.from('booking_hotels').insert(rows);
+  if(error){
+    statusEl.textContent = '保存エラー: ' + error.message;
+    statusEl.style.color = 'var(--red)';
+    return;
   }
+  savedCount = rows.length;
   statusEl.textContent = `✓ ${savedCount}件を保存しました`;
   statusEl.style.color = 'var(--green)';
   setTimeout(()=>{ document.getElementById('hotel-confirm-modal')?.remove(); }, 1500);
   await loadHotelManagement();
 }
-
 async function extractHotelFromFileHm(event){
   const file = event.target.files[0];
   if(!file) return;
