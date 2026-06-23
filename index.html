@@ -1926,8 +1926,12 @@ async function saveLocalExpenses(){
 }
 
 async function openBookingDetail(id){
-  const b = findBookingById(id);
-  if(!b) return;
+  let b = findBookingById(id);
+  if(!b){
+    const {data} = await sb.from('bookings').select('*').eq('id',id).single();
+    if(!data) return;
+    b = data;
+  }
   currentDetailId = id;
 
   document.getElementById('bd-ref').textContent = b.ref_no;
