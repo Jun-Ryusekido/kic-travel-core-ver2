@@ -4575,6 +4575,7 @@ const bookings2 = allBookingsCache;
       const hRef = (h.ref_no||'').replace(/[^0-9]/g,'');
       return bRef && hRef && bRef===hRef;
     }) : null;
+hotels[i]._bookingId = matchedBooking ? matchedBooking.id : null;
     const selectHtml = `<select id="hm-confirm-booking-${i}" style="font-size:10px;padding:3px;border-radius:6px;border:1px solid var(--border);width:100%">
       <option value="">-- 選択 --</option>
       ${bookings2.filter(b=>b.ref_no).map(b=>`<option value="${b.id}" ${matchedBooking&&matchedBooking.id===b.id?'selected':''}>${escHtml(b.ref_no)} ${escHtml(b.tour_name||'')}</option>`).join('')}
@@ -4629,11 +4630,10 @@ async function saveHotelConfirm(hotels){
   const statusEl = document.getElementById('hotel-confirm-status');
   statusEl.textContent = '保存中...';
   let savedCount = 0;
-  alert('hotels count: ' + hotels.length + ', _pending: ' + (window._pendingHotels ? window._pendingHotels.length : 'undefined'));
   for(let i=0; i<hotels.length; i++){
     const bookingId = document.getElementById(`hm-confirm-booking-${i}`)?.value;
     alert('bookingId: ' + bookingId + ', select exists: ' + !!document.getElementById(`hm-confirm-booking-0`));
-    const bookingIdVal = bookingId || null;
+    const bookingId = document.getElementById(`hm-confirm-booking-${i}`)?.value || window._pendingHotels?.[i]?._bookingId;
     const h = hotels[i];
     const nights = calcHotelNights(h.check_in||'', h.check_out||'');
     const row = {
