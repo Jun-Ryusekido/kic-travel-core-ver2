@@ -4709,7 +4709,7 @@ async function extractHotelFromFileHm(event){
 }
 async function loadHotelManagement(){
   document.getElementById('hm-tbody').innerHTML = '<tr><td colspan="12" class="empty">読み込み中...</td></tr>';
-const {data, error} = await sb.from('booking_hotels').select('*').order('check_in',{ascending:true});
+const {data, error} = await sb.from('booking_hotels').select('*,bookings(ref_no,agent_name,tour_name)').order('check_in',{ascending:true});
   if(error){ document.getElementById('hm-tbody').innerHTML = `<tr><td colspan="12" class="empty">読み込みエラー: ${error.message}</td></tr>`; return; }
   hotelManagementCache = (data||[]).map(r=>({
     ...r,
@@ -4749,8 +4749,8 @@ tbody.innerHTML = filtered.map(r=>{
     const nights = calcHotelNights(r.check_in||'', r.check_out||'');
     return `<tr onclick="openBookingDetail('${r.booking_id}')" style="cursor:pointer">
       <td>${escHtml(r.hotel_name||'')}</td>
-      <td class="lnk">${escHtml(r.ref_no)}</td>
-      <td style="font-size:10px">${escHtml(r.tour_name||'')}</td>
+      <td class="lnk">${escHtml(r.bookings?.ref_no||'')}</td>
+      <td style="font-size:10px">${escHtml(r.bookings?.tour_name||'')}</td>
       <td>${r.check_in||''}</td>
       <td>${r.check_out||''}</td>
       <td>${escHtml(r.room_type||'')}</td>
