@@ -4589,6 +4589,7 @@ hotels[i]._bookingId = matchedBooking ? matchedBooking.id : null;
       <td style="padding:6px 8px;text-align:center">${nights}</td>
       <td style="padding:6px 8px;text-align:right">${yen(amount)}</td>
       <td style="padding:6px 8px">${escHtml(h.confirmation_no||'')}</td>
+      <td style="padding:6px 8px"><select id="hm-confirm-status-${i}" style="font-size:10px;padding:3px"><option value="問い合わせ中">問い合わせ中</option><option value="手配OK">手配OK</option></select></td>
       <td style="padding:6px 8px;min-width:200px">${selectHtml}${matchedBooking?`<div style="font-size:9px;color:var(--green)">✓ 自動マッチ: ${escHtml(matchedBooking.ref_no)}</div>`:''}</td>
     </tr>`;
   }).join('');
@@ -4613,6 +4614,7 @@ hotels[i]._bookingId = matchedBooking ? matchedBooking.id : null;
           <th style="padding:6px 8px">泊数</th>
           <th style="padding:6px 8px">金額</th>
           <th style="padding:6px 8px">確認番号</th>
+          <th style="padding:6px 8px">ステータス</th>
           <th style="padding:6px 8px">ツアーREF#</th>
         </tr></thead>
         <tbody>${rows}</tbody>
@@ -4655,7 +4657,8 @@ async function saveHotelConfirm(hotels){
       amount: Number(h.unit_price||0)*Number(h.rooms||1)*nights,
       confirmation_no: h.confirmation_no||'',
       memo: h.memo||'',
-      sort_order: i
+      sort_order: i,
+      status: (document.getElementById(`hm-confirm-status-${i}`)?.value || '問い合わせ中')
     };
   });
   const {error} = await sb.from('booking_hotels').insert(rows);
