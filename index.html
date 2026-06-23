@@ -4759,11 +4759,18 @@ tbody.innerHTML = filtered.map(r=>{
       <td style="text-align:center">${r.breakfast?'✓':''}</td>
       <td style="text-align:right">${yen(r.unit_price||0)}</td>
       <td style="text-align:right;font-weight:600">${yen(r.amount||0)}</td>
-      <td style="font-size:10px">${escHtml(r.confirmation_no||'')}<br><span style="font-size:10px;padding:2px 6px;border-radius:10px;background:${r.status==='手配OK'?'var(--green)':'var(--border)'};color:${r.status==='手配OK'?'#fff':'var(--text3)'}">${escHtml(r.status||'問い合わせ中')}</span></td>
-    </tr>`;
+<td style="font-size:10px">${escHtml(r.confirmation_no||'')}<br><span onclick="toggleHmStatus('${r.id}')" style="font-size:10px;padding:2px 6px;border-radius:10px;cursor:pointer;background:${r.status==='手配OK'?'var(--green)':'var(--border)'};color:${r.status==='手配OK'?'#fff':'var(--text3)'}">${escHtml(r.status||'問い合わせ中')}</span></td>    </tr>`;
   }).join('');
 }
 
+async function toggleHmStatus(id){
+  const row = hotelManagementCache.find(r=>r.id===id);
+  if(!row) return;
+  const newStatus = row.status==='手配OK'?'問い合わせ中':'手配OK';
+  await supabase.from('booking_hotels').update({status:newStatus}).eq('id',id);
+  row.status = newStatus;
+  filterHotelManagement();
+}
 function resetHotelManagementFilter(){
   document.getElementById('hm-search').value='';
   document.getElementById('hm-from').value='';
