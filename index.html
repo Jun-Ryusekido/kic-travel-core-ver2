@@ -888,6 +888,11 @@ th.sortable:hover{color:var(--blue)}
       </div>
     </div>
     <button class="btn" style="font-size:10px;margin-top:6px" onclick="document.getElementById('hotel-ocr-area').style.display=document.getElementById('hotel-ocr-area').style.display===''?'none':''">📧 メール/テキストから読み取り</button>
+    <label class="btn" style="font-size:10px;margin-top:6px;cursor:pointer">
+      📎 Excel/PDFから読み取り
+      <input type="file" accept=".xlsx,.xls,.pdf" style="display:none" onchange="extractHotelFromFile(event)">
+    </label>
+    <span id="hotel-file-status" style="font-size:11px;color:var(--text3);margin-left:8px"></span>
     <div class="modal-section-title">関連Invoice</div>
     <div id="bd-invoice-actions" style="margin-bottom:6px"></div>
     <div class="tbl-wrap"><table>
@@ -3559,6 +3564,87 @@ async function saveHotelItems(){
   if(rows.length) await sb.from('booking_hotels').insert(rows);
 }
 
+async function extractHotelFromFile(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const statusEl = document.getElementById('hotel-file-status');
+  statusEl.textContent = '読み取り中...';
+  statusEl.style.color = 'var(--text3)';
+  try{
+    const isPdf = file.name.toLowerCase().endsWith('.pdf');
+    const isExcel = file.name.toLowerCase().match(/\.(xlsx|xls)$/);
+    let hotelText = '';
+
+    if(isPdf){
+      // PDFをBase64に変換してAPIに送信
+      const base64 = await new Promise((resolve,reject)=>{
+        const r = new FileReader();
+        r.onload = ()=>resolve(r.result.split(',')[1]);
+        r.onerror = reject;
+        r.readAsDataURL(file);
+      });
+      const response = await fetch('/api/extract-card', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ hotelPdfBase64: base64 })
+      });
+      if(!response.ok){ const e = await response.json(); throw new Error(e.error||'サーバーエラー'); }
+      const data = await response.json();
+      const textBlock = data.content.find(b=>b.type==='text');
+      const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
+      const parsed = JSON.parse(cleaned);
+      const hotels = Array.isArray(parsed) ? parsed : [parsed];
+      hotels.forEach(h=>{
+        const nights = calcHotelNights(h.check_in||'', h.check_out||'');
+        bdHotelItems.push({
+          hotel_name: h.hotel_name||'', check_in: h.check_in||'', check_out: h.check_out||'',
+          room_type: h.room_type||'', rooms: Number(h.rooms)||1, breakfast: !!h.breakfast,
+          unit_price: Number(h.unit_price)||0, amount: Number(h.unit_price||0)*Number(h.rooms||1)*nights,
+          confirmation_no: h.confirmation_no||'', memo: h.memo||''
+        });
+      });
+      renderHotelTable();
+      statusEl.textContent = '✓ '+hotels.length+'件を読み取りました';
+      statusEl.style.color = 'var(--green)';
+    } else if(isExcel){
+      // ExcelをSheetJSで読み込みテキスト化
+      const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs');
+      const arrayBuffer = await file.arrayBuffer();
+      const workbook = XLSX.read(arrayBuffer, {type:'array'});
+      const sheets = workbook.SheetNames.map(name=>{
+        const ws = workbook.Sheets[name];
+        return `[シート: ${name}]\n${XLSX.utils.sheet_to_csv(ws)}`;
+      }).join('\n\n');
+      const response = await fetch('/api/extract-card', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ hotelText: sheets })
+      });
+      if(!response.ok){ const e = await response.json(); throw new Error(e.error||'サーバーエラー'); }
+      const data = await response.json();
+      const textBlock = data.content.find(b=>b.type==='text');
+      const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
+      const parsed = JSON.parse(cleaned);
+      const hotels = Array.isArray(parsed) ? parsed : [parsed];
+      hotels.forEach(h=>{
+        const nights = calcHotelNights(h.check_in||'', h.check_out||'');
+        bdHotelItems.push({
+          hotel_name: h.hotel_name||'', check_in: h.check_in||'', check_out: h.check_out||'',
+          room_type: h.room_type||'', rooms: Number(h.rooms)||1, breakfast: !!h.breakfast,
+          unit_price: Number(h.unit_price)||0, amount: Number(h.unit_price||0)*Number(h.rooms||1)*nights,
+          confirmation_no: h.confirmation_no||'', memo: h.memo||''
+        });
+      });
+      renderHotelTable();
+      statusEl.textContent = '✓ '+hotels.length+'件を読み取りました';
+      statusEl.style.color = 'var(--green)';
+    }
+  }catch(e){
+    statusEl.textContent = '読み取り失敗: '+e.message;
+    statusEl.style.color = 'var(--red)';
+  }
+  event.target.value = '';
+}
 async function extractHotelFromText(){
   const text = document.getElementById('hotel-ocr-text').value.trim();
   if(!text){ alert('テキストを入力してください'); return; }

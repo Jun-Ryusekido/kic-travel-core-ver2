@@ -3,7 +3,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
   try {
-    const { variants, mediaType, base64, hotelText } = req.body;
+    const { variants, mediaType, base64, hotelText, hotelPdfBase64 } = req.body;
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
       return res.status(500).json({ error: 'サーバー側にAPIキーが設定されていません' });
@@ -38,6 +38,18 @@ JSONのみ返し、説明文・コードブロック記号は不要です。
 
 ${hotelText}`
       }], 2000);
+      return res.status(200).json(data);
+    }
+// ホテルPDF解析モード
+    if (hotelPdfBase64) {
+      const data = await callClaude([
+        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: hotelPdfBase64 } },
+        { type: 'text', text: `このPDFからホテル予約情報を抽出してJSON配列で返してください。
+各ホテルの情報を1つのオブジェクトとして配列に含めてください。
+フィールド：hotel_name, check_in(YYYY-MM-DD), check_out(YYYY-MM-DD), room_type, rooms(数値), breakfast(true/false), unit_price(数値・円), confirmation_no, memo
+金額が不明な場合は0、部屋数不明は1としてください。
+JSONのみ返し、説明文・コードブロック記号は不要です。` }
+      ], 2000);
       return res.status(200).json(data);
     }
 
