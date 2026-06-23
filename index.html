@@ -4631,11 +4631,11 @@ async function saveHotelConfirm(hotels){
   let savedCount = 0;
   for(let i=0; i<hotels.length; i++){
     const bookingId = document.getElementById(`hm-confirm-booking-${i}`)?.value;
-    if(!bookingId){ continue; }
+    const bookingIdVal = bookingId || null;
     const h = hotels[i];
     const nights = calcHotelNights(h.check_in||'', h.check_out||'');
     const row = {
-      booking_id: bookingId,
+      booking_id: bookingIdVal,
       hotel_name: h.hotel_name||'', check_in: h.check_in||null, check_out: h.check_out||null,
       room_type: h.room_type||'', rooms: Number(h.rooms)||1, breakfast: !!h.breakfast,
       unit_price: Number(h.unit_price)||0,
