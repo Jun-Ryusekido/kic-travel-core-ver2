@@ -4564,21 +4564,21 @@ async function showHotelConfirmDialog(hotels){
   const bookings = allBookingsCache;
   if(bookings.length===0){ allBookingsCache = await fetchAllBookings(); }
 const bookings2 = allBookingsCache;
-  const bookingOptions = bookings2.filter(b=>b.ref_no).sort((a,b)=>String(a.ref_no).localeCompare(String(b.ref_no),'ja',{numeric:true}))
+  const bookingOptions = bookings.filter(b=>b.ref_no).sort((a,b)=>String(a.ref_no).localeCompare(String(b.ref_no),'ja',{numeric:true}))
     .map(b=>`<option value="${b.id}">${escHtml(b.ref_no)} ${escHtml(b.tour_name||'')}</option>`).join('');
 
   const rows = hotels.map((h,i)=>{
     const nights = calcHotelNights(h.check_in||'', h.check_out||'');
     const amount = Number(h.unit_price||0)*Number(h.rooms||1)*nights;
     // REF#で自動マッチ
-    const matchedBooking = h.ref_no ? bookings.find(b=>{
+    const matchedBooking = h.ref_no ? bookings2.find(b=>{
       const bRef = (b.ref_no||'').replace(/[^0-9]/g,'');
       const hRef = (h.ref_no||'').replace(/[^0-9]/g,'');
       return bRef && hRef && bRef===hRef;
     }) : null;
     const selectHtml = `<select id="hm-confirm-booking-${i}" style="font-size:10px;padding:3px;border-radius:6px;border:1px solid var(--border);width:100%">
       <option value="">-- 選択 --</option>
-      ${bookings.filter(b=>b.ref_no).map(b=>`<option value="${b.id}" ${matchedBooking&&matchedBooking.id===b.id?'selected':''}>${escHtml(b.ref_no)} ${escHtml(b.tour_name||'')}</option>`).join('')}
+      ${bookings2.filter(b=>b.ref_no).map(b=>`<option value="${b.id}" ${matchedBooking&&matchedBooking.id===b.id?'selected':''}>${escHtml(b.ref_no)} ${escHtml(b.tour_name||'')}</option>`).join('')}
     </select>`;
     return `<tr style="border-bottom:1px solid var(--border)">
       <td style="padding:6px 8px">${escHtml(h.hotel_name||'')}</td>
