@@ -4630,6 +4630,7 @@ function saveHotelConfirmNew(){
     if(!hotels) return;
     hotels.forEach((h,i)=>{
       const sel = document.getElementById(`hm-confirm-booking-${i}`);
+      alert('sel value: ' + (sel ? sel.value : 'no sel') + ', _bookingId: ' + h._bookingId);
       if(sel) h._bookingId = sel.value || h._bookingId;
     });
     saveHotelConfirm(hotels);
