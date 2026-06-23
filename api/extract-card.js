@@ -30,9 +30,10 @@ export default async function handler(req, res) {
     if (hotelText) {
       const data = await callClaude([{
         type: 'text',
-        text: `以下のホテル予約確認メールや文書からホテル情報を抽出してJSON配列で返してください。
+text: `以下のホテル予約確認メールや文書からホテル情報を抽出してJSON配列で返してください。
 各ホテルの情報を1つのオブジェクトとして配列に含めてください。
-フィールド：hotel_name, check_in(YYYY-MM-DD), check_out(YYYY-MM-DD), room_type, rooms(数値), breakfast(true/false), unit_price(数値・円), confirmation_no, memo
+フィールド：ref_no(ツアー番号・予約番号・REF#等), hotel_name, check_in(YYYY-MM-DD), check_out(YYYY-MM-DD), room_type, rooms(数値), breakfast(true/false), unit_price(数値・円), confirmation_no, memo
+ref_noは文書中のツアーコード・予約番号・REF#・KICから始まる番号等を探してください。見つからない場合は空文字にしてください。
 金額が不明な場合は0、部屋数不明は1としてください。
 JSONのみ返し、説明文・コードブロック記号は不要です。
 
@@ -44,9 +45,10 @@ ${hotelText}`
     if (hotelPdfBase64) {
       const data = await callClaude([
         { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: hotelPdfBase64 } },
-        { type: 'text', text: `このPDFからホテル予約情報を抽出してJSON配列で返してください。
+{ type: 'text', text: `このPDFからホテル予約情報を抽出してJSON配列で返してください。
 各ホテルの情報を1つのオブジェクトとして配列に含めてください。
-フィールド：hotel_name, check_in(YYYY-MM-DD), check_out(YYYY-MM-DD), room_type, rooms(数値), breakfast(true/false), unit_price(数値・円), confirmation_no, memo
+フィールド：ref_no(ツアー番号・予約番号・REF#等), hotel_name, check_in(YYYY-MM-DD), check_out(YYYY-MM-DD), room_type, rooms(数値), breakfast(true/false), unit_price(数値・円), confirmation_no, memo
+ref_noは文書中のツアーコード・予約番号・REF#・KICから始まる番号等を探してください。見つからない場合は空文字にしてください。
 金額が不明な場合は0、部屋数不明は1としてください。
 JSONのみ返し、説明文・コードブロック記号は不要です。` }
       ], 2000);

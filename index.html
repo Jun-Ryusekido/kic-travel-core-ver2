@@ -4520,8 +4520,6 @@ async function saveHotelItemsToBooking(bookingId, items){
 async function extractHotelFromTextHm(){
   const text = document.getElementById('hm-ocr-text').value.trim();
   if(!text){ alert('テキストを入力してください'); return; }
-  const bookingId = document.getElementById('hm-booking-select').value;
-  if(!bookingId){ alert('ツアーREF#を選択してください'); return; }
   const statusEl = document.getElementById('hm-ocr-status');
   statusEl.textContent = '読み取り中...';
   statusEl.style.color = 'var(--text3)';
@@ -4537,31 +4535,125 @@ async function extractHotelFromTextHm(){
     const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
     const parsed = JSON.parse(cleaned);
     const hotels = Array.isArray(parsed) ? parsed : [parsed];
-    const items = hotels.map(h=>({
-      hotel_name: h.hotel_name||'', check_in: h.check_in||'', check_out: h.check_out||'',
-      room_type: h.room_type||'', rooms: Number(h.rooms)||1, breakfast: !!h.breakfast,
-      unit_price: Number(h.unit_price)||0,
-      amount: Number(h.unit_price||0)*Number(h.rooms||1)*calcHotelNights(h.check_in||'',h.check_out||''),
-      confirmation_no: h.confirmation_no||'', memo: h.memo||''
-    }));
-    const ok = await saveHotelItemsToBooking(bookingId, items);
-    if(ok){
-      statusEl.textContent = '✓ '+items.length+'件を保存しました';
-      statusEl.style.color = 'var(--green)';
-      document.getElementById('hm-ocr-text').value = '';
-      await loadHotelManagement();
-    }
+    statusEl.textContent = '✓ '+hotels.length+'件を読み取りました。内容を確認してください。';
+    statusEl.style.color = 'var(--green)';
+    showHotelConfirmDialog(hotels);
   }catch(e){
     statusEl.textContent = '読み取り失敗: '+e.message;
     statusEl.style.color = 'var(--red)';
   }
 }
 
+async function extractHotelFromFileHmParsed(bodyData, statusEl){
+  const response = await fetch('/api/extract-card', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(bodyData)
+  });
+  if(!response.ok){ const e = await response.json(); throw new Error(e.error||'サーバーエラー'); }
+  const data = await response.json();
+  const textBlock = data.content.find(b=>b.type==='text');
+  const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
+  const parsed = JSON.parse(cleaned);
+  const hotels = Array.isArray(parsed) ? parsed : [parsed];
+  statusEl.textContent = '✓ '+hotels.length+'件を読み取りました。内容を確認してください。';
+  statusEl.style.color = 'var(--green)';
+  showHotelConfirmDialog(hotels);
+}
+
+function showHotelConfirmDialog(hotels){
+  const bookings = allBookingsCache;
+  const bookingOptions = bookings.filter(b=>b.ref_no).sort((a,b)=>String(a.ref_no).localeCompare(String(b.ref_no),'ja',{numeric:true}))
+    .map(b=>`<option value="${b.id}">${escHtml(b.ref_no)} ${escHtml(b.tour_name||'')}</option>`).join('');
+
+  const rows = hotels.map((h,i)=>{
+    const nights = calcHotelNights(h.check_in||'', h.check_out||'');
+    const amount = Number(h.unit_price||0)*Number(h.rooms||1)*nights;
+    // REF#で自動マッチ
+    const matchedBooking = h.ref_no ? bookings.find(b=>{
+      const bRef = (b.ref_no||'').replace(/[^0-9]/g,'');
+      const hRef = (h.ref_no||'').replace(/[^0-9]/g,'');
+      return bRef && hRef && bRef===hRef;
+    }) : null;
+    const selectHtml = `<select id="hm-confirm-booking-${i}" style="font-size:10px;padding:3px;border-radius:6px;border:1px solid var(--border);width:100%">
+      <option value="">-- 選択 --</option>
+      ${bookings.filter(b=>b.ref_no).map(b=>`<option value="${b.id}" ${matchedBooking&&matchedBooking.id===b.id?'selected':''}>${escHtml(b.ref_no)} ${escHtml(b.tour_name||'')}</option>`).join('')}
+    </select>`;
+    return `<tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:6px 8px">${escHtml(h.hotel_name||'')}</td>
+      <td style="padding:6px 8px">${h.check_in||''}</td>
+      <td style="padding:6px 8px">${h.check_out||''}</td>
+      <td style="padding:6px 8px">${escHtml(h.room_type||'')}</td>
+      <td style="padding:6px 8px;text-align:center">${h.rooms||1}</td>
+      <td style="padding:6px 8px;text-align:center">${nights}</td>
+      <td style="padding:6px 8px;text-align:right">${yen(amount)}</td>
+      <td style="padding:6px 8px">${escHtml(h.confirmation_no||'')}</td>
+      <td style="padding:6px 8px;min-width:200px">${selectHtml}${matchedBooking?`<div style="font-size:9px;color:var(--green)">✓ 自動マッチ: ${escHtml(matchedBooking.ref_no)}</div>`:''}</td>
+    </tr>`;
+  }).join('');
+
+  const modal = document.createElement('div');
+  modal.id = 'hotel-confirm-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px';
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:12px;padding:20px;width:100%;max-width:1100px;max-height:90vh;overflow-y:auto">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div style="font-size:14px;font-weight:700">読み取り結果の確認</div>
+        <button class="btn" onclick="document.getElementById('hotel-confirm-modal').remove()">✕ 閉じる</button>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:10px">各行のツアーREF#を確認・修正してから「保存」してください。</div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">
+        <thead><tr style="background:var(--bg)">
+          <th style="padding:6px 8px;text-align:left">ホテル名</th>
+          <th style="padding:6px 8px">チェックイン</th>
+          <th style="padding:6px 8px">チェックアウト</th>
+          <th style="padding:6px 8px">部屋タイプ</th>
+          <th style="padding:6px 8px">部屋数</th>
+          <th style="padding:6px 8px">泊数</th>
+          <th style="padding:6px 8px">金額</th>
+          <th style="padding:6px 8px">確認番号</th>
+          <th style="padding:6px 8px">ツアーREF#</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+      <div style="margin-top:12px;display:flex;gap:8px">
+        <button class="btn btn-p" onclick="saveHotelConfirm(${JSON.stringify(hotels).replace(/</g,'&lt;')})">💾 保存</button>
+        <button class="btn" onclick="document.getElementById('hotel-confirm-modal').remove()">キャンセル</button>
+        <span id="hotel-confirm-status" style="font-size:11px;color:var(--text3)"></span>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+async function saveHotelConfirm(hotels){
+  const statusEl = document.getElementById('hotel-confirm-status');
+  statusEl.textContent = '保存中...';
+  let savedCount = 0;
+  for(let i=0; i<hotels.length; i++){
+    const bookingId = document.getElementById(`hm-confirm-booking-${i}`)?.value;
+    if(!bookingId){ continue; }
+    const h = hotels[i];
+    const nights = calcHotelNights(h.check_in||'', h.check_out||'');
+    const row = {
+      booking_id: bookingId,
+      hotel_name: h.hotel_name||'', check_in: h.check_in||null, check_out: h.check_out||null,
+      room_type: h.room_type||'', rooms: Number(h.rooms)||1, breakfast: !!h.breakfast,
+      unit_price: Number(h.unit_price)||0,
+      amount: Number(h.unit_price||0)*Number(h.rooms||1)*nights,
+      confirmation_no: h.confirmation_no||'', memo: h.memo||'', sort_order: i
+    };
+    const {error} = await sb.from('booking_hotels').insert(row);
+    if(!error) savedCount++;
+  }
+  statusEl.textContent = `✓ ${savedCount}件を保存しました`;
+  statusEl.style.color = 'var(--green)';
+  setTimeout(()=>{ document.getElementById('hotel-confirm-modal')?.remove(); }, 1500);
+  await loadHotelManagement();
+}
+
 async function extractHotelFromFileHm(event){
   const file = event.target.files[0];
   if(!file) return;
-  const bookingId = document.getElementById('hm-booking-select').value;
-  if(!bookingId){ alert('ツアーREF#を選択してください'); event.target.value=''; return; }
   const statusEl = document.getElementById('hm-file-status');
   statusEl.textContent = '読み取り中...';
   statusEl.style.color = 'var(--text3)';
@@ -4586,30 +4678,7 @@ async function extractHotelFromFileHm(event){
       }).join('\n\n');
       bodyData = { hotelText: sheets };
     }
-    const response = await fetch('/api/extract-card', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(bodyData)
-    });
-    if(!response.ok){ const e = await response.json(); throw new Error(e.error||'サーバーエラー'); }
-    const data = await response.json();
-    const textBlock = data.content.find(b=>b.type==='text');
-    const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
-    const parsed = JSON.parse(cleaned);
-    const hotels = Array.isArray(parsed) ? parsed : [parsed];
-    const items = hotels.map(h=>({
-      hotel_name: h.hotel_name||'', check_in: h.check_in||'', check_out: h.check_out||'',
-      room_type: h.room_type||'', rooms: Number(h.rooms)||1, breakfast: !!h.breakfast,
-      unit_price: Number(h.unit_price)||0,
-      amount: Number(h.unit_price||0)*Number(h.rooms||1)*calcHotelNights(h.check_in||'',h.check_out||''),
-      confirmation_no: h.confirmation_no||'', memo: h.memo||''
-    }));
-    const ok = await saveHotelItemsToBooking(bookingId, items);
-    if(ok){
-      statusEl.textContent = '✓ '+items.length+'件を保存しました';
-      statusEl.style.color = 'var(--green)';
-      await loadHotelManagement();
-    }
+    await extractHotelFromFileHmParsed(bodyData, statusEl);
   }catch(e){
     statusEl.textContent = '読み取り失敗: '+e.message;
     statusEl.style.color = 'var(--red)';
