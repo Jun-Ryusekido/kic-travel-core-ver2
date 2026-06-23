@@ -4720,8 +4720,6 @@ const {data, error} = await sb.from('booking_hotels').select('*').order('check_i
 
 let hmSortKey='check_in', hmSortDir=1;
 function hmSort(key){ if(hmSortKey===key){hmSortDir*=-1;}else{hmSortKey=key;hmSortDir=1;} filterHotelManagement(); }
-let hmSortKey='check_in', hmSortDir=1;
-function hmSort(key){ if(hmSortKey===key){hmSortDir*=-1;}else{hmSortKey=key;hmSortDir=1;} filterHotelManagement(); }
 function filterHotelManagement(){
   const q = toHalfWidth((document.getElementById('hm-search')?.value||'').trim().toLowerCase());
   const from = document.getElementById('hm-from')?.value||'';
