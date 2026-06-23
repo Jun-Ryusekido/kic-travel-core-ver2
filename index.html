@@ -4616,7 +4616,7 @@ const bookings2 = allBookingsCache;
         <tbody>${rows}</tbody>
       </table></div>
       <div style="margin-top:12px;display:flex;gap:8px">
-        <button class="btn btn-p" onclick="saveHotelConfirm(${JSON.stringify(hotels).replace(/</g,'&lt;')})">💾 保存</button>
+        <button class="btn btn-p" onclick="saveHotelConfirm(_pendingHotels)">💾 保存</button>
         <button class="btn" onclick="document.getElementById('hotel-confirm-modal').remove()">キャンセル</button>
         <span id="hotel-confirm-status" style="font-size:11px;color:var(--text3)"></span>
       </div>
