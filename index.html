@@ -697,9 +697,8 @@ th.sortable:hover{color:var(--blue)}
           <div style="margin-top:12px;border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--bg)">
           <div style="font-size:11px;font-weight:600;margin-bottom:8px">ファイル・テキストから一括読み取り</div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
-            <div class="form-field" style="min-width:200px"><label>ツアーREF#を選択</label><select id="hm-booking-select" style="width:100%"><option value="">-- ツアーを選択 --</option></select></div>
-          </div>
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             <button class="btn" style="font-size:11px" onclick="toggleHmOcrArea()">📧 テキストから読み取り</button>
             <label class="btn" style="font-size:11px;cursor:pointer">📎 Excel/PDFから読み取り<input type="file" accept=".xlsx,.xls,.pdf" style="display:none" onchange="extractHotelFromFileHm(event)"></label>
             <span id="hm-file-status" style="font-size:11px;color:var(--text3)"></span>
