@@ -694,6 +694,24 @@ th.sortable:hover{color:var(--blue)}
             <tbody id="hm-tbody"><tr><td colspan="12" class="empty">読み込み中...</td></tr></tbody>
           </table></div>
           <div style="margin-top:8px;font-weight:700;text-align:right" id="hm-total"></div>
+          <div style="margin-top:12px;border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--bg)">
+          <div style="font-size:11px;font-weight:600;margin-bottom:8px">ファイル・テキストから一括読み取り</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+            <div class="form-field" style="min-width:200px"><label>ツアーREF#を選択</label><select id="hm-booking-select" style="width:100%"><option value="">-- ツアーを選択 --</option></select></div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button class="btn" style="font-size:11px" onclick="toggleHmOcrArea()">📧 テキストから読み取り</button>
+            <label class="btn" style="font-size:11px;cursor:pointer">📎 Excel/PDFから読み取り<input type="file" accept=".xlsx,.xls,.pdf" style="display:none" onchange="extractHotelFromFileHm(event)"></label>
+            <span id="hm-file-status" style="font-size:11px;color:var(--text3)"></span>
+          </div>
+          <div id="hm-ocr-area" style="display:none;margin-top:8px">
+            <textarea id="hm-ocr-text" rows="5" style="width:100%;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:11px;font-family:inherit;resize:vertical" placeholder="ホテル確認メールの本文をここに貼り付け..."></textarea>
+            <div style="margin-top:6px;display:flex;gap:6px;align-items:center">
+              <button class="btn btn-p" style="font-size:11px" onclick="extractHotelFromTextHm()">🤖 AIで読み取り</button>
+              <span id="hm-ocr-status" style="font-size:11px;color:var(--text3)"></span>
+            </div>
+          </div>
+        </div>
         </div>
       </div>
       <!-- 取引先マスタ -->
@@ -4470,6 +4488,134 @@ const PARTNER_CATEGORIES = ['バス会社','レストラン','ホテル','その
 // ===================================================
 let hotelManagementCache = [];
 
+function toggleHmOcrArea(){
+  const el = document.getElementById('hm-ocr-area');
+  el.style.display = el.style.display==='none' ? '' : 'none';
+}
+
+async function populateHmBookingSelect(){
+  const bookings = await fetchAllBookings();
+  const sel = document.getElementById('hm-booking-select');
+  if(!sel) return;
+  sel.innerHTML = '<option value="">-- ツアーを選択 --</option>' +
+    bookings.filter(b=>b.ref_no).sort((a,b)=>String(a.ref_no).localeCompare(String(b.ref_no),'ja',{numeric:true}))
+    .map(b=>`<option value="${b.id}">${escHtml(b.ref_no)} ${escHtml(b.tour_name||'')}</option>`).join('');
+}
+
+async function saveHotelItemsToBooking(bookingId, items){
+  if(!bookingId){ alert('ツアーREF#を選択してください'); return false; }
+  const rows = items.filter(it=>it.hotel_name||it.amount).map((it,i)=>({
+    booking_id: bookingId,
+    hotel_name: it.hotel_name||'', check_in: it.check_in||null, check_out: it.check_out||null,
+    room_type: it.room_type||'', rooms: Number(it.rooms)||1, breakfast: !!it.breakfast,
+    unit_price: Number(it.unit_price)||0, amount: Number(it.amount)||0,
+    confirmation_no: it.confirmation_no||'', memo: it.memo||'', sort_order: i
+  }));
+  if(rows.length===0){ alert('読み取れたホテルデータがありません'); return false; }
+  const {error} = await sb.from('booking_hotels').insert(rows);
+  if(error){ alert('保存に失敗しました: '+error.message); return false; }
+  return true;
+}
+
+async function extractHotelFromTextHm(){
+  const text = document.getElementById('hm-ocr-text').value.trim();
+  if(!text){ alert('テキストを入力してください'); return; }
+  const bookingId = document.getElementById('hm-booking-select').value;
+  if(!bookingId){ alert('ツアーREF#を選択してください'); return; }
+  const statusEl = document.getElementById('hm-ocr-status');
+  statusEl.textContent = '読み取り中...';
+  statusEl.style.color = 'var(--text3)';
+  try{
+    const response = await fetch('/api/extract-card', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ hotelText: text })
+    });
+    if(!response.ok){ const e = await response.json(); throw new Error(e.error||'サーバーエラー'); }
+    const data = await response.json();
+    const textBlock = data.content.find(b=>b.type==='text');
+    const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
+    const parsed = JSON.parse(cleaned);
+    const hotels = Array.isArray(parsed) ? parsed : [parsed];
+    const items = hotels.map(h=>({
+      hotel_name: h.hotel_name||'', check_in: h.check_in||'', check_out: h.check_out||'',
+      room_type: h.room_type||'', rooms: Number(h.rooms)||1, breakfast: !!h.breakfast,
+      unit_price: Number(h.unit_price)||0,
+      amount: Number(h.unit_price||0)*Number(h.rooms||1)*calcHotelNights(h.check_in||'',h.check_out||''),
+      confirmation_no: h.confirmation_no||'', memo: h.memo||''
+    }));
+    const ok = await saveHotelItemsToBooking(bookingId, items);
+    if(ok){
+      statusEl.textContent = '✓ '+items.length+'件を保存しました';
+      statusEl.style.color = 'var(--green)';
+      document.getElementById('hm-ocr-text').value = '';
+      await loadHotelManagement();
+    }
+  }catch(e){
+    statusEl.textContent = '読み取り失敗: '+e.message;
+    statusEl.style.color = 'var(--red)';
+  }
+}
+
+async function extractHotelFromFileHm(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const bookingId = document.getElementById('hm-booking-select').value;
+  if(!bookingId){ alert('ツアーREF#を選択してください'); event.target.value=''; return; }
+  const statusEl = document.getElementById('hm-file-status');
+  statusEl.textContent = '読み取り中...';
+  statusEl.style.color = 'var(--text3)';
+  try{
+    const isPdf = file.name.toLowerCase().endsWith('.pdf');
+    let bodyData;
+    if(isPdf){
+      const base64 = await new Promise((resolve,reject)=>{
+        const r = new FileReader();
+        r.onload = ()=>resolve(r.result.split(',')[1]);
+        r.onerror = reject;
+        r.readAsDataURL(file);
+      });
+      bodyData = { hotelPdfBase64: base64 };
+    }else{
+      const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs');
+      const arrayBuffer = await file.arrayBuffer();
+      const workbook = XLSX.read(arrayBuffer, {type:'array'});
+      const sheets = workbook.SheetNames.map(name=>{
+        const ws = workbook.Sheets[name];
+        return `[シート: ${name}]\n${XLSX.utils.sheet_to_csv(ws)}`;
+      }).join('\n\n');
+      bodyData = { hotelText: sheets };
+    }
+    const response = await fetch('/api/extract-card', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(bodyData)
+    });
+    if(!response.ok){ const e = await response.json(); throw new Error(e.error||'サーバーエラー'); }
+    const data = await response.json();
+    const textBlock = data.content.find(b=>b.type==='text');
+    const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
+    const parsed = JSON.parse(cleaned);
+    const hotels = Array.isArray(parsed) ? parsed : [parsed];
+    const items = hotels.map(h=>({
+      hotel_name: h.hotel_name||'', check_in: h.check_in||'', check_out: h.check_out||'',
+      room_type: h.room_type||'', rooms: Number(h.rooms)||1, breakfast: !!h.breakfast,
+      unit_price: Number(h.unit_price)||0,
+      amount: Number(h.unit_price||0)*Number(h.rooms||1)*calcHotelNights(h.check_in||'',h.check_out||''),
+      confirmation_no: h.confirmation_no||'', memo: h.memo||''
+    }));
+    const ok = await saveHotelItemsToBooking(bookingId, items);
+    if(ok){
+      statusEl.textContent = '✓ '+items.length+'件を保存しました';
+      statusEl.style.color = 'var(--green)';
+      await loadHotelManagement();
+    }
+  }catch(e){
+    statusEl.textContent = '読み取り失敗: '+e.message;
+    statusEl.style.color = 'var(--red)';
+  }
+  event.target.value = '';
+}
 async function loadHotelManagement(){
   document.getElementById('hm-tbody').innerHTML = '<tr><td colspan="12" class="empty">読み込み中...</td></tr>';
   const {data, error} = await sb.from('booking_hotels').select('*, bookings(ref_no, tour_name)').order('check_in');
@@ -4480,6 +4626,7 @@ async function loadHotelManagement(){
     tour_name: r.bookings?.tour_name||''
   }));
   filterHotelManagement();
+  await populateHmBookingSelect();
 }
 
 function filterHotelManagement(){
