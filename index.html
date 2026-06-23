@@ -4561,6 +4561,7 @@ async function extractHotelFromFileHmParsed(bodyData, statusEl){
 }
 
 async function showHotelConfirmDialog(hotels){
+  window._pendingHotels = hotels;
   const bookings = allBookingsCache;
   if(bookings.length===0){ allBookingsCache = await fetchAllBookings(); }
 const bookings2 = allBookingsCache;
