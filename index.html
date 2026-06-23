@@ -250,6 +250,7 @@ th.sortable:hover{color:var(--blue)}
     <div class="sb-item" data-pg="guide-settlements" onclick="go('guide-settlements')">🧾 ガイド精算一覧</div>
     <div class="sb-sec">マスタ管理</div>
     <div class="sb-item" data-pg="partners" onclick="go('partners')">🏢 取引先マスタ</div>
+    <div class="sb-item" data-pg="hotels" onclick="go('hotels')">🏨 ホテル管理</div>
     <div class="sb-sec">分析</div>
     <div class="sb-item admin-only" data-pg="gross" onclick="go('gross')">📈 GROSS / 粗利</div>
     <div class="sb-item accounting-only" data-pg="payment" onclick="go('payment')">💱 入出金管理</div>
@@ -662,6 +663,39 @@ th.sortable:hover{color:var(--blue)}
         </div>
       </div>
 
+<!-- ホテル管理 -->
+      <div id="pg-hotels" class="page" style="display:none">
+        <div class="card">
+          <div class="card-title">ホテル管理
+            <span><button class="btn btn-p" onclick="addHotelBookingRow()">＋ 新規追加</button></span>
+          </div>
+          <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr 1fr">
+            <div class="form-field"><label>ホテル名で絞り込み</label><input id="hm-search" placeholder="例: 京王プラザ" oninput="filterHotelManagement()"></div>
+            <div class="form-field"><label>チェックイン(From)</label><input id="hm-from" type="date" onchange="filterHotelManagement()"></div>
+            <div class="form-field"><label>チェックイン(To)</label><input id="hm-to" type="date" onchange="filterHotelManagement()"></div>
+            <div class="form-field" style="align-self:end"><button class="btn" onclick="resetHotelManagementFilter()">条件クリア</button></div>
+          </div>
+          <div style="font-size:11px;color:var(--text3);margin:4px 0" id="hm-count"></div>
+          <div class="tbl-wrap"><table class="bl-table">
+            <thead><tr>
+              <th style="width:18%">ホテル名</th>
+              <th style="width:8%">REF#</th>
+              <th style="width:14%">ツアー名</th>
+              <th style="width:9%">チェックイン</th>
+              <th style="width:9%">チェックアウト</th>
+              <th style="width:8%">部屋タイプ</th>
+              <th style="width:5%">部屋数</th>
+              <th style="width:5%">泊数</th>
+              <th style="width:5%">朝食</th>
+              <th style="width:9%">単価</th>
+              <th style="width:9%">金額</th>
+              <th style="width:10%">確認番号</th>
+            </tr></thead>
+            <tbody id="hm-tbody"><tr><td colspan="12" class="empty">読み込み中...</td></tr></tbody>
+          </table></div>
+          <div style="margin-top:8px;font-weight:700;text-align:right" id="hm-total"></div>
+        </div>
+      </div>
       <!-- 取引先マスタ -->
       <div id="pg-partners" class="page" style="display:none">
         <div class="card">
@@ -1215,6 +1249,7 @@ function restoreSession(){
 const pageNames={
   dashboard:'Dashboard','new-booking':'New Booking','booking-list':'Booking List',
   invoice:'Invoice',estimation:'見積もり','guide-settlements':'ガイド精算一覧',gross:'GROSS / 粗利管理',payment:'入出金管理',accounts:'アカウント管理',logs:'アクセスログ'
+,hotels:'ホテル管理'
 };
 function go(id){
   if((id==='accounts'||id==='logs'||id==='gross') && currentUser && currentUser.role!=='admin') return;
@@ -1240,6 +1275,7 @@ function go(id){
   if(id==='payment') loadPayments();
   if(id==='accounts') loadAccounts();
   if(id==='partners') loadPartners();
+  if(id==='hotels') loadHotelManagement();
   if(id==='logs') loadLogs();
 }
 
@@ -4343,6 +4379,61 @@ let partnersCache = [];
 let currentPartnerEditId = null;
 const PARTNER_CATEGORIES = ['バス会社','レストラン','ホテル','その他'];
 
+// ===================================================
+// ホテル管理
+// ===================================================
+let hotelManagementCache = [];
+
+async function loadHotelManagement(){
+  document.getElementById('hm-tbody').innerHTML = '<tr><td colspan="12" class="empty">読み込み中...</td></tr>';
+  const {data, error} = await sb.from('booking_hotels').select('*, bookings(ref_no, tour_name)').order('check_in');
+  if(error){ document.getElementById('hm-tbody').innerHTML = `<tr><td colspan="12" class="empty">読み込みエラー: ${error.message}</td></tr>`; return; }
+  hotelManagementCache = (data||[]).map(r=>({
+    ...r,
+    ref_no: r.bookings?.ref_no||'',
+    tour_name: r.bookings?.tour_name||''
+  }));
+  filterHotelManagement();
+}
+
+function filterHotelManagement(){
+  const q = toHalfWidth((document.getElementById('hm-search')?.value||'').trim().toLowerCase());
+  const from = document.getElementById('hm-from')?.value||'';
+  const to = document.getElementById('hm-to')?.value||'';
+  let filtered = hotelManagementCache;
+  if(q) filtered = filtered.filter(r=>(r.hotel_name||'').toLowerCase().includes(q));
+  if(from) filtered = filtered.filter(r=>r.check_in && r.check_in>=from);
+  if(to) filtered = filtered.filter(r=>r.check_in && r.check_in<=to);
+  document.getElementById('hm-count').textContent = `${filtered.length}件 / 全${hotelManagementCache.length}件`;
+  const total = filtered.reduce((s,r)=>s+Number(r.amount||0),0);
+  document.getElementById('hm-total').textContent = `合計: ${yen(total)}`;
+  const tbody = document.getElementById('hm-tbody');
+  if(filtered.length===0){ tbody.innerHTML='<tr><td colspan="12" class="empty">該当するデータがありません</td></tr>'; return; }
+  tbody.innerHTML = filtered.map(r=>{
+    const nights = calcHotelNights(r.check_in||'', r.check_out||'');
+    return `<tr onclick="openBookingDetail('${r.booking_id}')" style="cursor:pointer">
+      <td>${escHtml(r.hotel_name||'')}</td>
+      <td class="lnk">${escHtml(r.ref_no)}</td>
+      <td style="font-size:10px">${escHtml(r.tour_name||'')}</td>
+      <td>${r.check_in||''}</td>
+      <td>${r.check_out||''}</td>
+      <td>${escHtml(r.room_type||'')}</td>
+      <td style="text-align:center">${r.rooms||1}</td>
+      <td style="text-align:center">${nights}</td>
+      <td style="text-align:center">${r.breakfast?'✓':''}</td>
+      <td style="text-align:right">${yen(r.unit_price||0)}</td>
+      <td style="text-align:right;font-weight:600">${yen(r.amount||0)}</td>
+      <td style="font-size:10px">${escHtml(r.confirmation_no||'')}</td>
+    </tr>`;
+  }).join('');
+}
+
+function resetHotelManagementFilter(){
+  document.getElementById('hm-search').value='';
+  document.getElementById('hm-from').value='';
+  document.getElementById('hm-to').value='';
+  filterHotelManagement();
+}
 async function loadPartners(){
   document.getElementById('pt-tbody').innerHTML = '<tr><td colspan="7" class="empty">読み込み中...</td></tr>';
   const {data, error} = await sb.from('business_partners').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('company_name');
