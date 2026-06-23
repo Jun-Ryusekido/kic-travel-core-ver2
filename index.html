@@ -4629,6 +4629,7 @@ async function saveHotelConfirm(hotels){
   const statusEl = document.getElementById('hotel-confirm-status');
   statusEl.textContent = '保存中...';
   let savedCount = 0;
+  alert('hotels count: ' + hotels.length + ', _pending: ' + (window._pendingHotels ? window._pendingHotels.length : 'undefined'));
   for(let i=0; i<hotels.length; i++){
     const bookingId = document.getElementById(`hm-confirm-booking-${i}`)?.value;
     const bookingIdVal = bookingId || null;
