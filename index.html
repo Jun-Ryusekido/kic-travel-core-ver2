@@ -677,21 +677,21 @@ th.sortable:hover{color:var(--blue)}
           </div>
           <div style="font-size:11px;color:var(--text3);margin:4px 0" id="hm-count"></div>
           <div class="tbl-wrap"><table class="bl-table">
-            <thead><tr>
-              <th style="width:18%">ホテル名</th>
-              <th style="width:8%">REF#</th>
-              <th style="width:14%">ツアー名</th>
-              <th style="width:9%">チェックイン</th>
-              <th style="width:9%">チェックアウト</th>
-              <th style="width:8%">部屋タイプ</th>
-              <th style="width:5%">部屋数</th>
-              <th style="width:5%">泊数</th>
-              <th style="width:5%">朝食</th>
-              <th style="width:9%">単価</th>
-              <th style="width:9%">金額</th>
-              <th style="width:10%">確認番号</th>
-            </tr></thead>
-            <tbody id="hm-tbody"><tr><td colspan="12" class="empty">読み込み中...</td></tr></tbody>
+<thead><tr>
+            <th style="width:18%;cursor:pointer" onclick="hmSort('hotel_name')">ホテル名 ↕</th>
+            <th style="width:8%;cursor:pointer" onclick="hmSort('ref_no')">REF# ↕</th>
+            <th style="width:14%;cursor:pointer" onclick="hmSort('tour_name')">ツアー名 ↕</th>
+            <th style="width:9%;cursor:pointer" onclick="hmSort('check_in')">チェックイン ↕</th>
+            <th style="width:9%;cursor:pointer" onclick="hmSort('check_out')">チェックアウト ↕</th>
+            <th style="width:8%;cursor:pointer" onclick="hmSort('room_type')">部屋タイプ ↕</th>
+            <th style="width:5%;cursor:pointer" onclick="hmSort('rooms')">部屋数 ↕</th>
+            <th style="width:5%;cursor:pointer" onclick="hmSort('nights')">泊数 ↕</th>
+            <th style="width:5%">朝食</th>
+            <th style="width:9%;cursor:pointer" onclick="hmSort('unit_price')">単価 ↕</th>
+            <th style="width:9%;cursor:pointer" onclick="hmSort('amount')">金額 ↕</th>
+            <th style="width:10%;cursor:pointer" onclick="hmSort('confirmation_no')">確認番号 ↕</th>
+          </tr></thead>
+          <tbody id="hm-tbody"><tr><td colspan="12" class="empty">読み込み中...</td></tr></tbody>
           </table></div>
           <div style="margin-top:8px;font-weight:700;text-align:right" id="hm-total"></div>
           <div style="margin-top:12px;border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--bg)">
@@ -4718,6 +4718,10 @@ const {data, error} = await sb.from('booking_hotels').select('*').order('check_i
   await populateHmBookingSelect();
 }
 
+let hmSortKey='check_in', hmSortDir=1;
+function hmSort(key){ if(hmSortKey===key){hmSortDir*=-1;}else{hmSortKey=key;hmSortDir=1;} filterHotelManagement(); }
+let hmSortKey='check_in', hmSortDir=1;
+function hmSort(key){ if(hmSortKey===key){hmSortDir*=-1;}else{hmSortKey=key;hmSortDir=1;} filterHotelManagement(); }
 function filterHotelManagement(){
   const q = toHalfWidth((document.getElementById('hm-search')?.value||'').trim().toLowerCase());
   const from = document.getElementById('hm-from')?.value||'';
@@ -4731,7 +4735,19 @@ function filterHotelManagement(){
   document.getElementById('hm-total').textContent = `合計: ${yen(total)}`;
   const tbody = document.getElementById('hm-tbody');
   if(filtered.length===0){ tbody.innerHTML='<tr><td colspan="12" class="empty">該当するデータがありません</td></tr>'; return; }
-  tbody.innerHTML = filtered.map(r=>{
+  filtered.sort((a,b)=>{
+  let av=a[hmSortKey]??'', bv=b[hmSortKey]??'';
+  if(hmSortKey==='nights'){av=calcHotelNights(a.check_in||'',a.check_out||'');bv=calcHotelNights(b.check_in||'',b.check_out||'');}
+  if(typeof av==='number'||!isNaN(Number(av))){return (Number(av)-Number(bv))*hmSortDir;}
+  return String(av).localeCompare(String(bv),'ja')*hmSortDir;
+});
+filtered.sort((a,b)=>{
+  let av=a[hmSortKey]??'', bv=b[hmSortKey]??'';
+  if(hmSortKey==='nights'){av=calcHotelNights(a.check_in||'',a.check_out||'');bv=calcHotelNights(b.check_in||'',b.check_out||'');}
+  if(typeof av==='number'||!isNaN(Number(av))){return (Number(av)-Number(bv))*hmSortDir;}
+  return String(av).localeCompare(String(bv),'ja')*hmSortDir;
+});
+tbody.innerHTML = filtered.map(r=>{
     const nights = calcHotelNights(r.check_in||'', r.check_out||'');
     return `<tr onclick="openBookingDetail('${r.booking_id}')" style="cursor:pointer">
       <td>${escHtml(r.hotel_name||'')}</td>
