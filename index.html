@@ -823,6 +823,27 @@ th.sortable:hover{color:var(--blue)}
       </div>
     </div>
 
+    <div class="modal-section-title">ホテル割り当て</div>
+    <div class="tbl-wrap"><table class="li-table" style="min-width:900px">
+      <thead><tr>
+        <th>ホテル名</th>
+        <th style="width:110px">チェックイン</th>
+        <th style="width:110px">チェックアウト</th>
+        <th style="width:100px">部屋タイプ</th>
+        <th style="width:50px">部屋数</th>
+        <th style="width:50px">泊数</th>
+        <th style="width:80px">朝食</th>
+        <th style="width:90px">単価(1室1泊)</th>
+        <th style="width:90px">金額</th>
+        <th style="width:100px">確認番号</th>
+        <th style="width:120px">備考</th>
+        <th class="li-del"></th>
+      </tr></thead>
+      <tbody id="bd-hotels-tbody"></tbody>
+    </table></div>
+    <button class="btn" style="font-size:10px;margin-top:4px" onclick="addHotelRow()">＋ 行追加</button>
+    <div class="li-total">ホテル合計: <span id="bd-hotels-total">¥0</span></div>
+    <button class="btn btn-p" style="font-size:10px;margin-top:6px" onclick="reflectHotelsToCost()">仕入明細に転記</button>
     <div class="modal-section-title">関連Invoice</div>
     <div id="bd-invoice-actions" style="margin-bottom:6px"></div>
     <div class="tbl-wrap"><table>
@@ -1905,6 +1926,15 @@ async function openBookingDetail(id){
   await populateGuideRegistrySelects([document.getElementById('bd-new-guide-select')]);
   bdNewGuideList = [];  renderBdNewGuideList();
 
+// ホテル割り当てを読み込み
+  const {data: hotelRows} = await sb.from('booking_hotels').select('*').eq('booking_id', id).order('sort_order');
+  bdHotelItems = (hotelRows||[]).map(r=>({
+    hotel_name: r.hotel_name||'', check_in: r.check_in||'', check_out: r.check_out||'',
+    room_type: r.room_type||'', rooms: r.rooms||1, breakfast: r.breakfast||false,
+    unit_price: r.unit_price||0, amount: r.amount||0,
+    confirmation_no: r.confirmation_no||'', memo: r.memo||''
+  }));
+  renderHotelTable();
   // 現地費用明細を読み込み
   const {data: localRows} = await sb.from('local_expenses').select('*').eq('booking_id', id).order('sort_order');
   bdLocalExpenses = (localRows||[]).map(r=>({
@@ -3415,6 +3445,91 @@ async function issueInvoiceFromBookingDetail(currency, agentFilter){
   await generateInvoice(id, currency, agentFilter);
 }
 
+let bdHotelItems = [];
+
+function calcHotelNights(ci, co){
+  if(!ci || !co) return 0;
+  const d = (new Date(co) - new Date(ci)) / 86400000;
+  return d > 0 ? d : 0;
+}
+
+function renderHotelTable(){
+  const tbody = document.getElementById('bd-hotels-tbody');
+  if(!tbody) return;
+  const total = bdHotelItems.reduce((s,it)=>s+Number(it.amount||0),0);
+  if(bdHotelItems.length===0){
+    tbody.innerHTML='<tr><td colspan="12" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
+  }else{
+    tbody.innerHTML = bdHotelItems.map((it,i)=>{
+      const nights = calcHotelNights(it.check_in, it.check_out);
+      return `<tr>
+        <td><input value="${escAttr(it.hotel_name)}" oninput="bdHotelItems[${i}].hotel_name=this.value" style="width:100%"></td>
+        <td><input type="date" value="${it.check_in}" onchange="bdHotelItems[${i}].check_in=this.value;hotelCalc(${i})"></td>
+        <td><input type="date" value="${it.check_out}" onchange="bdHotelItems[${i}].check_out=this.value;hotelCalc(${i})"></td>
+        <td><input value="${escAttr(it.room_type)}" oninput="bdHotelItems[${i}].room_type=this.value" style="width:100%"></td>
+        <td><input type="number" value="${it.rooms||1}" onchange="bdHotelItems[${i}].rooms=Number(this.value);hotelCalc(${i})" style="width:100%"></td>
+        <td style="text-align:center">${nights}</td>
+        <td style="text-align:center"><input type="checkbox" ${it.breakfast?'checked':''} onchange="bdHotelItems[${i}].breakfast=this.checked"></td>
+        <td><input type="text" inputmode="numeric" value="${Number(it.unit_price||0).toLocaleString('ja-JP')}" onchange="bdHotelItems[${i}].unit_price=parseNum(this.value);this.value=bdHotelItems[${i}].unit_price.toLocaleString('ja-JP');hotelCalc(${i})"></td>
+        <td style="text-align:right;white-space:nowrap">${yen(it.amount||0)}</td>
+        <td><input value="${escAttr(it.confirmation_no)}" oninput="bdHotelItems[${i}].confirmation_no=this.value" style="width:100%"></td>
+        <td><input value="${escAttr(it.memo)}" oninput="bdHotelItems[${i}].memo=this.value" style="width:100%"></td>
+        <td class="li-del"><span class="lnk" style="font-size:10px" onclick="bdHotelItems.splice(${i},1);renderHotelTable()">削除</span></td>
+      </tr>`;
+    }).join('');
+  }
+  document.getElementById('bd-hotels-total').textContent = yen(total);
+}
+
+function hotelCalc(i){
+  const it = bdHotelItems[i];
+  const nights = calcHotelNights(it.check_in, it.check_out);
+  it.amount = Math.round(Number(it.unit_price||0) * Number(it.rooms||1) * nights);
+  renderHotelTable();
+}
+
+function addHotelRow(){
+  bdHotelItems.push({hotel_name:'', check_in:'', check_out:'', room_type:'', rooms:1, breakfast:false, unit_price:0, amount:0, confirmation_no:'', memo:''});
+  renderHotelTable();
+}
+
+async function saveHotelItems(){
+  if(!currentDetailId) return;
+  await sb.from('booking_hotels').delete().eq('booking_id', currentDetailId);
+  const rows = bdHotelItems.filter(it=>it.hotel_name||it.amount).map((it,i)=>({
+    booking_id: currentDetailId,
+    hotel_name: it.hotel_name||'',
+    check_in: it.check_in||null,
+    check_out: it.check_out||null,
+    room_type: it.room_type||'',
+    rooms: Number(it.rooms)||1,
+    breakfast: !!it.breakfast,
+    unit_price: Number(it.unit_price)||0,
+    amount: Number(it.amount)||0,
+    confirmation_no: it.confirmation_no||'',
+    memo: it.memo||'',
+    sort_order: i
+  }));
+  if(rows.length) await sb.from('booking_hotels').insert(rows);
+}
+
+async function reflectHotelsToCost(){
+  if(bdLocked){ alert('仕入明細は確定済みです。'); return; }
+  const targets = bdHotelItems.filter(it=>it.hotel_name && it.amount>0);
+  if(targets.length===0){ alert('転記するホテルデータがありません'); return; }
+  if(!confirm(`${targets.length}件のホテル費用を仕入明細に追加します。よろしいですか？`)) return;
+  targets.forEach(it=>{
+    const nights = calcHotelNights(it.check_in, it.check_out);
+    bdCostItems.push({
+      item_name: it.hotel_name + (it.room_type?' ('+it.room_type+')':'') + (it.breakfast?' 朝食付':''),
+      amount: it.amount,
+      payment_date: null,
+      memo: `${it.check_in}〜${it.check_out} ${it.rooms}室×${nights}泊` + (it.confirmation_no?' 確認番号:'+it.confirmation_no:'')
+    });
+  });
+  renderCostTable();
+  alert('仕入明細に転記しました。保存ボタンで確定してください。');
+}
 async function saveBookingDetail(){
   if(!currentDetailId) return;
   const totalSales = bdSalesTotal();
@@ -3463,7 +3578,7 @@ async function saveBookingDetail(){
     if(it.item_name) await registerNewSupplier(it.item_name);
   }
   await saveLocalExpenses();
-
+await saveHotelItems();
   const b = findBookingById(currentDetailId);
   await logAction('予約編集', b ? b.ref_no : currentDetailId);
 
