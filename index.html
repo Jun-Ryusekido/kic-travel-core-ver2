@@ -4560,9 +4560,11 @@ async function extractHotelFromFileHmParsed(bodyData, statusEl){
   showHotelConfirmDialog(hotels);
 }
 
-function showHotelConfirmDialog(hotels){
+async function showHotelConfirmDialog(hotels){
   const bookings = allBookingsCache;
-  const bookingOptions = bookings.filter(b=>b.ref_no).sort((a,b)=>String(a.ref_no).localeCompare(String(b.ref_no),'ja',{numeric:true}))
+  if(bookings.length===0){ allBookingsCache = await fetchAllBookings(); }
+const bookings2 = allBookingsCache;
+  const bookingOptions = bookings2.filter(b=>b.ref_no).sort((a,b)=>String(a.ref_no).localeCompare(String(b.ref_no),'ja',{numeric:true}))
     .map(b=>`<option value="${b.id}">${escHtml(b.ref_no)} ${escHtml(b.tour_name||'')}</option>`).join('');
 
   const rows = hotels.map((h,i)=>{
