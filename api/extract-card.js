@@ -32,9 +32,10 @@ export default async function handler(req, res) {
         type: 'text',
 text: `以下のホテル予約確認メールや文書からホテル情報を抽出してJSON配列で返してください。
 各ホテルの情報を1つのオブジェクトとして配列に含めてください。
-フィールド：ref_no(ツアー番号・予約番号・REF#等), hotel_name, check_in(YYYY-MM-DD), check_out(YYYY-MM-DD), room_type, rooms(数値), breakfast(true/false), unit_price(数値・円), confirmation_no, memo
+フィールド：ref_no(ツアー番号・予約番号・REF#等), hotel_name, check_in(YYYY-MM-DD), check_out(YYYY-MM-DD), room_type, rooms(数値), breakfast(true/false), unit_price(数値・円), confirmation_no, memo, status
 ref_noは文書中のツアーコード・予約番号・REF#・KICから始まる番号等を探してください。見つからない場合は空文字にしてください。
 金額が不明な場合は0、部屋数不明は1としてください。
+statusは「手配OK」または「問い合わせ中」のいずれかを入れてください。予約確定・確認番号あり・手配完了等の表現があれば「手配OK」、見積もり・問い合わせ・検討中等であれば「問い合わせ中」としてください。
 JSONのみ返し、説明文・コードブロック記号は不要です。
 
 ${hotelText}`
@@ -50,6 +51,7 @@ ${hotelText}`
 フィールド：ref_no(ツアー番号・予約番号・REF#等), hotel_name, check_in(YYYY-MM-DD), check_out(YYYY-MM-DD), room_type, rooms(数値), breakfast(true/false), unit_price(数値・円), confirmation_no, memo
 ref_noは文書中のツアーコード・予約番号・REF#・KICから始まる番号等を探してください。見つからない場合は空文字にしてください。
 金額が不明な場合は0、部屋数不明は1としてください。
+statusは「手配OK」または「問い合わせ中」のいずれかを入れてください。予約確定・確認番号あり・手配完了等の表現があれば「手配OK」、見積もり・問い合わせ・検討中等であれば「問い合わせ中」としてください。
 JSONのみ返し、説明文・コードブロック記号は不要です。` }
       ], 2000);
       return res.status(200).json(data);
