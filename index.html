@@ -4746,6 +4746,7 @@ function filterHotelManagement(){
       <td style="text-align:right">${yen(r.unit_price||0)}</td>
       <td style="text-align:right;font-weight:600">${yen(r.amount||0)}</td>
       <td style="font-size:10px">${escHtml(r.confirmation_no||'')}</td>
+      <td style="text-align:center"><span style="font-size:10px;padding:2px 6px;border-radius:10px;background:${r.status==='手配OK'?'var(--green)':'var(--border)'};color:${r.status==='手配OK'?'#fff':'var(--text3)'}">${escHtml(r.status||'問い合わせ中')}</span></td>
     </tr>`;
   }).join('');
 }
