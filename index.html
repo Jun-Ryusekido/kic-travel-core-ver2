@@ -4618,13 +4618,22 @@ hotels[i]._bookingId = matchedBooking ? matchedBooking.id : null;
         <tbody>${rows}</tbody>
       </table></div>
       <div style="margin-top:12px;display:flex;gap:8px">
-        <button class="btn btn-p" onclick="saveHotelConfirm(_pendingHotels)">💾 保存</button>
+        <button class="btn btn-p" onclick="saveHotelConfirmNew()">💾 保存</button>
         <button class="btn" onclick="document.getElementById('hotel-confirm-modal').remove()">キャンセル</button>
         <span id="hotel-confirm-status" style="font-size:11px;color:var(--text3)"></span>
       </div>
     </div>`;
   document.body.appendChild(modal);
 }
+function saveHotelConfirmNew(){
+    const hotels = window._pendingHotels;
+    if(!hotels) return;
+    hotels.forEach((h,i)=>{
+      const sel = document.getElementById(`hm-confirm-booking-${i}`);
+      if(sel) h._bookingId = sel.value || h._bookingId;
+    });
+    saveHotelConfirm(hotels);
+  }
 
 async function saveHotelConfirm(hotels){
   const statusEl = document.getElementById('hotel-confirm-status');
