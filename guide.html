@@ -236,23 +236,33 @@ function renderReceiptResult(){
     result.innerHTML = '<div class="empty">領収書が読み取れませんでした</div>';
     return;
   }
-  const catOptions = CATEGORIES.map(c=>`<option value="${c}">${c}</option>`).join('');
   const today = new Date().toISOString().slice(0,10);
-  const rows = pendingReceipts.map((r,i)=>`
-    <tr>
-      <td class="num-col">${escHtml(r.no||String(i+1))}</td>
-      <td><input type="date" id="pr-date-${i}" value="${r.date||''}"></td>
-      <td><input type="text" id="pr-desc-${i}" value="${escHtml(r.description||'')}"></td>
-      <td><select id="pr-cat-${i}">${CATEGORIES.map(c=>`<option value="${c}" ${(r.category||'その他')===c?'selected':''}>${c}</option>`).join('')}</select></td>
-      <td><input type="text" id="pr-amt-${i}" value="${Number(r.amount||0).toLocaleString('ja-JP')}" style="text-align:right" inputmode="numeric"></td>
-    </tr>`).join('');
+  const cards = pendingReceipts.map((r,i)=>`
+    <div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px;background:var(--bg)">
+      <div style="font-size:13px;font-weight:700;color:var(--blue);margin-bottom:8px">No. ${escHtml(r.no||String(i+1))}</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div>
+          <div style="font-size:10px;color:var(--text3);margin-bottom:2px">日付</div>
+          <input type="date" id="pr-date-${i}" value="${r.date||''}" style="width:100%;border:1px solid var(--border);border-radius:8px;padding:8px;font-size:14px;background:#fff">
+        </div>
+        <div>
+          <div style="font-size:10px;color:var(--text3);margin-bottom:2px">内容</div>
+          <input type="text" id="pr-desc-${i}" value="${escHtml(r.description||'')}" style="width:100%;border:1px solid var(--border);border-radius:8px;padding:8px;font-size:14px;background:#fff">
+        </div>
+        <div>
+          <div style="font-size:10px;color:var(--text3);margin-bottom:2px">カテゴリ</div>
+          <select id="pr-cat-${i}" style="width:100%;border:1px solid var(--border);border-radius:8px;padding:8px;font-size:14px;background:#fff">${CATEGORIES.map(c=>`<option value="${c}" ${(r.category||'その他')===c?'selected':''}>${c}</option>`).join('')}</select>
+        </div>
+        <div>
+          <div style="font-size:10px;color:var(--text3);margin-bottom:2px">金額</div>
+          <input type="text" id="pr-amt-${i}" value="${Number(r.amount||0).toLocaleString('ja-JP')}" inputmode="numeric" style="width:100%;border:1px solid var(--border);border-radius:8px;padding:8px;font-size:16px;font-weight:700;text-align:right;background:#fff">
+        </div>
+      </div>
+    </div>`).join('');
 
   result.innerHTML = `
-    <div style="font-size:11px;color:var(--text3);margin-bottom:8px">日付・内容・カテゴリ・金額を確認・修正してから送信してください</div>
-    <table class="receipt-table">
-      <thead><tr><th>No</th><th>日付</th><th>内容</th><th>カテゴリ</th><th>金額</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:10px">日付・内容・カテゴリ・金額を確認・修正してから送信してください</div>
+    ${cards}
     <button class="btn btn-g" onclick="submitReceipts()">送信する</button>
     <div class="msg-ok" id="pr-msg-ok">✓ 送信しました</div>
     <div class="msg-err" id="pr-msg-err"></div>
