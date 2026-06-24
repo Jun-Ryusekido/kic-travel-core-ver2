@@ -2602,7 +2602,7 @@ Object.keys(itemsBySettlement).forEach(k=>{ itemsBySettlement[k].sort((a,b)=>Num
 async function deleteGuideItem(id){
   if(!confirm('この項目を削除しますか？')) return;
   await sb.from('guide_settlement_items').delete().eq('id',id);
-  await loadGuideSettlementsListPage();
+  await loadGuideSettlements();
 }
 async function updateGuideItem(id, field, value){
   const update = {};
