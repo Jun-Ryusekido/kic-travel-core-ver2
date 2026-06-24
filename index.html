@@ -2759,7 +2759,7 @@ function buildGuideSettlementPrintHtml(s, b, guideIndex){
       <td style="border:1px solid #999;padding:4px"></td>
     </tr>`).join('');
 
-  const blankRowsCount = Math.max(0, 15-items.length);
+  const blankRowsCount = Math.max(0, 5-items.length);
   const blankRows = Array.from({length:blankRowsCount}).map((_,i)=>`
     <tr>
       <td style="border:1px solid #999;padding:4px;text-align:center;color:#bbb">${items.length+i+1}</td>
