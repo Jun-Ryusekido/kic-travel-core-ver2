@@ -70,9 +70,14 @@ const SUPABASE_URL = 'https://nzdygjlnzvtdezslnuoy.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Cnloaxzb2Ati8gmCa-1o3Q_t3uy6_mB';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-const CATEGORIES = ['食事代','交通費','駐車場代','高速・有料道路代','入場料・拝観料','チップ','ガイド費','その他'];
+const CATEGORIES = ['食事代','交通費','駐車場代','高速・有料道路代','入場料・拝観料','ガイド費','その他','自由入力'];
 
 function yen(n){ return '¥' + Number(n||0).toLocaleString('ja-JP'); }
+function toggleFreeInput(selectId, inputId){
+  const sel = document.getElementById(selectId);
+  const inp = document.getElementById(inputId);
+  if(inp) inp.style.display = sel.value==='自由入力' ? 'block' : 'none';
+}
 function escHtml(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 const params = new URLSearchParams(location.search);
@@ -251,7 +256,7 @@ function renderReceiptResult(){
         </div>
         <div>
           <div style="font-size:10px;color:var(--text3);margin-bottom:2px">カテゴリ</div>
-          <select id="pr-cat-${i}" style="width:100%;border:1px solid var(--border);border-radius:8px;padding:8px;font-size:14px;background:#fff">${CATEGORIES.map(c=>`<option value="${c}" ${(r.category||'その他')===c?'selected':''}>${c}</option>`).join('')}</select>
+          <select id="pr-cat-${i}" onchange="toggleFreeInput('pr-cat-'+i,'pr-free-'+i)" style="width:100%;border:1px solid var(--border);border-radius:8px;padding:8px;font-size:14px;background:#fff">${CATEGORIES.map(c=>`<option value="${c}" ${(r.category||'その他')===c?'selected':''}>${c}</option>`).join('')}</select><input type="text" id="pr-free-${i}" placeholder="カテゴリを入力" style="display:${(r.category||'その他')==='自由入力'?'block':'none'};width:100%;margin-top:4px;border:1px solid var(--border);border-radius:8px;padding:8px;font-size:14px;background:#fff">
         </div>
         <div>
           <div style="font-size:10px;color:var(--text3);margin-bottom:2px">金額</div>
@@ -280,7 +285,7 @@ async function submitReceipts(){
       settlement_id: settlement.id,
       receipt_no: r.no||null,
       expense_date: document.getElementById('pr-date-'+i)?.value||r.date||null,
-      category: document.getElementById('pr-cat-'+i)?.value||'その他',
+      category: (()=>{ const sel=document.getElementById('pr-cat-'+i)?.value; if(sel==='自由入力'){ return document.getElementById('pr-free-'+i)?.value||'その他'; } return sel||'その他'; })(),
       description: document.getElementById('pr-desc-'+i)?.value||r.description||'',
       amount: Number((document.getElementById('pr-amt-'+i)?.value||'0').replace(/,/g,'')),
       guide_name: settlement.guide_name||'',
