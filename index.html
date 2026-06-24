@@ -2656,7 +2656,7 @@ function renderGuideSettlements(){
     return;
   }
   let gsSortKey='receipt_no', gsSortDir=1;
-  function gsSort(key){ if(gsSortKey===key){gsSortDir*=-1;}else{gsSortKey=key;gsSortDir=1;} renderGuideSettlements(); }
+  window.gsSort = function(key){ if(gsSortKey===key){gsSortDir*=-1;}else{gsSortKey=key;gsSortDir=1;} renderGuideSettlements(); };
   const renderItemRow = it => {
     const pillClass = it.reflected ? 'reflected' : it.status;
     const pillLabel = it.reflected ? '反映済' : (it.status==='approved'?'承認済':it.status==='rejected'?'却下':'未確認');
