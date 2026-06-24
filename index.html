@@ -2626,27 +2626,6 @@ async function kicAddSettlementItem(settlementId){
   if(error){alert('追加失敗: '+error.message);return;}
   renderGuideSettlements();
 }
-async function kicAddSettlementItem(settlementId){
-  const date = document.getElementById('kic-add-date-'+settlementId)?.value;
-  const cat = document.getElementById('kic-add-cat-'+settlementId)?.value;
-  const desc = document.getElementById('kic-add-desc-'+settlementId)?.value?.trim();
-  const amount = parseInt(document.getElementById('kic-add-amount-'+settlementId)?.value)||0;
-  const no = document.getElementById('kic-add-no-'+settlementId)?.value?.trim();
-  if(!desc){alert('説明を入力してください');return;}
-  if(!amount){alert('金額を入力してください');return;}
-  const {error} = await supabase.from('guide_settlement_items').insert({
-    settlement_id: settlementId,
-    expense_date: date||null,
-    category: cat||null,
-    description: desc,
-    amount: amount,
-    receipt_no: no||null,
-    status: 'pending',
-    added_by_kic: true
-  });
-  if(error){alert('追加失敗: '+error.message);return;}
-  renderGuideSettlements();
-}
 async function updateGuideItem(id, field, value){
   const update = {};
   update[field] = field==='amount' ? Number(value) : value;
@@ -2743,26 +2722,6 @@ function renderGuideSettlements(){
       </div>
       ${guideFieldsHtml}
       ${bulkBtns}${itemsHtml}
-      <div style="margin-top:8px;padding:6px 0;border-top:2px dashed var(--border)">
-        <div style="font-size:11px;font-weight:700;color:var(--primary);margin-bottom:6px">＋ KICスタッフが行を追加</div>
-        <div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center">
-          <input type="date" id="kic-add-date-${s.id}" style="font-size:11px;border:1px solid var(--border);border-radius:4px;padding:2px 4px">
-          <select id="kic-add-cat-${s.id}" style="font-size:11px;border:1px solid var(--border);border-radius:4px;padding:2px 4px">
-            <option value="">カテゴリ</option>
-            <option value="交通費">交通費</option>
-            <option value="食事代">食事代</option>
-            <option value="宿泊費">宿泊費</option>
-            <option value="入場料・拝観料">入場料・拝観料</option>
-            <option value="駐車場代">駐車場代</option>
-            <option value="ガイド費">ガイド費</option>
-            <option value="その他">その他</option>
-          </select>
-          <input type="text" id="kic-add-desc-${s.id}" placeholder="説明" style="font-size:11px;border:1px solid var(--border);border-radius:4px;padding:2px 4px;flex:1;min-width:120px">
-          <input type="number" id="kic-add-amount-${s.id}" placeholder="金額" style="font-size:11px;border:1px solid var(--border);border-radius:4px;padding:2px 4px;width:80px">
-          <input type="text" id="kic-add-no-${s.id}" placeholder="No" style="font-size:11px;border:1px solid var(--border);border-radius:4px;padding:2px 4px;width:50px">
-          <button class="btn btn-p" style="font-size:11px;padding:3px 10px" onclick="kicAddSettlementItem('${s.id}')">追加</button>
-        </div>
-      </div>
       <div style="margin-top:8px;padding:6px 0;border-top:2px dashed var(--border)">
         <div style="font-size:11px;font-weight:700;color:var(--primary);margin-bottom:6px">＋ KICスタッフが行を追加</div>
         <div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center">
