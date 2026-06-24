@@ -35,9 +35,9 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Hi
 .reading-status{font-size:12px;color:var(--text3);text-align:center;padding:8px 0;display:none}
 .receipt-table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:10px}
 .receipt-table th{background:var(--bg);padding:6px 8px;text-align:left;font-size:11px;color:var(--text3)}
-.receipt-table td{padding:6px 8px;border-bottom:1px solid var(--border)}
-.receipt-table input{width:100%;border:1px solid var(--border);border-radius:6px;background:#fff;font-size:13px;padding:6px 8px;color:var(--text);font-family:inherit}
-.receipt-table input:focus{outline:none;border-color:var(--blue)}
+.receipt-table td{padding:4px 6px;border-bottom:1px solid var(--border);vertical-align:middle}
+.receipt-table input,.receipt-table select{width:100%;border:1px solid var(--border);border-radius:6px;background:#fff;font-size:13px;padding:6px 8px;color:var(--text);font-family:inherit}
+.receipt-table input:focus,.receipt-table select:focus{outline:none;border-color:var(--blue)}
 .receipt-table .num-col{width:32px;text-align:center;font-weight:700;color:var(--blue)}
 .item-row{display:flex;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px}
 .item-row:last-child{border-bottom:none}
@@ -70,6 +70,8 @@ const SUPABASE_URL = 'https://nzdygjlnzvtdezslnuoy.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Cnloaxzb2Ati8gmCa-1o3Q_t3uy6_mB';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+const CATEGORIES = ['食事代','交通費','駐車場代','高速・有料道路代','入場料・拝観料','お茶代','チップ','その他'];
+
 function yen(n){ return '¥' + Number(n||0).toLocaleString('ja-JP'); }
 function escHtml(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
@@ -99,7 +101,7 @@ async function init(){
 }
 
 async function reload(){
-  const {data} = await sb.from('guide_settlement_items').select('*').eq('settlement_id', settlement.id).order('submitted_at',{ascending:false});
+  const {data} = await sb.from('guide_settlement_items').select('*').eq('settlement_id', settlement.id).order('submitted_at',{ascending:true});
   items = data || [];
   render();
 }
@@ -139,7 +141,7 @@ function render(){
     const pillLabel = it.status==='approved' ? '承認済' : it.status==='rejected' ? '却下' : '未確認';
     return `<div class="item-row">
       <div class="main">
-        <div>${escHtml(it.expense_date||'')} <span class="cat">${escHtml(it.category||'')}</span></div>
+        <div>${it.receipt_no ? `<b style="color:var(--blue)">${escHtml(it.receipt_no)}</b> ` : ''}${escHtml(it.expense_date||'')} <span class="cat">${escHtml(it.category||'')}</span></div>
         <div>${escHtml(it.description||'')}</div>
       </div>
       <div class="amt">${yen(it.amount)}</div>
@@ -162,17 +164,14 @@ function render(){
 async function handleReceiptImage(input){
   if(!input.files || !input.files[0]) return;
   const file = input.files[0];
-
   const preview = document.getElementById('preview-img');
   const status = document.getElementById('reading-status');
   const result = document.getElementById('receipt-result');
-
   preview.src = URL.createObjectURL(file);
   preview.style.display = 'block';
   status.style.display = 'block';
   status.textContent = 'AI読み取り中...';
   result.innerHTML = '';
-
   try{
     const base64 = await new Promise((res,rej)=>{
       const r = new FileReader();
@@ -180,18 +179,15 @@ async function handleReceiptImage(input){
       r.onerror = rej;
       r.readAsDataURL(file);
     });
-
     const response = await fetch('/api/extract-receipt',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({imageBase64: base64, mediaType: file.type})
     });
-
     const data = await response.json();
     const text = data.text || '';
     const clean = text.replace(/```json|```/g,'').trim();
     pendingReceipts = JSON.parse(clean);
-
     status.style.display = 'none';
     renderReceiptResult();
   }catch(e){
@@ -206,21 +202,21 @@ function renderReceiptResult(){
     result.innerHTML = '<div class="empty">領収書が読み取れませんでした</div>';
     return;
   }
-
-  const catOptions = ['食事代','交通費','入場料・拝観料の立替','お茶代','駐車場・通行料','その他'].map(c=>`<option value="${c}">${c}</option>`).join('');
-
+  const catOptions = CATEGORIES.map(c=>`<option value="${c}">${c}</option>`).join('');
+  const today = new Date().toISOString().slice(0,10);
   const rows = pendingReceipts.map((r,i)=>`
     <tr>
       <td class="num-col">${escHtml(r.no||String(i+1))}</td>
+      <td><input type="date" id="pr-date-${i}" value="${today}"></td>
       <td><input type="text" id="pr-desc-${i}" value="${escHtml(r.description||'')}"></td>
-      <td><select id="pr-cat-${i}" style="font-size:11px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;width:100%">${catOptions}</select></td>
-      <td><input type="text" id="pr-amt-${i}" value="${Number(r.amount||0).toLocaleString('ja-JP')}" style="text-align:right;width:90px" inputmode="numeric"></td>
+      <td><select id="pr-cat-${i}">${catOptions}</select></td>
+      <td><input type="text" id="pr-amt-${i}" value="${Number(r.amount||0).toLocaleString('ja-JP')}" style="text-align:right" inputmode="numeric"></td>
     </tr>`).join('');
 
   result.innerHTML = `
-    <div style="font-size:11px;color:var(--text3);margin-bottom:8px">内容・カテゴリ・金額を確認・修正してから送信してください</div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:8px">日付・内容・カテゴリ・金額を確認・修正してから送信してください</div>
     <table class="receipt-table">
-      <thead><tr><th>No</th><th>内容</th><th>カテゴリ</th><th>金額</th></tr></thead>
+      <thead><tr><th>No</th><th>日付</th><th>内容</th><th>カテゴリ</th><th>金額</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
     <button class="btn btn-g" onclick="submitReceipts()">送信する</button>
@@ -235,21 +231,19 @@ async function submitReceipts(){
   const errEl = document.getElementById('pr-msg-err');
   okEl.style.display='none'; errEl.style.display='none';
   btn.disabled=true; btn.textContent='送信中...';
-
   try{
     const rows = pendingReceipts.map((r,i)=>({
       settlement_id: settlement.id,
-      expense_date: null,
+      receipt_no: r.no||String(i+1),
+      expense_date: document.getElementById('pr-date-'+i)?.value||null,
       category: document.getElementById('pr-cat-'+i)?.value||'その他',
       description: document.getElementById('pr-desc-'+i)?.value||r.description||'',
       amount: Number((document.getElementById('pr-amt-'+i)?.value||'0').replace(/,/g,'')),
       guide_name: settlement.guide_name||'',
       status: 'pending'
     }));
-
     const {error} = await sb.from('guide_settlement_items').insert(rows);
     if(error) throw error;
-
     okEl.style.display='block';
     pendingReceipts=[];
     await reload();
