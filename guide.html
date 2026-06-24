@@ -275,6 +275,11 @@ async function submitReceipts(){
       guide_name: settlement.guide_name||'',
       status: 'pending'
     }));
+    const existingNos = items.map(it=>it.receipt_no);
+    const dupes = rows.filter(r=>existingNos.includes(r.receipt_no));
+    if(dupes.length>0){
+      throw new Error('領収書No '+dupes.map(d=>d.receipt_no).join(', ')+' は既に送信済みです');
+    }
     const {error} = await sb.from('guide_settlement_items').insert(rows);
     if(error) throw error;
     okEl.style.display='block';
