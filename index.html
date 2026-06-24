@@ -2660,6 +2660,7 @@ const renderItemRow = it => {
       </div>`;
     };
 
+    el.innerHTML = guideSettlementsCache.map(s=>{
     const bulkBtns = '<div style="text-align:right;margin-bottom:8px;display:flex;gap:6px;justify-content:flex-end"><button class="btn" style="font-size:11px;padding:4px 10px;color:var(--red);border-color:var(--red)" onclick="deleteCheckedGuideItems()">削除</button><button class="btn" style="font-size:11px;padding:4px 10px;background:var(--green);color:#fff;border-color:var(--green)" onclick="reviewCheckedGuideItems(\'approved\')">承認</button><button class="btn" style="font-size:11px;padding:4px 10px" onclick="reviewCheckedGuideItems(\'rejected\')">却下</button></div>';
       let itemsHtml;
     if(items.length===0){
