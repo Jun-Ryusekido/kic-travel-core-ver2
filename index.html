@@ -2650,14 +2650,14 @@ const renderItemRow = it => {
     }else if(guideList.length<=1){
       items.sort((a,b)=>{
         let av=a[gsSortKey]??'', bv=b[gsSortKey]??'';
-        if(gsSortKey==='receipt_no'){return (Number(av||999)-Number(bv||999))*gsSortDir;}
+        if(gsSortKey==='receipt_no'){return (Number(String(av).split('-')[0]||999)-Number(String(bv).split('-')[0]||999))*gsSortDir;}
         return String(av).localeCompare(String(bv),'ja')*gsSortDir;
       });
       itemsHtml = items.map(renderItemRow).join('');
     }else{
       // ガイドごとにグループ表示
       itemsHtml = guideList.map(g=>{
-        const gItems = items.filter(it=>it.guide_name===g.name).sort((a,b)=>{ let av=a[gsSortKey]??'',bv=b[gsSortKey]??''; if(gsSortKey==='receipt_no'){return (Number(av||999)-Number(bv||999))*gsSortDir;} return String(av).localeCompare(String(bv),'ja')*gsSortDir; });
+        const gItems = items.filter(it=>it.guide_name===g.name).sort((a,b)=>{ let av=a[gsSortKey]??'',bv=b[gsSortKey]??''; if(gsSortKey==='receipt_no'){return (Number(String(av).split('-')[0]||999)-Number(String(bv).split('-')[0]||999))*gsSortDir;} return String(av).localeCompare(String(bv),'ja')*gsSortDir; });
         const gTotal = gItems.filter(it=>it.status!=='rejected').reduce((sum,it)=>sum+Number(it.amount||0),0);
         const rows = gItems.length>0 ? gItems.map(renderItemRow).join('') : '<div class="empty" style="font-size:10px;padding:2px 0">項目なし</div>';
         return `<div style="margin-top:6px">
