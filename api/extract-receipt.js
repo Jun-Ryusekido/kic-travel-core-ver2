@@ -18,7 +18,7 @@ export default async function handler(req) {
           role:'user',
           content:[
             {type:'image',source:{type:'base64',media_type:mediaType,data:imageBase64}},
-            {type:'text',text:'この画像に写っている領収書を読み取ってください。各領収書に手書きで番号（丸数字や数字）が振られています。各領収書について番号・内容・金額を読み取り、以下のJSON形式のみで返してください。他のテキストは一切含めないでください。\n[{"no":"1","description":"内容","amount":1000},{"no":"2","description":"内容","amount":2000}]'}
+            {type:'text',text:'この画像に写っている領収書を読み取ってください。各領収書に手書きで番号（丸数字や数字）が振られています。各領収書について番号・日付・内容・金額を読み取り、以下のJSON形式のみで返してください。日付はYYYY-MM-DD形式で返してください。他のテキストは一切含めないでください。\n[{"no":"1","date":"2026-05-20","description":"内容","amount":1000},{"no":"2","date":"2026-05-20","description":"内容","amount":2000}]'}
           ]
         }]
       })

@@ -261,7 +261,7 @@ async function submitReceipts(){
     const rows = pendingReceipts.map((r,i)=>({
       settlement_id: settlement.id,
       receipt_no: r.no||String(i+1),
-      expense_date: document.getElementById('pr-date-'+i)?.value||null,
+      expense_date: document.getElementById('pr-date-'+i)?.value||r.date||null,
       category: document.getElementById('pr-cat-'+i)?.value||'その他',
       description: document.getElementById('pr-desc-'+i)?.value||r.description||'',
       amount: Number((document.getElementById('pr-amt-'+i)?.value||'0').replace(/,/g,'')),
