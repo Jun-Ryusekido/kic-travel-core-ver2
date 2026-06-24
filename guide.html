@@ -150,8 +150,9 @@ function render(){
     const pillLabel = it.status==='approved' ? '承認済' : it.status==='rejected' ? '却下' : '未確認';
     return `<div class="item-row">
       <div class="main">
-        <div>${it.receipt_no ? `<b style="color:var(--blue)">${escHtml(it.receipt_no)}</b> ` : ''}${escHtml(it.expense_date||'')} <span class="cat">${escHtml(it.category||'')}</span></div>
+        <div>${it.receipt_no ? `<b style="color:var(--blue)">No.${escHtml(it.receipt_no)}</b> ` : ''}<span class="cat">${escHtml(it.category||'')}</span></div>
         <div>${escHtml(it.description||'')}</div>
+        ${it.expense_date ? `<div style="font-size:10px;color:var(--text3)">${escHtml(it.expense_date)}</div>` : ''}
       </div>
       <div class="amt">${yen(it.amount)}</div>
       <span class="pill ${it.status}">${pillLabel}</span>
