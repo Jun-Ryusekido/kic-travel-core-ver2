@@ -2628,9 +2628,9 @@ function renderGuideSettlements(){
         <button class="btn" style="font-size:9px" onclick="reviewGuideItem('${it.id}','rejected')">却下</button>` : '';
       return `<div class="gs-item-row">
         <div style="flex:0 0 80px">${it.expense_date||''}</div>
-        <div style="flex:0 0 110px">${escHtml(it.category||'')}</div>
-        <div style="flex:1;min-width:120px">${escHtml(it.description||'')}</div>
-        <div style="flex:0 0 80px;text-align:right;font-weight:600">${yen(it.amount)}</div>
+        <div style="flex:0 0 110px"><select onchange="updateGuideItem('${it.id}','category',this.value)" style="font-size:11px;border:1px solid var(--border);border-radius:4px;padding:2px 4px;width:100%"><option value="食事代" ${it.category==='食事代'?'selected':''}>食事代</option><option value="交通費" ${it.category==='交通費'?'selected':''}>交通費</option><option value="入場料・拝観料の立替" ${it.category==='入場料・拝観料の立替'?'selected':''}>入場料・拝観料</option><option value="お茶代" ${it.category==='お茶代'?'selected':''}>お茶代</option><option value="駐車場・通行料" ${it.category==='駐車場・通行料'?'selected':''}>駐車場・通行料</option><option value="その他" ${it.category==='その他'?'selected':''}>その他</option></select></div>
+        <div style="flex:1;min-width:120px"><input type="text" value="${escHtml(it.description||'')}" onchange="updateGuideItem('${it.id}','description',this.value)" style="width:100%;border:1px solid var(--border);border-radius:4px;padding:2px 6px;font-size:11px"></div>
+        <div style="flex:0 0 80px;text-align:right"><input type="text" value="${it.amount||0}" onchange="updateGuideItem('${it.id}','amount',this.value.replace(/,/g,''))" style="width:100%;border:1px solid var(--border);border-radius:4px;padding:2px 6px;font-size:11px;text-align:right"></div>
         <span class="gs-pill ${pillClass}">${pillLabel}</span>
         <div style="flex:0 0 auto">${actions}</div>
       </div>`;
