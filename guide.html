@@ -89,7 +89,14 @@ async function init(){
     app.innerHTML = '<div class="error-box">URLが正しくありません。担当者から共有されたリンクをご確認ください。</div>';
     return;
   }
-  const {data: s, error} = await sb.from('guide_settlements').select('*').eq('access_token', token).maybeSingle();
+  let s, error;
+try{
+  const res = await sb.from('guide_settlements').select('*').eq('access_token', token).maybeSingle();
+  s = res.data; error = res.error;
+}catch(e){
+  app.innerHTML = '<div class="error-box">接続エラー: '+e.message+'</div>';
+  return;
+}
   if(error || !s){
 app.innerHTML = '<div class="error-box">リンクが見つかりませんでした。担当者にご確認ください。<br><small>'+JSON.stringify(error)+'</small></div>';    return;
   }
