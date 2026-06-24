@@ -2591,6 +2591,7 @@ async function loadGuideSettlements(){
     const {data: items} = await sb.from('guide_settlement_items').select('*').in('settlement_id', list.map(s=>s.id)).order('submitted_at');
     const itemsBySettlement = {};
     (items||[]).forEach(it=>{ (itemsBySettlement[it.settlement_id]=itemsBySettlement[it.settlement_id]||[]).push(it); });
+Object.keys(itemsBySettlement).forEach(k=>{ itemsBySettlement[k].sort((a,b)=>Number(a.receipt_no||999)-Number(b.receipt_no||999)); });
     guideSettlementsCache = list.map(s=>({...s, items: itemsBySettlement[s.id]||[]}));
   }else{
     guideSettlementsCache = [];
@@ -4256,9 +4257,10 @@ async function loadGuideSettlementsListPage(){
   }
 
   const ids = settlements.map(s=>s.id);
-  const {data: items} = await sb.from('guide_settlement_items').select('*').in('settlement_id', ids).order('receipt_no',{ascending:true});
+  const {data: items} = await sb.from('guide_settlement_items').select('*').in('settlement_id', ids).order('receipt_no',{ascending:true,nullsFirst:true});
   const itemsBySettlement = {};
   (items||[]).forEach(it=>{ (itemsBySettlement[it.settlement_id]=itemsBySettlement[it.settlement_id]||[]).push(it); });
+Object.keys(itemsBySettlement).forEach(k=>{ itemsBySettlement[k].sort((a,b)=>Number(a.receipt_no||999)-Number(b.receipt_no||999)); });
 
   const data = await fetchAllBookings();
   allBookingsCache = data;
