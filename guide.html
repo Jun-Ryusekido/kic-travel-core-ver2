@@ -181,24 +181,14 @@ async function handleReceiptImage(input){
       r.readAsDataURL(file);
     });
 
-    const response = await fetch('https://api.anthropic.com/v1/messages',{
+    const response = await fetch('/api/extract-receipt',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        model:'claude-sonnet-4-6',
-        max_tokens:1000,
-        messages:[{
-          role:'user',
-          content:[
-            {type:'image',source:{type:'base64',media_type:file.type,data:base64}},
-            {type:'text',text:'この画像に写っている領収書を読み取ってください。各領収書に手書きで番号（丸数字や数字）が振られています。各領収書について番号・内容・金額を読み取り、以下のJSON形式のみで返してください。他のテキストは一切含めないでください。\n[{"no":"1","description":"内容","amount":1000},{"no":"2","description":"内容","amount":2000}]'}
-          ]
-        }]
-      })
+      body: JSON.stringify({imageBase64: base64, mediaType: file.type})
     });
 
     const data = await response.json();
-    const text = data.content && data.content[0] && data.content[0].text || '';
+    const text = data.text || '';
     const clean = text.replace(/```json|```/g,'').trim();
     pendingReceipts = JSON.parse(clean);
 
