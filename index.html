@@ -2680,7 +2680,7 @@ function renderGuideSettlements(){
       ? s.guide_names
       : [{name: s.guide_name||'', phone: s.guide_phone||'', advance_payment: s.advance_payment||0, additional_advance_payment: s.additional_advance_payment||0, guide_fee: s.guide_fee||0}];
 
-    const bulkBtns = '<div style="text-align:right;margin-bottom:8px;display:flex;gap:6px;justify-content:flex-end"><button class="btn" style="font-size:11px;padding:4px 10px;color:var(--red);border-color:var(--red)" onclick="deleteCheckedGuideItems()">削除</button><button class="btn" style="font-size:11px;padding:4px 10px;background:var(--green);color:#fff;border-color:var(--green)" onclick="reviewCheckedGuideItems(\'approved\')">承認</button><button class="btn" style="font-size:11px;padding:4px 10px" onclick="reviewCheckedGuideItems(\'rejected\')">却下</button></div>';
+    const bulkBtns = '<div style="position:sticky;top:0;z-index:10;background:var(--bg);padding:6px 0;margin-bottom:8px;display:flex;gap:6px;justify-content:flex-end;border-bottom:1px solid var(--border)"><button class="btn" style="font-size:11px;padding:4px 10px;color:var(--red);border-color:var(--red)" onclick="deleteCheckedGuideItems()">削除</button><button class="btn" style="font-size:11px;padding:4px 10px;background:var(--green);color:#fff;border-color:var(--green)" onclick="reviewCheckedGuideItems(\'approved\')">承認</button><button class="btn" style="font-size:11px;padding:4px 10px" onclick="reviewCheckedGuideItems(\'rejected\')">却下</button></div>';
 
     let itemsHtml;
     if(items.length===0){
