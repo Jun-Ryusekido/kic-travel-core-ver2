@@ -2005,7 +2005,7 @@ async function openBookingDetail(id){
     hotel_name: r.hotel_name||'', check_in: r.check_in||'', check_out: r.check_out||'',
     room_type: r.room_type||'', rooms: r.rooms||1, breakfast: r.breakfast||false,
     unit_price: r.unit_price||0, amount: r.amount||0,
-    confirmation_no: r.confirmation_no||'', memo: r.memo||''
+    confirmation_no: r.confirmation_no||'', status: r.status||'問い合わせ中', memo: r.memo||''
   }));
   renderHotelTable();
   // 現地費用明細を読み込み
@@ -3636,6 +3636,7 @@ async function saveHotelItems(){
     unit_price: Number(it.unit_price)||0,
     amount: Number(it.amount)||0,
     confirmation_no: it.confirmation_no||'',
+    status: it.status||'問い合わせ中',
     memo: it.memo||'',
     sort_order: i
   }));
