@@ -2632,68 +2632,51 @@ function renderGuideSettlements(){
     el.innerHTML = '<div class="empty" style="font-size:11px;padding:4px 0">発行されたガイド精算リンクはありません</div>';
     return;
   }
+  let gsSortKey='receipt_no', gsSortDir=1;
+  function gsSort(key){ if(gsSortKey===key){gsSortDir*=-1;}else{gsSortKey=key;gsSortDir=1;} renderGuideSettlements(); }
+  const renderItemRow = it => {
+    const pillClass = it.reflected ? 'reflected' : it.status;
+    const pillLabel = it.reflected ? '反映済' : (it.status==='approved'?'承認済':it.status==='rejected'?'却下':'未確認');
+    const actions = '';
+    return `<div class="gs-item-row">
+      <input type="checkbox" class="gs-check" data-id="${it.id}" style="margin-right:6px;flex:0 0 auto">
+      <div style="flex:0 0 100px"><input type="date" value="${it.expense_date||''}" onchange="updateGuideItem('${it.id}','expense_date',this.value)" style="width:100%;border:1px solid var(--border);border-radius:4px;padding:2px 4px;font-size:11px"></div>
+      <div style="flex:0 0 110px"><select onchange="updateGuideItem('${it.id}','category',this.value)" style="font-size:11px;border:1px solid var(--border);border-radius:4px;padding:2px 4px;width:100%"><option value="食事代" ${it.category==='食事代'?'selected':''}>食事代</option><option value="交通費" ${it.category==='交通費'?'selected':''}>交通費</option><option value="駐車場代" ${it.category==='駐車場代'?'selected':''}>駐車場代</option><option value="高速・有料道路代" ${it.category==='高速・有料道路代'?'selected':''}>高速・有料道路代</option><option value="入場料・拝観料" ${it.category==='入場料・拝観料'?'selected':''}>入場料・拝観料</option><option value="お茶代" ${it.category==='お茶代'?'selected':''}>お茶代</option><option value="チップ" ${it.category==='チップ'?'selected':''}>チップ</option><option value="その他" ${it.category==='その他'?'selected':''}>その他</option></select></div>
+      <div style="flex:1;min-width:120px"><input type="text" value="${escHtml(it.description||'')}" onchange="updateGuideItem('${it.id}','description',this.value)" style="width:100%;border:1px solid var(--border);border-radius:4px;padding:2px 6px;font-size:11px"></div>
+      <div style="flex:0 0 80px;text-align:right"><input type="text" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="updateGuideItem('${it.id}','amount',this.value.replace(/,/g,''))" style="width:100%;border:1px solid var(--border);border-radius:4px;padding:2px 6px;font-size:11px;text-align:right"></div>
+      <input type="text" id="rno-${it.id}" value="${escHtml(it.receipt_no||'')}" onchange="updateGuideItem('${it.id}','receipt_no',this.value)" placeholder="No" style="width:40px;border:1px solid var(--border);border-radius:4px;padding:2px 4px;font-size:11px;text-align:center"><span class="gs-pill ${pillClass}">${pillLabel}</span>
+      <div style="flex:0 0 auto">${actions}</div>
+    </div>`;
+  };
 
-  const items = s.items||[];
+  el.innerHTML = guideSettlementsCache.map(s=>{
+    const items = s.items||[];
     const total = items.filter(it=>it.status!=='rejected').reduce((sum,it)=>sum+Number(it.amount||0),0);
     const pendingCount = items.filter(it=>it.status==='pending').length;
     const approvedNotReflected = items.filter(it=>it.status==='approved' && !it.reflected).length;
     const url = gsGuideUrl(s.access_token);
-
     const guideList = (Array.isArray(s.guide_names) && s.guide_names.length>0)
       ? s.guide_names
       : [{name: s.guide_name||'', phone: s.guide_phone||'', advance_payment: s.advance_payment||0, additional_advance_payment: s.additional_advance_payment||0, guide_fee: s.guide_fee||0}];
 
-    let gsSortKey='receipt_no', gsSortDir=1;
-function gsSort(key){ if(gsSortKey===key){gsSortDir*=-1;}else{gsSortKey=key;gsSortDir=1;} renderGuideSettlements(); }
-const renderItemRow = it => {
-      const pillClass = it.reflected ? 'reflected' : it.status;
-      const pillLabel = it.reflected ? '反映済' : (it.status==='approved'?'承認済':it.status==='rejected'?'却下':'未確認');
-      const actions = '';
-      return `<div class="gs-item-row">
-      <input type="checkbox" class="gs-check" data-id="${it.id}" style="margin-right:6px;flex:0 0 auto">
-        <div style="flex:0 0 100px"><input type="date" value="${it.expense_date||''}" onchange="updateGuideItem('${it.id}','expense_date',this.value)" style="width:100%;border:1px solid var(--border);border-radius:4px;padding:2px 4px;font-size:11px"></div>
-        <div style="flex:0 0 110px"><select onchange="updateGuideItem('${it.id}','category',this.value)" style="font-size:11px;border:1px solid var(--border);border-radius:4px;padding:2px 4px;width:100%"><option value="食事代" ${it.category==='食事代'?'selected':''}>食事代</option><option value="交通費" ${it.category==='交通費'?'selected':''}>交通費</option><option value="駐車場代" ${it.category==='駐車場代'?'selected':''}>駐車場代</option><option value="高速・有料道路代" ${it.category==='高速・有料道路代'?'selected':''}>高速・有料道路代</option><option value="入場料・拝観料" ${it.category==='入場料・拝観料'?'selected':''}>入場料・拝観料</option><option value="お茶代" ${it.category==='お茶代'?'selected':''}>お茶代</option><option value="チップ" ${it.category==='チップ'?'selected':''}>チップ</option><option value="その他" ${it.category==='その他'?'selected':''}>その他</option></select></div>
-        <div style="flex:1;min-width:120px"><input type="text" value="${escHtml(it.description||'')}" onchange="updateGuideItem('${it.id}','description',this.value)" style="width:100%;border:1px solid var(--border);border-radius:4px;padding:2px 6px;font-size:11px"></div>
-        <div style="flex:0 0 80px;text-align:right"><input type="text" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="updateGuideItem('${it.id}','amount',this.value.replace(/,/g,''))" style="width:100%;border:1px solid var(--border);border-radius:4px;padding:2px 6px;font-size:11px;text-align:right"></div>
-        <input type="text" id="rno-${it.id}" value="${escHtml(it.receipt_no||'')}" onchange="updateGuideItem('${it.id}','receipt_no',this.value)" placeholder="No" style="width:40px;border:1px solid var(--border);border-radius:4px;padding:2px 4px;font-size:11px;text-align:center"><span class="gs-pill ${pillClass}">${pillLabel}</span>
-        <div style="flex:0 0 auto">${actions}</div>
-      </div>`;
-    };
-
-    el.innerHTML = guideSettlementsCache.map(s=>{
     const bulkBtns = '<div style="text-align:right;margin-bottom:8px;display:flex;gap:6px;justify-content:flex-end"><button class="btn" style="font-size:11px;padding:4px 10px;color:var(--red);border-color:var(--red)" onclick="deleteCheckedGuideItems()">削除</button><button class="btn" style="font-size:11px;padding:4px 10px;background:var(--green);color:#fff;border-color:var(--green)" onclick="reviewCheckedGuideItems(\'approved\')">承認</button><button class="btn" style="font-size:11px;padding:4px 10px" onclick="reviewCheckedGuideItems(\'rejected\')">却下</button></div>';
-      let itemsHtml;
+
+    let itemsHtml;
     if(items.length===0){
       itemsHtml = '<div class="empty" style="font-size:11px;padding:4px 0">まだ送信された項目はありません</div>';
     }else if(guideList.length<=1){
-      items.sort((a,b)=>{
-        let av=a[gsSortKey]??'', bv=b[gsSortKey]??'';
-        if(gsSortKey==='receipt_no'){return (Number(String(av).split('-')[0]||999)-Number(String(bv).split('-')[0]||999))*gsSortDir;}
-        return String(av).localeCompare(String(bv),'ja')*gsSortDir;
-      });
+      items.sort((a,b)=>{ let av=a[gsSortKey]??'', bv=b[gsSortKey]??''; if(gsSortKey==='receipt_no'){return (Number(String(av).split('-')[0]||999)-Number(String(bv).split('-')[0]||999))*gsSortDir;} return String(av).localeCompare(String(bv),'ja')*gsSortDir; });
       itemsHtml = items.map(renderItemRow).join('');
     }else{
-      // ガイドごとにグループ表示
       itemsHtml = guideList.map(g=>{
         const gItems = items.filter(it=>it.guide_name===g.name).sort((a,b)=>{ let av=a[gsSortKey]??'',bv=b[gsSortKey]??''; if(gsSortKey==='receipt_no'){return (Number(String(av).split('-')[0]||999)-Number(String(bv).split('-')[0]||999))*gsSortDir;} return String(av).localeCompare(String(bv),'ja')*gsSortDir; });
         const gTotal = gItems.filter(it=>it.status!=='rejected').reduce((sum,it)=>sum+Number(it.amount||0),0);
         const rows = gItems.length>0 ? gItems.map(renderItemRow).join('') : '<div class="empty" style="font-size:10px;padding:2px 0">項目なし</div>';
-        return `<div style="margin-top:6px">
-          <div style="font-size:11px;font-weight:700;color:var(--blue);display:flex;justify-content:space-between">
-            <span>👤 ${escHtml(g.name)}</span><span>${yen(gTotal)}</span>
-          </div>
-          ${rows}
-        </div>`;
+        return `<div style="margin-top:6px"><div style="font-size:11px;font-weight:700;color:var(--blue);display:flex;justify-content:space-between"><span>👤 ${escHtml(g.name)}</span><span>${yen(gTotal)}</span></div>${rows}</div>`;
       }).join('');
-      // ガイド名が一致しない（旧データ等）項目があれば最後にまとめて表示
       const guideNamesSet = new Set(guideList.map(g=>g.name));
       const others = items.filter(it=>!guideNamesSet.has(it.guide_name));
-      if(others.length>0){
-        itemsHtml += `<div style="margin-top:6px">
-          <div style="font-size:11px;font-weight:700;color:var(--text3)">👤 その他</div>
-          ${others.map(renderItemRow).join('')}
-        </div>`;
-      }
+      if(others.length>0){ itemsHtml += `<div style="margin-top:6px"><div style="font-size:11px;font-weight:700;color:var(--text3)">👤 その他</div>${others.map(renderItemRow).join('')}</div>`; }
     }
 
     const guideFieldsHtml = guideList.map((g,i)=>`
@@ -2710,10 +2693,7 @@ const renderItemRow = it => {
     return `<div class="gs-card">
       <div class="gs-card-head">
         <div><strong>${escHtml(s.booking_ref||'')} / ${escHtml(guideList.map(g=>g.name).join('・')||'(ガイド名未設定)')}</strong> <span style="font-size:10px;color:var(--text3)">${s.status==='closed'?'（締め済）':'（受付中）'}</span></div>
-        <div style="font-size:11px">
-          合計: <strong>${yen(total)}</strong>
-          ${pendingCount>0?` / 未確認 ${pendingCount}件`:''}
-        </div>
+        <div style="font-size:11px">合計: <strong>${yen(total)}</strong>${pendingCount>0?` / 未確認 ${pendingCount}件`:''}</div>
       </div>
       <div class="gs-link-box">
         <span style="flex:1">${escHtml(url)}</span>
@@ -2723,16 +2703,13 @@ const renderItemRow = it => {
       ${bulkBtns}${itemsHtml}
       <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
         <button class="btn btn-p" style="font-size:10px" ${approvedNotReflected===0?'disabled':''} onclick="reflectGuideItems('${s.id}')">承認済みを仕入明細に反映（${approvedNotReflected}件）</button>
-        ${guideList.length>1
-          ? guideList.map((g,i)=>`<button class="btn" style="font-size:10px" onclick="printGuideSettlement('${s.id}',${i})">🖨 ${escHtml(g.name)}の精算書を印刷</button>`).join('')
-          : `<button class="btn" style="font-size:10px" onclick="printGuideSettlement('${s.id}',0)">🖨 精算書を印刷</button>`}
+        ${guideList.length>1 ? guideList.map((g,i)=>`<button class="btn" style="font-size:10px" onclick="printGuideSettlement('${s.id}',${i})">🖨 ${escHtml(g.name)}の精算書を印刷</button>`).join('') : `<button class="btn" style="font-size:10px" onclick="printGuideSettlement('${s.id}',0)">🖨 精算書を印刷</button>`}
         ${s.status!=='closed' ? `<button class="btn" style="font-size:10px" onclick="closeGuideSettlement('${s.id}')">この精算を締める</button>` : ''}
         <button class="btn" style="font-size:10px;color:var(--red)" onclick="deleteGuideSettlement('${s.id}')">🗑 このリンクを削除</button>
       </div>
     </div>`;
   }).join('');
 }
-
 async function updateGuideEntryField(id, idx, field, value){
   const numFields = ['advance_payment','additional_advance_payment','guide_fee'];
   const v = numFields.includes(field) ? (Number(value)||0) : value;
