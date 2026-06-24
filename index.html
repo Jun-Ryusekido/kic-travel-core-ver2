@@ -2617,7 +2617,7 @@ async function kicAddSettlementItem(settlementId){
   const no = document.getElementById('kic-add-no-'+settlementId)?.value?.trim();
   if(!desc){alert('説明を入力してください');return;}
   if(!amount){alert('金額を入力してください');return;}
-  const {error} = await supabase.from('guide_settlement_items').insert({
+  const {error} = await sb.from('guide_settlement_items').insert({
     settlement_id: settlementId,
     expense_date: date||null,
     category: cat||null,
