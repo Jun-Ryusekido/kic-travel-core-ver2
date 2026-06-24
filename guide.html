@@ -207,17 +207,20 @@ function renderReceiptResult(){
     return;
   }
 
+  const catOptions = ['食事代','交通費','入場料・拝観料の立替','お茶代','駐車場・通行料','その他'].map(c=>`<option value="${c}">${c}</option>`).join('');
+
   const rows = pendingReceipts.map((r,i)=>`
     <tr>
       <td class="num-col">${escHtml(r.no||String(i+1))}</td>
       <td><input type="text" id="pr-desc-${i}" value="${escHtml(r.description||'')}"></td>
+      <td><select id="pr-cat-${i}" style="font-size:11px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;width:100%">${catOptions}</select></td>
       <td><input type="number" id="pr-amt-${i}" value="${r.amount||0}" style="text-align:right;width:80px"></td>
     </tr>`).join('');
 
   result.innerHTML = `
-    <div style="font-size:11px;color:var(--text3);margin-bottom:8px">内容・金額を確認・修正してから送信してください</div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:8px">内容・カテゴリ・金額を確認・修正してから送信してください</div>
     <table class="receipt-table">
-      <thead><tr><th>No</th><th>内容</th><th>金額</th></tr></thead>
+      <thead><tr><th>No</th><th>内容</th><th>カテゴリ</th><th>金額</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
     <button class="btn btn-g" onclick="submitReceipts()">送信する</button>
@@ -237,7 +240,7 @@ async function submitReceipts(){
     const rows = pendingReceipts.map((r,i)=>({
       settlement_id: settlement.id,
       expense_date: null,
-      category: 'その他',
+      category: document.getElementById('pr-cat-'+i)?.value||'その他',
       description: document.getElementById('pr-desc-'+i)?.value||r.description||'',
       amount: Number(document.getElementById('pr-amt-'+i)?.value||r.amount||0),
       guide_name: settlement.guide_name||'',
