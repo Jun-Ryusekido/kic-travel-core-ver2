@@ -2626,7 +2626,9 @@ function renderGuideSettlements(){
       ? s.guide_names
       : [{name: s.guide_name||'', phone: s.guide_phone||'', advance_payment: s.advance_payment||0, additional_advance_payment: s.additional_advance_payment||0, guide_fee: s.guide_fee||0}];
 
-    const renderItemRow = it => {
+    let gsSortKey='receipt_no', gsSortDir=1;
+function gsSort(key){ if(gsSortKey===key){gsSortDir*=-1;}else{gsSortKey=key;gsSortDir=1;} renderGuideSettlements(); }
+const renderItemRow = it => {
       const pillClass = it.reflected ? 'reflected' : it.status;
       const pillLabel = it.reflected ? '反映済' : (it.status==='approved'?'承認済':it.status==='rejected'?'却下':'未確認');
       const actions = (it.status==='pending') ? `
@@ -2646,6 +2648,11 @@ function renderGuideSettlements(){
     if(items.length===0){
       itemsHtml = '<div class="empty" style="font-size:11px;padding:4px 0">まだ送信された項目はありません</div>';
     }else if(guideList.length<=1){
+      items.sort((a,b)=>{
+        let av=a[gsSortKey]??'', bv=b[gsSortKey]??'';
+        if(gsSortKey==='receipt_no'){return (Number(av||999)-Number(bv||999))*gsSortDir;}
+        return String(av).localeCompare(String(bv),'ja')*gsSortDir;
+      });
       itemsHtml = items.map(renderItemRow).join('');
     }else{
       // ガイドごとにグループ表示
