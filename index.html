@@ -2842,8 +2842,9 @@ function printGuideSettlement(settlementId, guideIndex){
   if(!s || !b) return;
   const html = buildGuideSettlementPrintHtml(s, b, guideIndex||0);
   const win = window.open('','_blank','width=800,height=900');
-  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><style>@page{size:A4 portrait;margin:10mm}body{margin:0}table{page-break-inside:auto}tr{page-break-inside:avoid}</style></head><body>${html}<script>window.onload=()=>{window.print()}<\/script></body></html>`);
-function printLocalExpenses(){
+win.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><style>@page{size:A4 portrait;margin:10mm}body{margin:0}table{page-break-inside:auto}tr{page-break-inside:avoid}<\/style><\/head><body>'+html+'<script>window.onload=function(){window.print()}<\/script><\/body><\/html>');
+  win.document.close();
+}function printLocalExpenses(){
   const b = findBookingById(currentDetailId);
   if(!b) return;
   const total = bdLocalExpenses.reduce((s,it)=>s+Number(it.amount||0),0);
