@@ -2628,7 +2628,7 @@ async function kicAddSettlementItem(settlementId){
     added_by_kic: true
   });
   if(error){alert('追加失敗: '+error.message);return;}
-  renderGuideSettlements();
+  await loadGuideSettlements();
 }
 async function updateGuideItem(id, field, value){
   const update = {};
