@@ -36,8 +36,8 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Hi
 .receipt-table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:10px}
 .receipt-table th{background:var(--bg);padding:6px 8px;text-align:left;font-size:11px;color:var(--text3)}
 .receipt-table td{padding:6px 8px;border-bottom:1px solid var(--border)}
-.receipt-table input{width:100%;border:none;background:transparent;font-size:12px;padding:2px 4px;color:var(--text);font-family:inherit}
-.receipt-table input:focus{outline:1px solid var(--blue);border-radius:4px}
+.receipt-table input{width:100%;border:1px solid var(--border);border-radius:6px;background:#fff;font-size:13px;padding:6px 8px;color:var(--text);font-family:inherit}
+.receipt-table input:focus{outline:none;border-color:var(--blue)}
 .receipt-table .num-col{width:32px;text-align:center;font-weight:700;color:var(--blue)}
 .item-row{display:flex;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px}
 .item-row:last-child{border-bottom:none}
@@ -214,7 +214,7 @@ function renderReceiptResult(){
       <td class="num-col">${escHtml(r.no||String(i+1))}</td>
       <td><input type="text" id="pr-desc-${i}" value="${escHtml(r.description||'')}"></td>
       <td><select id="pr-cat-${i}" style="font-size:11px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;width:100%">${catOptions}</select></td>
-      <td><input type="number" id="pr-amt-${i}" value="${r.amount||0}" style="text-align:right;width:80px"></td>
+      <td><input type="text" id="pr-amt-${i}" value="${Number(r.amount||0).toLocaleString('ja-JP')}" style="text-align:right;width:90px" inputmode="numeric"></td>
     </tr>`).join('');
 
   result.innerHTML = `
@@ -242,7 +242,7 @@ async function submitReceipts(){
       expense_date: null,
       category: document.getElementById('pr-cat-'+i)?.value||'その他',
       description: document.getElementById('pr-desc-'+i)?.value||r.description||'',
-      amount: Number(document.getElementById('pr-amt-'+i)?.value||r.amount||0),
+      amount: Number((document.getElementById('pr-amt-'+i)?.value||'0').replace(/,/g,'')),
       guide_name: settlement.guide_name||'',
       status: 'pending'
     }));
