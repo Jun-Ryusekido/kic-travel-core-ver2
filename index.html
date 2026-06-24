@@ -2899,7 +2899,7 @@ function printGuideSettlementDoc(){
     style.id = 'gs-print-style';
     document.head.appendChild(style);
   }
-  style.textContent = '@page{size:A4 portrait;margin:10mm}';
+  style.textContent = '@page{size:A4 portrait;margin:10mm} #gs-print-body > div{page-break-inside:auto} #gs-print-body table{page-break-inside:auto} #gs-print-body tr{page-break-inside:avoid}';
   window.onafterprint = ()=>{
     const st = document.getElementById('gs-print-style');
     if(st) st.remove();
@@ -4306,7 +4306,7 @@ function printGuideSettlementListDoc(){
     style.id = 'gsl-print-style';
     document.head.appendChild(style);
   }
-  style.textContent = '@page{size:A4 portrait;margin:10mm}';
+  style.textContent = '@page{size:A4 portrait;margin:10mm} #gs-print-body > div{page-break-inside:auto} #gs-print-body table{page-break-inside:auto} #gs-print-body tr{page-break-inside:avoid}';
   window.onafterprint = ()=>{
     const st = document.getElementById('gsl-print-style');
     if(st) st.remove();
