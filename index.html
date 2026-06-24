@@ -2362,6 +2362,7 @@ async function exportBookingArchive(){
   if(settlements && settlements.length>0){
     const ids = settlements.map(s=>s.id);
     const {data: items} = await sb.from('guide_settlement_items').select('*').in('settlement_id', ids).order('submitted_at');
+    console.log('guide items count:', (items||[]).length);
     settlementsWithItems = settlements.map(s=>({...s, items:(items||[]).filter(it=>it.settlement_id===s.id)}));
   }
 
