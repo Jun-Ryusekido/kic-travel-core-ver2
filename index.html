@@ -2362,7 +2362,7 @@ async function exportBookingArchive(){
   if(settlements && settlements.length>0){
     const ids = settlements.map(s=>s.id);
     const {data: items} = await sb.from('guide_settlement_items').select('*').in('settlement_id', ids).order('submitted_at');
-    console.log('guide items count:', (items||[]).length);
+    
     settlementsWithItems = settlements.map(s=>({...s, items:(items||[]).filter(it=>it.settlement_id===s.id)}));
   }
 
@@ -4791,12 +4791,6 @@ function filterHotelManagement(){
   const tbody = document.getElementById('hm-tbody');
   if(filtered.length===0){ tbody.innerHTML='<tr><td colspan="12" class="empty">該当するデータがありません</td></tr>'; return; }
   filtered.sort((a,b)=>{
-  let av=a[hmSortKey]??'', bv=b[hmSortKey]??'';
-  if(hmSortKey==='nights'){av=calcHotelNights(a.check_in||'',a.check_out||'');bv=calcHotelNights(b.check_in||'',b.check_out||'');}
-  if(typeof av==='number'||!isNaN(Number(av))){return (Number(av)-Number(bv))*hmSortDir;}
-  return String(av).localeCompare(String(bv),'ja')*hmSortDir;
-});
-filtered.sort((a,b)=>{
   let av=a[hmSortKey]??'', bv=b[hmSortKey]??'';
   if(hmSortKey==='nights'){av=calcHotelNights(a.check_in||'',a.check_out||'');bv=calcHotelNights(b.check_in||'',b.check_out||'');}
   if(typeof av==='number'||!isNaN(Number(av))){return (Number(av)-Number(bv))*hmSortDir;}
