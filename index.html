@@ -2840,12 +2840,9 @@ function printGuideSettlement(settlementId, guideIndex){
   const s = guideSettlementsCache.find(x=>x.id===settlementId);
   const b = findBookingById(currentDetailId);
   if(!s || !b) return;
-
-  document.getElementById('gs-print-body').innerHTML = buildGuideSettlementPrintHtml(s, b, guideIndex||0);
-  document.getElementById('gs-print-card').style.display='';
-  document.getElementById('gs-print-card').scrollIntoView({behavior:'smooth'});
-}
-
+  const html = buildGuideSettlementPrintHtml(s, b, guideIndex||0);
+  const win = window.open('','_blank','width=800,height=900');
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><style>@page{size:A4 portrait;margin:10mm}body{margin:0}table{page-break-inside:auto}tr{page-break-inside:avoid}</style></head><body>${html}<script>window.onload=()=>{window.print()}<\/script></body></html>`);
 function printLocalExpenses(){
   const b = findBookingById(currentDetailId);
   if(!b) return;
