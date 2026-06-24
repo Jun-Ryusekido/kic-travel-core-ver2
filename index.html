@@ -2795,7 +2795,7 @@ function buildGuideSettlementPrintHtml(s, b, guideIndex){
 
   const rows = items.map((it,i)=>`
     <tr>
-      <td style="border:1px solid #999;padding:4px;text-align:center">${i+1}</td>
+      <td style="border:1px solid #999;padding:4px;text-align:center">${escHtml(it.receipt_no||String(i+1))}</td>
       <td style="border:1px solid #999;padding:4px;text-align:center">${it.expense_date||''}</td>
       <td style="border:1px solid #999;padding:4px">${escHtml(it.category||'')}${it.description?(' '+escHtml(it.description)):''}</td>
       <td style="border:1px solid #999;padding:4px;text-align:right">${yen(it.amount)}</td>
