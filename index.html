@@ -887,6 +887,7 @@ th.sortable:hover{color:var(--blue)}
         <th style="width:70px">単価(1室1泊)</th>
         <th style="width:70px">金額</th>
         <th style="width:70px">確認番号</th>
+        <th style="width:80px">ステータス</th>
         <th>備考</th>
         <th class="li-del"></th>
       </tr></thead>
@@ -3596,8 +3597,12 @@ function renderHotelTable(){
         <td style="text-align:center"><input type="checkbox" ${it.breakfast?'checked':''} onchange="bdHotelItems[${i}].breakfast=this.checked"></td>
         <td><input type="text" inputmode="numeric" value="${Number(it.unit_price||0).toLocaleString('ja-JP')}" onchange="bdHotelItems[${i}].unit_price=parseNum(this.value);this.value=bdHotelItems[${i}].unit_price.toLocaleString('ja-JP');hotelCalc(${i})"></td>
         <td style="text-align:right;white-space:nowrap">${yen(it.amount||0)}</td>
-        <td><input value="${escAttr(it.confirmation_no)}" oninput="bdHotelItems[${i}].confirmation_no=this.value" style="width:100%"></td>
-        <td><input value="${escAttr(it.memo)}" oninput="bdHotelItems[${i}].memo=this.value" style="width:100%"></td>
+        <th style="width:70px">確認番号</th>
+        <th style="width:80px">ステータス</th>
+        <th>備<td><input value="${escAttr(it.confirmation_no)}" oninput="bdHotelItems[${i}].confirmation_no=this.value" style="width:100%"></td>
+        <td><select onchange="bdHotelItems[${i}].status=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px"><option value="問い合わせ中" ${(it.status||'問い合わせ中')==='問い合わせ中'?'selected':''}>問い合わせ中</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option></select></td>
+        <td><input value="${escAttr(it.memo)}" oninput="bdHotelItems[${i}].memo=this.value" style="width:100%"></td>考</th>
+        <th class="li-del"></th>
         <td class="li-del"><span class="lnk" style="font-size:10px" onclick="bdHotelItems.splice(${i},1);renderHotelTable()">削除</span></td>
       </tr>`;
     }).join('');
