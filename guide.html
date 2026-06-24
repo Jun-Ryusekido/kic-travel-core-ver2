@@ -240,7 +240,7 @@ function renderReceiptResult(){
   const rows = pendingReceipts.map((r,i)=>`
     <tr>
       <td class="num-col">${escHtml(r.no||String(i+1))}</td>
-      <td><input type="date" id="pr-date-${i}" value="${today}"></td>
+      <td><input type="date" id="pr-date-${i}" value="${r.date||''}"></td>
       <td><input type="text" id="pr-desc-${i}" value="${escHtml(r.description||'')}"></td>
       <td><select id="pr-cat-${i}">${CATEGORIES.map(c=>`<option value="${c}" ${(r.category||'その他')===c?'selected':''}>${c}</option>`).join('')}</select></td>
       <td><input type="text" id="pr-amt-${i}" value="${Number(r.amount||0).toLocaleString('ja-JP')}" style="text-align:right" inputmode="numeric"></td>
