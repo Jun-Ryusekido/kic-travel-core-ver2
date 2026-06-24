@@ -1498,6 +1498,7 @@ let arrDays = [];
 let guideSettlementsCache = [];
 const GS_CATEGORIES = ['食事代','交通費','入場料・拝観料の立替','お茶代','駐車場・通行料','その他'];
 
+let gsSortKey='receipt_no', gsSortDir=1;
 function gsSort(key){ if(gsSortKey===key){gsSortDir*=-1;}else{gsSortKey=key;gsSortDir=1;} renderGuideSettlements(); }
 
 // ===== 見積もり (Estimation) =====
