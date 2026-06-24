@@ -2598,6 +2598,11 @@ async function loadGuideSettlements(){
   renderGuideSettlements();
 }
 
+async function updateGuideItem(id, field, value){
+  const update = {};
+  update[field] = field==='amount' ? Number(value) : value;
+  await sb.from('guide_settlement_items').update(update).eq('id',id);
+}
 function renderGuideSettlements(){
   const el = document.getElementById('bd-guide-settlements');
   if(guideSettlementsCache.length===0){
