@@ -2632,8 +2632,8 @@ function renderGuideSettlements(){
     el.innerHTML = '<div class="empty" style="font-size:11px;padding:4px 0">発行されたガイド精算リンクはありません</div>';
     return;
   }
-'<div style="text-align:right;margin-bottom:8px;display:flex;gap:6px;justify-content:flex-end"><button class="btn" style="font-size:11px;padding:4px 10px;color:var(--red);border-color:var(--red)" onclick="deleteCheckedGuideItems()">削除</button><button class="btn" style="font-size:11px;padding:4px 10px;background:var(--green);color:#fff;border-color:var(--green)" onclick="reviewCheckedGuideItems(\'approved\')">承認</button><button class="btn" style="font-size:11px;padding:4px 10px" onclick="reviewCheckedGuideItems(\'rejected\')">却下</button></div>' +
-    const items = s.items||[];
+
+  const items = s.items||[];
     const total = items.filter(it=>it.status!=='rejected').reduce((sum,it)=>sum+Number(it.amount||0),0);
     const pendingCount = items.filter(it=>it.status==='pending').length;
     const approvedNotReflected = items.filter(it=>it.status==='approved' && !it.reflected).length;
@@ -2660,7 +2660,8 @@ const renderItemRow = it => {
       </div>`;
     };
 
-    let itemsHtml;
+    const bulkBtns = '<div style="text-align:right;margin-bottom:8px;display:flex;gap:6px;justify-content:flex-end"><button class="btn" style="font-size:11px;padding:4px 10px;color:var(--red);border-color:var(--red)" onclick="deleteCheckedGuideItems()">削除</button><button class="btn" style="font-size:11px;padding:4px 10px;background:var(--green);color:#fff;border-color:var(--green)" onclick="reviewCheckedGuideItems(\'approved\')">承認</button><button class="btn" style="font-size:11px;padding:4px 10px" onclick="reviewCheckedGuideItems(\'rejected\')">却下</button></div>';
+      let itemsHtml;
     if(items.length===0){
       itemsHtml = '<div class="empty" style="font-size:11px;padding:4px 0">まだ送信された項目はありません</div>';
     }else if(guideList.length<=1){
@@ -2718,7 +2719,7 @@ const renderItemRow = it => {
         <button class="btn" style="font-size:10px" onclick="navigator.clipboard.writeText('${escAttr(url)}');this.textContent='コピーしました';setTimeout(()=>this.textContent='リンクをコピー',1500)">リンクをコピー</button>
       </div>
       ${guideFieldsHtml}
-      ${itemsHtml}
+      ${bulkBtns}${itemsHtml}
       <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
         <button class="btn btn-p" style="font-size:10px" ${approvedNotReflected===0?'disabled':''} onclick="reflectGuideItems('${s.id}')">承認済みを仕入明細に反映（${approvedNotReflected}件）</button>
         ${guideList.length>1
