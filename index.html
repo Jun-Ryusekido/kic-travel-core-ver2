@@ -2753,7 +2753,7 @@ function renderGuideSettlements(){
       </div>
       <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
         <button class="btn btn-p" style="font-size:10px" ${approvedNotReflected===0?'disabled':''} onclick="reflectGuideItems('${s.id}')">承認済みを仕入明細に反映（${approvedNotReflected}件）</button>
-        ${guideList.length>1 ? guideList.map((g,i)=>`<button class="btn" style="font-size:10px" onclick="printGuideSettlement('${s.id}',${i})">🖨 ${escHtml(g.name)}の精算書を印刷</button>`).join('') : `<button class="btn" style="font-size:10px" onclick="printGuideSettlement('${s.id}',0)">🖨 精算書を印刷</button>`}
+        ${guideList.length>1 ? guideList.map((g,i)=>`<button class="btn" style="font-size:10px" onclick="printGuideSettlement('${s.id}',${i})">🖨 ${escHtml(g.name)}の精算書を印刷</button><button class="btn" style="font-size:10px" onclick="printGuideVouchers('${s.id}',${i})">🧾 ${escHtml(g.name)}の伝票を印刷</button>`).join('') : `<button class="btn" style="font-size:10px" onclick="printGuideSettlement('${s.id}',0)">🖨 精算書を印刷</button><button class="btn" style="font-size:10px" onclick="printGuideVouchers('${s.id}',0)">🧾 伝票を印刷</button>`}
         ${s.status!=='closed' ? `<button class="btn" style="font-size:10px" onclick="closeGuideSettlement('${s.id}')">この精算を締める</button>` : ''}
         <button class="btn" style="font-size:10px;color:var(--red)" onclick="deleteGuideSettlement('${s.id}')">🗑 このリンクを削除</button>
       </div>
@@ -2891,6 +2891,85 @@ function buildGuideSettlementPrintHtml(s, b, guideIndex){
     </div>`;
 }
 
+function printGuideVouchers(settlementId, guideIndex){
+  const s = guideSettlementsCache.find(x=>x.id===settlementId);
+  const b = findBookingById(currentDetailId);
+  if(!s || !b) return;
+  const guideList = (Array.isArray(s.guide_names) && s.guide_names.length>0)
+    ? s.guide_names
+    : [{name: s.guide_name||'', phone: s.guide_phone||'', advance_payment: s.advance_payment||0, additional_advance_payment: s.additional_advance_payment||0, guide_fee: s.guide_fee||0}];
+  const g = guideList[guideIndex||0] || {};
+  const allItems = (s.items||[]).filter(it=>it.status!=='rejected');
+  const guideFeeItems = allItems.filter(it=>it.category==='ガイド費');
+  const localFeeItems = allItems.filter(it=>it.category!=='ガイド費');
+  const localTotal = localFeeItems.reduce((sum,it)=>sum+Number(it.amount||0),0);
+  const guideFeeFromItems = guideFeeItems.reduce((sum,it)=>sum+Number(it.amount||0),0);
+  const guideFee = Number(g.guide_fee||0) + guideFeeFromItems;
+  const advanceTotal = Number(g.advance_payment||0) + Number(g.additional_advance_payment||0);
+  const grandTotal = localTotal + guideFee;
+  const transferAmount = grandTotal - advanceTotal;
+  const tourCode = b.tour_name || b.ref_no || '';
+  const today = new Date();
+  const yyyy = today.getFullYear();
+  const mm = today.getMonth()+1;
+  const dd = today.getDate();
+
+  // 出金伝票（現地費用・ガイド費の支払い）
+  const paymentVoucher = `
+    <div style="border:2px solid #333;padding:14px;width:180mm;margin:0 auto 10mm;font-size:11px;font-family:sans-serif">
+      <div style="text-align:center;font-size:16px;font-weight:700;letter-spacing:4px;margin-bottom:10px">出 金 伝 票</div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+        <span>No. <strong>${escHtml(tourCode)}</strong></span>
+        <span>${yyyy}年 ${mm}月 ${dd}日</span>
+      </div>
+      <div style="margin-bottom:8px">支払先：<strong>${escHtml(g.name||'')}</strong> 様</div>
+      <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:8px">
+        <thead><tr style="background:#f5f5f5">
+          <th style="border:1px solid #999;padding:5px;width:35%">勘定科目</th>
+          <th style="border:1px solid #999;padding:5px">摘　　要</th>
+          <th style="border:1px solid #999;padding:5px;width:25%;text-align:right">金　　額</th>
+        </tr></thead>
+        <tbody>
+          ${localTotal>0?`<tr><td style="border:1px solid #999;padding:5px">現地費用</td><td style="border:1px solid #999;padding:5px">${escHtml(tourCode)}</td><td style="border:1px solid #999;padding:5px;text-align:right">${yen(localTotal)}</td></tr>`:''}
+          ${guideFee>0?`<tr><td style="border:1px solid #999;padding:5px">ガイド費</td><td style="border:1px solid #999;padding:5px">${escHtml(g.name||'')} ${escHtml(tourCode)}</td><td style="border:1px solid #999;padding:5px;text-align:right">${yen(guideFee)}</td></tr>`:''}
+          ${advanceTotal>0?`<tr><td style="border:1px solid #999;padding:5px">仮払金戻し</td><td style="border:1px solid #999;padding:5px">${escHtml(g.name||'')} ${escHtml(tourCode)}</td><td style="border:1px solid #999;padding:5px;text-align:right">-${yen(advanceTotal)}</td></tr>`:''}
+        </tbody>
+        <tfoot><tr style="font-weight:700;background:#EEF3FA">
+          <td colspan="2" style="border:1px solid #999;padding:6px;text-align:right">合　　計</td>
+          <td style="border:1px solid #999;padding:6px;text-align:right">${yen(Math.max(0,transferAmount))}</td>
+        </tfoot>
+      </table>
+    </div>`;
+
+  // 入金伝票（仮払金戻しがある場合）
+  const receiptVoucher = transferAmount < 0 ? `
+    <div style="border:2px solid #333;padding:14px;width:180mm;margin:0 auto;font-size:11px;font-family:sans-serif">
+      <div style="text-align:center;font-size:16px;font-weight:700;letter-spacing:4px;margin-bottom:10px">入 金 伝 票</div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+        <span>No. <strong>${escHtml(tourCode)}</strong></span>
+        <span>${yyyy}年 ${mm}月 ${dd}日</span>
+      </div>
+      <div style="margin-bottom:8px">入金先：<strong>${escHtml(g.name||'')}</strong> 様</div>
+      <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:8px">
+        <thead><tr style="background:#f5f5f5">
+          <th style="border:1px solid #999;padding:5px;width:35%">勘定科目</th>
+          <th style="border:1px solid #999;padding:5px">摘　　要</th>
+          <th style="border:1px solid #999;padding:5px;width:25%;text-align:right">金　　額</th>
+        </tr></thead>
+        <tbody>
+          <tr><td style="border:1px solid #999;padding:5px">仮払金戻し</td><td style="border:1px solid #999;padding:5px">${escHtml(g.name||'')} ${escHtml(tourCode)}</td><td style="border:1px solid #999;padding:5px;text-align:right">${yen(Math.abs(transferAmount))}</td></tr>
+        </tbody>
+        <tfoot><tr style="font-weight:700;background:#EAF3DE">
+          <td colspan="2" style="border:1px solid #999;padding:6px;text-align:right">合　　計</td>
+          <td style="border:1px solid #999;padding:6px;text-align:right">${yen(Math.abs(transferAmount))}</td>
+        </tfoot>
+      </table>
+    </div>` : '';
+
+  const win = window.open('','_blank','width=800,height=600');
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><style>@page{size:A4;margin:15mm}body{margin:0}</style></head><body>${paymentVoucher}${receiptVoucher}<script>window.onload=()=>{window.print()}<\/script></body></html>`);
+  win.document.close();
+}
 function printGuideSettlement(settlementId, guideIndex){
   const s = guideSettlementsCache.find(x=>x.id===settlementId);
   const b = findBookingById(currentDetailId);
