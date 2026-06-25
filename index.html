@@ -1878,7 +1878,10 @@ function addSalesRow(){
 function addCostRow(){
   if(bdLocked) return;
   bdCostItems.push({item_name:'', amount:0, payment_date:null, memo:''});
+  bdCostSortField = null; bdCostSortDir = 1;
   renderCostTable();
+  const tbody = document.getElementById('bd-cost-tbody');
+  if(tbody.lastElementChild) tbody.lastElementChild.scrollIntoView({block:'nearest'});
 }
 function removeSalesRow(i){ if(bdLocked) return; bdSalesItems.splice(i,1); renderSalesTable(); }
 function removeCostRow(i){ if(bdLocked) return; bdCostItems.splice(i,1); renderCostTable(); }
