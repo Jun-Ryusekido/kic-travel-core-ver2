@@ -1496,7 +1496,7 @@ let arrDays = [];
 
 // ===== ガイド精算 (Guide Settlement) =====
 let guideSettlementsCache = [];
-const GS_CATEGORIES = ['食事代','交通費','駐車場代','高速・有料道路代','入場料・拝観料','ガイド費','その他','自由記載'];
+const GS_CATEGORIES = ['食事代','交通費','駐車場代','高速・有料道路代','入場料・拝観料','ガイド費','宿泊代','その他','自由記載'];
 
 let gsSortKey='receipt_no', gsSortDir=1;
 function gsSort(key){ if(gsSortKey===key){gsSortDir*=-1;}else{gsSortKey=key;gsSortDir=1;} renderGuideSettlements(); }
@@ -2676,7 +2676,7 @@ function renderGuideSettlements(){
     const isFreeText = !selectCats.includes(it.category);
     const catHtml = isFreeText
       ? `<input type="text" value="${escHtml(it.category === '自由記載' ? '' : (it.category||''))}" placeholder="カテゴリを入力" style="width:100%;border:1px solid var(--border);border-radius:4px;padding:2px 4px;font-size:11px" oninput="updateGuideItem('${it.id}','category',this.value)"><br><span style="font-size:9px;cursor:pointer;color:var(--blue)" onclick="backToSelectCategory('${it.id}')">▲ 選択に戻る</span>`
-      : `<select onchange="updateGuideItem('${it.id}','category',this.value);if(this.value==='自由記載')switchToFreeCategory('${it.id}')" style="font-size:11px;border:1px solid var(--border);border-radius:4px;padding:2px 4px;width:100%"><option value="食事代" ${it.category==='食事代'?'selected':''}>食事代</option><option value="交通費" ${it.category==='交通費'?'selected':''}>交通費</option><option value="駐車場代" ${it.category==='駐車場代'?'selected':''}>駐車場代</option><option value="高速・有料道路代" ${it.category==='高速・有料道路代'?'selected':''}>高速・有料道路代</option><option value="入場料・拝観料" ${it.category==='入場料・拝観料'?'selected':''}>入場料・拝観料</option><option value="ガイド費" ${it.category==='ガイド費'?'selected':''}>ガイド費</option><option value="その他" ${it.category==='その他'?'selected':''}>その他</option><option value="自由記載" ${it.category==='自由記載'?'selected':''}>自由記載</option></select>`;
+      : `<select onchange="updateGuideItem('${it.id}','category',this.value);if(this.value==='自由記載')switchToFreeCategory('${it.id}')" style="font-size:11px;border:1px solid var(--border);border-radius:4px;padding:2px 4px;width:100%"><option value="食事代" ${it.category==='食事代'?'selected':''}>食事代</option><option value="交通費" ${it.category==='交通費'?'selected':''}>交通費</option><option value="駐車場代" ${it.category==='駐車場代'?'selected':''}>駐車場代</option><option value="高速・有料道路代" ${it.category==='高速・有料道路代'?'selected':''}>高速・有料道路代</option><option value="入場料・拝観料" ${it.category==='入場料・拝観料'?'selected':''}>入場料・拝観料</option><option value="ガイド費" ${it.category==='ガイド費'?'selected':''}>ガイド費</option><option value="宿泊代" ${it.category==='宿泊代'?'selected':''}>宿泊代</option><option value="その他" ${it.category==='その他'?'selected':''}>その他</option><option value="自由記載" ${it.category==='自由記載'?'selected':''}>自由記載</option></select>`;
     return `<div class="gs-item-row">
       <div style="flex:0 0 100px"><input type="date" value="${it.expense_date||''}" onchange="updateGuideItem('${it.id}','expense_date',this.value)" style="width:100%;border:1px solid var(--border);border-radius:4px;padding:2px 4px;font-size:11px"></div>
       <div id="cat-wrap-${it.id}" style="flex:0 0 110px">${catHtml}</div>
