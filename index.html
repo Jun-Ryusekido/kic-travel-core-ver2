@@ -2752,7 +2752,6 @@ function renderGuideSettlements(){
         </div>
       </div>
       <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
-        <button class="btn btn-p" style="font-size:10px" ${approvedNotReflected===0?'disabled':''} onclick="reflectGuideItems('${s.id}')">承認済みを仕入明細に反映（${approvedNotReflected}件）</button>
         <button class="btn" style="font-size:10px" onclick="reflectCheckedGuideItems('${s.id}')">✅ 選択した項目を反映</button>
         ${guideList.length>1 ? guideList.map((g,i)=>`<button class="btn" style="font-size:10px" onclick="printGuideSettlement('${s.id}',${i})">🖨 ${escHtml(g.name)}の精算書を印刷</button><button class="btn" style="font-size:10px" onclick="printGuideVouchers('${s.id}',${i})">🧾 ${escHtml(g.name)}の伝票を印刷</button>`).join('') : `<button class="btn" style="font-size:10px" onclick="printGuideSettlement('${s.id}',0)">🖨 精算書を印刷</button><button class="btn" style="font-size:10px" onclick="printGuideVouchers('${s.id}',0)">🧾 伝票を印刷</button>`}
         ${s.status!=='closed' ? `<button class="btn" style="font-size:10px" onclick="closeGuideSettlement('${s.id}')">この精算を締める</button>` : ''}
@@ -2924,7 +2923,7 @@ function printGuideVouchers(settlementId, guideIndex){
       <div style="text-align:center;font-size:16px;font-weight:700;letter-spacing:4px;margin-bottom:10px">出 金 伝 票</div>
       <div style="display:flex;justify-content:space-between;margin-bottom:8px">
         <span>No. <strong>${escHtml(tourCode)}</strong></span>
-        <table style="margin-left:auto;font-size:11px;border-collapse:collapse"><tr><td style="padding-right:4px;white-space:nowrap">起票日:</td><td style="text-align:right;white-space:nowrap">${yyyy}年</td><td style="text-align:right;white-space:nowrap">${mm}月</td><td style="text-align:right;white-space:nowrap">${dd}日</td></tr><tr><td style="padding-right:4px;white-space:nowrap">入金日:</td><td style="text-align:right;white-space:nowrap">${payDateStr.y}</td><td style="text-align:right;white-space:nowrap">${payDateStr.m}</td><td style="text-align:right;white-space:nowrap">${payDateStr.d}</td></tr></table>
+        <table style="margin-left:auto;font-size:11px;border-collapse:collapse"><tr><td style="padding-right:4px;white-space:nowrap">起票日:</td><td style="text-align:right;white-space:nowrap">${yyyy}年</td><td style="text-align:right;white-space:nowrap">${mm}月</td><td style="text-align:right;white-space:nowrap">${dd}日</td></tr><tr><td style="padding-right:4px;white-space:nowrap">出金日:</td><td style="text-align:right;white-space:nowrap">${payDateStr.y}</td><td style="text-align:right;white-space:nowrap">${payDateStr.m}</td><td style="text-align:right;white-space:nowrap">${payDateStr.d}</td></tr></table>
       </div>
       <div style="margin-bottom:8px">支払先：<strong>${escHtml(g.name||'')}</strong> 様</div>
       <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:8px">
