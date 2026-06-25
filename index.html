@@ -2752,10 +2752,10 @@ function renderGuideSettlements(){
         </div>
       </div>
       <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
-        <button class="btn" style="font-size:10px" onclick="reflectCheckedGuideItems('${s.id}')">✅ 選択した項目を反映</button>
+        
         ${guideList.length>1 ? guideList.map((g,i)=>`<button class="btn" style="font-size:10px" onclick="printGuideSettlement('${s.id}',${i})">🖨 ${escHtml(g.name)}の精算書を印刷</button><button class="btn" style="font-size:10px" onclick="printGuideVouchers('${s.id}',${i})">🧾 ${escHtml(g.name)}の伝票を印刷</button>${isAccountingUser()?`<button class="btn" style="font-size:10px" onclick="reflectVoucherToCost('${s.id}',${i})">📋 伝票内容を仕入明細に反映</button>`:''}${isAccountingUser()?`<button class="btn" style="font-size:10px" onclick="reflectVoucherToCost('${s.id}',${i})">📋 伝票内容を仕入明細に反映</button>`:''}${isAccountingUser()?`<button class="btn" style="font-size:10px" onclick="reflectVoucherToCost('${s.id}',${i})">📋 伝票内容を仕入明細に反映</button>`:''}`).join('') : `<button class="btn" style="font-size:10px" onclick="printGuideSettlement('${s.id}',0)">🖨 精算書を印刷</button><button class="btn" style="font-size:10px" onclick="printGuideVouchers('${s.id}',0)">🧾 伝票を印刷</button>${isAccountingUser()?`<button class="btn" style="font-size:10px" onclick="reflectVoucherToCost('${s.id}',0)">📋 伝票内容を仕入明細に反映</button>`:''}`}
-        ${s.status!=='closed' ? `<button class="btn" style="font-size:10px" onclick="closeGuideSettlement('${s.id}')">この精算を締める</button>` : ''}
-        <button class="btn" style="font-size:10px;color:var(--red)" onclick="deleteGuideSettlement('${s.id}')">🗑 このリンクを削除</button>
+        ${s.status!=='closed' ? `<button class="btn" style="font-size:10px" onclick="closeGuideSettlement('${s.id}')">この精算を締める</button>` : (isAccountingUser() ? `<button class="btn" style="font-size:10px" onclick="reopenGuideSettlement('${s.id}')">🔓 締めを解除</button>` : '')}
+        
       </div>
     </div>`;
   }).join('');
@@ -3192,6 +3192,13 @@ async function reflectCheckedGuideItems(settlementId){
 
 async function reviewGuideItem(itemId, status){
   await sb.from('guide_settlement_items').update({status, reviewed_at: new Date().toISOString()}).eq('id', itemId);
+  await loadGuideSettlements();
+}
+
+async function reopenGuideSettlement(settlementId){
+  if(!isAccountingUser()){ alert('経理担当者のみ解除できます。'); return; }
+  if(!confirm('この精算の締めを解除しますか？')) return;
+  await sb.from('guide_settlements').update({status:'open', closed_at:null}).eq('id', settlementId);
   await loadGuideSettlements();
 }
 
