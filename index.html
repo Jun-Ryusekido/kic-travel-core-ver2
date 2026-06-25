@@ -867,18 +867,7 @@ th.sortable:hover{color:var(--blue)}
           <tbody id="bd-sales-tbody"></tbody>
         </table></div>
         <button class="btn" id="bd-sales-add-btn" style="font-size:10px;margin-top:4px" onclick="addSalesRow()">＋ 行追加</button>
-        <div style="margin-top:6px;display:flex;gap:6px;align-items:center">
-          <button class="btn" style="font-size:10px" onclick="toggleBankbookOcr()">📷 通帳OCR</button>
-          <span id="bankbook-file-status" style="font-size:11px;color:var(--text3)"></span>
-        </div>
-        <div id="bankbook-ocr-area" style="display:none;margin-top:6px;border:1px solid var(--border);border-radius:8px;padding:8px;background:var(--bg)">
-          <div style="font-size:11px;color:var(--text3);margin-bottom:6px">通帳・銀行明細の画像またはPDFをアップロードして入金情報を自動読み取りします</div>
-          <label class="btn" style="font-size:10px;cursor:pointer">📎 ファイルを選択
-            <input id="bankbook-file-input" type="file" accept="image/*,.pdf" style="display:none" onchange="extractBankbookFromFile(event)">
-          </label>
-          <div id="bankbook-results" style="margin-top:8px"></div>
-        </div>
-        <div class="li-total">売上合計: <span id="bd-sales-total">¥0</span></div>
+<div class="li-total">売上合計: <span id="bd-sales-total">¥0</span></div>
       </div>
       <div>
         <h4 class="red">仕入明細</h4>
