@@ -2923,7 +2923,7 @@ function printGuideVouchers(settlementId, guideIndex){
       <div style="text-align:center;font-size:16px;font-weight:700;letter-spacing:4px;margin-bottom:10px">出 金 伝 票</div>
       <div style="display:flex;justify-content:space-between;margin-bottom:8px">
         <span>No. <strong>${escHtml(tourCode)}</strong></span>
-        <span>起票日: ${yyyy}年 ${mm}月 ${dd}日</span><br><span>入金日: ${payDateStr}</span>
+        <div style="text-align:right"><div>起票日: ${yyyy}年 ${mm}月 ${dd}日</div><div>入金日: ${payDateStr}</div></div>
       </div>
       <div style="margin-bottom:8px">支払先：<strong>${escHtml(g.name||'')}</strong> 様</div>
       <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:8px">
@@ -2950,7 +2950,7 @@ function printGuideVouchers(settlementId, guideIndex){
       <div style="text-align:center;font-size:16px;font-weight:700;letter-spacing:4px;margin-bottom:10px">入 金 伝 票</div>
       <div style="display:flex;justify-content:space-between;margin-bottom:8px">
         <span>No. <strong>${escHtml(tourCode)}</strong></span>
-        <span>起票日: ${yyyy}年 ${mm}月 ${dd}日</span><br><span>入金日: ${payDateStr}</span>
+        <div style="text-align:right"><div>起票日: ${yyyy}年 ${mm}月 ${dd}日</div><div>入金日: ${payDateStr}</div></div>
       </div>
       <div style="margin-bottom:8px">入金先：<strong>${escHtml(g.name||'')}</strong> 様</div>
       <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:8px">
