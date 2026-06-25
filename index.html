@@ -1496,7 +1496,7 @@ let arrDays = [];
 
 // ===== ガイド精算 (Guide Settlement) =====
 let guideSettlementsCache = [];
-const GS_CATEGORIES = ['食事代','交通費','入場料・拝観料の立替','駐車場・通行料','ガイド費','その他','自由記載'];
+const GS_CATEGORIES = ['食事代','交通費','駐車場代','高速・有料道路代','入場料・拝観料','ガイド費','その他','自由記載'];
 
 let gsSortKey='receipt_no', gsSortDir=1;
 function gsSort(key){ if(gsSortKey===key){gsSortDir*=-1;}else{gsSortKey=key;gsSortDir=1;} renderGuideSettlements(); }
