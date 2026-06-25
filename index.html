@@ -1743,7 +1743,7 @@ function renderCostTable(){
   if(searchEl && searchEl.value !== bdCostSearch) searchEl.value = bdCostSearch;
 
   const searchHtml = `<tr>
-    ${[['item_name','仕入先','20%',''],['amount','仕入額','15%','text-align:right'],['payment_date','出金日','15%',''],['memo','備考','','']].map(([f,l,w,a])=>{
+    ${[['item_name','仕入先','30%',''],['amount','仕入額','10%','text-align:right'],['payment_date','出金日','12%',''],['memo','備考','','']].map(([f,l,w,a])=>{
       const arrow = bdCostSortField===f ? (bdCostSortDir===1?'▲':'▼') : '';
       return `<th class="sortable" onclick="bdCostSortField=bdCostSortField==='${f}'?(bdCostSortDir*=-1,'${f}'):(bdCostSortDir=1,'${f}');renderCostTable()" style="cursor:pointer;user-select:none;${w?'width:'+w+';':''}${a}">${l}${arrow?` <span class="sort-arrow">${arrow}</span>`:''}</th>`;
     }).join('')}
