@@ -2726,7 +2726,7 @@ function renderGuideSettlements(){
           <div class="gs-field"><label>携帯番号</label><input value="${escAttr(g.phone)}" onchange="updateGuideEntryField('${s.id}',${i},'phone',this.value)"></div>
           <div class="gs-field"><label>仮払金</label><input type="number" value="${g.advance_payment||0}" onchange="updateGuideEntryField('${s.id}',${i},'advance_payment',this.value)"></div>
           <div class="gs-field"><label>仮払金追加</label><input type="number" value="${g.additional_advance_payment||0}" onchange="updateGuideEntryField('${s.id}',${i},'additional_advance_payment',this.value)"></div>
-          <div class="gs-field"><label>ガイド費(日当)</label><input type="number" value="${g.guide_fee||0}" onchange="updateGuideEntryField('${s.id}',${i},'guide_fee',this.value)"></div>
+          <div class="gs-field" style="display:none"><label>ガイド費(日当)</label><input type="number" value="${g.guide_fee||0}" onchange="updateGuideEntryField('${s.id}',${i},'guide_fee',this.value)"></div>
         </div>
       </div>`).join('');
 
