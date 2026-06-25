@@ -1503,7 +1503,7 @@ function gsSort(key){ if(gsSortKey===key){gsSortDir*=-1;}else{gsSortKey=key;gsSo
 function switchToFreeCategory(id){
   const wrap = document.getElementById('cat-wrap-'+id);
   if(!wrap) return;
-  wrap.innerHTML = '<input type="text" placeholder="カテゴリを入力" style="width:100%;border:1px solid var(--border);border-radius:4px;padding:2px 4px;font-size:11px" onchange="updateGuideItem(\''+id+'\',\'category\',this.value)"><br><span style="font-size:9px;cursor:pointer;color:var(--blue)" onclick="loadGuideSettlements()">▲ 選択に戻る</span>';
+  wrap.innerHTML = '<input type="text" placeholder="カテゴリを入力" style="width:100%;border:1px solid var(--border);border-radius:4px;padding:2px 4px;font-size:11px" oninput="updateGuideItem(\''+id+'\',\'category\',this.value)"><br><span style="font-size:9px;cursor:pointer;color:var(--blue)" onclick="loadGuideSettlements()">▲ 選択に戻る</span>';
 }
 
 // ===== 見積もり (Estimation) =====
