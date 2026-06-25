@@ -867,6 +867,17 @@ th.sortable:hover{color:var(--blue)}
           <tbody id="bd-sales-tbody"></tbody>
         </table></div>
         <button class="btn" id="bd-sales-add-btn" style="font-size:10px;margin-top:4px" onclick="addSalesRow()">＋ 行追加</button>
+        <div style="margin-top:6px;display:flex;gap:6px;align-items:center">
+          <button class="btn" style="font-size:10px" onclick="toggleBankbookOcr()">📷 通帳OCR</button>
+          <span id="bankbook-file-status" style="font-size:11px;color:var(--text3)"></span>
+        </div>
+        <div id="bankbook-ocr-area" style="display:none;margin-top:6px;border:1px solid var(--border);border-radius:8px;padding:8px;background:var(--bg)">
+          <div style="font-size:11px;color:var(--text3);margin-bottom:6px">通帳・銀行明細の画像またはPDFをアップロードして入金情報を自動読み取りします</div>
+          <label class="btn" style="font-size:10px;cursor:pointer">📎 ファイルを選択
+            <input id="bankbook-file-input" type="file" accept="image/*,.pdf" style="display:none" onchange="extractBankbookFromFile(event)">
+          </label>
+          <div id="bankbook-results" style="margin-top:8px"></div>
+        </div>
         <div class="li-total">売上合計: <span id="bd-sales-total">¥0</span></div>
       </div>
       <div>
@@ -1877,6 +1888,77 @@ function addSalesRow(){
   bdSalesItems.push({item_name:'', memo:'', unit_price:0, qty:1, amount:0, payment_date:null, agent_name:''});
   renderSalesTable();
 }
+
+let bankbookExtracted = [];
+
+function toggleBankbookOcr(){
+  const el = document.getElementById('bankbook-ocr-area');
+  if(!el) return;
+  el.style.display = el.style.display === 'none' ? '' : 'none';
+}
+
+async function extractBankbookFromFile(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const statusEl = document.getElementById('bankbook-file-status');
+  statusEl.textContent = '読み取り中...';
+  statusEl.style.color = 'var(--text3)';
+  document.getElementById('bankbook-results').innerHTML = '';
+  try{
+    const isPdf = file.name.toLowerCase().endsWith('.pdf');
+    const base64 = await new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result.split(',')[1]);
+      r.onerror = reject;
+      r.readAsDataURL(file);
+    });
+    const body = isPdf ? {pdfBase64: base64} : {imageBase64: base64, mediaType: file.type};
+    const response = await fetch('/api/extract-bankbook', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
+    });
+    if(!response.ok){ const e = await response.json(); throw new Error(e.error||'サーバーエラー'); }
+    const data = await response.json();
+    const cleaned = (data.text||'').replace(/```json|```/g,'').trim();
+    const parsed = JSON.parse(cleaned);
+    bankbookExtracted = Array.isArray(parsed) ? parsed : [parsed];
+    renderBankbookResults();
+    statusEl.textContent = `✓ ${bankbookExtracted.length}件を読み取りました`;
+    statusEl.style.color = 'var(--green)';
+  } catch(e) {
+    statusEl.textContent = '読み取り失敗: ' + e.message;
+    statusEl.style.color = 'var(--red)';
+  }
+  event.target.value = '';
+}
+
+function renderBankbookResults(){
+  const el = document.getElementById('bankbook-results');
+  if(!el || bankbookExtracted.length === 0){ if(el) el.innerHTML = ''; return; }
+  const rowOptions = bdSalesItems.map((it,i)=>`<option value="${i}">${i+1}. ${(it.item_name||'(未入力)').replace(/"/g,'&quot;')} ${yen(it.amount||0)}</option>`).join('');
+  el.innerHTML = `<div style="font-size:11px;font-weight:600;margin-bottom:6px">${bankbookExtracted.length}件の入金データを読み取りました</div>`
+    + bankbookExtracted.map((p,k)=>`
+    <div id="bankbook-entry-${k}" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:4px;background:#fff;border:1px solid var(--border);border-radius:6px;padding:5px 8px;font-size:11px">
+      <span style="flex:1">${(p.date||'日付不明')} / <strong>${yen(p.amount||0)}</strong> / ${(p.bank||'—').replace(/</g,'&lt;')}</span>
+      ${rowOptions ? `<select id="bankbook-row-sel-${k}" style="font-size:11px;border:1px solid var(--border);border-radius:4px;padding:2px 4px">${rowOptions}</select>` : ''}
+      <button class="btn btn-p" style="font-size:10px" onclick="applyBankbookEntry(${k})">＋追加</button>
+    </div>`).join('');
+}
+
+function applyBankbookEntry(k){
+  const p = bankbookExtracted[k];
+  if(!p) return;
+  const rowSel = document.getElementById('bankbook-row-sel-'+k);
+  const i = rowSel ? Number(rowSel.value) : 0;
+  if(!bdSalesItems[i]) return;
+  if(!bdSalesItems[i].payments) bdSalesItems[i].payments = [];
+  bdSalesItems[i].payments.push({date: p.date||'', amount: Number(p.amount)||0, bank: p.bank||''});
+  renderSalesTable();
+  const entryEl = document.getElementById('bankbook-entry-'+k);
+  if(entryEl) entryEl.style.display = 'none';
+}
+
 function addCostRow(){
   if(bdLocked) return;
   bdCostItems.push({item_name:'', amount:0, payment_date:null, memo:''});
@@ -1981,6 +2063,7 @@ async function openBookingDetail(id){
 
   bdSalesItems = (salesRows||[]).map(r=>({item_name:r.item_name, memo:r.memo||'', unit_price:r.unit_price, qty:r.qty, amount:r.amount, payment_date:r.payment_date, agent_name:r.agent_name||'', payments:r.payments||[]}));
   bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, memo:r.memo}));
+  bankbookExtracted = [];
 
   bdLocked = !!b.locked;
   renderLockBanner();
