@@ -856,7 +856,7 @@ th.sortable:hover{color:var(--blue)}
         <h4 class="green">売上明細</h4>
         <button class="btn" id="bd-agent-toggle-btn" style="font-size:10px;margin-bottom:4px" onclick="toggleBdAgentColumn()">＋ 請求先を分ける</button>
         <div class="tbl-wrap"><table class="li-table">
-          <thead><tr><th>項目</th><th style="width:74px">単価</th><th style="width:42px">数量</th><th class="li-amt">金額</th><th style="width:95px">入金日</th><th style="width:80px" class="li-amt">入金金額</th><th style="width:80px">入金先銀行</th><th style="width:64px" class="li-amt">未収</th><th class="bd-agent-col" style="width:120px;display:none">請求先</th><th class="li-del"></th></tr></thead>
+          <thead><tr><th style="width:18%">項目名</th><th>追記事項</th><th style="width:62px">単価</th><th style="width:36px">数量</th><th class="li-amt" style="width:72px;text-align:right">金額</th><th style="width:90px">入金日</th><th style="width:72px" class="li-amt">入金金額</th><th style="width:72px">入金先銀行</th><th style="width:58px" class="li-amt">未収</th><th class="bd-agent-col" style="width:120px;display:none">請求先</th><th class="li-del"></th></tr></thead>
           <tbody id="bd-sales-tbody"></tbody>
         </table></div>
         <button class="btn" id="bd-sales-add-btn" style="font-size:10px;margin-top:4px" onclick="addSalesRow()">＋ 行追加</button>
@@ -1684,14 +1684,15 @@ function toggleBdAgentColumn(){
 function renderSalesTable(){  const tbody = document.getElementById('bd-sales-tbody');
   const dis = bdLocked ? 'disabled' : '';
   if(bdSalesItems.length===0){
-    tbody.innerHTML = '<tr><td colspan="8" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
   }else{
     tbody.innerHTML = bdSalesItems.map((it,i)=>`
       <tr>
         <td><input ${dis} value="${(it.item_name||'').replace(/"/g,'&quot;')}" title="${(it.item_name||'').replace(/"/g,'&quot;')}" onchange="bdSalesItems[${i}].item_name=this.value"></td>
+        <td><input ${dis} value="${(it.memo||'').replace(/"/g,'&quot;')}" title="${(it.memo||'').replace(/"/g,'&quot;')}" onchange="bdSalesItems[${i}].memo=this.value"></td>
         <td><input ${dis} type="text" inputmode="numeric" value="${Number(it.unit_price||0).toLocaleString('ja-JP')}" onchange="bdSalesRowCalc(${i},this,'unit_price')"></td>
         <td><input ${dis} type="number" value="${it.qty||1}" onchange="bdSalesRowCalc(${i},this,'qty')"></td>
-        <td id="bd-sales-amt-${i}" class="li-amt">${yen(it.amount||0)}</td>
+        <td id="bd-sales-amt-${i}" class="li-amt" style="text-align:right">${yen(it.amount||0)}</td>
         <td>${renderSalesPaymentDates(it,i,dis)}</td>         <td>${renderSalesPaymentAmounts(it,i,dis)}</td>         <td>${renderSalesPaymentBanks(it,i,dis)}</td>         <td class="li-amt" style="${(Number(it.amount||0)-salesPaymentsTotal(it))>0?'color:var(--red)':'color:var(--green)'}">${yen(Number(it.amount||0)-salesPaymentsTotal(it))}</td>
         <td class="bd-agent-col" style="display:none"><input class="bd-agent-col" style="display:none" ${dis} value="${(it.agent_name||'').replace(/"/g,'&quot;')}" title="${(it.agent_name||'').replace(/"/g,'&quot;')}" placeholder="(予約のAgent)" onchange="bdSalesItems[${i}].agent_name=this.value;renderInvoiceActions()"></td></td>
         <td class="li-del">${bdLocked?'':`<span class="lnk" style="font-size:10px" onclick="removeSalesRow(${i})">削除</span>`}</td>
@@ -1872,7 +1873,7 @@ function bdCostRowCalc(i, el){
 
 function addSalesRow(){
   if(bdLocked) return;
-  bdSalesItems.push({item_name:'', unit_price:0, qty:1, amount:0, payment_date:null, agent_name:''});
+  bdSalesItems.push({item_name:'', memo:'', unit_price:0, qty:1, amount:0, payment_date:null, agent_name:''});
   renderSalesTable();
 }
 function addCostRow(){
@@ -1977,7 +1978,7 @@ async function openBookingDetail(id){
     sb.from('booking_costs').select('*').eq('booking_id', id).order('created_at')
   ]);
 
-  bdSalesItems = (salesRows||[]).map(r=>({item_name:r.item_name, unit_price:r.unit_price, qty:r.qty, amount:r.amount, payment_date:r.payment_date, agent_name:r.agent_name||'', payments:r.payments||[]}));
+  bdSalesItems = (salesRows||[]).map(r=>({item_name:r.item_name, memo:r.memo||'', unit_price:r.unit_price, qty:r.qty, amount:r.amount, payment_date:r.payment_date, agent_name:r.agent_name||'', payments:r.payments||[]}));
   bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, memo:r.memo}));
 
   bdLocked = !!b.locked;
@@ -3993,7 +3994,7 @@ async function saveBookingDetail(){
   await sb.from('booking_costs').delete().eq('booking_id', currentDetailId);
 
   const salesToInsert = bdSalesItems.filter(it=>it.item_name||Number(it.amount)).map(it=>({
-    booking_id: currentDetailId, item_name: it.item_name||'', unit_price: Number(it.unit_price)||0,
+    booking_id: currentDetailId, item_name: it.item_name||'', memo: it.memo||null, unit_price: Number(it.unit_price)||0,
     qty: Number(it.qty)||1, amount: Number(it.amount)||0, payment_date: it.payment_date||null,
     agent_name: it.agent_name||null, payments: it.payments||[]
   }));
