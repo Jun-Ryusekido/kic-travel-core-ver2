@@ -2010,16 +2010,7 @@ async function openBookingDetail(id){
 
   // ガイド登録一覧プルダウンを読み込み
   await populateGuideRegistrySelects([document.getElementById('bd-new-guide-select')]);
-  if(guideSettlementsCache.length>0){
-    const latest = guideSettlementsCache[guideSettlementsCache.length-1];
-    const src = (Array.isArray(latest.guide_names)&&latest.guide_names.length>0)
-      ? latest.guide_names
-      : (latest.guide_name?[{name:latest.guide_name,phone:latest.guide_phone||''}]:[]);
-    bdNewGuideList = src.map(g=>({name:g.name||'',phone:g.phone||''}));
-  }else{
-    bdNewGuideList = [];
-  }
-  renderBdNewGuideList();
+  bdNewGuideList = [];  renderBdNewGuideList();
 
 // ホテル割り当てを読み込み
   const {data: hotelRows} = await sb.from('booking_hotels').select('*').eq('booking_id', id).order('sort_order');
