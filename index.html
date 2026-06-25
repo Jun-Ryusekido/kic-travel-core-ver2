@@ -849,6 +849,13 @@ th.sortable:hover{color:var(--blue)}
       
     </div>
 
+    <div class="modal-section-title">関連Invoice</div>
+    <div id="bd-invoice-actions" style="margin-bottom:6px"></div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Invoice No.</th><th>通貨</th><th>金額</th><th>発行日</th><th>期限</th><th>Status</th></tr></thead>
+      <tbody id="bd-invoices"><tr><td colspan="6" class="empty">なし</td></tr></tbody>
+    </table></div>
+
     <div class="modal-section-title">売上明細 / 仕入明細</div>
     <div id="bd-lock-banner" style="margin-bottom:8px"></div>
     <div class="detail-cols">
@@ -911,12 +918,6 @@ th.sortable:hover{color:var(--blue)}
       <input type="file" accept=".xlsx,.xls,.pdf" style="display:none" onchange="extractHotelFromFile(event)">
     </label>
     <span id="hotel-file-status" style="font-size:11px;color:var(--text3);margin-left:8px"></span>
-    <div class="modal-section-title">関連Invoice</div>
-    <div id="bd-invoice-actions" style="margin-bottom:6px"></div>
-    <div class="tbl-wrap"><table>
-      <thead><tr><th>Invoice No.</th><th>通貨</th><th>金額</th><th>発行日</th><th>期限</th><th>Status</th></tr></thead>
-      <tbody id="bd-invoices"><tr><td colspan="6" class="empty">なし</td></tr></tbody>
-    </table></div>
 
     <div class="modal-section-title">手配書</div>
     <div id="bd-arrangements" style="margin-bottom:6px"></div>
