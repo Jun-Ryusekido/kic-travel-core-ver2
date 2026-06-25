@@ -3148,7 +3148,7 @@ async function reflectVoucherToCost(settlementId, guideIndex){
   const advanceTotal = Number(g.advance_payment||0) + Number(g.additional_advance_payment||0);
   const grandTotal = localTotal + guideFee;
   const transferAmount = grandTotal - advanceTotal;
-  if(!confirm(`以下を仕入明細に追加します。\n現地費用: ${yen(localTotal)}\nガイド費: ${yen(guideFee)}\n仮払金戻し: -${yen(advanceTotal)}\nよろしいですか？`)) return;
+  if(!confirm(`以下を仕入明細に追加します。\n現地費用: ${yen(localTotal)}\nガイド費: ${yen(guideFee)}${advanceTotal>0?`\n仮払金戻し: -${yen(advanceTotal)}`:''}\nよろしいですか？`)) return;
   const rows = [];
   if(localTotal>0) rows.push({booking_id:b.id, item_name:`現地費用（${escHtml(g.name||'')}）`, amount:localTotal, payment_date:null, memo:'伝票より反映'});
   if(guideFee>0) rows.push({booking_id:b.id, item_name:`ガイド費（${escHtml(g.name||'')}）`, amount:guideFee, payment_date:null, memo:'伝票より反映'});
