@@ -2753,7 +2753,7 @@ function renderGuideSettlements(){
       </div>
       <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
         <button class="btn" style="font-size:10px" onclick="reflectCheckedGuideItems('${s.id}')">✅ 選択した項目を反映</button>
-        ${guideList.length>1 ? guideList.map((g,i)=>`<button class="btn" style="font-size:10px" onclick="printGuideSettlement('${s.id}',${i})">🖨 ${escHtml(g.name)}の精算書を印刷</button><button class="btn" style="font-size:10px" onclick="printGuideVouchers('${s.id}',${i})">🧾 ${escHtml(g.name)}の伝票を印刷</button>`).join('') : `<button class="btn" style="font-size:10px" onclick="printGuideSettlement('${s.id}',0)">🖨 精算書を印刷</button><button class="btn" style="font-size:10px" onclick="printGuideVouchers('${s.id}',0)">🧾 伝票を印刷</button>`}
+        ${guideList.length>1 ? guideList.map((g,i)=>`<button class="btn" style="font-size:10px" onclick="printGuideSettlement('${s.id}',${i})">🖨 ${escHtml(g.name)}の精算書を印刷</button><button class="btn" style="font-size:10px" onclick="printGuideVouchers('${s.id}',${i})">🧾 ${escHtml(g.name)}の伝票を印刷</button>${isAccountingUser()?`<button class="btn" style="font-size:10px" onclick="reflectVoucherToCost('${s.id}',${i})">📋 伝票内容を仕入明細に反映</button>`:''}${isAccountingUser()?`<button class="btn" style="font-size:10px" onclick="reflectVoucherToCost('${s.id}',${i})">📋 伝票内容を仕入明細に反映</button>`:''}${isAccountingUser()?`<button class="btn" style="font-size:10px" onclick="reflectVoucherToCost('${s.id}',${i})">📋 伝票内容を仕入明細に反映</button>`:''}`).join('') : `<button class="btn" style="font-size:10px" onclick="printGuideSettlement('${s.id}',0)">🖨 精算書を印刷</button><button class="btn" style="font-size:10px" onclick="printGuideVouchers('${s.id}',0)">🧾 伝票を印刷</button>${isAccountingUser()?`<button class="btn" style="font-size:10px" onclick="reflectVoucherToCost('${s.id}',0)">📋 伝票内容を仕入明細に反映</button>`:''}`}
         ${s.status!=='closed' ? `<button class="btn" style="font-size:10px" onclick="closeGuideSettlement('${s.id}')">この精算を締める</button>` : ''}
         <button class="btn" style="font-size:10px;color:var(--red)" onclick="deleteGuideSettlement('${s.id}')">🗑 このリンクを削除</button>
       </div>
@@ -3118,6 +3118,43 @@ async function createGuideSettlement(){
   setTimeout(()=>{ msg.style.display='none'; }, 2500);
 
   await loadGuideSettlements();
+}
+
+async function reflectVoucherToCost(settlementId, guideIndex){
+  if(bdLocked){ alert('この予約の仕入明細は確定済みです。'); return; }
+  const s = guideSettlementsCache.find(x=>x.id===settlementId);
+  const b = findBookingById(currentDetailId);
+  if(!s || !b) return;
+  const guideList = (Array.isArray(s.guide_names) && s.guide_names.length>0)
+    ? s.guide_names
+    : [{name: s.guide_name||'', advance_payment: s.advance_payment||0, additional_advance_payment: s.additional_advance_payment||0, guide_fee: s.guide_fee||0}];
+  const g = guideList[guideIndex||0] || {};
+  const allItems = (s.items||[]).filter(it=>it.status!=='rejected');
+  const guideFeeItems = allItems.filter(it=>it.category==='ガイド費');
+  const localFeeItems = allItems.filter(it=>it.category!=='ガイド費');
+  const localTotal = localFeeItems.reduce((sum,it)=>sum+Number(it.amount||0),0);
+  const guideFeeFromItems = guideFeeItems.reduce((sum,it)=>sum+Number(it.amount||0),0);
+  const guideFee = Number(g.guide_fee||0) + guideFeeFromItems;
+  const advanceTotal = Number(g.advance_payment||0) + Number(g.additional_advance_payment||0);
+  const grandTotal = localTotal + guideFee;
+  const transferAmount = grandTotal - advanceTotal;
+  if(!confirm(`以下を仕入明細に追加します。\n現地費用: ${yen(localTotal)}\nガイド費: ${yen(guideFee)}\n仮払金戻し: -${yen(advanceTotal)}\nよろしいですか？`)) return;
+  const rows = [];
+  if(localTotal>0) rows.push({booking_id:b.id, item_name:`現地費用（${escHtml(g.name||'')}）`, amount:localTotal, payment_date:null, memo:'伝票より反映'});
+  if(guideFee>0) rows.push({booking_id:b.id, item_name:`ガイド費（${escHtml(g.name||'')}）`, amount:guideFee, payment_date:null, memo:'伝票より反映'});
+  if(advanceTotal>0) rows.push({booking_id:b.id, item_name:`仮払金戻し（${escHtml(g.name||'')}）`, amount:-advanceTotal, payment_date:null, memo:'伝票より反映'});
+  if(rows.length===0){ alert('反映する金額がありません'); return; }
+  const {error} = await sb.from('booking_costs').insert(rows);
+  if(error){ alert('反映に失敗しました: '+error.message); return; }
+  const {data: allCosts} = await sb.from('booking_costs').select('amount').eq('booking_id', b.id);
+  const newGrossCost = (allCosts||[]).reduce((sum,c)=>sum+Number(c.amount||0),0);
+  await sb.from('bookings').update({gross_cost:newGrossCost, updated_at:new Date().toISOString()}).eq('id', b.id);
+  b.gross_cost = newGrossCost;
+  await logAction('伝票内容を仕入明細に反映', b.ref_no);
+  const {data: costRows} = await sb.from('booking_costs').select('*').eq('booking_id', b.id).order('created_at');
+  bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, memo:r.memo}));
+  renderCostTable();
+  alert('仕入明細に反映しました。');
 }
 
 async function reflectCheckedGuideItems(settlementId){
