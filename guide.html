@@ -70,7 +70,7 @@ const SUPABASE_URL = 'https://nzdygjlnzvtdezslnuoy.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Cnloaxzb2Ati8gmCa-1o3Q_t3uy6_mB';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-const CATEGORIES = ['食事代','交通費','駐車場代','高速・有料道路代','入場料・拝観料','ガイド費','宿泊代','その他'];
+const CATEGORIES = ['食事代','交通費','駐車場代','高速・有料道路代','入場料・拝観料','ガイド費','宿泊代'];
 
 function yen(n){ return '¥' + Number(n||0).toLocaleString('ja-JP'); }
 function toggleFreeInput(selId, inpId){
