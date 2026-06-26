@@ -274,7 +274,7 @@ function renderReceiptResult(){
         </div>
         <div>
           <div style="font-size:10px;color:var(--text3);margin-bottom:2px">カテゴリ</div>
-          <select id="pr-cat-${i}" onchange="toggleFreeInput('pr-cat-'+i,'pr-free-'+i)" style="width:100%;border:1px solid var(--border);border-radius:8px;padding:8px;font-size:14px;background:#fff">${CATEGORIES.map(c=>`<option value="${c}" ${(r.category||'その他')===c?'selected':''}>${c}</option>`).join('')}</select><input type="text" id="pr-free-${i}" placeholder="カテゴリを入力" style="display:${(r.category||'その他')==='自由入力'?'block':'none'};width:100%;margin-top:4px;border:1px solid var(--border);border-radius:8px;padding:8px;font-size:14px;background:#fff">
+          <select id="pr-cat-${i}" onchange="toggleFreeInput('pr-cat-${i}','pr-free-${i}')" style="width:100%;border:1px solid var(--border);border-radius:8px;padding:8px;font-size:14px;background:#fff">${CATEGORIES.map(c=>`<option value="${c}" ${(r.category||'その他')===c?'selected':''}>${c}</option>`).join('')}</select><input type="text" id="pr-free-${i}" placeholder="カテゴリを入力" style="display:${(r.category||'その他')==='自由入力'?'block':'none'};width:100%;margin-top:4px;border:1px solid var(--border);border-radius:8px;padding:8px;font-size:14px;background:#fff">
         </div>
         <div>
           <div style="font-size:10px;color:var(--text3);margin-bottom:2px">金額</div>
