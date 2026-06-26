@@ -254,10 +254,18 @@ function renderReceiptResult(){
     return;
   }
   const today = new Date().toISOString().slice(0,10);
+  const guideList = Array.isArray(settlement.guide_names) && settlement.guide_names.length>0
+    ? settlement.guide_names
+    : (settlement.guide_name ? [{name: settlement.guide_name}] : []);
+  const guidePrefix = guideList.length >= 2
+    ? (() => { const idx = guideList.findIndex(g => g.name === settlement.guide_name); return String.fromCharCode(65 + (idx >= 0 ? idx : 0)); })()
+    : '';
   const cards = pendingReceipts.map((r,i)=>{
     const catInList = CATEGORIES.includes(r.category||'');
     const catSelectVal = catInList ? (r.category||'その他') : 'その他（自由入力）';
     const catFreeVal = catInList ? '' : (r.category||'');
+    const noVal = guidePrefix && r.no ? guidePrefix + r.no : (r.no||'');
+    const noPlaceholder = guidePrefix ? guidePrefix+'1, '+guidePrefix+'2...' : '例: 1, A-3';
     return `
     <div id="pr-card-${i}" style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px;background:var(--bg)">
       <div style="display:flex;justify-content:flex-end;margin-bottom:6px">
@@ -266,7 +274,7 @@ function renderReceiptResult(){
       <div style="display:flex;flex-direction:column;gap:8px">
         <div>
           <div style="font-size:10px;color:var(--text3);margin-bottom:2px">領収書番号</div>
-          <input type="text" id="pr-no-${i}" value="${escHtml(r.no||'')}" placeholder="例: 1, A-3" style="width:100%;border:1px solid var(--border);border-radius:8px;padding:8px;font-size:14px;font-weight:700;color:var(--blue);background:#fff">
+          <input type="text" id="pr-no-${i}" value="${escHtml(noVal)}" placeholder="${escHtml(noPlaceholder)}" style="width:100%;border:1px solid var(--border);border-radius:8px;padding:8px;font-size:14px;font-weight:700;color:var(--blue);background:#fff">
         </div>
         <div>
           <div style="font-size:10px;color:var(--text3);margin-bottom:2px">日付</div>
