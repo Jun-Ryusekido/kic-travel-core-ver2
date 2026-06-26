@@ -88,6 +88,7 @@ let settlement = null;
 let booking = null;
 let items = [];
 let pendingReceipts = [];
+let guidePrefix = '';
 
 async function init(){
   const app = document.getElementById('app');
@@ -107,6 +108,13 @@ try{
 app.innerHTML = '<div class="error-box">リンクが見つかりませんでした。担当者にご確認ください。<br><small>'+JSON.stringify(error)+'</small></div>';    return;
   }
   settlement = s;
+  const {data: sibs} = await sb.from('guide_settlements').select('id').eq('booking_ref', s.booking_ref).order('created_at', {ascending: true});
+  if(sibs && sibs.length >= 2){
+    const idx = sibs.findIndex(x => x.id === s.id);
+    guidePrefix = String.fromCharCode(65 + (idx >= 0 ? idx : 0));
+  } else {
+    guidePrefix = '';
+  }
   const {data: b} = await sb.from('bookings').select('ref_no, tour_name, in_date, out_date').eq('ref_no', s.booking_ref).maybeSingle();
   booking = b || null;
   await reload();
@@ -254,12 +262,6 @@ function renderReceiptResult(){
     return;
   }
   const today = new Date().toISOString().slice(0,10);
-  const guideList = Array.isArray(settlement.guide_names) && settlement.guide_names.length>0
-    ? settlement.guide_names
-    : (settlement.guide_name ? [{name: settlement.guide_name}] : []);
-  const guidePrefix = guideList.length >= 2
-    ? (() => { const idx = guideList.findIndex(g => g.name === settlement.guide_name); return String.fromCharCode(65 + (idx >= 0 ? idx : 0)); })()
-    : '';
   const cards = pendingReceipts.map((r,i)=>{
     const catInList = CATEGORIES.includes(r.category||'');
     const catSelectVal = catInList ? (r.category||'その他') : 'その他（自由入力）';
