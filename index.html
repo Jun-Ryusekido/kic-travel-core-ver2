@@ -248,9 +248,9 @@ th.sortable:hover{color:var(--blue)}
     <div class="sb-item" data-pg="invoice" onclick="go('invoice')">🧾 Invoice</div>
     <div class="sb-item" data-pg="estimation" onclick="go('estimation')">📝 見積もり</div>
     <div class="sb-item" data-pg="guide-settlements" onclick="go('guide-settlements')">🧾 ガイド精算一覧</div>
+    <div class="sb-item" data-pg="hotels" onclick="go('hotels')">🏨 ホテル予約管理</div>
     <div class="sb-sec">マスタ管理</div>
     <div class="sb-item" data-pg="partners" onclick="go('partners')">🏢 取引先マスタ</div>
-    <div class="sb-item" data-pg="hotels" onclick="go('hotels')">🏨 ホテル管理</div>
     <div class="sb-sec">分析</div>
     <div class="sb-item admin-only" data-pg="gross" onclick="go('gross')">📈 GROSS / 粗利</div>
     <div class="sb-item accounting-only" data-pg="payment" onclick="go('payment')">💱 入出金管理</div>
@@ -1296,7 +1296,7 @@ function restoreSession(){
 const pageNames={
   dashboard:'Dashboard','new-booking':'New Booking','booking-list':'Booking List',
   invoice:'Invoice',estimation:'見積もり','guide-settlements':'ガイド精算一覧',gross:'GROSS / 粗利管理',payment:'入出金管理',accounts:'アカウント管理',logs:'アクセスログ'
-,hotels:'ホテル管理',partners:'取引先マスタ'
+,hotels:'ホテル予約管理',partners:'取引先マスタ'
 };
 function go(id){
   if((id==='accounts'||id==='logs'||id==='gross') && currentUser && currentUser.role!=='admin') return;
