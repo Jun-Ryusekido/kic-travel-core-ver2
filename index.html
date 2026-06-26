@@ -5337,7 +5337,19 @@ const rotateImage = (b64, mt, deg) => new Promise((resolve)=>{
     const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
     const parsed = JSON.parse(cleaned);
 
-const validCategories = ['ホテル','レストラン','バス・ハイヤー等','その他'];
+    const formatPhoneJP = s => {
+      if(!s) return '';
+      let v = String(s).trim();
+      v = v.replace(/^\+?81[-\s]?/, '0');
+      v = v.replace(/^0+(\d)/, '0$1');
+      v = v.replace(/[()]/g, '');
+      v = v.replace(/[\s.]+/g, '-');
+      v = v.replace(/-+/g, '-');
+      v = v.replace(/^-|-$/g, '');
+      return v;
+    };
+
+    const validCategories = ['ホテル','レストラン','バス・ハイヤー等','その他'];
     if(parsed.category && validCategories.includes(parsed.category)){
       document.getElementById('pt-category').value = parsed.category;
     }
@@ -5383,32 +5395,26 @@ const validCategories = ['ホテル','レストラン','バス・ハイヤー等
       }
     }
 
-    const formatPhoneJP = s => {
-      if(!s) return '';
-      let v = String(s).trim();
-      v = v.replace(/^\+?81[-\s]?/, '0');
-v = v.replace(/^0+(\d)/, '0$1');
-      v = v.replace(/[()]/g, '');
-      v = v.replace(/[\s.]+/g, '-');
-      v = v.replace(/-+/g, '-');
-      v = v.replace(/^-|-$/g, '');
-      return v;
-    };
-    document.getElementById('pt-company').value = parsed.company_name || parsed.company_name_en || '';
-    document.getElementById('pt-company-en').value = parsed.company_name_en || (parsed.company_name && !/[ぁ-んァ-ヶ一-龠]/.test(parsed.company_name) ? '' : '') || '';
-    document.getElementById('pt-branch').value = parsed.branch_name||'';
-    document.getElementById('pt-contact').value = parsed.contact_person||'';
-    document.getElementById('pt-contact-en').value = parsed.contact_person_en||'';
-    document.getElementById('pt-position').value = parsed.position||'';
-    document.getElementById('pt-position-en').value = parsed.position_en||'';
-    document.getElementById('pt-company-phone').value = formatPhoneJP(parsed.company_phone);
-    document.getElementById('pt-phone').value = formatPhoneJP(parsed.phone);
-    document.getElementById('pt-fax').value = formatPhoneJP(parsed.fax);
-    document.getElementById('pt-email').value = parsed.email||'';
-    document.getElementById('pt-address').value = parsed.address||'';
-    document.getElementById('pt-address-en').value = parsed.address_en||'';
+    // 空欄のみ補完するマージ処理（2枚目の名刺読み取りに対応）
+    const wasEmpty = !document.getElementById('pt-company').value && !document.getElementById('pt-contact').value;
+    const setIfEmpty = (id, val) => { const el = document.getElementById(id); if(el && !el.value && val) el.value = val; };
+    setIfEmpty('pt-company', parsed.company_name || parsed.company_name_en || '');
+    setIfEmpty('pt-company-en', parsed.company_name_en || '');
+    setIfEmpty('pt-branch', parsed.branch_name || '');
+    setIfEmpty('pt-contact', parsed.contact_person || '');
+    setIfEmpty('pt-contact-en', parsed.contact_person_en || '');
+    setIfEmpty('pt-position', parsed.position || '');
+    setIfEmpty('pt-position-en', parsed.position_en || '');
+    setIfEmpty('pt-company-phone', formatPhoneJP(parsed.company_phone));
+    setIfEmpty('pt-phone', formatPhoneJP(parsed.phone));
+    setIfEmpty('pt-fax', formatPhoneJP(parsed.fax));
+    setIfEmpty('pt-email', parsed.email || '');
+    setIfEmpty('pt-address', parsed.address || '');
+    setIfEmpty('pt-address-en', parsed.address_en || '');
 
-    statusEl.textContent = '✓ 読み取り完了。内容を確認して保存してください。';
+    statusEl.textContent = wasEmpty
+      ? '✓ 読み取り完了。英語面がある場合は続けて2枚目も読み取れます。'
+      : '✓ 2枚目をマージしました。内容を確認して保存してください。';
     statusEl.style.color = 'var(--green)';
     }catch(e){
     statusEl.textContent = '読み取りに失敗しました: '+(e.message||e)+' 手動で入力してください。';
