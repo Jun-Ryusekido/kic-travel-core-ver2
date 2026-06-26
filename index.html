@@ -3020,15 +3020,15 @@ function buildGuideSettlementPrintHtml(s, b, guideIndex){
   const localFeeItems = allItems.filter(it=>it.category!=='ガイド費');
   // 複数ガイドの場合はガイド名で絞り込み（旧データ等、ガイド名未設定の項目は1人目に含める）
   const items = guideList.length>1
-    ? localFeeItems.filter(it => it.guide_name===g.name || (!it.guide_name && guideIndex===0))
-    : localFeeItems;
+    ? allItems.filter(it => it.guide_name===g.name || (!it.guide_name && guideIndex===0))
+    : allItems;
 
   const advanceTotal = Number(g.advance_payment||0) + Number(g.additional_advance_payment||0);
   const guideItemsFiltered = guideList.length>1 ? guideFeeItems.filter(it=>it.guide_name===g.name||(!it.guide_name&&guideIndex===0)) : guideFeeItems;
   const localFeeFiltered = guideList.length>1 ? localFeeItems.filter(it=>it.guide_name===g.name||(!it.guide_name&&guideIndex===0)) : localFeeItems;
   const guideFeeFromItems = guideItemsFiltered.reduce((sum,it)=>sum+Number(it.amount||0),0);
   const localTotal = localFeeFiltered.reduce((sum,it)=>sum+Number(it.amount||0),0);
-  const guideFee = Number(g.guide_fee||0) + guideFeeFromItems;
+  const guideFee = guideFeeFromItems;
   const grandTotal = localTotal + guideFee;
   const transferAmount = grandTotal - advanceTotal;
 
@@ -3132,7 +3132,7 @@ function printGuideVouchers(settlementId, guideIndex){
   const localFeeItems = allItems.filter(it=>it.category!=='ガイド費');
   const localTotal = localFeeItems.reduce((sum,it)=>sum+Number(it.amount||0),0);
   const guideFeeFromItems = guideFeeItems.reduce((sum,it)=>sum+Number(it.amount||0),0);
-  const guideFee = Number(g.guide_fee||0) + guideFeeFromItems;
+  const guideFee = guideFeeFromItems;
   const advanceTotal = Number(g.advance_payment||0) + Number(g.additional_advance_payment||0);
   const grandTotal = localTotal + guideFee;
   const transferAmount = grandTotal - advanceTotal;
@@ -3362,7 +3362,7 @@ async function reflectVoucherToCost(settlementId, guideIndex){
   const localFeeItems = allItems.filter(it=>it.category!=='ガイド費');
   const localTotal = localFeeItems.reduce((sum,it)=>sum+Number(it.amount||0),0);
   const guideFeeFromItems = guideFeeItems.reduce((sum,it)=>sum+Number(it.amount||0),0);
-  const guideFee = Number(g.guide_fee||0) + guideFeeFromItems;
+  const guideFee = guideFeeFromItems;
   const advanceTotal = Number(g.advance_payment||0) + Number(g.additional_advance_payment||0);
   const grandTotal = localTotal + guideFee;
   const transferAmount = grandTotal - advanceTotal;
