@@ -969,9 +969,12 @@ th.sortable:hover{color:var(--blue)}
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         <input id="bd-new-guide-name" placeholder="ガイド名" style="max-width:160px;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:12px">
         <input id="bd-new-guide-phone" placeholder="電話番号" style="max-width:130px;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:12px">
-        <select id="bd-new-guide-select" onchange="applyGuideFromRegistryAndAdd(this)" style="max-width:90px;font-size:11px;padding:6px;border-radius:8px;border:1px solid var(--border)">
-          <option value="">登録一覧</option>
-        </select>
+        <div style="display:inline-flex;flex-direction:column;gap:2px">
+          <input id="bd-guide-search" placeholder="🔍 絞り込み" oninput="filterGuideSelect(this,document.getElementById('bd-new-guide-select'))" style="font-size:11px;padding:4px 6px;border-radius:6px;border:1px solid var(--border);width:90px">
+          <select id="bd-new-guide-select" onchange="applyGuideFromRegistryAndAdd(this)" style="width:90px;font-size:11px;padding:6px;border-radius:8px;border:1px solid var(--border)">
+            <option value="">登録一覧</option>
+          </select>
+        </div>
         <button class="btn" style="font-size:10px" onclick="addGuideToNewList()">＋ ガイドを追加</button>
       </div>
       <div style="margin-top:6px">
@@ -1028,9 +1031,12 @@ th.sortable:hover{color:var(--blue)}
       <div class="form-field"><label>ガイド名</label>
         <div style="display:flex;gap:4px">
           <input id="arr-guide-name" style="flex:1">
-          <select onchange="applyGuideFromRegistry(this,'arr-guide-name','arr-guide-phone')" style="max-width:90px;font-size:11px">
-            <option value="">登録一覧</option>
-          </select>
+          <div style="display:flex;flex-direction:column;gap:2px">
+            <input id="arr-guide-search" placeholder="🔍 絞り込み" oninput="filterGuideSelect(this,document.getElementById('arr-guide-select'))" style="font-size:11px;padding:4px 6px;border-radius:6px;border:1px solid var(--border);width:90px">
+            <select id="arr-guide-select" onchange="applyGuideFromRegistry(this,'arr-guide-name','arr-guide-phone')" style="width:90px;font-size:11px">
+              <option value="">登録一覧</option>
+            </select>
+          </div>
         </div>
       </div>
       <div class="form-field"><label>ガイド電話</label><input id="arr-guide-phone"></div>
@@ -2350,6 +2356,8 @@ async function openArrangementEditor(arrId){
 
   renderArrDays();
   await populateGuideRegistrySelects(document.querySelectorAll('#arrangement-modal select[onchange*="applyGuideFromRegistry"]'));
+  const arrSearch = document.getElementById('arr-guide-search');
+  if(arrSearch) arrSearch.value = '';
   document.getElementById('arrangement-modal').classList.add('open');
 }
 
@@ -3309,6 +3317,8 @@ function applyGuideFromRegistryAndAdd(selectEl){
   const g = JSON.parse(selectEl.value);
   bdNewGuideList.push({name: g.name||'', phone: g.phone||''});
   selectEl.value='';
+  const searchEl = document.getElementById('bd-guide-search');
+  if(searchEl){ searchEl.value=''; filterGuideSelect(searchEl, selectEl); }
   renderBdNewGuideList();
 }
 
@@ -4531,6 +4541,17 @@ function printGuideAdvanceList(){
 let guideRegistryCache = [];
 let currentGuideEditId = null;
 
+function filterGuideSelect(inputEl, selectEl){
+  if(!selectEl) return;
+  const q = (inputEl.value||'').trim().toLowerCase();
+  const filtered = q
+    ? guideRegistryCache.filter(g=>(g.name||'').toLowerCase().includes(q)||(g.name_kana||'').toLowerCase().includes(q))
+    : guideRegistryCache;
+  selectEl.innerHTML = '<option value="">登録一覧</option>' + filtered.map(g=>
+    `<option value='${JSON.stringify({name:g.name,phone:g.phone||''}).replace(/'/g,"&apos;")}'>${escHtml(g.name)}${g.age!=null?`（${g.age}歳）`:''}</option>`
+  ).join('');
+}
+
 // 登録一覧プルダウンに反映（select要素のリスト）
 async function populateGuideRegistrySelects(selectEls){
   if(guideRegistryCache.length===0){
@@ -4550,6 +4571,8 @@ function applyGuideFromRegistry(selectEl, nameFieldId, phoneFieldId){
   document.getElementById(nameFieldId).value = g.name || '';
   if(phoneFieldId && g.phone) document.getElementById(phoneFieldId).value = g.phone;
   selectEl.value = '';
+  const searchEl = selectEl.previousElementSibling;
+  if(searchEl && searchEl.tagName==='INPUT'){ searchEl.value=''; filterGuideSelect(searchEl, selectEl); }
 }
 
 function toggleGuideRegistrySection(){
