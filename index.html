@@ -3311,15 +3311,15 @@ function removeGuideFromNewList(i){
   renderBdNewGuideList();
 }
 
-// 登録一覧から選択 → 名前/電話欄に反映してすぐリストに追加
+// 登録一覧から選択 → 名前/電話番号欄に反映
 function applyGuideFromRegistryAndAdd(selectEl){
   if(!selectEl.value) return;
   const g = JSON.parse(selectEl.value);
-  bdNewGuideList.push({name: g.name||'', phone: g.phone||''});
-  selectEl.value='';
+  document.getElementById('bd-new-guide-name').value = g.name || '';
+  document.getElementById('bd-new-guide-phone').value = g.phone || '';
+  selectEl.value = '';
   const searchEl = document.getElementById('bd-guide-search');
   if(searchEl){ searchEl.value=''; filterGuideSelect(searchEl, selectEl); }
-  renderBdNewGuideList();
 }
 
 async function createGuideSettlement(){
