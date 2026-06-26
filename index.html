@@ -4792,9 +4792,10 @@ const POUT_COLUMNS = [['payment_date','出金日',true,'12%'],['ref_no','REF#',t
 
 function setPaymentRangeThisMonth(){
   const now = new Date();
-  const first = new Date(now.getFullYear(), now.getMonth(), 1);
-  document.getElementById('pay-from').value = first.toISOString().slice(0,10);
-  document.getElementById('pay-to').value = now.toISOString().slice(0,10);
+  const pad = n => String(n).padStart(2,'0');
+  const y = now.getFullYear(), m = now.getMonth()+1, d = now.getDate();
+  document.getElementById('pay-from').value = `${y}-${pad(m)}-01`;
+  document.getElementById('pay-to').value = `${y}-${pad(m)}-${pad(d)}`;
   loadPayments();
 }
 
