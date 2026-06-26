@@ -118,6 +118,12 @@ async function reload(){
   render();
 }
 
+async function updateItemReceiptNo(id, value){
+  await sb.from('guide_settlement_items').update({receipt_no: value||null}).eq('id', id);
+  const item = items.find(it=>it.id===id);
+  if(item) item.receipt_no = value||null;
+}
+
 function render(){
   const app = document.getElementById('app');
   const total = items.filter(it=>it.status!=='rejected').reduce((sum,it)=>sum+Number(it.amount||0),0);
@@ -158,7 +164,10 @@ function render(){
     const pillLabel = it.status==='approved' ? '承認済' : it.status==='rejected' ? '却下' : '未確認';
     return `<div class="item-row">
       <div class="main">
-        <div>${it.receipt_no ? `<b style="color:var(--blue)">No.${escHtml(it.receipt_no)}</b> ` : ''}<span class="cat">${escHtml(it.category||'')}</span></div>
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <input type="text" value="${escHtml(it.receipt_no||'')}" placeholder="No." onchange="updateItemReceiptNo('${it.id}',this.value)" style="width:72px;border:1px solid var(--border);border-radius:6px;padding:2px 6px;font-size:12px;font-weight:700;color:var(--blue);text-align:center">
+          <span class="cat">${escHtml(it.category||'')}</span>
+        </div>
         <div>${escHtml(it.description||'')}</div>
         ${it.expense_date ? `<div style="font-size:10px;color:var(--text3)">${escHtml(it.expense_date)}</div>` : ''}
       </div>
