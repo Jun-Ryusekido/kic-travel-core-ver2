@@ -729,6 +729,7 @@ th.sortable:hover{color:var(--blue)}
         </div>
         </div>
       </div>
+      </div>
       <!-- 取引先マスタ -->
       <div id="pg-partners" class="page" style="display:none">
         <div class="card">
@@ -1295,7 +1296,7 @@ function restoreSession(){
 const pageNames={
   dashboard:'Dashboard','new-booking':'New Booking','booking-list':'Booking List',
   invoice:'Invoice',estimation:'見積もり','guide-settlements':'ガイド精算一覧',gross:'GROSS / 粗利管理',payment:'入出金管理',accounts:'アカウント管理',logs:'アクセスログ'
-,hotels:'ホテル管理'
+,hotels:'ホテル管理',partners:'取引先マスタ'
 };
 function go(id){
   if((id==='accounts'||id==='logs'||id==='gross') && currentUser && currentUser.role!=='admin') return;
