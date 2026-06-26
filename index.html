@@ -2049,6 +2049,14 @@ async function applyDashboardBankbookEntry(k){
   const btn = document.getElementById('db-bb-btn-'+k);
   if(!sel || !sel.value){ alert('ツアーを選択してください'); return; }
   const bookingId = Number(sel.value);
+  const booking = allBookingsCache.find(b=>b.id===bookingId);
+  const refNo = booking ? (booking.ref_no||`ID:${bookingId}`) : `ID:${bookingId}`;
+  let dateStr = p.date||'日付不明';
+  if(p.date && /^\d{4}-\d{2}-\d{2}$/.test(p.date)){
+    const [y,m,d] = p.date.split('-');
+    dateStr = `${y}年${Number(m)}月${Number(d)}日`;
+  }
+  if(!confirm(`${dateStr} ${yen(p.amount||0)} → ${refNo} に反映しますか？`)) return;
   if(btn) btn.disabled = true;
   statusEl.textContent = '更新中...';
   statusEl.style.color = 'var(--text3)';
