@@ -1,0 +1,23 @@
+{
+  "name": "kic-travel-core-ver2",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Jun-Ryusekido/kic-travel-core-ver2.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Jun-Ryusekido/kic-travel-core-ver2/issues"
+  },
+  "homepage": "https://github.com/Jun-Ryusekido/kic-travel-core-ver2#readme",
+  "dependencies": {
+    "xlsx": "^0.18.5"
+  }
+}

@@ -1,4 +1,4 @@
-import * as XLSX from 'xlsx';
+import XLSX from 'xlsx';
 
 const SB_URL = 'https://nzdygjlnzvtdezslnuoy.supabase.co';
 const SB_KEY = process.env.SUPABASE_KEY || 'sb_publishable_Cnloaxzb2Ati8gmCa-1o3Q_t3uy6_mB';
@@ -21,7 +21,7 @@ function cell(ws, addr, value) {
 }
 
 export default async function handler(req, res) {
-  const { booking_id, type = 'initial' } = req.query;
+  const { booking_id } = req.query;
   if (!booking_id) return res.status(400).json({ error: 'booking_id is required' });
 
   try {
@@ -55,9 +55,7 @@ export default async function handler(req, res) {
     // ── Excel 構築 ───────────────────────────────────────────────
     const ws = {};
 
-    // ヘッダー行
-    const typeLabel = type === 'final' ? '【FINAL】' : '【INITIAL】';
-    cell(ws, 'A1', `手配書 ${typeLabel}`);
+    cell(ws, 'A1', '手配書');
 
     // 固定セル
     cell(ws, 'A2', b.ref_no || '');               // ツアーコード
@@ -97,8 +95,7 @@ export default async function handler(req, res) {
 
       cell(ws, `A${row}`, d.day_date || '');
       cell(ws, `B${row}`, d.day_of_week || '');
-      // C列: バス会社 (finalのみ入力。initialは空欄)
-      cell(ws, `C${row}`, type === 'final' ? (d.bus_company || arr.bus_company_name || '') : '');
+      cell(ws, `C${row}`, '');
       cell(ws, `D${row}`, d.itinerary || '');
       cell(ws, `R${row}`, hotelName);                // R列: ホテル名
       cell(ws, `S${row}`, d.hotel_area || '');
@@ -127,7 +124,7 @@ export default async function handler(req, res) {
     XLSX.utils.book_append_sheet(wb, ws, '手配書');
 
     const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
-    const filename = `haichisho_${(b.ref_no || booking_id).replace(/[^A-Za-z0-9_-]/g, '_')}_${type}.xlsx`;
+    const filename = `haichisho_${(b.ref_no || booking_id).replace(/[^A-Za-z0-9_-]/g, '_')}.xlsx`;
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
