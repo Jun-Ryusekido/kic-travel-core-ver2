@@ -1512,6 +1512,7 @@ function go(id){
   currentPageId = id;
   document.querySelectorAll('.page').forEach(el=>el.style.display='none');
   document.getElementById('pg-'+id).style.display='';
+  window.scrollTo(0, 0);
   document.querySelectorAll('.sb-item').forEach(n=>n.classList.remove('active'));
   document.querySelectorAll('.sb-item[data-pg="'+id+'"]').forEach(n=>n.classList.add('active'));
   document.getElementById('pg-title').textContent = pageNames[id]||id;
