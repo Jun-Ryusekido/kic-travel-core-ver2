@@ -104,7 +104,10 @@ th.sortable:hover{color:var(--blue)}
 @media(max-width:768px){
   #db-thead th,#db-tbody td{display:none}
   #db-thead th:nth-child(1),#db-thead th:nth-child(3),#db-thead th:nth-child(4),
-  #db-tbody tr td:nth-child(1),#db-tbody tr td:nth-child(3),#db-tbody tr td:nth-child(4){display:table-cell}
+  #db-tbody tr td:nth-child(1),#db-tbody tr td:nth-child(3),#db-tbody tr td:nth-child(4){display:table-cell;white-space:normal;overflow:visible;text-overflow:clip}
+  #db-thead th:nth-child(1),#db-tbody tr td:nth-child(1){width:15%!important}
+  #db-thead th:nth-child(3),#db-tbody tr td:nth-child(3){width:50%!important}
+  #db-thead th:nth-child(4),#db-tbody tr td:nth-child(4){width:35%!important}
 }
 .menu-btn{display:none;align-items:center;justify-content:center;width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:#fff;cursor:pointer;margin-right:8px}
 
