@@ -1512,7 +1512,10 @@ function go(id){
   currentPageId = id;
   document.querySelectorAll('.page').forEach(el=>el.style.display='none');
   document.getElementById('pg-'+id).style.display='';
+  // iOS Safari は document.body.scrollTop、他は window.scrollTo を使う
   window.scrollTo(0, 0);
+  document.documentElement.scrollTop = 0;
+  document.body.scrollTop = 0;
   document.querySelectorAll('.sb-item').forEach(n=>n.classList.remove('active'));
   document.querySelectorAll('.sb-item[data-pg="'+id+'"]').forEach(n=>n.classList.add('active'));
   document.getElementById('pg-title').textContent = pageNames[id]||id;
@@ -5810,24 +5813,34 @@ async function loadPartners(){
 }
 
 function filterPartners(){
-  const q = toHalfWidth((document.getElementById('pt-search')?.value||'').trim().toLowerCase());
+  // クエリは全角→半角変換して正規化、日本語はそのまま保持
+  const q = toHalfWidth((document.getElementById('pt-search')?.value||'').trim()).toLowerCase();
   const cat = document.getElementById('pt-category-filter')?.value||'';
   let filtered = partnersCache;
   if(cat) filtered = filtered.filter(p=>p.category===cat);
   if(q){
     filtered = filtered.filter(p=>{
-      const hay = `${p.company_name||''} ${p.contact_person||''} ${p.phone||''} ${p.email||''} ${p.notes||''}`.toLowerCase();
-      return toHalfWidth(hay).includes(q);
+      // hay には全フィールドを含め、toHalfWidth は適用しない（日本語を壊さないため）
+      const hay = [
+        p.company_name, p.company_name_en,
+        p.branch_name, p.branch_name_en,
+        p.contact_person, p.contact_person_en,
+        p.phone, p.company_phone, p.fax,
+        p.email, p.address, p.notes
+      ].filter(Boolean).join(' ');
+      return toHalfWidth(hay).toLowerCase().includes(q);
     });
   }
   document.getElementById('pt-count').textContent = `${filtered.length}件 / 全${partnersCache.length}件`;
 
   const tbody = document.getElementById('pt-tbody');
   const cards = document.getElementById('pt-cards');
+  const isMobile = window.innerWidth <= 768;
 
   if(filtered.length===0){
-    tbody.innerHTML = '<tr><td colspan="7" class="empty">該当する取引先はいません</td></tr>';
-    cards.innerHTML = '<div class="empty" style="text-align:center;padding:20px;color:var(--text3)">該当する取引先はいません</div>';
+    // スマホはカード側のみ、PCはテーブル側のみメッセージを出す（重複表示を防ぐ）
+    tbody.innerHTML = isMobile ? '' : '<tr><td colspan="7" class="empty">該当する取引先はいません</td></tr>';
+    cards.innerHTML = isMobile ? '<div class="empty" style="text-align:center;padding:20px;color:var(--text3)">該当する取引先はいません</div>' : '';
     return;
   }
 
