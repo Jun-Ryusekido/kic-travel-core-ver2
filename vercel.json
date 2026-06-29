@@ -1,6 +1,7 @@
 {
   "rewrites": [
     { "source": "/guide_settlement_jp.pdf", "destination": "/public/guide_settlement_jp.pdf" },
-    { "source": "/guide_settlement_en.pdf", "destination": "/public/guide_settlement_en.pdf" }
+    { "source": "/guide_settlement_en.pdf", "destination": "/public/guide_settlement_en.pdf" },
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
