@@ -6,6 +6,7 @@
 <title>KIC Travel Core Ver2</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{--blue:#185FA5;--blue-lt:#E6F1FB;--blue-bd:#B5D4F4;--green:#0F6E56;--green-lt:#EAF3DE;--amber:#854F0B;--amber-lt:#FAEEDA;--red:#A32D2D;--red-lt:#FCEBEB;--bg:#F4F3EE;--card:#FFFFFF;--border:#E3E1D9;--text:#1F1E1B;--text2:#5F5E5A;--text3:#9B998F}
@@ -2831,6 +2832,23 @@ async function deleteBookingData(){
 // ===================================================
 // ガイド精算 (Guide Settlement)
 // ===================================================
+function downloadQRFromUrl(url, filename){
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:fixed;left:-9999px;top:-9999px';
+  document.body.appendChild(wrap);
+  const qr = new QRCode(wrap, {text: url, width: 256, height: 256, correctLevel: QRCode.CorrectLevel.M});
+  setTimeout(()=>{
+    const canvas = wrap.querySelector('canvas');
+    if(canvas){
+      const a = document.createElement('a');
+      a.href = canvas.toDataURL('image/png');
+      a.download = filename;
+      a.click();
+    }
+    document.body.removeChild(wrap);
+  }, 100);
+}
+
 function gsGuideUrl(token){
   return `${location.origin}${location.pathname.replace(/index\.html$/,'').replace(/\/$/,'')}/guide.html?token=${token}`;
 }
@@ -2965,7 +2983,7 @@ function renderGuideSettlements(){
           <div class="gs-field"><label>仮払金</label><input type="number" value="${g.advance_payment||0}" onchange="updateGuideEntryField('${s.id}',${i},'advance_payment',this.value)"></div>
           <div class="gs-field"><label>仮払金追加</label><input type="number" value="${g.additional_advance_payment||0}" onchange="updateGuideEntryField('${s.id}',${i},'additional_advance_payment',this.value)"></div>
           <div class="gs-field"><label>仮払金合計</label><input type="number" value="${Number(g.advance_payment||0)+Number(g.additional_advance_payment||0)}" readonly style="background:var(--bg2,#f5f5f5);color:var(--text2)"></div>
-          <div class="gs-field" style="display:flex;align-items:flex-end;gap:4px;padding-bottom:2px"><button onclick="window.open('/guide_settlement_jp.pdf','_blank')" style="font-size:11px;padding:4px 8px;" class="btn">📄 精算手順JP</button><button onclick="window.open('/guide_settlement_en.pdf','_blank')" style="font-size:11px;padding:4px 8px;" class="btn">📄 EN</button></div>
+          <div class="gs-field" style="display:flex;align-items:flex-end;gap:4px;padding-bottom:2px;flex-wrap:wrap"><button onclick="window.open('/guide_settlement_jp.pdf','_blank')" style="font-size:11px;padding:4px 8px;" class="btn">📄 精算手順JP</button><button onclick="window.open('/guide_settlement_en.pdf','_blank')" style="font-size:11px;padding:4px 8px;" class="btn">📄 EN</button><button onclick="downloadQRFromUrl('https://kic-travel-core-ver2.vercel.app/guide_settlement_jp.pdf','qr_settlement_jp.png')" style="font-size:11px;padding:4px 8px;" class="btn">📱 QR JP</button><button onclick="downloadQRFromUrl('https://kic-travel-core-ver2.vercel.app/guide_settlement_en.pdf','qr_settlement_en.png')" style="font-size:11px;padding:4px 8px;" class="btn">📱 QR EN</button><button onclick="downloadQRFromUrl(gsGuideUrl('${s.access_token}'),'qr_guide_${escAttr(s.booking_ref||s.id)}.png')" style="font-size:11px;padding:4px 8px;" class="btn">📱 QR 精算リンク</button></div>
           <div class="gs-field" style="display:none"><label>ガイド費(日当)</label><input type="number" value="${g.guide_fee||0}" onchange="updateGuideEntryField('${s.id}',${i},'guide_fee',this.value)"></div>
         </div>
       </div>`).join('');
