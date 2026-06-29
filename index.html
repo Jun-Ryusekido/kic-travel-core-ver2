@@ -5842,44 +5842,62 @@ const rotateImage = (b64, mt, deg) => new Promise((resolve)=>{
       document.getElementById('pt-category').value = parsed.category;
     }
 
-    const norm = s => (s||'').replace(/[^0-9a-zA-Z]/g,'').toLowerCase();
+    // 英数字のみの正規化（電話・メール・英語社名用）
+    const norm    = s => (s||'').replace(/[^0-9a-zA-Z]/g,'').toLowerCase();
+    // 日本語社名用の正規化（日本語文字を保持、一般的な法人格・記号を除去）
+    const normJa  = s => (s||'')
+      .replace(/株式会社|有限会社|合同会社|一般社団法人|公益社団法人|一般財団法人|公益財団法人/g,'')
+      .replace(/Co\.,?\s*Ltd\.?|Inc\.?|Corp\.?|Ltd\.?|LLC/gi,'')
+      .replace(/[　 \t\r\n\-・,，.。\/（）()]/g,'')
+      .toLowerCase();
     const normPhone = s => { let v = norm(s); if(v.startsWith('81')) v = '0'+v.slice(2); return v; };
-    const newPhone = normPhone(parsed.company_phone);
-    const newEmail = norm(parsed.email);
-    const newCompanyJa = norm(parsed.company_name);
-    const newCompanyEn = norm(parsed.company_name_en);
 
-    const dup = partnersCache.find(p=>{
-      const pPhone = normPhone(p.company_phone);
-      const pEmail = norm(p.email);
-      const pCompanyJa = norm(p.company_name);
-      const pCompanyEn = norm(p.company_name_en);
-      const phoneMatch = newPhone && pPhone && newPhone===pPhone;
-      const emailMatch = newEmail && pEmail && newEmail===pEmail;
-      const cm = (a,b) => a && b && (a===b || a.includes(b) || b.includes(a));
-      const companyMatch = cm(newCompanyJa,pCompanyJa) || cm(newCompanyEn,pCompanyEn) || cm(newCompanyJa,pCompanyEn) || cm(newCompanyEn,pCompanyJa);
-      return phoneMatch || emailMatch || companyMatch;
-    });
+    // 2枚目名刺（英語面）の判定：フォームに既にデータがある場合はダイアログを出さずにマージ
+    const formHasData = !!(document.getElementById('pt-company').value || document.getElementById('pt-contact').value);
 
-    if(dup && dup.id !== currentPartnerEditId){
-      const merge = confirm(`類似する取引先「${dup.company_name}」が既に登録されています。\nこの情報をマージしますか？\n\n「OK」: 既存データに統合（空欄のみ上書き）\n「キャンセル」: 別の新規取引先として登録`);
-      if(merge){
-        currentPartnerEditId = dup.id;
-        document.getElementById('partner-modal-title').textContent = '取引先編集（マージ）';
-        document.getElementById('pt-category').value = dup.category || document.getElementById('pt-category').value;
-        document.getElementById('pt-company').value = dup.company_name || parsed.company_name || '';
-        document.getElementById('pt-branch').value = dup.branch_name || parsed.branch_name || '';
-        document.getElementById('pt-contact').value = dup.contact_person || parsed.contact_person || '';
-        document.getElementById('pt-position').value = dup.position || parsed.position || '';
-        document.getElementById('pt-company-phone').value = dup.company_phone || formatPhoneJP(parsed.company_phone) || '';
-        document.getElementById('pt-phone').value = dup.phone || formatPhoneJP(parsed.phone) || '';
-        document.getElementById('pt-fax').value = dup.fax || formatPhoneJP(parsed.fax) || '';
-        document.getElementById('pt-email').value = dup.email || parsed.email || '';
-        document.getElementById('pt-address').value = dup.address || parsed.address || '';
-        statusEl.textContent = '✓ 既存の取引先にマージしました。内容を確認して保存してください。';
-        statusEl.style.color = 'var(--green)';
-        event.target.value = '';
-        return;
+    if(!formHasData){
+      const newPhone   = normPhone(parsed.company_phone);
+      const newEmail   = norm(parsed.email);
+      const newJa      = normJa(parsed.company_name);     // 日本語社名（正規化）
+      const newEn      = norm(parsed.company_name_en);    // 英語社名（英数字）
+      const newJaAlpha = norm(parsed.company_name);       // 日本語社名から英数字部分を抽出
+
+      const dup = partnersCache.find(p=>{
+        const pPhone   = normPhone(p.company_phone);
+        const pEmail   = norm(p.email);
+        const pJa      = normJa(p.company_name);
+        const pEn      = norm(p.company_name_en);
+        const pJaAlpha = norm(p.company_name);
+        const phoneMatch   = newPhone && pPhone && newPhone===pPhone;
+        const emailMatch   = newEmail && pEmail && newEmail===pEmail;
+        const cm = (a,b)=>!!(a && b && a.length>=2 && b.length>=2 && (a===b||a.includes(b)||b.includes(a)));
+        const companyMatch = cm(newJa,pJa)          // 日本語名 vs 日本語名（normJaで正規化）
+                          || cm(newEn,pEn)          // 英語名 vs 英語名
+                          || cm(newJaAlpha,pEn)     // 日本語名の英数字部分 vs 英語名
+                          || cm(newEn,pJaAlpha);    // 英語名 vs 日本語名の英数字部分
+        return phoneMatch || emailMatch || companyMatch;
+      });
+
+      if(dup && dup.id !== currentPartnerEditId){
+        const merge = confirm(`類似する取引先「${dup.company_name}」が既に登録されています。\nこの情報をマージしますか？\n\n「OK」: 既存データに統合（空欄のみ上書き）\n「キャンセル」: 別の新規取引先として登録`);
+        if(merge){
+          currentPartnerEditId = dup.id;
+          document.getElementById('partner-modal-title').textContent = '取引先編集（マージ）';
+          document.getElementById('pt-category').value = dup.category || document.getElementById('pt-category').value;
+          document.getElementById('pt-company').value = dup.company_name || parsed.company_name || '';
+          document.getElementById('pt-branch').value = dup.branch_name || parsed.branch_name || '';
+          document.getElementById('pt-contact').value = dup.contact_person || parsed.contact_person || '';
+          document.getElementById('pt-position').value = dup.position || parsed.position || '';
+          document.getElementById('pt-company-phone').value = dup.company_phone || formatPhoneJP(parsed.company_phone) || '';
+          document.getElementById('pt-phone').value = dup.phone || formatPhoneJP(parsed.phone) || '';
+          document.getElementById('pt-fax').value = dup.fax || formatPhoneJP(parsed.fax) || '';
+          document.getElementById('pt-email').value = dup.email || parsed.email || '';
+          document.getElementById('pt-address').value = dup.address || parsed.address || '';
+          statusEl.textContent = '✓ 既存の取引先にマージしました。内容を確認して保存してください。';
+          statusEl.style.color = 'var(--green)';
+          event.target.value = '';
+          return;
+        }
       }
     }
 
