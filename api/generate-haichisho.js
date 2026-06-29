@@ -62,6 +62,16 @@ function findDayRows(ws) {
   return rows;
 }
 
+// 1日分のデータセルをクリア（テンプレートの古いデータ消去用）
+function clearDayBlock(ws, r) {
+  // Row +0
+  ['A','B','C','E','O','R','X','Z','AC','AE'].forEach((col) => set(ws, `${col}${r}`,     ''));
+  // Row +2: 昼食
+  ['Z','AC','AE'].forEach((col)                           => set(ws, `${col}${r + 2}`, ''));
+  // Row +4: 曜日・夕食
+  ['B','R','S','Z','AC','AE'].forEach((col)               => set(ws, `${col}${r + 4}`, ''));
+}
+
 // ── F シート書き込み ────────────────────────────────────────────
 function fillF(ws, b, arr, days, hotels) {
   // ヘッダー
@@ -70,16 +80,18 @@ function fillF(ws, b, arr, days, hotels) {
   set(ws, 'O2',  b.pax != null ? Number(b.pax) : '');
   set(ws, 'S2',  [arr.arr_date, arr.arr_airport, arr.arr_flight, arr.arr_time].filter(Boolean).join('  '));
   set(ws, 'Z2',  arr.guide_name  || '');
+  set(ws, 'A3',  b.agent_name   || '');
   set(ws, 'G5',  arr.travel_agency_name || b.agent_name || '');
   set(ws, 'S6',  [arr.dep_date, arr.dep_airport, arr.dep_flight, arr.dep_time].filter(Boolean).join('  '));
   set(ws, 'Z7',  arr.guide_phone || '');
 
-  // 日程行検索（テンプレートの実際の位置を使用）
+  // 日程行をすべて検索（テンプレートの実際の位置）
   const dayRows = findDayRows(ws);
 
+  // ── ツアー日程を書き込む ──
   days.forEach((d, i) => {
-    if (i >= dayRows.length) return; // テンプレート行数を超えた場合はスキップ
-    const r = dayRows[i]; // 1始まり行番号
+    if (i >= dayRows.length) return;
+    const r = dayRows[i];
 
     const h = hotels.find(
       (x) => x.check_in && x.check_out && x.check_in <= d.day_date && x.check_out > d.day_date
@@ -87,32 +99,43 @@ function fillF(ws, b, arr, days, hotels) {
     const hotelName = h ? (h.hotel_name       || '') : (d.hotel_name       || '');
     const hotelArea = h ? (h.hotel_area        || '') : (d.hotel_area       || '');
     const hotelTel  = h ? (h.hotel_area_phone  || '') : (d.hotel_area_phone || '');
-    const dow = d.day_of_week || (d.day_date ? DOW_JA[new Date(d.day_date).getDay()] : '');
+    const dow    = d.day_of_week || (d.day_date ? DOW_JA[new Date(d.day_date).getDay()] : '');
     const serial = toSerial(d.day_date);
 
-    // Row +0: メインデータ行
-    set(ws, `A${r}`,     i + 1);          // DAY番号（マージセル起点）
-    if (serial) set(ws, `B${r}`, serial); // 日付シリアル（マージセル起点）
+    // Row +0: メインデータ
+    set(ws, `A${r}`,     i + 1);
+    set(ws, `B${r}`,     serial ?? '');
     set(ws, `C${r}`,     d.bus_company    || arr.bus_company_name || '');
     set(ws, `E${r}`,     d.itinerary      || '');
     set(ws, `O${r}`,     d.others_notes   || '');
     set(ws, `R${r}`,     hotelName);
     set(ws, `X${r}`,     d.driver_info    || '');
     set(ws, `Z${r}`,     d.breakfast_type ? `B:${d.breakfast_type}` : '');
+    set(ws, `AC${r}`,    '');
+    set(ws, `AE${r}`,    '');
 
-    // Row +2: 昼食行
+    // Row +2: 昼食
     set(ws, `Z${r + 2}`, d.lunch_restaurant
       ? `L:${d.lunch_restaurant}${d.lunch_time ? '  ' + d.lunch_time : ''}`
       : '');
+    set(ws, `AC${r + 2}`, d.lunch_time   ? toTimeSerial(d.lunch_time) ?? '' : '');
+    set(ws, `AE${r + 2}`, d.lunch_phone  || '');
 
-    // Row +4: 曜日・ホテル詳細・夕食行（B列マージセル起点）
-    set(ws, `B${r + 4}`, `(${dow})`);
-    set(ws, `R${r + 4}`, hotelArea);
-    set(ws, `S${r + 4}`, hotelTel);
-    set(ws, `Z${r + 4}`, d.dinner_restaurant
+    // Row +4: 曜日・ホテル詳細・夕食
+    set(ws, `B${r + 4}`,  `(${dow})`);
+    set(ws, `R${r + 4}`,  hotelArea);
+    set(ws, `S${r + 4}`,  hotelTel);
+    set(ws, `Z${r + 4}`,  d.dinner_restaurant
       ? `D:${d.dinner_restaurant}${d.dinner_time ? '  ' + d.dinner_time : ''}`
       : '');
+    set(ws, `AC${r + 4}`, d.dinner_time  ? toTimeSerial(d.dinner_time) ?? '' : '');
+    set(ws, `AE${r + 4}`, d.dinner_phone || '');
   });
+
+  // ── ツアー日程より多いテンプレート行を空白でクリア ──
+  for (let i = days.length; i < dayRows.length; i++) {
+    clearDayBlock(ws, dayRows[i]);
+  }
 }
 
 // ── ENG シート書き込み ──────────────────────────────────────────
