@@ -957,43 +957,109 @@ th.sortable:hover{color:var(--blue)}
       </div>
     </div>
 
-    <div class="modal-section-title">ホテル割り当て</div>
-    <div class="tbl-wrap"><table class="li-table" style="min-width:900px">
-      <thead><tr>
-        <th style="width:160px">ホテル名</th>
-        <th style="width:100px">チェックイン</th>
-        <th style="width:100px">チェックアウト</th>
-        <th style="width:70px">部屋タイプ</th>
-        <th style="width:35px">部屋数</th>
-        <th style="width:35px">泊数</th>
-        <th style="width:35px">朝食</th>
-        <th style="width:70px">単価(1室1泊)</th>
-        <th style="width:70px">金額</th>
-        <th style="width:70px">確認番号</th>
-        <th style="width:80px">ステータス</th>
-        <th>備考</th>
-        <th class="li-del"></th>
-      </tr></thead>
-      <tbody id="bd-hotels-tbody"></tbody>
-    </table></div>
-    <button class="btn" style="font-size:10px;margin-top:4px" onclick="addHotelRow()">＋ 行追加</button>
-    <div class="li-total">ホテル合計: <span id="bd-hotels-total">¥0</span></div>
-    <button class="btn btn-p" style="font-size:10px;margin-top:6px" onclick="reflectHotelsToCost()">仕入明細に転記</button>
-    <div id="hotel-ocr-area" style="display:none;margin-top:8px;border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--bg)">
-      <div style="font-size:11px;color:var(--text3);margin-bottom:6px">メールや文書の内容をコピーして貼り付けてください</div>
-      <textarea id="hotel-ocr-text" rows="6" style="width:100%;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:11px;font-family:inherit;resize:vertical" placeholder="ホテル確認メールの本文をここに貼り付け..."></textarea>
-      <div style="margin-top:6px;display:flex;gap:6px;align-items:center">
-        <button class="btn btn-p" style="font-size:11px" onclick="extractHotelFromText()">🤖 AIで読み取り</button>
-        <button class="btn" style="font-size:11px" onclick="document.getElementById('hotel-ocr-area').style.display='none'">閉じる</button>
-        <span id="hotel-ocr-status" style="font-size:11px;color:var(--text3)"></span>
-      </div>
+    <div class="modal-section-title">手配管理</div>
+    <div style="display:flex;gap:2px;margin-bottom:8px;border-bottom:2px solid var(--border);padding-bottom:0">
+      <button id="arrtab-btn-hotel" onclick="switchArrangTab('hotel')" class="btn" style="font-size:11px;border-radius:6px 6px 0 0;border-bottom:2px solid var(--primary);margin-bottom:-2px">🏨 ホテル</button>
+      <button id="arrtab-btn-bus" onclick="switchArrangTab('bus')" class="btn" style="font-size:11px;border-radius:6px 6px 0 0">🚌 バス</button>
+      <button id="arrtab-btn-rest" onclick="switchArrangTab('rest')" class="btn" style="font-size:11px;border-radius:6px 6px 0 0">🍽️ レストラン</button>
+      <button id="arrtab-btn-fac" onclick="switchArrangTab('fac')" class="btn" style="font-size:11px;border-radius:6px 6px 0 0">🎡 観光施設</button>
     </div>
-    <button class="btn" style="font-size:10px;margin-top:6px" onclick="document.getElementById('hotel-ocr-area').style.display=document.getElementById('hotel-ocr-area').style.display===''?'none':''">📧 メール/テキストから読み取り</button>
-    <label class="btn" style="font-size:10px;margin-top:6px;cursor:pointer">
-      📎 Excel/PDFから読み取り
-      <input type="file" accept=".xlsx,.xls,.pdf" style="display:none" onchange="extractHotelFromFile(event)">
-    </label>
-    <span id="hotel-file-status" style="font-size:11px;color:var(--text3);margin-left:8px"></span>
+
+    <div id="arrtab-hotel">
+      <div class="tbl-wrap"><table class="li-table" style="min-width:900px">
+        <thead><tr>
+          <th style="width:160px">ホテル名</th>
+          <th style="width:100px">チェックイン</th>
+          <th style="width:100px">チェックアウト</th>
+          <th style="width:70px">部屋タイプ</th>
+          <th style="width:35px">部屋数</th>
+          <th style="width:35px">泊数</th>
+          <th style="width:35px">朝食</th>
+          <th style="width:70px">単価(1室1泊)</th>
+          <th style="width:70px">金額</th>
+          <th style="width:70px">確認番号</th>
+          <th style="width:80px">ステータス</th>
+          <th>備考</th>
+          <th class="li-del"></th>
+        </tr></thead>
+        <tbody id="bd-hotels-tbody"></tbody>
+      </table></div>
+      <button class="btn" style="font-size:10px;margin-top:4px" onclick="addHotelRow()">＋ 行追加</button>
+      <div class="li-total">ホテル合計: <span id="bd-hotels-total">¥0</span></div>
+      <button class="btn btn-p" style="font-size:10px;margin-top:6px" onclick="reflectHotelsToCost()">仕入明細に転記</button>
+      <div id="hotel-ocr-area" style="display:none;margin-top:8px;border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--bg)">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:6px">メールや文書の内容をコピーして貼り付けてください</div>
+        <textarea id="hotel-ocr-text" rows="6" style="width:100%;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:11px;font-family:inherit;resize:vertical" placeholder="ホテル確認メールの本文をここに貼り付け..."></textarea>
+        <div style="margin-top:6px;display:flex;gap:6px;align-items:center">
+          <button class="btn btn-p" style="font-size:11px" onclick="extractHotelFromText()">🤖 AIで読み取り</button>
+          <button class="btn" style="font-size:11px" onclick="document.getElementById('hotel-ocr-area').style.display='none'">閉じる</button>
+          <span id="hotel-ocr-status" style="font-size:11px;color:var(--text3)"></span>
+        </div>
+      </div>
+      <button class="btn" style="font-size:10px;margin-top:6px" onclick="document.getElementById('hotel-ocr-area').style.display=document.getElementById('hotel-ocr-area').style.display===''?'none':''">📧 メール/テキストから読み取り</button>
+      <label class="btn" style="font-size:10px;margin-top:6px;cursor:pointer">
+        📎 Excel/PDFから読み取り
+        <input type="file" accept=".xlsx,.xls,.pdf" style="display:none" onchange="extractHotelFromFile(event)">
+      </label>
+      <span id="hotel-file-status" style="font-size:11px;color:var(--text3);margin-left:8px"></span>
+    </div>
+
+    <div id="arrtab-bus" style="display:none">
+      <div class="tbl-wrap"><table class="li-table" style="min-width:820px">
+        <thead><tr>
+          <th style="width:160px">バス会社</th>
+          <th style="width:90px">バスタイプ</th>
+          <th style="width:35px">台数</th>
+          <th style="width:100px">開始日</th>
+          <th style="width:100px">終了日</th>
+          <th style="width:80px">金額</th>
+          <th style="width:80px">ステータス</th>
+          <th style="width:90px">確認番号</th>
+          <th>備考</th>
+          <th class="li-del"></th>
+        </tr></thead>
+        <tbody id="bd-buses-tbody"></tbody>
+      </table></div>
+      <button class="btn" style="font-size:10px;margin-top:4px" onclick="addBusRow()">＋ 行追加</button>
+      <div class="li-total">バス合計: <span id="bd-buses-total">¥0</span></div>
+    </div>
+
+    <div id="arrtab-rest" style="display:none">
+      <div class="tbl-wrap"><table class="li-table" style="min-width:760px">
+        <thead><tr>
+          <th style="width:160px">店名</th>
+          <th style="width:70px">食事種別</th>
+          <th style="width:100px">日付</th>
+          <th style="width:45px">人数</th>
+          <th style="width:80px">金額</th>
+          <th style="width:80px">ステータス</th>
+          <th style="width:90px">確認番号</th>
+          <th>備考</th>
+          <th class="li-del"></th>
+        </tr></thead>
+        <tbody id="bd-restaurants-tbody"></tbody>
+      </table></div>
+      <button class="btn" style="font-size:10px;margin-top:4px" onclick="addRestaurantRow()">＋ 行追加</button>
+      <div class="li-total">レストラン合計: <span id="bd-restaurants-total">¥0</span></div>
+    </div>
+
+    <div id="arrtab-fac" style="display:none">
+      <div class="tbl-wrap"><table class="li-table" style="min-width:700px">
+        <thead><tr>
+          <th style="width:180px">施設名</th>
+          <th style="width:100px">日付</th>
+          <th style="width:45px">人数</th>
+          <th style="width:80px">金額</th>
+          <th style="width:80px">ステータス</th>
+          <th style="width:90px">確認番号</th>
+          <th>備考</th>
+          <th class="li-del"></th>
+        </tr></thead>
+        <tbody id="bd-facilities-tbody"></tbody>
+      </table></div>
+      <button class="btn" style="font-size:10px;margin-top:4px" onclick="addFacilityRow()">＋ 行追加</button>
+      <div class="li-total">観光施設合計: <span id="bd-facilities-total">¥0</span></div>
+    </div>
 
     <div class="modal-section-title">手配書</div>
     <div id="bd-arrangements" style="margin-bottom:6px"></div>
@@ -2311,6 +2377,17 @@ async function openBookingDetail(id){
     confirmation_no: r.confirmation_no||'', status: r.status||'問い合わせ中', memo: r.memo||''
   }));
   renderHotelTable();
+  // バス・レストラン・観光施設を読み込み
+  const [{data: busRows}, {data: restRows}, {data: facRows}] = await Promise.all([
+    sb.from('booking_buses').select('*').eq('booking_id', id).order('created_at'),
+    sb.from('booking_restaurants').select('*').eq('booking_id', id).order('created_at'),
+    sb.from('booking_facilities').select('*').eq('booking_id', id).order('created_at'),
+  ]);
+  bdBusItems = (busRows||[]).map(r=>({bus_company:r.bus_company||'',bus_type:r.bus_type||'',buses:r.buses||1,start_date:r.start_date||'',end_date:r.end_date||'',amount:r.amount||0,status:r.status||'問い合わせ中',confirmation_no:r.confirmation_no||'',memo:r.memo||''}));
+  bdRestaurantItems = (restRows||[]).map(r=>({restaurant_name:r.restaurant_name||'',meal_type:r.meal_type||'昼食',date:r.date||'',pax:r.pax||0,amount:r.amount||0,status:r.status||'問い合わせ中',confirmation_no:r.confirmation_no||'',memo:r.memo||''}));
+  bdFacilityItems = (facRows||[]).map(r=>({facility_name:r.facility_name||'',date:r.date||'',pax:r.pax||0,amount:r.amount||0,status:r.status||'問い合わせ中',confirmation_no:r.confirmation_no||'',memo:r.memo||''}));
+  renderBusTable(); renderRestaurantTable(); renderFacilityTable();
+  switchArrangTab('hotel');
   // 現地費用明細を読み込み
   const {data: localRows} = await sb.from('local_expenses').select('*').eq('booking_id', id).order('sort_order');
   bdLocalExpenses = (localRows||[]).map(r=>({
@@ -4068,6 +4145,16 @@ async function issueInvoiceFromBookingDetail(currency, agentFilter){
 }
 
 let bdHotelItems = [];
+let bdBusItems = [], bdRestaurantItems = [], bdFacilityItems = [];
+
+function switchArrangTab(tab){
+  ['hotel','bus','rest','fac'].forEach(t=>{
+    document.getElementById('arrtab-'+t).style.display = t===tab ? '' : 'none';
+    const btn = document.getElementById('arrtab-btn-'+t);
+    btn.style.borderBottom = t===tab ? '2px solid var(--primary)' : '';
+    btn.style.marginBottom = t===tab ? '-2px' : '';
+  });
+}
 
 function calcHotelNights(ci, co){
   if(!ci || !co) return 0;
@@ -4134,6 +4221,133 @@ async function saveHotelItems(){
     sort_order: i
   }));
   if(rows.length) await sb.from('booking_hotels').insert(rows);
+}
+
+// ─── バス ───────────────────────────────────────────────────────────────────
+function renderBusTable(){
+  const tbody = document.getElementById('bd-buses-tbody');
+  if(!tbody) return;
+  const total = bdBusItems.reduce((s,it)=>s+Number(it.amount||0),0);
+  if(bdBusItems.length===0){
+    tbody.innerHTML='<tr><td colspan="10" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
+  }else{
+    tbody.innerHTML = bdBusItems.map((it,i)=>`<tr>
+      <td><input value="${escAttr(it.bus_company)}" oninput="bdBusItems[${i}].bus_company=this.value" style="width:100%"></td>
+      <td><input value="${escAttr(it.bus_type)}" oninput="bdBusItems[${i}].bus_type=this.value" style="width:100%"></td>
+      <td><input type="number" value="${it.buses||1}" onchange="bdBusItems[${i}].buses=Number(this.value)" style="width:100%"></td>
+      <td><input type="date" value="${it.start_date||''}" onchange="bdBusItems[${i}].start_date=this.value"></td>
+      <td><input type="date" value="${it.end_date||''}" onchange="bdBusItems[${i}].end_date=this.value"></td>
+      <td><input type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="bdBusItems[${i}].amount=parseNum(this.value);this.value=bdBusItems[${i}].amount.toLocaleString('ja-JP');renderBusTable()"></td>
+      <td><select onchange="bdBusItems[${i}].status=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px"><option value="問い合わせ中" ${(it.status||'問い合わせ中')==='問い合わせ中'?'selected':''}>問い合わせ中</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option></select></td>
+      <td><input value="${escAttr(it.confirmation_no)}" oninput="bdBusItems[${i}].confirmation_no=this.value" style="width:100%"></td>
+      <td><input value="${escAttr(it.memo)}" oninput="bdBusItems[${i}].memo=this.value" style="width:100%"></td>
+      <td class="li-del"><button class="btn" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="bdBusItems.splice(${i},1);renderBusTable()">✕</button></td>
+    </tr>`).join('');
+  }
+  document.getElementById('bd-buses-total').textContent = yen(total);
+}
+function addBusRow(){
+  bdBusItems.push({bus_company:'',bus_type:'',buses:1,start_date:'',end_date:'',amount:0,status:'問い合わせ中',confirmation_no:'',memo:''});
+  renderBusTable();
+}
+async function saveBusItems(){
+  if(!currentDetailId) return;
+  await sb.from('booking_buses').delete().eq('booking_id', currentDetailId);
+  const rows = bdBusItems.filter(it=>it.bus_company||it.amount).map(it=>({
+    booking_id: currentDetailId,
+    bus_company: it.bus_company||'', bus_type: it.bus_type||'',
+    buses: Number(it.buses)||1,
+    start_date: it.start_date||null, end_date: it.end_date||null,
+    amount: Number(it.amount)||0,
+    status: it.status||'問い合わせ中',
+    confirmation_no: it.confirmation_no||'', memo: it.memo||''
+  }));
+  if(rows.length) await sb.from('booking_buses').insert(rows);
+}
+
+// ─── レストラン ──────────────────────────────────────────────────────────────
+function renderRestaurantTable(){
+  const tbody = document.getElementById('bd-restaurants-tbody');
+  if(!tbody) return;
+  const total = bdRestaurantItems.reduce((s,it)=>s+Number(it.amount||0),0);
+  if(bdRestaurantItems.length===0){
+    tbody.innerHTML='<tr><td colspan="9" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
+  }else{
+    tbody.innerHTML = bdRestaurantItems.map((it,i)=>`<tr>
+      <td><input value="${escAttr(it.restaurant_name)}" oninput="bdRestaurantItems[${i}].restaurant_name=this.value" style="width:100%"></td>
+      <td><select onchange="bdRestaurantItems[${i}].meal_type=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px">
+        <option value="朝食" ${it.meal_type==='朝食'?'selected':''}>朝食</option>
+        <option value="昼食" ${(it.meal_type||'昼食')==='昼食'?'selected':''}>昼食</option>
+        <option value="夕食" ${it.meal_type==='夕食'?'selected':''}>夕食</option>
+      </select></td>
+      <td><input type="date" value="${it.date||''}" onchange="bdRestaurantItems[${i}].date=this.value"></td>
+      <td><input type="number" value="${it.pax||0}" onchange="bdRestaurantItems[${i}].pax=Number(this.value)" style="width:100%"></td>
+      <td><input type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="bdRestaurantItems[${i}].amount=parseNum(this.value);this.value=bdRestaurantItems[${i}].amount.toLocaleString('ja-JP');renderRestaurantTable()"></td>
+      <td><select onchange="bdRestaurantItems[${i}].status=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px"><option value="問い合わせ中" ${(it.status||'問い合わせ中')==='問い合わせ中'?'selected':''}>問い合わせ中</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option></select></td>
+      <td><input value="${escAttr(it.confirmation_no)}" oninput="bdRestaurantItems[${i}].confirmation_no=this.value" style="width:100%"></td>
+      <td><input value="${escAttr(it.memo)}" oninput="bdRestaurantItems[${i}].memo=this.value" style="width:100%"></td>
+      <td class="li-del"><button class="btn" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="bdRestaurantItems.splice(${i},1);renderRestaurantTable()">✕</button></td>
+    </tr>`).join('');
+  }
+  document.getElementById('bd-restaurants-total').textContent = yen(total);
+}
+function addRestaurantRow(){
+  const b = findBookingById(currentDetailId);
+  bdRestaurantItems.push({restaurant_name:'',meal_type:'昼食',date:'',pax:b?b.pax||0:0,amount:0,status:'問い合わせ中',confirmation_no:'',memo:''});
+  renderRestaurantTable();
+}
+async function saveRestaurantItems(){
+  if(!currentDetailId) return;
+  await sb.from('booking_restaurants').delete().eq('booking_id', currentDetailId);
+  const rows = bdRestaurantItems.filter(it=>it.restaurant_name||it.amount).map(it=>({
+    booking_id: currentDetailId,
+    restaurant_name: it.restaurant_name||'', meal_type: it.meal_type||'昼食',
+    date: it.date||null, pax: Number(it.pax)||0,
+    amount: Number(it.amount)||0,
+    status: it.status||'問い合わせ中',
+    confirmation_no: it.confirmation_no||'', memo: it.memo||''
+  }));
+  if(rows.length) await sb.from('booking_restaurants').insert(rows);
+}
+
+// ─── 観光施設 ─────────────────────────────────────────────────────────────────
+function renderFacilityTable(){
+  const tbody = document.getElementById('bd-facilities-tbody');
+  if(!tbody) return;
+  const total = bdFacilityItems.reduce((s,it)=>s+Number(it.amount||0),0);
+  if(bdFacilityItems.length===0){
+    tbody.innerHTML='<tr><td colspan="8" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
+  }else{
+    tbody.innerHTML = bdFacilityItems.map((it,i)=>`<tr>
+      <td><input value="${escAttr(it.facility_name)}" oninput="bdFacilityItems[${i}].facility_name=this.value" style="width:100%"></td>
+      <td><input type="date" value="${it.date||''}" onchange="bdFacilityItems[${i}].date=this.value"></td>
+      <td><input type="number" value="${it.pax||0}" onchange="bdFacilityItems[${i}].pax=Number(this.value)" style="width:100%"></td>
+      <td><input type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="bdFacilityItems[${i}].amount=parseNum(this.value);this.value=bdFacilityItems[${i}].amount.toLocaleString('ja-JP');renderFacilityTable()"></td>
+      <td><select onchange="bdFacilityItems[${i}].status=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px"><option value="問い合わせ中" ${(it.status||'問い合わせ中')==='問い合わせ中'?'selected':''}>問い合わせ中</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option></select></td>
+      <td><input value="${escAttr(it.confirmation_no)}" oninput="bdFacilityItems[${i}].confirmation_no=this.value" style="width:100%"></td>
+      <td><input value="${escAttr(it.memo)}" oninput="bdFacilityItems[${i}].memo=this.value" style="width:100%"></td>
+      <td class="li-del"><button class="btn" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="bdFacilityItems.splice(${i},1);renderFacilityTable()">✕</button></td>
+    </tr>`).join('');
+  }
+  document.getElementById('bd-facilities-total').textContent = yen(total);
+}
+function addFacilityRow(){
+  const b = findBookingById(currentDetailId);
+  bdFacilityItems.push({facility_name:'',date:'',pax:b?b.pax||0:0,amount:0,status:'問い合わせ中',confirmation_no:'',memo:''});
+  renderFacilityTable();
+}
+async function saveFacilityItems(){
+  if(!currentDetailId) return;
+  await sb.from('booking_facilities').delete().eq('booking_id', currentDetailId);
+  const rows = bdFacilityItems.filter(it=>it.facility_name||it.amount).map(it=>({
+    booking_id: currentDetailId,
+    facility_name: it.facility_name||'',
+    date: it.date||null, pax: Number(it.pax)||0,
+    amount: Number(it.amount)||0,
+    status: it.status||'問い合わせ中',
+    confirmation_no: it.confirmation_no||'', memo: it.memo||''
+  }));
+  if(rows.length) await sb.from('booking_facilities').insert(rows);
 }
 
 async function extractHotelFromFile(event){
@@ -4319,7 +4533,10 @@ async function saveBookingDetail(){
     if(it.item_name) await registerNewSupplier(it.item_name);
   }
   await saveLocalExpenses();
-await saveHotelItems();
+  await saveHotelItems();
+  await saveBusItems();
+  await saveRestaurantItems();
+  await saveFacilityItems();
   const b = findBookingById(currentDetailId);
   await logAction('予約編集', b ? b.ref_no : currentDetailId);
 
