@@ -1482,7 +1482,7 @@ function renderListHeader(prefix){
     if(state.sortField===field) arrow = ' <span class="sort-arrow">'+(state.sortDir===1?'▲':'▼')+'</span>';
     const styleAttr = width ? ` style="width:${width}"` : '';
     return `<th class="sortable"${styleAttr} onclick="sortBookingList('${prefix}','${field}')">${label}${arrow}</th>`;
-  }).join('') + '<th style="width:4%"></th></tr>';
+  }).join('') + '<th style="width:3%"></th></tr>';
 }
 
 function sortBookingList(prefix, field){
@@ -1596,12 +1596,8 @@ function filterBookingListGeneric(prefix){
       <td>${yen(sales)}</td><td>${yen(cost)}</td>
       <td class="${gcls}">${yen(g)}</td><td class="${gcls}">${rate}%</td>
       <td>${statusPill(b.status)}</td>
-      <td style="position:relative;text-align:center" onclick="event.stopPropagation()">
-        <button class="btn hd-trigger" style="font-size:12px;padding:2px 5px" onclick="toggleHaichishoMenu(this)">📋</button>
-        <div class="hd-menu" style="display:none;position:absolute;right:0;top:100%;z-index:200;background:#fff;border:1px solid var(--border);border-radius:4px;min-width:110px;box-shadow:0 2px 8px rgba(0,0,0,0.12)">
-          <div style="padding:5px 10px;cursor:pointer;font-size:12px;white-space:nowrap" onclick="downloadHaichisho('${b.id}','initial');closeHaichishoMenus()">📋 初期版</div>
-          <div style="padding:5px 10px;cursor:pointer;font-size:12px;white-space:nowrap" onclick="downloadHaichisho('${b.id}','final');closeHaichishoMenus()">📋 ファイナル</div>
-        </div>
+      <td style="text-align:center" onclick="event.stopPropagation()">
+        <button class="btn" style="font-size:12px;padding:2px 5px" onclick="promptHaichisho('${b.id}')">📋</button>
       </td>
     </tr>`;
   }).join('');
@@ -5569,16 +5565,10 @@ tbody.innerHTML = filtered.map(r=>{
   }).join('');
 }
 
-function closeHaichishoMenus(){
-  document.querySelectorAll('.hd-menu').forEach(m=>m.style.display='none');
+function promptHaichisho(bookingId){
+  const isFinal = confirm('ファイナル版をダウンロードしますか？\nOK=ファイナル / キャンセル=初期版');
+  downloadHaichisho(bookingId, isFinal ? 'final' : 'initial');
 }
-function toggleHaichishoMenu(btn){
-  const menu = btn.nextElementSibling;
-  const isOpen = menu.style.display !== 'none';
-  closeHaichishoMenus();
-  if(!isOpen) menu.style.display = 'block';
-}
-document.addEventListener('click', closeHaichishoMenus);
 
 async function downloadHaichisho(bookingId, type){
   const url = `/api/generate-haichisho?booking_id=${encodeURIComponent(bookingId)}&type=${type}`;
