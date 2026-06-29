@@ -2965,6 +2965,7 @@ function renderGuideSettlements(){
           <div class="gs-field"><label>仮払金</label><input type="number" value="${g.advance_payment||0}" onchange="updateGuideEntryField('${s.id}',${i},'advance_payment',this.value)"></div>
           <div class="gs-field"><label>仮払金追加</label><input type="number" value="${g.additional_advance_payment||0}" onchange="updateGuideEntryField('${s.id}',${i},'additional_advance_payment',this.value)"></div>
           <div class="gs-field"><label>仮払金合計</label><input type="number" value="${Number(g.advance_payment||0)+Number(g.additional_advance_payment||0)}" readonly style="background:var(--bg2,#f5f5f5);color:var(--text2)"></div>
+          <div class="gs-field" style="display:flex;align-items:flex-end;gap:4px;padding-bottom:2px"><button onclick="window.open('/guide_settlement_jp.pdf','_blank')" style="font-size:11px;padding:4px 8px;" class="btn">📄 精算手順JP</button><button onclick="window.open('/guide_settlement_en.pdf','_blank')" style="font-size:11px;padding:4px 8px;" class="btn">📄 EN</button></div>
           <div class="gs-field" style="display:none"><label>ガイド費(日当)</label><input type="number" value="${g.guide_fee||0}" onchange="updateGuideEntryField('${s.id}',${i},'guide_fee',this.value)"></div>
         </div>
       </div>`).join('');
