@@ -696,50 +696,96 @@ th.sortable:hover{color:var(--blue)}
       <div id="pg-hotels" class="page" style="display:none">
         <div class="card">
           <div class="card-title">ホテル管理
-            <span><button class="btn btn-p" onclick="addHotelBookingRow()">＋ 新規追加</button></span>
+            <span>
+              <button class="btn" onclick="openHmMailModal()">📧 メール取込</button>
+              <button class="btn btn-p" onclick="addHotelBookingRow()">＋ 新規追加</button>
+            </span>
           </div>
-          <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr 1fr">
-            <div class="form-field"><label>ホテル名で絞り込み</label><input id="hm-search" placeholder="例: 京王プラザ" oninput="filterHotelManagement()"></div>
-            <div class="form-field"><label>チェックイン(From)</label><input id="hm-from" type="date" onchange="filterHotelManagement()"></div>
-            <div class="form-field"><label>チェックイン(To)</label><input id="hm-to" type="date" onchange="filterHotelManagement()"></div>
-            <div class="form-field" style="align-self:end"><button class="btn" onclick="resetHotelManagementFilter()">条件クリア</button></div>
+          <!-- タブナビゲーション -->
+          <div style="display:flex;border-bottom:2px solid var(--border);margin-bottom:12px">
+            <button id="hm-tab-btn-date" onclick="switchHmTab('date')" style="padding:6px 14px;font-size:12px;border:none;border-bottom:3px solid var(--blue);background:none;cursor:pointer;color:var(--blue);font-weight:600;margin-bottom:-2px">📅 日付順</button>
+            <button id="hm-tab-btn-hotel" onclick="switchHmTab('hotel')" style="padding:6px 14px;font-size:12px;border:none;background:none;cursor:pointer;color:var(--text3)">🏨 ホテル別</button>
+            <button id="hm-tab-btn-matrix" onclick="switchHmTab('matrix')" style="padding:6px 14px;font-size:12px;border:none;background:none;cursor:pointer;color:var(--text3)">📊 マトリクス</button>
           </div>
-          <div style="font-size:11px;color:var(--text3);margin:4px 0" id="hm-count"></div>
-          <div class="tbl-wrap"><table class="bl-table">
-<thead><tr>
-            <th style="width:16%;cursor:pointer" onclick="hmSort('hotel_name')">ホテル名 ↕</th>
-            <th style="width:7%;cursor:pointer" onclick="hmSort('ref_no')">REF# ↕</th>
-            <th style="width:12%;cursor:pointer" onclick="hmSort('tour_name')">ツアー名 ↕</th>
-            <th style="width:8%;cursor:pointer" onclick="hmSort('check_in')">チェックイン ↕</th>
-            <th style="width:8%;cursor:pointer" onclick="hmSort('check_out')">チェックアウト ↕</th>
-            <th style="width:7%;cursor:pointer" onclick="hmSort('room_type')">部屋タイプ ↕</th>
-            <th style="width:5%;cursor:pointer" onclick="hmSort('rooms')">部屋数 ↕</th>
-            <th style="width:5%;cursor:pointer" onclick="hmSort('nights')">泊数 ↕</th>
-            <th style="width:4%">朝食</th>
-            <th style="width:9%;cursor:pointer" onclick="hmSort('unit_price')">単価 ↕</th>
-            <th style="width:9%;cursor:pointer" onclick="hmSort('amount')">金額 ↕</th>
-            <th style="width:10%;cursor:pointer" onclick="hmSort('confirmation_no')">確認番号 ↕</th>
-          </tr></thead>
-          <tbody id="hm-tbody"><tr><td colspan="12" class="empty">読み込み中...</td></tr></tbody>
-          </table></div>
-          <div style="margin-top:8px;font-weight:700;text-align:right" id="hm-total"></div>
-          <div style="margin-top:12px;border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--bg)">
-          <div style="font-size:11px;font-weight:600;margin-bottom:8px">ファイル・テキストから一括読み取り</div>
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
-
-            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <button class="btn" style="font-size:11px" onclick="toggleHmOcrArea()">📧 テキストから読み取り</button>
-            <label class="btn" style="font-size:11px;cursor:pointer">📎 Excel/PDFから読み取り<input type="file" accept=".xlsx,.xls,.pdf" style="display:none" onchange="extractHotelFromFileHm(event)"></label>
-            <span id="hm-file-status" style="font-size:11px;color:var(--text3)"></span>
-          </div>
-          <div id="hm-ocr-area" style="display:none;margin-top:8px">
-            <textarea id="hm-ocr-text" rows="5" style="width:100%;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:11px;font-family:inherit;resize:vertical" placeholder="ホテル確認メールの本文をここに貼り付け..."></textarea>
-            <div style="margin-top:6px;display:flex;gap:6px;align-items:center">
-              <button class="btn btn-p" style="font-size:11px" onclick="extractHotelFromTextHm()">🤖 AIで読み取り</button>
-              <span id="hm-ocr-status" style="font-size:11px;color:var(--text3)"></span>
+          <!-- 日付順タブ -->
+          <div id="hm-tab-date">
+            <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr 1fr">
+              <div class="form-field"><label>ホテル名で絞り込み</label><input id="hm-search" placeholder="例: 京王プラザ" oninput="filterHotelManagement()"></div>
+              <div class="form-field"><label>チェックイン(From)</label><input id="hm-from" type="date" onchange="filterHotelManagement()"></div>
+              <div class="form-field"><label>チェックイン(To)</label><input id="hm-to" type="date" onchange="filterHotelManagement()"></div>
+              <div class="form-field" style="align-self:end"><button class="btn" onclick="resetHotelManagementFilter()">条件クリア</button></div>
+            </div>
+            <div style="font-size:11px;color:var(--text3);margin:4px 0" id="hm-count"></div>
+            <div class="tbl-wrap"><table class="bl-table">
+              <thead><tr>
+                <th style="width:16%;cursor:pointer" onclick="hmSort('hotel_name')">ホテル名 ↕</th>
+                <th style="width:7%;cursor:pointer" onclick="hmSort('ref_no')">REF# ↕</th>
+                <th style="width:12%;cursor:pointer" onclick="hmSort('tour_name')">ツアー名 ↕</th>
+                <th style="width:8%;cursor:pointer" onclick="hmSort('check_in')">チェックイン ↕</th>
+                <th style="width:8%;cursor:pointer" onclick="hmSort('check_out')">チェックアウト ↕</th>
+                <th style="width:7%;cursor:pointer" onclick="hmSort('room_type')">部屋タイプ ↕</th>
+                <th style="width:5%;cursor:pointer" onclick="hmSort('rooms')">部屋数 ↕</th>
+                <th style="width:5%;cursor:pointer" onclick="hmSort('nights')">泊数 ↕</th>
+                <th style="width:4%">朝食</th>
+                <th style="width:9%;cursor:pointer" onclick="hmSort('unit_price')">単価 ↕</th>
+                <th style="width:9%;cursor:pointer" onclick="hmSort('amount')">金額 ↕</th>
+                <th style="width:10%;cursor:pointer" onclick="hmSort('confirmation_no')">確認番号 ↕</th>
+              </tr></thead>
+              <tbody id="hm-tbody"><tr><td colspan="12" class="empty">読み込み中...</td></tr></tbody>
+            </table></div>
+            <div style="margin-top:8px;font-weight:700;text-align:right" id="hm-total"></div>
+            <div style="margin-top:12px;border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--bg)">
+              <div style="font-size:11px;font-weight:600;margin-bottom:8px">ファイル・テキストから一括読み取り</div>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <button class="btn" style="font-size:11px" onclick="toggleHmOcrArea()">📧 テキストから読み取り</button>
+                <label class="btn" style="font-size:11px;cursor:pointer">📎 Excel/PDFから読み取り<input type="file" accept=".xlsx,.xls,.pdf" style="display:none" onchange="extractHotelFromFileHm(event)"></label>
+                <span id="hm-file-status" style="font-size:11px;color:var(--text3)"></span>
+              </div>
+              <div id="hm-ocr-area" style="display:none;margin-top:8px">
+                <textarea id="hm-ocr-text" rows="5" style="width:100%;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:11px;font-family:inherit;resize:vertical" placeholder="ホテル確認メールの本文をここに貼り付け..."></textarea>
+                <div style="margin-top:6px;display:flex;gap:6px;align-items:center">
+                  <button class="btn btn-p" style="font-size:11px" onclick="extractHotelFromTextHm()">🤖 AIで読み取り</button>
+                  <span id="hm-ocr-status" style="font-size:11px;color:var(--text3)"></span>
+                </div>
+              </div>
             </div>
           </div>
+          <!-- ホテル別タブ -->
+          <div id="hm-tab-hotel" style="display:none">
+            <div class="form-field" style="max-width:360px;margin-bottom:10px">
+              <label>ホテルを選択</label>
+              <select id="hm-hotel-sel" onchange="renderHmHotelTab()" style="padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:12px;width:100%"><option value="">-- ホテルを選択 --</option></select>
+            </div>
+            <div id="hm-hotel-tab-body"></div>
+          </div>
+          <!-- マトリクスタブ -->
+          <div id="hm-tab-matrix" style="display:none">
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+              <select id="hm-matrix-ym" onchange="renderHmMatrix()" style="padding:6px 10px;border-radius:8px;border:1px solid var(--border);font-size:12px"></select>
+              <span style="font-size:11px;color:var(--text3)">凡例：</span>
+              <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:#d4edda;color:#155724">確定/手配OK</span>
+              <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:#fff3cd;color:#856404">問い合わせ中</span>
+              <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:#f8d7da;color:#721c24">NG</span>
+              <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:#e2e3e5;color:#383d41">未確認</span>
+            </div>
+            <div id="hm-matrix-body" style="overflow-x:auto"></div>
+          </div>
         </div>
+        <!-- メール取込モーダル -->
+        <div id="hm-mail-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;align-items:center;justify-content:center;padding:20px">
+          <div style="background:#fff;border-radius:12px;padding:20px;width:100%;max-width:640px;max-height:90vh;overflow-y:auto">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+              <div style="font-size:14px;font-weight:700">📧 メール取込</div>
+              <button class="btn" onclick="document.getElementById('hm-mail-modal').style.display='none'">✕ 閉じる</button>
+            </div>
+            <div style="font-size:11px;color:var(--text3);margin-bottom:8px">ホテル確認メールの本文を貼り付けてください。AIがホテル名・日付・料金・確認番号などを自動抽出します。</div>
+            <textarea id="hm-mail-modal-text" rows="10" style="width:100%;padding:8px;border-radius:8px;border:1px solid var(--border);font-size:12px;font-family:inherit;resize:vertical" placeholder="メール本文をここに貼り付け..."></textarea>
+            <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <button class="btn btn-p" onclick="extractHotelFromMailModal()">🤖 AIで読み取る</button>
+              <button class="btn" onclick="document.getElementById('hm-mail-modal').style.display='none'">キャンセル</button>
+              <span id="hm-mail-modal-status" style="font-size:11px;color:var(--text3)"></span>
+            </div>
+          </div>
         </div>
       </div>
       </div>
@@ -5312,6 +5358,130 @@ function resetHotelManagementFilter(){
   document.getElementById('hm-to').value='';
   filterHotelManagement();
 }
+
+function addHotelBookingRow(){
+  showHotelConfirmDialog([{hotel_name:'',check_in:'',check_out:'',room_type:'',rooms:1,unit_price:0,confirmation_no:'',status:'問い合わせ中'}]);
+}
+
+function openHmMailModal(){
+  const m = document.getElementById('hm-mail-modal');
+  m.style.display = 'flex';
+  document.getElementById('hm-mail-modal-text').value = '';
+  document.getElementById('hm-mail-modal-status').textContent = '';
+}
+
+async function extractHotelFromMailModal(){
+  const text = document.getElementById('hm-mail-modal-text').value.trim();
+  if(!text){ alert('テキストを入力してください'); return; }
+  const statusEl = document.getElementById('hm-mail-modal-status');
+  statusEl.textContent = '読み取り中...';
+  statusEl.style.color = 'var(--text3)';
+  try{
+    const response = await fetch('/api/extract-card',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hotelText:text})});
+    if(!response.ok){ const e = await response.json(); throw new Error(e.error||'サーバーエラー'); }
+    const data = await response.json();
+    const textBlock = data.content.find(b=>b.type==='text');
+    const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
+    const parsed = JSON.parse(cleaned);
+    const hotels = Array.isArray(parsed) ? parsed : [parsed];
+    statusEl.textContent = '✓ '+hotels.length+'件を読み取りました';
+    statusEl.style.color = 'var(--green)';
+    document.getElementById('hm-mail-modal').style.display = 'none';
+    showHotelConfirmDialog(hotels);
+  }catch(e){
+    statusEl.textContent = '読み取り失敗: '+e.message;
+    statusEl.style.color = 'var(--red)';
+  }
+}
+
+function switchHmTab(tab){
+  ['date','hotel','matrix'].forEach(t=>{
+    document.getElementById('hm-tab-'+t).style.display = t===tab ? '' : 'none';
+    const btn = document.getElementById('hm-tab-btn-'+t);
+    if(btn){
+      btn.style.color = t===tab ? 'var(--blue)' : 'var(--text3)';
+      btn.style.borderBottom = t===tab ? '3px solid var(--blue)' : 'none';
+      btn.style.fontWeight = t===tab ? '600' : 'normal';
+      btn.style.marginBottom = t===tab ? '-2px' : '0';
+    }
+  });
+  if(tab==='hotel') populateHmHotelSelect();
+  if(tab==='matrix') initHmMatrix();
+}
+
+function populateHmHotelSelect(){
+  const hotels = [...new Set(hotelManagementCache.map(r=>r.hotel_name).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ja'));
+  const sel = document.getElementById('hm-hotel-sel');
+  const current = sel.value;
+  sel.innerHTML = '<option value="">-- ホテルを選択 --</option>' + hotels.map(h=>`<option value="${escHtml(h)}" ${h===current?'selected':''}>${escHtml(h)}</option>`).join('');
+  if(current) renderHmHotelTab();
+}
+
+function renderHmHotelTab(){
+  const hotelName = document.getElementById('hm-hotel-sel')?.value;
+  const body = document.getElementById('hm-hotel-tab-body');
+  if(!hotelName){ body.innerHTML='<p style="color:var(--text3);font-size:12px;margin-top:8px">ホテルを選択してください</p>'; return; }
+  const rows = hotelManagementCache.filter(r=>r.hotel_name===hotelName).sort((a,b)=>(a.check_in||'').localeCompare(b.check_in||''));
+  if(rows.length===0){ body.innerHTML='<p style="color:var(--text3);font-size:12px">該当データなし</p>'; return; }
+  const total = rows.reduce((s,r)=>s+Number(r.amount||0),0);
+  const stBg=s=>s==='手配OK'||s==='確定'?'var(--green)':s==='NG'?'var(--red)':s==='問い合わせ中'?'var(--amber)':'var(--border)';
+  body.innerHTML = `<div class="tbl-wrap"><table class="bl-table"><thead><tr>
+    <th>REF#</th><th>ツアー名</th><th>チェックイン</th><th>チェックアウト</th><th style="text-align:center">泊数</th><th style="text-align:center">部屋数</th><th>部屋タイプ</th><th style="text-align:right">金額</th><th>ステータス</th>
+  </tr></thead><tbody>${rows.map(r=>{
+    const nights = calcHotelNights(r.check_in||'',r.check_out||'');
+    return `<tr onclick="openBookingDetail('${r.booking_id}')" style="cursor:pointer">
+      <td class="lnk">${escHtml(r.bookings?.ref_no||'')}</td>
+      <td style="font-size:10px">${escHtml(r.bookings?.tour_name||'')}</td>
+      <td>${r.check_in||''}</td><td>${r.check_out||''}</td>
+      <td style="text-align:center">${nights}</td>
+      <td style="text-align:center">${r.rooms||1}</td>
+      <td>${escHtml(r.room_type||'')}</td>
+      <td style="text-align:right">${yen(r.amount||0)}</td>
+      <td><span style="font-size:10px;padding:2px 6px;border-radius:10px;background:${stBg(r.status)};color:#fff">${escHtml(r.status||'未確認')}</span></td>
+    </tr>`;
+  }).join('')}</tbody></table></div>
+  <div style="margin-top:6px;text-align:right;font-weight:700;font-size:12px">合計: ${yen(total)}</div>`;
+}
+
+function initHmMatrix(){
+  const sel = document.getElementById('hm-matrix-ym');
+  const now = new Date();
+  const months = [];
+  for(let i=-2;i<=12;i++){
+    const d = new Date(now.getFullYear(),now.getMonth()+i,1);
+    months.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);
+  }
+  const cur = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  sel.innerHTML = months.map(ym=>`<option value="${ym}" ${ym===cur?'selected':''}>${ym.replace('-','年')}月</option>`).join('');
+  renderHmMatrix();
+}
+
+function renderHmMatrix(){
+  const ym = document.getElementById('hm-matrix-ym')?.value;
+  if(!ym) return;
+  const [year,month] = ym.split('-').map(Number);
+  const daysInMonth = new Date(year,month,0).getDate();
+  const days = Array.from({length:daysInMonth},(_,i)=>i+1);
+  const monthEnd = `${ym}-${String(daysInMonth).padStart(2,'0')}`;
+  const relevant = hotelManagementCache.filter(r=>r.check_in&&r.check_out&&r.check_in<=monthEnd&&r.check_out>=`${ym}-01`);
+  const hotels = [...new Set(relevant.map(r=>r.hotel_name).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ja'));
+  if(hotels.length===0){ document.getElementById('hm-matrix-body').innerHTML='<p style="color:var(--text3);font-size:12px">この月のホテルデータはありません</p>'; return; }
+  const bg=s=>s==='手配OK'||s==='確定'?'#d4edda':s==='NG'?'#f8d7da':s==='問い合わせ中'?'#fff3cd':'#e2e3e5';
+  const fg=s=>s==='手配OK'||s==='確定'?'#155724':s==='NG'?'#721c24':s==='問い合わせ中'?'#856404':'#383d41';
+  const thead=`<thead><tr><th style="min-width:130px;padding:4px 6px;text-align:left;position:sticky;left:0;background:#fff;z-index:2;border-right:2px solid var(--border)">ホテル</th>${days.map(d=>{const dt=new Date(year,month-1,d);const dow=['日','月','火','水','木','金','土'][dt.getDay()];const we=dt.getDay()===0||dt.getDay()===6;return `<th style="min-width:36px;text-align:center;padding:3px 2px;font-size:10px;${we?'color:var(--blue)':''}">${d}<br><span style="font-size:9px">${dow}</span></th>`;}).join('')}</tr></thead>`;
+  const tbody=hotels.map(hotel=>{
+    const hrs=relevant.filter(r=>r.hotel_name===hotel);
+    const cells=days.map(d=>{
+      const ds=`${ym}-${String(d).padStart(2,'0')}`;
+      const bk=hrs.find(r=>r.check_in<=ds&&r.check_out>ds);
+      if(!bk) return `<td style="border:1px solid var(--border);padding:2px;min-width:36px"></td>`;
+      return `<td style="border:1px solid var(--border);padding:2px;background:${bg(bk.status)};cursor:pointer" onclick="openBookingDetail('${bk.booking_id}')" title="${escHtml(bk.bookings?.tour_name||'')}｜${escHtml(bk.status||'')}"><span style="font-size:9px;color:${fg(bk.status)};white-space:nowrap;display:block;text-align:center">${escHtml(bk.bookings?.ref_no||'')}</span></td>`;
+    }).join('');
+    return `<tr><td style="padding:4px 6px;font-size:11px;white-space:nowrap;position:sticky;left:0;background:#fff;border-right:2px solid var(--border)">${escHtml(hotel)}</td>${cells}</tr>`;
+  }).join('');
+  document.getElementById('hm-matrix-body').innerHTML=`<table style="border-collapse:collapse;font-size:11px">${thead}<tbody>${tbody}</tbody></table>`;
+}
+
 async function loadPartners(){
   document.getElementById('pt-tbody').innerHTML = '<tr><td colspan="7" class="empty">読み込み中...</td></tr>';
   const {data, error} = await sb.from('business_partners').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('company_name');
