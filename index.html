@@ -5865,11 +5865,42 @@ function filterPartners(){
         ${p.notes ? `<div class="pt-card-notes">${escHtml(p.notes)}</div>` : ''}
       </div>
       <div class="pt-card-actions">
+        <button class="btn" onclick="showPartnerDetail('${p.id}')">照会</button>
         <button class="btn" onclick="openPartnerEditor('${p.id}')">編集</button>
         <button class="btn" style="color:var(--red)" onclick="deletePartner('${p.id}')">削除</button>
       </div>
     </div>`;
   }).join('');
+}
+
+function showPartnerDetail(id){
+  const p = partnersCache.find(x=>x.id===id);
+  if(!p) return;
+  const rows = [
+    ['種別',         p.category],
+    ['会社名',       p.company_name],
+    ['会社名（英語）', p.company_name_en],
+    ['拠点名',       [p.branch_name, p.branch_name_en].filter(Boolean).join(' / ')],
+    ['担当者',       p.contact_person],
+    ['担当者（英語）', p.contact_person_en],
+    ['役職',         p.position],
+    ['役職（英語）',  p.position_en],
+    ['会社電話',     p.company_phone],
+    ['携帯',         p.phone],
+    ['FAX',          p.fax],
+    ['メール',       p.email],
+    ['住所',         p.address],
+    ['住所（英語）',  p.address_en],
+    ['備考',         p.notes],
+  ].filter(([,v])=>v);
+  document.getElementById('pt-detail-title').textContent = p.company_name || '取引先詳細';
+  document.getElementById('pt-detail-body').innerHTML = rows.map(([k,v])=>
+    `<div style="display:flex;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);font-size:12px">
+      <span style="color:var(--text3);min-width:90px;flex-shrink:0">${escHtml(k)}</span>
+      <span style="word-break:break-all">${escHtml(String(v))}</span>
+    </div>`
+  ).join('');
+  document.getElementById('pt-detail-modal').classList.add('open');
 }
 
 async function handleCardUpload(event){
@@ -6038,6 +6069,11 @@ const rotateImage = (b64, mt, deg) => new Promise((resolve)=>{
       ? '✓ 読み取り完了。英語面がある場合は続けて2枚目も読み取れます。'
       : '✓ 2枚目をマージしました。内容を確認して保存してください。';
     statusEl.style.color = 'var(--green)';
+    // マージ後はフォームの先頭（会社名）がスクロールで隠れないようスクロールリセット
+    if (!wasEmpty) {
+      const fa = document.getElementById('pt-form-area');
+      if (fa) setTimeout(() => { fa.scrollTop = 0; }, 80);
+    }
     }catch(e){
     statusEl.textContent = '読み取りに失敗しました: '+(e.message||e)+' 手動で入力してください。';
     statusEl.style.color = 'var(--red)';
@@ -6599,6 +6635,17 @@ restoreSession();
       <thead><tr><th>会社名</th><th>削除日時</th><th>削除者</th><th style="width:100px"></th></tr></thead>
       <tbody id="deleted-pt-tbody"><tr><td colspan="4" class="empty">読み込み中...</td></tr></tbody>
     </table></div>
+  </div>
+</div>
+
+<!-- 取引先照会モーダル（スマホ用） -->
+<div class="modal-overlay" id="pt-detail-modal">
+  <div class="modal-box" style="max-width:480px">
+    <div class="modal-header">
+      <div class="modal-title" id="pt-detail-title">取引先詳細</div>
+      <div class="modal-close" onclick="document.getElementById('pt-detail-modal').classList.remove('open')">✕</div>
+    </div>
+    <div id="pt-detail-body"></div>
   </div>
 </div>
 
