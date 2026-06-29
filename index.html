@@ -50,6 +50,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Hiragino Kaku Goth
 .btn-p{background:var(--blue);color:#fff;border-color:var(--blue)}
 .btn-p:hover{background:#0C447C}
 .content{flex:1;padding:18px 20px;max-width:1600px;width:100%;margin:0 auto}
+.content-full{max-width:100%!important;padding:16px!important}
+@media(max-width:768px){.content-full{padding:8px!important}}
 .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:14px}
 .card-title{font-size:12px;font-weight:600;color:var(--text2);margin-bottom:10px;display:flex;align-items:center;justify-content:space-between}
 .kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
@@ -1430,7 +1432,13 @@ function go(id){
   currentPageId = id;
   document.querySelectorAll('.page').forEach(el=>el.style.display='none');
   document.getElementById('pg-'+id).style.display='';
-  document.querySelector('.content').style.maxWidth = ['partners','booking-list','hotels','invoice','estimation','guide-settlements'].includes(id) ? '1500px' : '1100px';
+  const _c = document.querySelector('.content');
+  if(id === 'booking-list'){
+    _c.classList.add('content-full'); _c.style.maxWidth = '';
+  }else{
+    _c.classList.remove('content-full');
+    _c.style.maxWidth = ['partners','hotels','invoice','estimation','guide-settlements'].includes(id) ? '1500px' : '1100px';
+  }
   document.querySelectorAll('.sb-item').forEach(n=>n.classList.remove('active'));
   document.querySelectorAll('.sb-item[data-pg="'+id+'"]').forEach(n=>n.classList.add('active'));
   document.getElementById('pg-title').textContent = pageNames[id]||id;
