@@ -730,8 +730,9 @@ th.sortable:hover{color:var(--blue)}
                 <th style="width:9%;cursor:pointer" onclick="hmSort('unit_price')">単価 ↕</th>
                 <th style="width:9%;cursor:pointer" onclick="hmSort('amount')">金額 ↕</th>
                 <th style="width:10%;cursor:pointer" onclick="hmSort('confirmation_no')">確認番号 ↕</th>
+                <th style="width:10%">手配書</th>
               </tr></thead>
-              <tbody id="hm-tbody"><tr><td colspan="12" class="empty">読み込み中...</td></tr></tbody>
+              <tbody id="hm-tbody"><tr><td colspan="13" class="empty">読み込み中...</td></tr></tbody>
             </table></div>
             <div style="margin-top:8px;font-weight:700;text-align:right" id="hm-total"></div>
             <div style="margin-top:12px;border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--bg)">
@@ -5295,9 +5296,9 @@ async function extractHotelFromFileHm(event){
   event.target.value = '';
 }
 async function loadHotelManagement(){
-  document.getElementById('hm-tbody').innerHTML = '<tr><td colspan="12" class="empty">読み込み中...</td></tr>';
+  document.getElementById('hm-tbody').innerHTML = '<tr><td colspan="13" class="empty">読み込み中...</td></tr>';
 const {data, error} = await sb.from('booking_hotels').select('*,bookings(ref_no,agent_name,tour_name)').order('check_in',{ascending:true});
-  if(error){ document.getElementById('hm-tbody').innerHTML = `<tr><td colspan="12" class="empty">読み込みエラー: ${error.message}</td></tr>`; return; }
+  if(error){ document.getElementById('hm-tbody').innerHTML = `<tr><td colspan="13" class="empty">読み込みエラー: ${error.message}</td></tr>`; return; }
   hotelManagementCache = (data||[]).map(r=>({
     ...r,
   }));
@@ -5319,7 +5320,7 @@ function filterHotelManagement(){
   const total = filtered.reduce((s,r)=>s+Number(r.amount||0),0);
   document.getElementById('hm-total').textContent = `合計: ${yen(total)}`;
   const tbody = document.getElementById('hm-tbody');
-  if(filtered.length===0){ tbody.innerHTML='<tr><td colspan="12" class="empty">該当するデータがありません</td></tr>'; return; }
+  if(filtered.length===0){ tbody.innerHTML='<tr><td colspan="13" class="empty">該当するデータがありません</td></tr>'; return; }
   filtered.sort((a,b)=>{
   let av=a[hmSortKey]??'', bv=b[hmSortKey]??'';
   if(hmSortKey==='nights'){av=calcHotelNights(a.check_in||'',a.check_out||'');bv=calcHotelNights(b.check_in||'',b.check_out||'');}
@@ -5340,8 +5341,26 @@ tbody.innerHTML = filtered.map(r=>{
       <td style="text-align:center">${r.breakfast?'✓':''}</td>
       <td style="text-align:right">${yen(r.unit_price||0)}</td>
       <td style="text-align:right;font-weight:600">${yen(r.amount||0)}</td>
-<td style="font-size:10px">${escHtml(r.confirmation_no||'')}<br><span onclick="toggleHmStatus('${r.id}')" style="font-size:10px;padding:2px 6px;border-radius:10px;cursor:pointer;background:${r.status==='手配OK'?'var(--green)':'var(--border)'};color:${r.status==='手配OK'?'#fff':'var(--text3)'}">${escHtml(r.status||'問い合わせ中')}</span></td>    </tr>`;
+<td style="font-size:10px">${escHtml(r.confirmation_no||'')}<br><span onclick="toggleHmStatus('${r.id}')" style="font-size:10px;padding:2px 6px;border-radius:10px;cursor:pointer;background:${r.status==='手配OK'?'var(--green)':'var(--border)'};color:${r.status==='手配OK'?'#fff':'var(--text3)'}">${escHtml(r.status||'問い合わせ中')}</span></td>
+      <td style="white-space:nowrap"><button class="btn" style="font-size:10px;padding:2px 6px" onclick="event.stopPropagation();downloadHaichisho('${r.booking_id}','initial')">📋 初期版</button> <button class="btn" style="font-size:10px;padding:2px 6px" onclick="event.stopPropagation();downloadHaichisho('${r.booking_id}','final')">📋 ファイナル</button></td>
+    </tr>`;
   }).join('');
+}
+
+async function downloadHaichisho(bookingId, type){
+  const url = `/api/generate-haichisho?booking_id=${encodeURIComponent(bookingId)}&type=${type}`;
+  try {
+    const r = await fetch(url);
+    if(!r.ok){ const j = await r.json(); alert('手配書生成エラー: '+(j.error||r.statusText)); return; }
+    const blob = await r.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    const cd = r.headers.get('Content-Disposition')||'';
+    const m = cd.match(/filename\*?=(?:UTF-8'')?([^;]+)/i);
+    a.download = m ? decodeURIComponent(m[1].replace(/['"]/g,'')) : `haichisho_${type}.xlsx`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+  } catch(e){ alert('手配書DLエラー: '+e.message); }
 }
 
 async function toggleHmStatus(id){
