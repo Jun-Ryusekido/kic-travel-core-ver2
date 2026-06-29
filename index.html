@@ -5858,6 +5858,7 @@ function filterPartners(){
       <td>${escHtml(p.email||'')}</td>
       <td style="white-space:normal;font-size:10px;color:var(--text3)">${escHtml(p.notes||'')}</td>
       <td style="white-space:nowrap">
+        <button class="btn" style="font-size:11px" onclick="showPartnerDetail('${p.id}')">照会</button>
         <button class="btn" style="font-size:11px" onclick="openPartnerEditor('${p.id}')">編集</button>
         <button class="btn" style="font-size:11px;color:var(--red)" onclick="deletePartner('${p.id}')">削除</button>
       </td>
