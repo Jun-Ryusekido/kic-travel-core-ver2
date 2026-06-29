@@ -7,7 +7,6 @@
     { "src": "api/*.js", "use": "@vercel/node" }
   ],
   "routes": [
-    { "src": "/api/(.*)", "dest": "/api/$1" },
     { "src": "/guide_settlement_jp.pdf", "dest": "/public/guide_settlement_jp.pdf" },
     { "src": "/guide_settlement_en.pdf", "dest": "/public/guide_settlement_en.pdf" },
     { "src": "/guide.html", "dest": "/guide.html" },
