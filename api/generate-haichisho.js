@@ -1,4 +1,4 @@
-import XLSX from 'xlsx';
+const XLSX = require('xlsx');
 
 const SB_URL = 'https://nzdygjlnzvtdezslnuoy.supabase.co';
 const SB_KEY = process.env.SUPABASE_KEY || 'sb_publishable_Cnloaxzb2Ati8gmCa-1o3Q_t3uy6_mB';
@@ -20,7 +20,7 @@ function cell(ws, addr, value) {
   ws[addr] = { v: value == null ? '' : value, t };
 }
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   const { booking_id } = req.query;
   if (!booking_id) return res.status(400).json({ error: 'booking_id is required' });
 
