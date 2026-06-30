@@ -2045,7 +2045,7 @@ function renderSalesPaymentDates(it,i,dis){
   const payments = it.payments||[];
   const rows = payments.map((p,j)=>`
     <div style="margin-bottom:2px">
-      <input ${dis} type="date" value="${p.date||''}" style="width:100%" onchange="bdSalesItems[${i}].payments[${j}].date=this.value;updateDetailGrossPreview()">
+      <input ${dis} type="date" value="${_safeDate(p.date)}" style="width:100%" onchange="bdSalesItems[${i}].payments[${j}].date=this.value;updateDetailGrossPreview()">
     </div>`).join('');
 const addBtn = (dis||payments.length>0)?'':`<button class="btn" style="font-size:9px;padding:2px 5px" onclick="addSalesPayment(${i})">＋入金追加</button>`;
   return `${rows}${addBtn}`;
@@ -2199,7 +2199,7 @@ function renderCostTable(){
       return `<tr>
         <td><input ${dis} value="${(it.item_name||'').replace(/"/g,'&quot;')}" title="${(it.item_name||'').replace(/"/g,'&quot;')}" oninput="bdCostItems[${i}].item_name=this.value;showSupplierSuggestions(this,${i})" onblur="setTimeout(hideSupplierSuggestions,150)" onfocus="showSupplierSuggestions(this,${i})"></td>
         <td style="text-align:right"><input ${dis} type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="bdCostRowCalc(${i},this)" style="text-align:right"></td>
-        <td style="text-align:center"><input ${dis} type="date" value="${it.payment_date||''}" onchange="bdCostItems[${i}].payment_date=this.value" style="text-align:center"></td>
+        <td style="text-align:center"><input ${dis} type="date" value="${_safeDate(it.payment_date)}" onchange="bdCostItems[${i}].payment_date=this.value" style="text-align:center"></td>
         <td><input ${dis} value="${(it.memo||'').replace(/"/g,'&quot;')}" title="${(it.memo||'').replace(/"/g,'&quot;')}" onchange="bdCostItems[${i}].memo=this.value"></td>
         <td class="li-del">${bdLocked?'':`<span class="lnk" style="font-size:10px" onclick="removeCostRow(${i})">削除</span>`}</td>
       </tr>`;
@@ -2513,7 +2513,7 @@ function renderLocalExpenses(){
   }else{
     tbody.innerHTML = bdLocalExpenses.map((it,i)=>`
       <tr>
-        <td><input type="date" value="${it.expense_date||''}" onchange="bdLocalExpenses[${i}].expense_date=this.value" style="width:100%"></td>
+        <td><input type="date" value="${_safeDate(it.expense_date)}" onchange="bdLocalExpenses[${i}].expense_date=this.value" style="width:100%"></td>
         <td><input value="${(it.content||'').replace(/"/g,'&quot;')}" onchange="bdLocalExpenses[${i}].content=this.value" style="width:100%"></td>
         <td><select onchange="bdLocalExpenses[${i}].category=this.value" style="width:100%">
           ${LOCAL_EXPENSE_CATEGORIES.map(c=>`<option value="${c}" ${it.category===c?'selected':''}>${c}</option>`).join('')}
@@ -2581,10 +2581,8 @@ async function openBookingDetail(id){
   document.getElementById('bd-pax-inf').value = b.pax_infant||0;
   updateBdPaxTotal();
   document.getElementById('bd-status').value = b.status||'open';
-  // DB値が不正形式（例: 202606-06-10）の場合は空文字をセットして誤表示を防ぐ
-  const _sd = d => (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) ? d : '';
-  document.getElementById('bd-in').value = _sd(b.in_date);
-  document.getElementById('bd-out').value = _sd(b.out_date);
+  setDateInputValue('bd-in', b.in_date);
+  setDateInputValue('bd-out', b.out_date);
   document.getElementById('bd-staff').value = b.staff_in_charge||'';
   // deposit reset handled after sales load
   document.getElementById('bd-updated').textContent = b.updated_at ? ('最終更新: '+new Date(b.updated_at).toLocaleString('ja-JP')) : '';
@@ -2763,7 +2761,7 @@ async function openArrangementEditor(arrId){
   if(arrId){
     const {data: arr} = await sb.from('tour_arrangements').select('*').eq('id', arrId).maybeSingle();
     if(arr){
-      ARR_HEADER_FIELDS.forEach(([elId, col])=>{ const el=document.getElementById(elId); if(el) el.value = arr[col]||''; });
+      ARR_HEADER_FIELDS.forEach(([elId, col])=>{ const el=document.getElementById(elId); if(!el) return; if(el.type==='date') setDateInputValue(el, arr[col]); else el.value=arr[col]||''; });
       document.getElementById('arr-footer-notes').value = arr.footer_notes||'';
 
       const {data: days} = await sb.from('tour_arrangement_days').select('*').eq('arrangement_id', arrId).order('sort_order');
@@ -2786,6 +2784,7 @@ function closeArrangementEditor(){
 }
 
 function renderArrDays(){
+  if(_dateInputFocusedIn('arr-days')) return;
   const el = document.getElementById('arr-days');
   el.innerHTML = arrDays.length
     ? arrDays.map((d,i)=>arrDayCardHtml(d,i)).join('')
@@ -2803,7 +2802,7 @@ function arrDayCardHtml(d, i){
       </span>
     </div>
     <div class="form-grid">
-      <div class="form-field"><label>日付</label><input type="date" value="${escAttr(d.day_date)}" onchange="arrDays[${i}].day_date=this.value"></div>
+      <div class="form-field"><label>日付</label><input type="date" value="${_safeDate(d.day_date)}" onchange="arrDays[${i}].day_date=this.value;bd_dateValidate(this,'Day${i+1}日付')"></div>
       <div class="form-field"><label>曜日</label><input value="${escAttr(d.day_of_week)}" placeholder="例: 月" onchange="arrDays[${i}].day_of_week=this.value"></div>
       <div class="form-field"><label>バス会社</label><input value="${escAttr(d.bus_company)}" onchange="arrDays[${i}].bus_company=this.value"></div>
       <div class="form-field"><label>ホテル名</label><input value="${escAttr(d.hotel_name)}" onchange="arrDays[${i}].hotel_name=this.value"></div>
@@ -3339,7 +3338,7 @@ function renderGuideSettlements(){
       ? `<input type="text" value="${escHtml(it.category === '自由記載' ? '' : (it.category||''))}" placeholder="カテゴリを入力" style="width:100%;border:1px solid var(--border);border-radius:4px;padding:2px 4px;font-size:11px" oninput="updateGuideItem('${it.id}','category',this.value)"><br><span style="font-size:9px;cursor:pointer;color:var(--blue)" onclick="backToSelectCategory('${it.id}')">▲ 選択に戻る</span>`
       : `<select onchange="updateGuideItem('${it.id}','category',this.value);if(this.value==='自由記載')switchToFreeCategory('${it.id}')" style="font-size:11px;border:1px solid var(--border);border-radius:4px;padding:2px 4px;width:100%"><option value="食事代" ${it.category==='食事代'?'selected':''}>食事代 (Meals)</option><option value="交通費" ${it.category==='交通費'?'selected':''}>交通費 (Transportation)</option><option value="駐車場代" ${it.category==='駐車場代'?'selected':''}>駐車場代 (Parking)</option><option value="高速・有料道路代" ${it.category==='高速・有料道路代'?'selected':''}>高速・有料道路代 (Expressway / Toll)</option><option value="入場料・拝観料" ${it.category==='入場料・拝観料'?'selected':''}>入場料・拝観料 (Admission fees)</option><option value="ガイド費" ${it.category==='ガイド費'?'selected':''}>ガイド費 (Guide fee)</option><option value="宿泊代" ${it.category==='宿泊代'?'selected':''}>宿泊代 (Accommodation)</option><option value="その他" ${it.category==='その他'?'selected':''}>その他 (Other)</option><option value="自由記載" ${it.category==='自由記載'?'selected':''}>自由記載</option></select>`;
     return `<div class="gs-item-row">
-      <div style="flex:0 0 100px"><input type="date" value="${it.expense_date||''}" onchange="updateGuideItem('${it.id}','expense_date',this.value)" style="width:100%;border:1px solid var(--border);border-radius:4px;padding:2px 4px;font-size:11px"></div>
+      <div style="flex:0 0 100px"><input type="date" value="${_safeDate(it.expense_date)}" onchange="updateGuideItem('${it.id}','expense_date',this.value)" style="width:100%;border:1px solid var(--border);border-radius:4px;padding:2px 4px;font-size:11px"></div>
       <div id="cat-wrap-${it.id}" style="flex:0 0 110px">${catHtml}</div>
       <div style="flex:1;min-width:120px"><input type="text" value="${escHtml(it.description||'')}" onchange="updateGuideItem('${it.id}','description',this.value)" style="width:100%;border:1px solid var(--border);border-radius:4px;padding:2px 6px;font-size:11px"></div>
       <div style="flex:0 0 80px;text-align:right"><input type="text" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="updateGuideItem('${it.id}','amount',this.value.replace(/,/g,''))" style="width:100%;border:1px solid var(--border);border-radius:4px;padding:2px 6px;font-size:11px;text-align:right"></div>
@@ -4004,7 +4003,7 @@ async function openEstimationEditor(id){
   document.getElementById('est-title').value='';
   document.getElementById('est-tour-code').value='';
   document.getElementById('est-notes').value='';
-  document.getElementById('est-date').value = new Date().toISOString().slice(0,10);
+  setDateInputValue('est-date', new Date().toISOString().slice(0,10));
   document.getElementById('est-status').value='draft';
   document.getElementById('est-handling').value=0;
   document.getElementById('est-insurance').value=400;
@@ -4014,7 +4013,7 @@ async function openEstimationEditor(id){
     if(est){
       document.getElementById('est-title').value = est.title||'';
       document.getElementById('est-tour-code').value = est.tour_code||'';
-      document.getElementById('est-date').value = est.created_date||'';
+      setDateInputValue('est-date', est.created_date);
       document.getElementById('est-status').value = est.status||'draft';
       document.getElementById('est-handling').value = est.handling_fee_pct||0;
       document.getElementById('est-insurance').value = est.insurance_per_pax||400;
@@ -4072,6 +4071,8 @@ function renderEstSelectedTierOptions(){
 // ---- 日程別コスト（表形式） ----
 function renderEstDays(){
   const table = document.getElementById('est-days-table');
+  if(!table) return;
+  if(_dateInputFocusedIn('est-days-table')) return;
   const n = estDays.length;
 
   // ヘッダー行
@@ -4079,7 +4080,7 @@ function renderEstDays(){
   for(let i=0;i<n;i++){
     html += `<th style="min-width:110px;vertical-align:top">
       <div>DAY${i+1}</div>
-      <input type="date" value="${escAttr(estDays[i].day_date||'')}" style="font-size:10px;padding:2px 4px;margin:3px 0;width:100%;box-sizing:border-box;border:1px solid var(--border);border-radius:4px;background:#fff" onchange="estDays[${i}].day_date=this.value">
+      <input type="date" value="${_safeDate(estDays[i].day_date)}" style="font-size:10px;padding:2px 4px;margin:3px 0;width:100%;box-sizing:border-box;border:1px solid var(--border);border-radius:4px;background:#fff" onchange="estDays[${i}].day_date=this.value;bd_dateValidate(this,'DAY${i+1}日付')">
       <div style="white-space:nowrap;margin-top:3px">
         <button class="btn" onclick="moveEstDay(${i},-1)">◀</button>
         <button class="btn" onclick="moveEstDay(${i},1)">▶</button>
@@ -6681,7 +6682,7 @@ function openBtModal(id){
   document.getElementById('bt-modal-delete').style.display = id ? '' : 'none';
   document.getElementById('bt-modal-msg').style.display = 'none';
   document.getElementById('bt-m-booking-ref').value  = r.booking_ref||'';
-  document.getElementById('bt-m-ride-date').value    = r.ride_date||'';
+  setDateInputValue('bt-m-ride-date', r.ride_date);
   document.getElementById('bt-m-train-name').value   = r.train_name||'';
   document.getElementById('bt-m-train-number').value = r.train_number||'';
   document.getElementById('bt-m-dep-station').value  = r.departure_station||'';
@@ -8032,12 +8033,22 @@ function bd_dateValidate(el, label){
   }
 }
 
-// フォーカス中のdate inputを含むtbodyの再描画をスキップするガード
-function _dateInputFocusedIn(tbodyId){
+// フォーカス中のdate inputを含むコンテナの再描画をスキップするガード
+function _dateInputFocusedIn(containerId){
   var focused = document.activeElement;
   if(!focused || focused.tagName !== 'INPUT' || focused.type !== 'date') return false;
-  var tbody = document.getElementById(tbodyId);
-  return !!tbody && tbody.contains(focused);
+  var container = document.getElementById(containerId);
+  return !!container && container.contains(focused);
+}
+
+// 日付文字列のフォーマット検証（YYYY-MM-DD でない場合は空文字を返す）
+function _safeDate(d){ return (d && /^\d{4}-\d{2}-\d{2}$/.test(String(d))) ? String(d) : ''; }
+
+// type="date" inputのvalue設定共通関数：不正値は空文字でセット
+function setDateInputValue(el, d){
+  if(typeof el==='string') el=document.getElementById(el);
+  if(!el) return;
+  el.value = _safeDate(d);
 }
 
 </script>
