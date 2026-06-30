@@ -1771,7 +1771,7 @@ const EST_DEFAULT_TIERS = [
   {label:'35～39', pax:37},
   {label:'40', pax:40}
 ];
-const EST_DAY_BLANK = {hotel_name:'', twin_rate:0, breakfast:'', lunch_rate:0, dinner_rate:0,
+const EST_DAY_BLANK = {day_date:'', hotel_name:'', twin_rate:0, breakfast:'', lunch_rate:0, dinner_rate:0,
   bus_rate:0, bus_tip:0, bus_driver_meal:0, parking_tolls:0,
   guide_fee:0, guide_tip:0, guide_meal:0,
   admission_fee:0, admission_remark:'', bullet_train:0, bullet_train_remark:'', treat:0, treat_remark:''};
@@ -3883,70 +3883,99 @@ function renderEstDays(){
   const table = document.getElementById('est-days-table');
   const n = estDays.length;
 
-  let html = '<thead><tr><th></th>';
+  // ヘッダー行
+  let html = '<thead><tr><th class="est-lbl-th" style="min-width:150px;text-align:left">項目</th>';
   for(let i=0;i<n;i++){
-    html += `<th>DAY${i+1}<div style="margin-top:3px;white-space:nowrap">
-      <button class="btn" onclick="moveEstDay(${i},-1)">◀</button>
-      <button class="btn" onclick="moveEstDay(${i},1)">▶</button>
-      <button class="btn" onclick="removeEstDay(${i})">✕</button>
-    </div></th>`;
+    html += `<th style="min-width:110px;vertical-align:top">
+      <div>DAY${i+1}</div>
+      <input type="date" value="${escAttr(estDays[i].day_date||'')}" style="font-size:10px;padding:2px 4px;margin:3px 0;width:100%;box-sizing:border-box;border:1px solid var(--border);border-radius:4px;background:#fff" onchange="estDays[${i}].day_date=this.value">
+      <div style="white-space:nowrap;margin-top:3px">
+        <button class="btn" onclick="moveEstDay(${i},-1)">◀</button>
+        <button class="btn" onclick="moveEstDay(${i},1)">▶</button>
+        <button class="btn" style="color:var(--red)" onclick="removeEstDay(${i})">✕</button>
+      </div>
+    </th>`;
   }
-  html += `<th style="background:transparent;border:none;white-space:nowrap"><button class="btn btn-p" onclick="addEstDay()">＋ Day追加</button></th></tr></thead><tbody>`;
+  html += `<th style="background:transparent;border:none;padding:4px 6px;white-space:nowrap;vertical-align:top">
+    <button class="btn btn-p" onclick="addEstDay()">＋ Day追加</button>
+  </th>`;
+  html += `<th style="min-width:90px;text-align:right;white-space:nowrap">合計</th></tr></thead><tbody>`;
 
+  // 数値行：右端に id 付き合計セル
   const numRow = (label, key) => {
     let r = `<tr><td class="lbl">${label}</td>`;
-    for(let i=0;i<n;i++) r += `<td><input type="number" value="${estDays[i][key]||0}" oninput="estDays[${i}].${key}=this.value;calcEstimation()"></td>`;
-    return r + '<td></td></tr>';
+    for(let i=0;i<n;i++) r += `<td><input type="number" value="${estDays[i][key]||0}" oninput="estDays[${i}].${key}=Number(this.value);calcEstimation()" style="text-align:right"></td>`;
+    r += `<td></td><td id="est-total-${key}" style="text-align:right;font-weight:600;white-space:nowrap"></td>`;
+    return r + '</tr>';
   };
+  // テキスト行
   const textRow = (label, key, ph) => {
     let r = `<tr><td class="lbl">${label}</td>`;
-    for(let i=0;i<n;i++) r += `<td><input value="${escAttr(estDays[i][key])}" placeholder="${ph||''}" onchange="estDays[${i}].${key}=this.value"></td>`;
-    return r + '<td></td></tr>';
+    for(let i=0;i<n;i++) r += `<td><input value="${escAttr(estDays[i][key]||'')}" placeholder="${ph||''}" onchange="estDays[${i}].${key}=this.value"></td>`;
+    r += `<td></td><td></td>`;
+    return r + '</tr>';
   };
+  // サブテキスト行（内容欄）
   const subTextRow = (label, key, ph) => {
-    let r = `<tr><td class="lbl-sub">${label}</td>`;
-    for(let i=0;i<n;i++) r += `<td><input value="${escAttr(estDays[i][key])}" placeholder="${ph||''}" style="font-size:10px" onchange="estDays[${i}].${key}=this.value"></td>`;
-    return r + '<td></td></tr>';
+    let r = `<tr><td class="lbl-sub">　${label}</td>`;
+    for(let i=0;i<n;i++) r += `<td><input value="${escAttr(estDays[i][key]||'')}" placeholder="${ph||''}" style="font-size:10px" onchange="estDays[${i}].${key}=this.value"></td>`;
+    r += `<td></td><td></td>`;
+    return r + '</tr>';
   };
-  const secRow = (label, extra) => `<tr class="sec"><td colspan="${n+2}">${label}${extra||''}</td></tr>`;
+  // セクションヘッダー行
+  const secRow = (label, extra) => `<tr class="sec"><td colspan="${n+3}">${label}${extra||''}</td></tr>`;
+  // 小計行
+  const subRow = (id, label) =>
+    `<tr style="background:#e8f0fe"><td style="font-weight:700;padding:4px 8px;font-size:11px;position:sticky;left:0;background:#e8f0fe">${label}</td>${'<td></td>'.repeat(n+1)}<td id="${id}" style="text-align:right;font-weight:700;font-size:11px;white-space:nowrap"></td></tr>`;
 
   if(n===0){
-    html += `<tr><td class="lbl">日程がありません</td><td style="color:var(--text3);font-size:11px;padding:6px 8px">「＋ Day追加」で日程を追加してください</td></tr>`;
-  }else{
-    html += textRow('ホテル名','hotel_name');
-    html += textRow('朝食','breakfast','例: Hotel');
-    html += numRow('ツイン代(人数連動)','twin_rate');
-    html += numRow('昼食代(人数連動)','lunch_rate');
-    html += numRow('夕食代(人数連動)','dinner_rate');
-
-    html += secRow('ホテル代 固定費（FOC・ガイド・ドライバー等／人数によらず固定）', ` <button class="btn" onclick="addEstFixedRow()">＋ 行追加</button>`);
+    html += `<tr><td colspan="3" style="color:var(--text3);font-size:11px;padding:16px 12px;text-align:center">「＋ Day追加」ボタンで日程を追加してください</td></tr>`;
+  } else {
+    // セクション1: ホテル
+    html += secRow('セクション1: ホテル');
+    html += textRow('ホテル名','hotel_name','例: ヒルトン大阪');
+    html += textRow('朝食','breakfast','例: Hotel / なし');
+    html += numRow('ツイン代（人数連動）','twin_rate');
+    html += `<tr><td class="lbl" style="color:var(--text3)">ホテル代 固定費<button class="btn" style="margin-left:6px;font-size:9px" onclick="addEstFixedRow()">＋ 行追加</button></td>${'<td></td>'.repeat(n)}<td></td><td></td></tr>`;
     estFixedRows.forEach((row,k)=>{
       row.amounts = row.amounts || [];
       while(row.amounts.length < n) row.amounts.push(0);
-      html += `<tr><td class="lbl"><input class="lbl-input" value="${escAttr(row.label)}" placeholder="例: FOC / ガイド / ドライバー" onchange="estFixedRows[${k}].label=this.value">
-        <button class="btn" onclick="removeEstFixedRow(${k})">✕</button></td>`;
-      for(let i=0;i<n;i++) html += `<td><input type="number" value="${row.amounts[i]||0}" oninput="estFixedRows[${k}].amounts[${i}]=this.value;calcEstimation()"></td>`;
-      html += '<td></td></tr>';
+      html += `<tr><td class="lbl" style="padding-left:16px"><input class="lbl-input" value="${escAttr(row.label)}" placeholder="例: FOC / ガイド / ドライバー" onchange="estFixedRows[${k}].label=this.value"> <button class="btn" style="font-size:9px;color:var(--red)" onclick="removeEstFixedRow(${k})">✕</button></td>`;
+      for(let i=0;i<n;i++) html += `<td><input type="number" value="${row.amounts[i]||0}" oninput="estFixedRows[${k}].amounts[${i}]=Number(this.value);calcEstimation()" style="text-align:right"></td>`;
+      html += `<td></td><td id="est-total-fixedrow-${k}" style="text-align:right;font-weight:600;white-space:nowrap"></td></tr>`;
     });
+    html += subRow('est-subtotal-hotel', '小計: ホテル');
 
-    html += secRow('バス代（固定費）');
+    // セクション2: 食事
+    html += secRow('セクション2: 食事（人数連動）');
+    html += numRow('昼食代','lunch_rate');
+    html += numRow('夕食代','dinner_rate');
+    html += subRow('est-subtotal-food', '小計: 食事');
+
+    // セクション3: バス代
+    html += secRow('セクション3: バス代（固定費）');
     html += numRow('バス代','bus_rate');
     html += numRow('チップ','bus_tip');
     html += numRow('乗務員食事代','bus_driver_meal');
     html += numRow('駐車場・通行料','parking_tolls');
+    html += subRow('est-subtotal-bus', '小計: バス代');
 
-    html += secRow('ガイド代（固定費）');
+    // セクション4: ガイド代
+    html += secRow('セクション4: ガイド代（固定費）');
     html += numRow('ガイド代','guide_fee');
     html += numRow('チップ','guide_tip');
     html += numRow('食事代','guide_meal');
+    html += subRow('est-subtotal-guide', '小計: ガイド代');
 
-    html += secRow('人数連動の費用');
+    // セクション5: 人数連動の費用
+    html += secRow('セクション5: 人数連動の費用');
     html += numRow('入場料','admission_fee');
     html += subTextRow('入場料 内容','admission_remark','例: 通天閣');
-    html += numRow('新幹線代(人数+1)','bullet_train');
-    html += subTextRow('新幹線 内容','bullet_train_remark');
+    html += numRow('新幹線代（人数+1）','bullet_train');
+    html += subTextRow('新幹線 内容','bullet_train_remark','例: 東京→大阪');
     html += numRow('Treat','treat');
     html += subTextRow('Treat 内容','treat_remark');
+    html += subRow('est-subtotal-pax', '小計: 人数連動費用');
   }
 
   html += '</tbody>';
@@ -3980,6 +4009,45 @@ function removeEstFixedRow(k){
   renderEstDays(); calcEstimation();
 }
 
+function updateEstTotals(){
+  const sel = document.getElementById('est-selected-tier');
+  const idx = sel && sel.value !== '' ? Number(sel.value) : -1;
+  const pax = (idx >= 0 && estPaxTiers[idx]) ? Number(estPaxTiers[idx].pax)||0 : 0;
+  const sumF = key => estDays.reduce((s,d)=>s+(Number(d[key])||0), 0);
+  const setEl = (id, val) => { const el = document.getElementById(id); if(el) el.textContent = val ? yen(val) : ''; };
+
+  // 人数連動行（× PAX）
+  setEl('est-total-twin_rate',     sumF('twin_rate')     * pax);
+  setEl('est-total-lunch_rate',    sumF('lunch_rate')    * pax);
+  setEl('est-total-dinner_rate',   sumF('dinner_rate')   * pax);
+  setEl('est-total-admission_fee', sumF('admission_fee') * pax);
+  setEl('est-total-bullet_train',  sumF('bullet_train')  * (pax + 1));
+  setEl('est-total-treat',         sumF('treat')         * pax);
+
+  // 固定費行（合計のみ）
+  setEl('est-total-bus_rate',        sumF('bus_rate'));
+  setEl('est-total-bus_tip',         sumF('bus_tip'));
+  setEl('est-total-bus_driver_meal', sumF('bus_driver_meal'));
+  setEl('est-total-parking_tolls',   sumF('parking_tolls'));
+  setEl('est-total-guide_fee',       sumF('guide_fee'));
+  setEl('est-total-guide_tip',       sumF('guide_tip'));
+  setEl('est-total-guide_meal',      sumF('guide_meal'));
+
+  // 動的固定費行
+  estFixedRows.forEach((row, k) => {
+    const sum = (row.amounts||[]).reduce((s,a)=>s+(Number(a)||0), 0);
+    setEl(`est-total-fixedrow-${k}`, sum);
+  });
+
+  // セクション小計
+  const fixedRowsSum = estFixedRows.reduce((s, row) => s + (row.amounts||[]).reduce((ss,a)=>ss+(Number(a)||0), 0), 0);
+  setEl('est-subtotal-hotel',  sumF('twin_rate') * pax + fixedRowsSum);
+  setEl('est-subtotal-food',   (sumF('lunch_rate') + sumF('dinner_rate')) * pax);
+  setEl('est-subtotal-bus',    sumF('bus_rate') + sumF('bus_tip') + sumF('bus_driver_meal') + sumF('parking_tolls'));
+  setEl('est-subtotal-guide',  sumF('guide_fee') + sumF('guide_tip') + sumF('guide_meal'));
+  setEl('est-subtotal-pax',    sumF('admission_fee') * pax + sumF('bullet_train') * (pax + 1) + sumF('treat') * pax);
+}
+
 // ---- 計算エンジン ----
 function calcEstimation(){
   const handlingPct = Number(document.getElementById('est-handling').value)||0;
@@ -4007,6 +4075,7 @@ function calcEstimation(){
   });
 
   renderEstResults(results);
+  updateEstTotals();
   return results;
 }
 
@@ -4064,7 +4133,7 @@ async function saveEstimation(){
 
   if(estDays.length>0){
     const dayRows = estDays.map((d,i)=>({
-      estimation_id: estId, day_number: i+1, hotel_name: d.hotel_name||'',
+      estimation_id: estId, day_number: i+1, day_date: d.day_date||null, hotel_name: d.hotel_name||'',
       twin_rate: Number(d.twin_rate)||0, breakfast: d.breakfast||'',
       lunch_rate: Number(d.lunch_rate)||0, dinner_rate: Number(d.dinner_rate)||0,
       bus_rate: Number(d.bus_rate)||0, bus_tip: Number(d.bus_tip)||0, bus_driver_meal: Number(d.bus_driver_meal)||0, parking_tolls: Number(d.parking_tolls)||0,
