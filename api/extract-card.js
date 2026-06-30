@@ -3,7 +3,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
   try {
-    const { variants, mediaType, base64, hotelText, hotelPdfBase64, facilityText, facilityPdfBase64 } = req.body;
+    const { variants, mediaType, base64, hotelText, hotelPdfBase64, facilityText, facilityPdfBase64, busText, busPdfBase64 } = req.body;
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
       return res.status(500).json({ error: 'サーバー側にAPIキーが設定されていません' });
@@ -82,6 +82,36 @@ ${facilityText}`
 フィールド：facility_name(施設名・駐車場名等), date(YYYY-MM-DD), pax(人数・数値), amount(金額・数値・円), status, confirmation_no(確認番号), memo(備考)
 statusは「手配OK」または「問い合わせ中」のいずれかを入れてください。予約確定・確認番号あり・手配完了等の表現があれば「手配OK」、見積もり・問い合わせ・検討中等であれば「問い合わせ中」としてください。
 金額が不明な場合は0、人数不明は0としてください。
+JSONのみ返し、説明文・コードブロック記号は不要です。` }
+      ], 2000);
+      return res.status(200).json(data);
+    }
+
+    // バステキスト解析モード
+    if (busText) {
+      const data = await callClaude([{
+        type: 'text',
+text: `以下のバス手配確認書やメールからバス手配情報を抽出してJSON配列で返してください。
+各バス手配を1つのオブジェクトとして配列に含めてください。
+フィールド：bus_company(バス会社名), bus_type(バスタイプ・車種等), buses(台数・数値), start_date(開始日・YYYY-MM-DD), end_date(終了日・YYYY-MM-DD), amount(金額・数値・円), status, confirmation_no(確認番号), memo(備考)
+statusは「手配OK」または「問い合わせ中」のいずれかを入れてください。予約確定・確認番号あり・手配完了等の表現があれば「手配OK」、見積もり・問い合わせ・検討中等であれば「問い合わせ中」としてください。
+金額が不明な場合は0、台数不明は1としてください。日付が不明な場合は空文字にしてください。
+JSONのみ返し、説明文・コードブロック記号は不要です。
+
+${busText}`
+      }], 2000);
+      return res.status(200).json(data);
+    }
+
+    // バスPDF解析モード
+    if (busPdfBase64) {
+      const data = await callClaude([
+        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: busPdfBase64 } },
+        { type: 'text', text: `このPDFからバス手配情報を抽出してJSON配列で返してください。
+各バス手配を1つのオブジェクトとして配列に含めてください。
+フィールド：bus_company(バス会社名), bus_type(バスタイプ・車種等), buses(台数・数値), start_date(開始日・YYYY-MM-DD), end_date(終了日・YYYY-MM-DD), amount(金額・数値・円), status, confirmation_no(確認番号), memo(備考)
+statusは「手配OK」または「問い合わせ中」のいずれかを入れてください。予約確定・確認番号あり・手配完了等の表現があれば「手配OK」、見積もり・問い合わせ・検討中等であれば「問い合わせ中」としてください。
+金額が不明な場合は0、台数不明は1としてください。日付が不明な場合は空文字にしてください。
 JSONのみ返し、説明文・コードブロック記号は不要です。` }
       ], 2000);
       return res.status(200).json(data);

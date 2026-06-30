@@ -1216,6 +1216,21 @@ th.sortable:hover{color:var(--blue)}
       </table></div>
       <button class="btn" style="font-size:10px;margin-top:4px" onclick="addBusRow()">＋ 行追加</button>
       <div class="li-total">バス合計: <span id="bd-buses-total">¥0</span></div>
+      <div style="margin-top:12px;border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--bg)">
+        <div style="font-size:11px;font-weight:600;margin-bottom:8px">ファイル・テキストから一括読み取り</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <button class="btn" style="font-size:11px" onclick="toggleBusOcrArea()">📧 テキストから読み取り</button>
+          <label class="btn" style="font-size:11px;cursor:pointer">📎 Excel/PDFから読み取り<input type="file" accept=".xlsx,.xls,.pdf" style="display:none" onchange="extractBusFromFile(event)"></label>
+          <span id="bus-file-status" style="font-size:11px;color:var(--text3)"></span>
+        </div>
+        <div id="bus-ocr-area" style="display:none;margin-top:8px">
+          <textarea id="bus-ocr-text" rows="5" style="width:100%;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:11px;font-family:inherit;resize:vertical" placeholder="バス手配確認書・メールの本文をここに貼り付け..."></textarea>
+          <div style="margin-top:6px;display:flex;gap:6px;align-items:center">
+            <button class="btn btn-p" style="font-size:11px" onclick="extractBusFromText()">🤖 AIで読み取り</button>
+            <span id="bus-ocr-status" style="font-size:11px;color:var(--text3)"></span>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div id="arrtab-rest" style="display:none">
@@ -4578,6 +4593,143 @@ async function saveBusItems(){
     confirmation_no: it.confirmation_no||'', memo: it.memo||''
   }));
   if(rows.length) await sb.from('booking_buses').insert(rows);
+}
+
+// ─── バスAI読み取り ───────────────────────────────────────────────────────────
+function toggleBusOcrArea(){
+  const a=document.getElementById('bus-ocr-area');
+  if(a) a.style.display=a.style.display==='none'?'':'none';
+}
+
+async function extractBusFromText(){
+  const text=(document.getElementById('bus-ocr-text')||{}).value||'';
+  if(!text.trim()){ alert('テキストを入力してください'); return; }
+  const statusEl=document.getElementById('bus-ocr-status');
+  statusEl.textContent='読み取り中...'; statusEl.style.color='var(--text3)';
+  try{
+    const resp=await fetch('/api/extract-card',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({busText:text.trim()})});
+    if(!resp.ok){const e=await resp.json();throw new Error(e.error||'サーバーエラー');}
+    const data=await resp.json();
+    const tb=data.content.find(b=>b.type==='text');
+    const cleaned=(tb.text||'').replace(/```json|```/g,'').trim();
+    const parsed=JSON.parse(cleaned);
+    const buses=Array.isArray(parsed)?parsed:[parsed];
+    statusEl.textContent=`✓ ${buses.length}件を読み取りました。内容を確認してください。`;
+    statusEl.style.color='var(--green)';
+    showBusConfirmDialog(buses);
+    document.getElementById('bus-ocr-text').value='';
+  }catch(e){
+    statusEl.textContent='読み取り失敗: '+e.message;
+    statusEl.style.color='var(--red)';
+  }
+}
+
+async function extractBusFromFile(event){
+  const file=event.target.files[0];
+  if(!file) return;
+  const statusEl=document.getElementById('bus-file-status');
+  statusEl.textContent='読み取り中...'; statusEl.style.color='var(--text3)';
+  try{
+    const isPdf=file.name.toLowerCase().endsWith('.pdf');
+    const isExcel=file.name.toLowerCase().match(/\.(xlsx|xls)$/);
+    let body;
+    if(isPdf){
+      const base64=await new Promise((resolve,reject)=>{
+        const r=new FileReader();
+        r.onload=()=>resolve(r.result.split(',')[1]);
+        r.onerror=reject;
+        r.readAsDataURL(file);
+      });
+      body={busPdfBase64:base64};
+    }else if(isExcel){
+      const XLSX=await import('https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs');
+      const ab=await file.arrayBuffer();
+      const wb=XLSX.read(ab,{type:'array'});
+      const sheets=wb.SheetNames.map(n=>`[シート: ${n}]\n${XLSX.utils.sheet_to_csv(wb.Sheets[n])}`).join('\n\n');
+      body={busText:sheets};
+    }else{
+      throw new Error('対応していないファイル形式です');
+    }
+    const resp=await fetch('/api/extract-card',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(!resp.ok){const e=await resp.json();throw new Error(e.error||'サーバーエラー');}
+    const data=await resp.json();
+    const tb=data.content.find(b=>b.type==='text');
+    const cleaned=(tb.text||'').replace(/```json|```/g,'').trim();
+    const parsed=JSON.parse(cleaned);
+    const buses=Array.isArray(parsed)?parsed:[parsed];
+    showBusConfirmDialog(buses);
+    statusEl.textContent=`✓ ${buses.length}件を読み取りました`;
+    statusEl.style.color='var(--green)';
+  }catch(e){
+    statusEl.textContent='読み取り失敗: '+e.message;
+    statusEl.style.color='var(--red)';
+  }
+  event.target.value='';
+}
+
+function showBusConfirmDialog(buses){
+  window._pendingBuses=buses;
+  const rows=buses.map((b,i)=>`<tr style="border-bottom:1px solid var(--border)">
+    <td style="padding:5px 4px"><input value="${escAttr(b.bus_company||'')}" id="bus-c-company-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
+    <td style="padding:5px 4px"><input value="${escAttr(b.bus_type||'')}" id="bus-c-type-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
+    <td style="padding:5px 4px"><input type="number" value="${b.buses||1}" id="bus-c-buses-${i}" style="width:50px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;text-align:right"></td>
+    <td style="padding:5px 4px"><input type="date" value="${b.start_date||''}" id="bus-c-start-${i}" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
+    <td style="padding:5px 4px"><input type="date" value="${b.end_date||''}" id="bus-c-end-${i}" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
+    <td style="padding:5px 4px"><input type="number" value="${b.amount||0}" id="bus-c-amount-${i}" style="width:90px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;text-align:right"></td>
+    <td style="padding:5px 4px"><select id="bus-c-status-${i}" style="font-size:11px;padding:3px;border:1px solid var(--border);border-radius:5px"><option value="問い合わせ中" ${(b.status||'問い合わせ中')==='問い合わせ中'?'selected':''}>問い合わせ中</option><option value="手配OK" ${b.status==='手配OK'?'selected':''}>手配OK</option></select></td>
+    <td style="padding:5px 4px"><input value="${escAttr(b.confirmation_no||'')}" id="bus-c-conf-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
+    <td style="padding:5px 4px"><input value="${escAttr(b.memo||'')}" id="bus-c-memo-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
+  </tr>`).join('');
+  const modal=document.createElement('div');
+  modal.id='bus-confirm-modal';
+  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:300;display:flex;align-items:center;justify-content:center;padding:20px';
+  modal.innerHTML=`
+    <div style="background:#fff;border-radius:12px;padding:20px;width:100%;max-width:1000px;max-height:90vh;overflow-y:auto">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div style="font-size:14px;font-weight:700">読み取り結果の確認</div>
+        <button class="btn" onclick="document.getElementById('bus-confirm-modal').remove()">✕ 閉じる</button>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:10px">内容を確認・修正してから「明細に追加」してください。</div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">
+        <thead><tr style="background:var(--bg)">
+          <th style="padding:5px 4px;text-align:left;min-width:130px">バス会社</th>
+          <th style="padding:5px 4px;text-align:left;min-width:90px">バスタイプ</th>
+          <th style="padding:5px 4px;min-width:50px">台数</th>
+          <th style="padding:5px 4px;min-width:110px">開始日</th>
+          <th style="padding:5px 4px;min-width:110px">終了日</th>
+          <th style="padding:5px 4px;min-width:90px">金額</th>
+          <th style="padding:5px 4px;min-width:100px">ステータス</th>
+          <th style="padding:5px 4px;min-width:100px">確認番号</th>
+          <th style="padding:5px 4px;min-width:120px">備考</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+      <div style="margin-top:12px;display:flex;gap:8px">
+        <button class="btn btn-p" onclick="saveBusConfirm()">＋ 明細に追加</button>
+        <button class="btn" onclick="document.getElementById('bus-confirm-modal').remove()">キャンセル</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+function saveBusConfirm(){
+  const buses=window._pendingBuses;
+  if(!buses) return;
+  buses.forEach((b,i)=>{
+    bdBusItems.push({
+      bus_company: document.getElementById(`bus-c-company-${i}`)?.value||'',
+      bus_type: document.getElementById(`bus-c-type-${i}`)?.value||'',
+      buses: Number(document.getElementById(`bus-c-buses-${i}`)?.value)||1,
+      start_date: document.getElementById(`bus-c-start-${i}`)?.value||'',
+      end_date: document.getElementById(`bus-c-end-${i}`)?.value||'',
+      amount: Number(document.getElementById(`bus-c-amount-${i}`)?.value)||0,
+      status: document.getElementById(`bus-c-status-${i}`)?.value||'問い合わせ中',
+      confirmation_no: document.getElementById(`bus-c-conf-${i}`)?.value||'',
+      memo: document.getElementById(`bus-c-memo-${i}`)?.value||''
+    });
+  });
+  renderBusTable();
+  document.getElementById('bus-confirm-modal').remove();
 }
 
 // ─── レストラン ──────────────────────────────────────────────────────────────
