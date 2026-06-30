@@ -2091,7 +2091,9 @@ function toggleBdAgentColumn(){
   document.getElementById('bd-agent-toggle-btn').textContent = show ? '－ 請求先をまとめる' : '＋ 請求先を分ける';
 }
 
-function renderSalesTable(){  const tbody = document.getElementById('bd-sales-tbody');
+function renderSalesTable(){
+  if(_dateInputFocusedIn('bd-sales-tbody')) return;
+  const tbody = document.getElementById('bd-sales-tbody');
   const dis = bdLocked ? 'disabled' : '';
   if(bdSalesItems.length===0){
     tbody.innerHTML = '<tr><td colspan="9" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
@@ -2154,6 +2156,7 @@ function renderInvoiceActions(){
 let bdCostSortField = null, bdCostSortDir = 1, bdCostSearch = '';
 
 function renderCostTable(){
+  if(_dateInputFocusedIn('bd-cost-tbody')) return;
   const tbody = document.getElementById('bd-cost-tbody');
   const dis = bdLocked ? 'disabled' : '';
 
@@ -2500,6 +2503,7 @@ function removeSalesRow(i){ if(bdLocked) return; bdSalesItems.splice(i,1); rende
 function removeCostRow(i){ if(bdLocked) return; bdCostItems.splice(i,1); renderCostTable(); }
 
 function renderLocalExpenses(){
+  if(_dateInputFocusedIn('bd-local-tbody')) return;
   const tbody = document.getElementById('bd-local-tbody');
   if(!tbody) return;
   const total = bdLocalExpenses.reduce((s,it)=>s+Number(it.amount||0),0);
@@ -7951,6 +7955,51 @@ restoreSession();
   new MutationObserver(muts=>muts.forEach(m=>m.addedNodes.forEach(n=>scanNode(n))))
     .observe(document.body,{childList:true,subtree:true});
 })();
+
+// ===== Chrome type="date" 年フィールド6桁バグ対策 =====
+// 既存値があるdate入力にフォーカスした際、valueを一時クリアしてChromeを
+// フレッシュエントリーモード（rolling/appendモード不可）に強制する。
+// focusout時に未入力なら元値を復元。changeが先に来た場合はその場でcleanup。
+(function(){
+  document.addEventListener('focusin', function(e){
+    var el = e.target;
+    if(!el || el.tagName !== 'INPUT' || el.type !== 'date' || !el.value) return;
+    el.dataset._dtSaved = el.value;
+    el.value = '';
+  }, true);
+
+  document.addEventListener('change', function(e){
+    var el = e.target;
+    if(!el || el.tagName !== 'INPUT' || el.type !== 'date') return;
+    if(el.dataset._dtSaved === undefined) return;
+    var saved = el.dataset._dtSaved;
+    delete el.dataset._dtSaved;
+    if(!el.value){
+      // changeが空値で発火 → ユーザーは入力せず離れた → 伝播を止めて元値を復元
+      e.stopImmediatePropagation();
+      el.value = saved;
+    }
+    // el.value が有効な日付の場合 → そのまま onchange ハンドラへ伝える
+  }, true);
+
+  document.addEventListener('focusout', function(e){
+    var el = e.target;
+    if(!el || el.tagName !== 'INPUT' || el.type !== 'date') return;
+    if(el.dataset._dtSaved === undefined) return;
+    var saved = el.dataset._dtSaved;
+    delete el.dataset._dtSaved;
+    // change が先に来なかった場合（ブラウザ差異）の復元フォールバック
+    if(!el.value) el.value = saved;
+  }, true);
+})();
+
+// フォーカス中のdate inputを含むtbodyの再描画をスキップするガード
+function _dateInputFocusedIn(tbodyId){
+  var focused = document.activeElement;
+  if(!focused || focused.tagName !== 'INPUT' || focused.type !== 'date') return false;
+  var tbody = document.getElementById(tbodyId);
+  return !!tbody && tbody.contains(focused);
+}
 
 </script>
 
