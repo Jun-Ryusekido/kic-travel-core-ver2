@@ -2542,12 +2542,15 @@ function addLocalExpenseRow(){
   renderLocalExpenses();
 }
 
+// 日付フィールドのサニタイズヘルパー: YYYY-MM-DD(4桁年) 以外は null に変換
+function sanitizeDateField(d){ return (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) ? d : null; }
+
 async function saveLocalExpenses(){
   if(!currentDetailId) return;
   await sb.from('local_expenses').delete().eq('booking_id', currentDetailId);
   const rows = bdLocalExpenses.filter(it=>it.content||Number(it.amount)).map((it,i)=>({
     booking_id: currentDetailId,
-    expense_date: it.expense_date||null,
+    expense_date: sanitizeDateField(it.expense_date),
     content: it.content||'',
     category: it.category||'',
     unit_price: Number(it.unit_price)||0,
@@ -2577,8 +2580,10 @@ async function openBookingDetail(id){
   document.getElementById('bd-pax-inf').value = b.pax_infant||0;
   updateBdPaxTotal();
   document.getElementById('bd-status').value = b.status||'open';
-  document.getElementById('bd-in').value = b.in_date||'';
-  document.getElementById('bd-out').value = b.out_date||'';
+  // DB値が不正形式（例: 202606-06-10）の場合は空文字をセットして誤表示を防ぐ
+  const _sd = d => (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) ? d : '';
+  document.getElementById('bd-in').value = _sd(b.in_date);
+  document.getElementById('bd-out').value = _sd(b.out_date);
   document.getElementById('bd-staff').value = b.staff_in_charge||'';
   // deposit reset handled after sales load
   document.getElementById('bd-updated').textContent = b.updated_at ? ('最終更新: '+new Date(b.updated_at).toLocaleString('ja-JP')) : '';
@@ -4554,8 +4559,8 @@ async function saveHotelItems(){
   const rows = bdHotelItems.filter(it=>it.hotel_name||it.amount).map((it,i)=>({
     booking_id: currentDetailId,
     hotel_name: it.hotel_name||'',
-    check_in: it.check_in||null,
-    check_out: it.check_out||null,
+    check_in: sanitizeDateField(it.check_in),
+    check_out: sanitizeDateField(it.check_out),
     room_type: it.room_type||'',
     rooms: Number(it.rooms)||1,
     breakfast: !!it.breakfast,
@@ -4620,7 +4625,7 @@ async function saveBusItems(){
     booking_id: currentDetailId,
     bus_company: it.bus_company||'', bus_type: it.bus_type||'',
     buses: Number(it.buses)||1,
-    start_date: it.start_date||null, end_date: it.end_date||null,
+    start_date: sanitizeDateField(it.start_date), end_date: sanitizeDateField(it.end_date),
     amount: Number(it.amount)||0,
     status: it.status||'問い合わせ中',
     confirmation_no: it.confirmation_no||'', memo: it.memo||''
@@ -4802,7 +4807,7 @@ async function saveRestaurantItems(){
   const rows = bdRestaurantItems.filter(it=>it.restaurant_name||it.amount).map(it=>({
     booking_id: currentDetailId,
     restaurant_name: it.restaurant_name||'', meal_type: it.meal_type||'昼食',
-    date: it.date||null, pax: Number(it.pax)||0,
+    date: sanitizeDateField(it.date), pax: Number(it.pax)||0,
     amount: Number(it.amount)||0,
     status: it.status||'問い合わせ中',
     confirmation_no: it.confirmation_no||'', memo: it.memo||''
@@ -4977,7 +4982,7 @@ async function saveFacilityItems(){
   const rows = bdFacilityItems.filter(it=>it.facility_name||it.amount).map(it=>({
     booking_id: currentDetailId,
     facility_name: it.facility_name||'',
-    date: it.date||null, pax: Number(it.pax)||0,
+    date: sanitizeDateField(it.date), pax: Number(it.pax)||0,
     amount: Number(it.amount)||0,
     status: it.status||'問い合わせ中',
     confirmation_no: it.confirmation_no||'', memo: it.memo||''
@@ -5164,7 +5169,7 @@ async function saveBulletTrainItems(){
   await sb.from('bullet_train_arrangements').delete().eq('booking_ref', ref);
   const rows = bdBulletTrainItems.filter(it=>it.departure_station||it.arrival_station||it.train_name).map((it,i)=>({
     booking_ref: ref,
-    ride_date: it.ride_date||null,
+    ride_date: sanitizeDateField(it.ride_date),
     train_name: it.train_name||'',
     train_number: it.train_number||'',
     departure_station: it.departure_station||'',
@@ -5328,6 +5333,21 @@ async function saveBookingDetail(){
     if(!confirm('仕入明細が0件になっています。本当に保存しますか？')) return;
   }
 
+  // IN-DATE / OUT-DATE の形式検証（YYYY-MM-DD 4桁年のみ許可）
+  const _dateRe = /^\d{4}-\d{2}-\d{2}$/;
+  const _inVal  = document.getElementById('bd-in').value;
+  const _outVal = document.getElementById('bd-out').value;
+  if(_inVal && !_dateRe.test(_inVal)){
+    alert(`IN-DATEの値が正しくありません（${_inVal}）。\n日付を入力し直してから保存してください。`);
+    document.getElementById('bd-in').focus();
+    return;
+  }
+  if(_outVal && !_dateRe.test(_outVal)){
+    alert(`OUT-DATEの値が正しくありません（${_outVal}）。\n日付を入力し直してから保存してください。`);
+    document.getElementById('bd-out').focus();
+    return;
+  }
+
   const totalSales = bdSalesTotal();
   const totalCost = bdCostTotal();
 
@@ -5343,8 +5363,8 @@ async function saveBookingDetail(){
     pax_child: chd,
     pax_infant: inf,
     status: document.getElementById('bd-status').value,
-    in_date: document.getElementById('bd-in').value || null,
-    out_date: document.getElementById('bd-out').value || null,
+    in_date: sanitizeDateField(document.getElementById('bd-in').value),
+    out_date: sanitizeDateField(document.getElementById('bd-out').value),
     staff_in_charge: document.getElementById('bd-staff').value.trim() || null,
     gross_sales: totalSales,
     gross_cost: totalCost,
@@ -5366,12 +5386,12 @@ async function saveBookingDetail(){
 
     const salesToInsert = bdSalesItems.filter(it=>it.item_name||Number(it.amount)).map(it=>({
       booking_id: currentDetailId, item_name: it.item_name||'', memo: it.memo||null, unit_price: Number(it.unit_price)||0,
-      qty: Number(it.qty)||1, amount: Number(it.amount)||0, payment_date: it.payment_date||null,
+      qty: Number(it.qty)||1, amount: Number(it.amount)||0, payment_date: sanitizeDateField(it.payment_date),
       agent_name: it.agent_name||null, payments: it.payments||[]
     }));
     const costToInsert = bdCostItems.filter(it=>it.item_name||Number(it.amount)).map(it=>({
       booking_id: currentDetailId, item_name: it.item_name||'', amount: Number(it.amount)||0,
-      payment_date: it.payment_date||null, memo: it.memo||''
+      payment_date: sanitizeDateField(it.payment_date), memo: it.memo||''
     }));
     if(salesToInsert.length) await sb.from('booking_sales').insert(salesToInsert);
     if(costToInsert.length) await sb.from('booking_costs').insert(costToInsert);
