@@ -6322,14 +6322,23 @@ async function onBtCsvFileSelected(e){
   const parsed = parseViewCsv(text);
   if(!parsed.length){ alert('CSVのパースに失敗しました。ファイル形式を確認してください。'); return; }
 
-  const {data: bookings, error} = await sb.from('bookings').select('id,ref_no,tour_name,agent_name').order('ref_no',{ascending:true});
-  if(error){ alert('予約データ読み込みエラー: '+error.message); return; }
-  btCsvBookingsList = bookings||[];
+  // ページネーションで全件取得（PostgREST デフォルト1000件制限を回避）
+  let allBookings = [], fromIdx = 0, pageSize = 1000;
+  while(true){
+    const {data, error} = await sb.from('bookings').select('id,ref_no,tour_name,agent_name')
+      .order('id',{ascending:true}).range(fromIdx, fromIdx+pageSize-1);
+    if(error){ alert('予約データ読み込みエラー: '+error.message); return; }
+    allBookings = allBookings.concat(data||[]);
+    if((data||[]).length < pageSize) break;
+    fromIdx += pageSize;
+  }
+  btCsvBookingsList = allBookings;
 
   btCsvBlocks = parsed.map(block => {
     const groupName = block.header['団体名']||block.header['グループ名']||'';
     const extractedRef = btExtractRef(groupName);
-    const matchedBooking = extractedRef ? (btCsvBookingsList.find(b=>b.ref_no===extractedRef)||null) : null;
+    // trim() で前後空白の差異を吸収して比較
+    const matchedBooking = extractedRef ? (btCsvBookingsList.find(b=>(b.ref_no||'').trim()===extractedRef)||null) : null;
     return {...block, groupName, extractedRef, matchedBooking, selectedRef: matchedBooking?.ref_no||'', skip:false};
   });
 
