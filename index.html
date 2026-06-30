@@ -7819,6 +7819,7 @@ async function showInvoicePreview(inv, booking){
   const amount = Number(inv.amount);
   const amountStr = isUSD ? '$'+amount.toLocaleString(undefined,{minimumFractionDigits:2}) : yen(amount);
   const issueDate = inv.issue_date ? new Date(inv.issue_date).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'}) : '';
+  const invNoDisplay = (inv.invoice_no || '').replace(/^INV-/i, '');
 
   const fmtAmt = v => isUSD ? '$'+Number(v).toLocaleString(undefined,{minimumFractionDigits:2}) : yen(v);
   const {data: salesForDeposit} = await sb.from('booking_sales').select('payments').eq('booking_id', booking.id);
@@ -7873,6 +7874,10 @@ async function showInvoicePreview(inv, booking){
           <img src="data:image/jpeg;base64,${KIC_LOGO_B64}" alt="KIC TRAVEL" style="height:36px;margin-bottom:4px">
           <div style="font-size:15px;font-weight:700;color:var(--blue)">KIC Co. Ltd.</div>
           <div style="color:#666">Marusei Bldg. 3F-E, 6-13-14, Nishikasai,<br>Edogawa-ku, Tokyo, 134-0088 Japan</div>
+          <div style="margin-top:8px;border-top:1px solid #eee;padding-top:6px;line-height:1.9">
+            <div><span style="color:#888">Invoice No.</span> <strong>${invNoDisplay}</strong></div>
+            <div><span style="color:#888">Issue Date</span> <strong>${issueDate}</strong></div>
+          </div>
         </div>
       </div>
 
@@ -7881,8 +7886,6 @@ async function showInvoicePreview(inv, booking){
       </div>
 
       <div style="display:flex;justify-content:space-between;border-top:1px solid #ddd;border-bottom:1px solid #ddd;padding:8px 0;margin-bottom:18px;font-size:11px;flex-wrap:wrap;gap:6px">
-        <div><span style="color:#888">Invoice No.</span> <strong>${inv.invoice_no}</strong></div>
-        <div><span style="color:#888">Issue Date</span> <strong>${issueDate}</strong></div>
         <div><span style="color:#888">In / Out</span> <strong>${booking.in_date||'-'} ～ ${booking.out_date||'-'}</strong></div>
         <div><span style="color:#888">Pax</span> <strong>${booking.pax||0}</strong></div>
         <div><span style="color:#888">Tour Code</span> <span contenteditable="true" data-placeholder="現地ツアーコード" style="display:inline-block;min-width:70px;border-bottom:1px solid #bbb;font-weight:700"></span></div>
