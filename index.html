@@ -6291,9 +6291,13 @@ function btNormalizeDate(s){
 function btNormalizeTime(s){
   if(!s) return '';
   s = s.trim();
-  const m = s.match(/^(\d{1,2}):(\d{2})/);
-  if(!m) return '';
-  return `${m[1].padStart(2,'0')}:${m[2]}`;
+  // HH:MM または H:MM 形式
+  const mColon = s.match(/^(\d{1,2}):(\d{2})/);
+  if(mColon) return `${mColon[1].padStart(2,'0')}:${mColon[2]}`;
+  // HHMM 4桁形式（例: 0826 → 08:26）
+  const mHHMM = s.match(/^(\d{2})(\d{2})$/);
+  if(mHHMM) return `${mHHMM[1]}:${mHHMM[2]}`;
+  return '';
 }
 
 function btExtractRef(groupName){
