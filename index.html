@@ -1729,6 +1729,8 @@ function statusPill(status){
 let currentDetailId = null;
 let bdSalesItems = [];
 let bdCostItems = [];
+let originalSalesCount = 0;
+let originalCostsCount = 0;
 let bdLocalExpenses = [];
 const LOCAL_EXPENSE_CATEGORIES = ['D（ドライバー）','ゲスト','ゲスト・TG','その他'];
 const LOCAL_EXPENSE_PAYMENT_METHODS = ['現地払い','前振込み','後請求','全旅クーポン'];
@@ -2418,6 +2420,8 @@ async function openBookingDetail(id){
 
   bdSalesItems = (salesRows||[]).map(r=>({item_name:r.item_name, memo:r.memo||'', unit_price:r.unit_price, qty:r.qty, amount:r.amount, payment_date:r.payment_date, agent_name:r.agent_name||'', payments:r.payments||[]}));
   bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, memo:r.memo}));
+  originalSalesCount = bdSalesItems.length;
+  originalCostsCount = bdCostItems.length;
   bankbookExtracted = [];
 
   bdLocked = !!b.locked;
@@ -4574,6 +4578,15 @@ async function reflectHotelsToCost(){
 }
 async function saveBookingDetail(){
   if(!currentDetailId) return;
+
+  // 売上・仕入明細が全削除されている場合に警告
+  if(originalSalesCount > 0 && bdSalesItems.length === 0){
+    if(!confirm('売上明細が0件になっています。本当に保存しますか？')) return;
+  }
+  if(originalCostsCount > 0 && bdCostItems.length === 0){
+    if(!confirm('仕入明細が0件になっています。本当に保存しますか？')) return;
+  }
+
   const totalSales = bdSalesTotal();
   const totalCost = bdCostTotal();
 
