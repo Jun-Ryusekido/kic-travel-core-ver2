@@ -4319,74 +4319,108 @@ function renderEstResults(results){
 
 // ---- 保存 ----
 async function saveEstimation(){
-  const payload = {
-    title: document.getElementById('est-title').value,
-    tour_code: document.getElementById('est-tour-code').value,
-    created_date: document.getElementById('est-date').value || null,
-    status: document.getElementById('est-status').value,
-    handling_fee_pct: Number(document.getElementById('est-handling').value)||0,
-    insurance_per_pax: Number(document.getElementById('est-insurance').value)||0,
-    pax_tiers: estPaxTiers,
-    notes: document.getElementById('est-notes').value,
-    selected_tier_index: document.getElementById('est-selected-tier').value!=='' ? Number(document.getElementById('est-selected-tier').value) : null,
-    updated_at: new Date().toISOString()
-  };
+  try {
+    const payload = {
+      title: document.getElementById('est-title').value,
+      tour_code: document.getElementById('est-tour-code').value,
+      created_date: document.getElementById('est-date').value || null,
+      status: document.getElementById('est-status').value,
+      handling_fee_pct: Number(document.getElementById('est-handling').value)||0,
+      insurance_per_pax: Number(document.getElementById('est-insurance').value)||0,
+      pax_tiers: estPaxTiers,
+      notes: document.getElementById('est-notes').value,
+      selected_tier_index: document.getElementById('est-selected-tier').value!=='' ? Number(document.getElementById('est-selected-tier').value) : null,
+      updated_at: new Date().toISOString()
+    };
 
-  let estId = currentEstimationId;
-  if(estId){
-    const {error} = await sb.from('estimations').update(payload).eq('id', estId);
-    if(error){ alert('保存に失敗しました: '+error.message); return; }
-  }else{
-    payload.created_by = currentUser ? currentUser.email : null;
-    const {data, error} = await sb.from('estimations').insert(payload).select().single();
-    if(error){ alert('保存に失敗しました: '+error.message); return; }
-    estId = data.id;
-    currentEstimationId = estId;
+    let estId = currentEstimationId;
+    if(estId){
+      const {error} = await sb.from('estimations').update(payload).eq('id', estId);
+      if(error){ alert('見積もりヘッダの保存に失敗しました:\n'+error.message); return; }
+    }else{
+      payload.created_by = currentUser ? currentUser.email : null;
+      const {data, error} = await sb.from('estimations').insert(payload).select().single();
+      if(error){ alert('見積もりの新規保存に失敗しました:\n'+error.message); return; }
+      estId = data.id;
+      currentEstimationId = estId;
+    }
+
+    // 既存行をバックアップ（DELETE後にINSERTが失敗してもデータを復元できるようにする）
+    const {data: dayBackup} = await sb.from('estimation_days').select('*').eq('estimation_id', estId);
+    const {data: frBackup}  = await sb.from('estimation_fixed_rows').select('*').eq('estimation_id', estId);
+
+    // バックアップ復元ヘルパー
+    const restoreTable = async (tableName, backup) => {
+      if(!backup || !backup.length) return;
+      // id・created_at は自動生成なので除外して再挿入
+      const rows = backup.map(({id, created_at, ...r})=>r);
+      await sb.from(tableName).insert(rows);
+    };
+
+    // 全削除（エラーチェック付き）
+    const {error: delFrErr} = await sb.from('estimation_fixed_rows').delete().eq('estimation_id', estId);
+    if(delFrErr){ alert('固定費行の削除に失敗しました:\n'+delFrErr.message); return; }
+    const {error: delDayErr} = await sb.from('estimation_days').delete().eq('estimation_id', estId);
+    if(delDayErr){ alert('日程行の削除に失敗しました:\n'+delDayErr.message); return; }
+
+    // 日程行の挿入
+    // day_date が空の場合はキー自体を省略（NOT NULL制約を回避し、DBデフォルト値を使用）
+    if(estDays.length>0){
+      const dayRows = estDays.map((d,i)=>({
+        estimation_id: estId, day_number: i+1,
+        ...(d.day_date ? {day_date: d.day_date} : {}),
+        hotel_name: d.hotel_name||'',
+        twin_rate: Number(d.twin_rate)||0, breakfast: d.breakfast||'',
+        lunch_rate: Number(d.lunch_rate)||0, dinner_rate: Number(d.dinner_rate)||0,
+        bus_rate: Number(d.bus_rate)||0, bus_tip: Number(d.bus_tip)||0, bus_driver_meal: Number(d.bus_driver_meal)||0, parking_tolls: Number(d.parking_tolls)||0,
+        guide_fee: Number(d.guide_fee)||0, guide_tip: Number(d.guide_tip)||0, guide_meal: Number(d.guide_meal)||0,
+        admission_fee: Number(d.admission_fee)||0, admission_remark: d.admission_remark||'',
+        bullet_train: Number(d.bullet_train)||0, bullet_train_remark: d.bullet_train_remark||'',
+        treat: Number(d.treat)||0, treat_remark: d.treat_remark||'',
+        sort_order: i
+      }));
+      const {error: dayErr} = await sb.from('estimation_days').insert(dayRows);
+      if(dayErr){
+        // 失敗：両テーブルを前回データに復元してユーザーに通知
+        await restoreTable('estimation_days', dayBackup);
+        await restoreTable('estimation_fixed_rows', frBackup);
+        alert('日程データの保存に失敗しました。前回の保存データに戻しました。\n\n原因: '+dayErr.message+'\n\n画面の入力内容はそのまま残っています。内容を確認の上、再度保存してください。');
+        return;
+      }
+    }
+
+    // 固定費・入場料行の挿入
+    const allFrRows = [
+      ...estFixedRows.map((r,k)=>({
+        estimation_id: estId, label: r.label||'',
+        amounts: (r.amounts||[]).map(a=>Number(a)||0),
+        sort_order: k
+      })),
+      ...estAdmissionRows.map((r,k)=>({
+        estimation_id: estId, label: '@admission:'+(r.remark||''),
+        amounts: (r.amounts||[]).map(a=>Number(a)||0),
+        sort_order: 1000+k
+      }))
+    ];
+    if(allFrRows.length>0){
+      const {error: frErr} = await sb.from('estimation_fixed_rows').insert(allFrRows);
+      if(frErr){
+        // 日程は保存済み。固定費のみ前回データに復元
+        await restoreTable('estimation_fixed_rows', frBackup);
+        alert('固定費行の保存に失敗しました。固定費データを前回の状態に戻しました。\n\n原因: '+frErr.message+'\n\n画面の入力内容はそのまま残っています。再度保存してください。');
+        return;
+      }
+    }
+
+    await logAction('見積もり保存', payload.title || estId);
+    const msg = document.getElementById('est-msg');
+    msg.style.display='';
+    setTimeout(()=>{ msg.style.display='none'; }, 2000);
+
+    await loadEstimations();
+  } catch(e) {
+    alert('保存中に予期しないエラーが発生しました。\n'+e.message);
   }
-
-  // 日程・固定費行を全削除→再挿入
-  await sb.from('estimation_fixed_rows').delete().eq('estimation_id', estId);
-  await sb.from('estimation_days').delete().eq('estimation_id', estId);
-
-  if(estDays.length>0){
-    const dayRows = estDays.map((d,i)=>({
-      estimation_id: estId, day_number: i+1, day_date: d.day_date||null, hotel_name: d.hotel_name||'',
-      twin_rate: Number(d.twin_rate)||0, breakfast: d.breakfast||'',
-      lunch_rate: Number(d.lunch_rate)||0, dinner_rate: Number(d.dinner_rate)||0,
-      bus_rate: Number(d.bus_rate)||0, bus_tip: Number(d.bus_tip)||0, bus_driver_meal: Number(d.bus_driver_meal)||0, parking_tolls: Number(d.parking_tolls)||0,
-      guide_fee: Number(d.guide_fee)||0, guide_tip: Number(d.guide_tip)||0, guide_meal: Number(d.guide_meal)||0,
-      admission_fee: Number(d.admission_fee)||0, admission_remark: d.admission_remark||'',
-      bullet_train: Number(d.bullet_train)||0, bullet_train_remark: d.bullet_train_remark||'',
-      treat: Number(d.treat)||0, treat_remark: d.treat_remark||'',
-      sort_order: i
-    }));
-    const {error: dayErr} = await sb.from('estimation_days').insert(dayRows);
-    if(dayErr){ alert('日程の保存に失敗しました: '+dayErr.message); return; }
-  }
-
-  const allFrRows = [
-    ...estFixedRows.map((r,k)=>({
-      estimation_id: estId, label: r.label||'',
-      amounts: (r.amounts||[]).map(a=>Number(a)||0),
-      sort_order: k
-    })),
-    ...estAdmissionRows.map((r,k)=>({
-      estimation_id: estId, label: '@admission:'+(r.remark||''),
-      amounts: (r.amounts||[]).map(a=>Number(a)||0),
-      sort_order: 1000+k
-    }))
-  ];
-  if(allFrRows.length>0){
-    const {error: frErr} = await sb.from('estimation_fixed_rows').insert(allFrRows);
-    if(frErr){ alert('固定費行の保存に失敗しました: '+frErr.message); return; }
-  }
-
-  await logAction('見積もり保存', payload.title || estId);
-  const msg = document.getElementById('est-msg');
-  msg.style.display='';
-  setTimeout(()=>{ msg.style.display='none'; }, 2000);
-
-  await loadEstimations();
 }
 
 // ---- 印刷（A4横・1枚） ----
