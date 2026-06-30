@@ -3,7 +3,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
   try {
-    const { variants, mediaType, base64, hotelText, hotelPdfBase64 } = req.body;
+    const { variants, mediaType, base64, hotelText, hotelPdfBase64, facilityText, facilityPdfBase64 } = req.body;
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
       return res.status(500).json({ error: 'サーバー側にAPIキーが設定されていません' });
@@ -52,6 +52,36 @@ ${hotelText}`
 ref_noは文書中のツアーコード・予約番号・REF#・KICから始まる番号等を探してください。見つからない場合は空文字にしてください。
 金額が不明な場合は0、部屋数不明は1としてください。
 statusは「手配OK」または「問い合わせ中」のいずれかを入れてください。予約確定・確認番号あり・手配完了等の表現があれば「手配OK」、見積もり・問い合わせ・検討中等であれば「問い合わせ中」としてください。
+JSONのみ返し、説明文・コードブロック記号は不要です。` }
+      ], 2000);
+      return res.status(200).json(data);
+    }
+
+    // 観光施設テキスト解析モード
+    if (facilityText) {
+      const data = await callClaude([{
+        type: 'text',
+text: `以下の観光施設・バス駐車場等の手配確認書やメールから情報を抽出してJSON配列で返してください。
+各施設・駐車場等の情報を1つのオブジェクトとして配列に含めてください。
+フィールド：facility_name(施設名・駐車場名等), date(YYYY-MM-DD), pax(人数・数値), amount(金額・数値・円), status, confirmation_no(確認番号), memo(備考)
+statusは「手配OK」または「問い合わせ中」のいずれかを入れてください。予約確定・確認番号あり・手配完了等の表現があれば「手配OK」、見積もり・問い合わせ・検討中等であれば「問い合わせ中」としてください。
+金額が不明な場合は0、人数不明は0としてください。
+JSONのみ返し、説明文・コードブロック記号は不要です。
+
+${facilityText}`
+      }], 2000);
+      return res.status(200).json(data);
+    }
+
+    // 観光施設PDF解析モード
+    if (facilityPdfBase64) {
+      const data = await callClaude([
+        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: facilityPdfBase64 } },
+        { type: 'text', text: `このPDFから観光施設・バス駐車場等の手配情報を抽出してJSON配列で返してください。
+各施設・駐車場等の情報を1つのオブジェクトとして配列に含めてください。
+フィールド：facility_name(施設名・駐車場名等), date(YYYY-MM-DD), pax(人数・数値), amount(金額・数値・円), status, confirmation_no(確認番号), memo(備考)
+statusは「手配OK」または「問い合わせ中」のいずれかを入れてください。予約確定・確認番号あり・手配完了等の表現があれば「手配OK」、見積もり・問い合わせ・検討中等であれば「問い合わせ中」としてください。
+金額が不明な場合は0、人数不明は0としてください。
 JSONのみ返し、説明文・コードブロック記号は不要です。` }
       ], 2000);
       return res.status(200).json(data);
