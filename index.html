@@ -848,10 +848,8 @@ th.sortable:hover{color:var(--blue)}
             <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
               <select id="hm-matrix-ym" onchange="renderHmMatrix()" style="padding:6px 10px;border-radius:8px;border:1px solid var(--border);font-size:12px"></select>
               <span style="font-size:11px;color:var(--text3)">凡例：</span>
-              <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:#d4edda;color:#155724">確定/手配OK</span>
-              <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:#fff3cd;color:#856404">問い合わせ中</span>
-              <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:#f8d7da;color:#721c24">NG</span>
-              <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:#e2e3e5;color:#383d41">未確認</span>
+              <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:#d4edda;color:#155724">手配OK</span>
+              <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:#fff3cd;color:#856404">回答待ち</span>
             </div>
             <div id="hm-matrix-body" style="overflow-x:auto"></div>
           </div>
@@ -2463,7 +2461,7 @@ async function openBookingDetail(id){
     hotel_name: r.hotel_name||'', check_in: r.check_in||'', check_out: r.check_out||'',
     room_type: r.room_type||'', rooms: r.rooms||1, breakfast: r.breakfast||false,
     unit_price: r.unit_price||0, amount: r.amount||0,
-    confirmation_no: r.confirmation_no||'', status: r.status||'問い合わせ中', memo: r.memo||''
+    confirmation_no: r.confirmation_no||'', status: r.status||'回答待ち', memo: r.memo||''
   }));
   renderHotelTable();
   // バス・レストラン・観光施設を読み込み
@@ -4271,7 +4269,7 @@ function renderHotelTable(){
         <td><input type="text" inputmode="numeric" value="${Number(it.unit_price||0).toLocaleString('ja-JP')}" onchange="bdHotelItems[${i}].unit_price=parseNum(this.value);this.value=bdHotelItems[${i}].unit_price.toLocaleString('ja-JP');hotelCalc(${i})"></td>
         <td style="text-align:right;white-space:nowrap">${yen(it.amount||0)}</td>
         <td><input value="${escAttr(it.confirmation_no)}" oninput="bdHotelItems[${i}].confirmation_no=this.value" style="width:100%"></td>
-        <td><select onchange="bdHotelItems[${i}].status=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px"><option value="問い合わせ中" ${(it.status||'問い合わせ中')==='問い合わせ中'?'selected':''}>問い合わせ中</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option></select></td>
+        <td><select onchange="bdHotelItems[${i}].status=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px"><option value="回答待ち" ${it.status!=='手配OK'?'selected':''}>回答待ち</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option></select></td>
         <td><input value="${escAttr(it.memo)}" oninput="bdHotelItems[${i}].memo=this.value" style="width:100%"></td>
       </tr>`;
     }).join('');
@@ -5489,7 +5487,7 @@ hotels[i]._bookingId = matchedBooking ? matchedBooking.id : null;
       <td style="padding:6px 8px;text-align:center">${nights}</td>
       <td style="padding:6px 8px;text-align:right">${yen(amount)}</td>
       <td style="padding:6px 8px">${escHtml(h.confirmation_no||'')}</td>
-      <td style="padding:6px 8px"><select id="hm-confirm-status-${i}" style="font-size:10px;padding:3px"><option value="問い合わせ中">問い合わせ中</option><option value="手配OK">手配OK</option></select></td>
+      <td style="padding:6px 8px"><select id="hm-confirm-status-${i}" style="font-size:10px;padding:3px"><option value="回答待ち">回答待ち</option><option value="手配OK">手配OK</option></select></td>
       <td style="padding:6px 8px;min-width:200px">${selectHtml}${matchedBooking?`<div style="font-size:9px;color:var(--green)">✓ 自動マッチ: ${escHtml(matchedBooking.ref_no)}</div>`:''}</td>
     </tr>`;
   }).join('');
@@ -5558,7 +5556,7 @@ async function saveHotelConfirm(hotels){
       confirmation_no: h.confirmation_no||'',
       memo: h.memo||'',
       sort_order: i,
-      status: (document.getElementById(`hm-confirm-status-${i}`)?.value || '問い合わせ中')
+      status: (document.getElementById(`hm-confirm-status-${i}`)?.value || '回答待ち')
     };
   });
   const {error} = await sb.from('booking_hotels').insert(rows);
@@ -5653,7 +5651,7 @@ tbody.innerHTML = filtered.map(r=>{
       <td style="text-align:center">${r.breakfast?'✓':''}</td>
       <td style="text-align:right">${yen(r.unit_price||0)}</td>
       <td style="text-align:right;font-weight:600">${yen(r.amount||0)}</td>
-<td style="font-size:10px">${escHtml(r.confirmation_no||'')}<br><span onclick="toggleHmStatus('${r.id}')" style="font-size:10px;padding:2px 6px;border-radius:10px;cursor:pointer;background:${r.status==='手配OK'?'var(--green)':'var(--border)'};color:${r.status==='手配OK'?'#fff':'var(--text3)'}">${escHtml(r.status||'問い合わせ中')}</span></td>
+<td style="font-size:10px">${escHtml(r.confirmation_no||'')}<br><span onclick="toggleHmStatus('${r.id}')" style="font-size:10px;padding:2px 6px;border-radius:10px;cursor:pointer;background:${r.status==='手配OK'?'var(--green)':'#fff3cd'};color:${r.status==='手配OK'?'#fff':'#856404'}">${escHtml(r.status==='問い合わせ中'?'回答待ち':r.status||'回答待ち')}</span></td>
     </tr>`;
   }).join('');
 }
@@ -5677,7 +5675,7 @@ async function downloadHaichisho(bookingId, type){
 async function toggleHmStatus(id){
   const row = hotelManagementCache.find(r=>r.id===id);
   if(!row) return;
-  const newStatus = row.status==='手配OK'?'問い合わせ中':'手配OK';
+  const newStatus = row.status==='手配OK'?'回答待ち':'手配OK';
   await supabase.from('booking_hotels').update({status:newStatus}).eq('id',id);
   row.status = newStatus;
   filterHotelManagement();
@@ -5690,7 +5688,7 @@ function resetHotelManagementFilter(){
 }
 
 function addHotelBookingRow(){
-  showHotelConfirmDialog([{hotel_name:'',check_in:'',check_out:'',room_type:'',rooms:1,unit_price:0,confirmation_no:'',status:'問い合わせ中'}]);
+  showHotelConfirmDialog([{hotel_name:'',check_in:'',check_out:'',room_type:'',rooms:1,unit_price:0,confirmation_no:'',status:'回答待ち'}]);
 }
 
 function openHmMailModal(){
@@ -5775,7 +5773,7 @@ function renderHmHotelTab(){
   const rows = hotelManagementCache.filter(r=>r.hotel_name===hotelName).sort((a,b)=>(a.check_in||'').localeCompare(b.check_in||''));
   if(rows.length===0){ body.innerHTML='<p style="color:var(--text3);font-size:12px">該当データなし</p>'; return; }
   const total = rows.reduce((s,r)=>s+Number(r.amount||0),0);
-  const stBg=s=>s==='手配OK'||s==='確定'?'var(--green)':s==='NG'?'var(--red)':s==='問い合わせ中'?'var(--amber)':'var(--border)';
+  const stBg=s=>s==='手配OK'||s==='確定'?'var(--green)':'var(--amber)';
   body.innerHTML = `<div class="tbl-wrap"><table class="bl-table"><thead><tr>
     <th>REF#</th><th>ツアー名</th><th>チェックイン</th><th>チェックアウト</th><th style="text-align:center">泊数</th><th style="text-align:center">部屋数</th><th>部屋タイプ</th><th style="text-align:right">金額</th><th>ステータス</th>
   </tr></thead><tbody>${rows.map(r=>{
@@ -5788,7 +5786,7 @@ function renderHmHotelTab(){
       <td style="text-align:center">${r.rooms||1}</td>
       <td>${escHtml(r.room_type||'')}</td>
       <td style="text-align:right">${yen(r.amount||0)}</td>
-      <td><span style="font-size:10px;padding:2px 6px;border-radius:10px;background:${stBg(r.status)};color:#fff">${escHtml(r.status||'未確認')}</span></td>
+      <td><span style="font-size:10px;padding:2px 6px;border-radius:10px;background:${stBg(r.status)};color:#fff">${escHtml(r.status==='問い合わせ中'?'回答待ち':r.status||'回答待ち')}</span></td>
     </tr>`;
   }).join('')}</tbody></table></div>
   <div style="margin-top:6px;text-align:right;font-weight:700;font-size:12px">合計: ${yen(total)}</div>`;
@@ -5817,8 +5815,8 @@ function renderHmMatrix(){
   const relevant = hotelManagementCache.filter(r=>r.check_in&&r.check_out&&r.check_in<=monthEnd&&r.check_out>=`${ym}-01`);
   const hotels = [...new Set(relevant.map(r=>r.hotel_name).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ja'));
   if(hotels.length===0){ document.getElementById('hm-matrix-body').innerHTML='<p style="color:var(--text3);font-size:12px">この月のホテルデータはありません</p>'; return; }
-  const bg=s=>s==='手配OK'||s==='確定'?'#d4edda':s==='NG'?'#f8d7da':s==='問い合わせ中'?'#fff3cd':'#e2e3e5';
-  const fg=s=>s==='手配OK'||s==='確定'?'#155724':s==='NG'?'#721c24':s==='問い合わせ中'?'#856404':'#383d41';
+  const bg=s=>s==='手配OK'||s==='確定'?'#d4edda':'#fff3cd';
+  const fg=s=>s==='手配OK'||s==='確定'?'#155724':'#856404';
   const thead=`<thead><tr><th style="min-width:130px;padding:4px 6px;text-align:left;position:sticky;left:0;background:#fff;z-index:2;border-right:2px solid var(--border)">ホテル</th>${days.map(d=>{const dt=new Date(year,month-1,d);const dow=['日','月','火','水','木','金','土'][dt.getDay()];const we=dt.getDay()===0||dt.getDay()===6;return `<th style="min-width:36px;text-align:center;padding:3px 2px;font-size:10px;${we?'color:var(--blue)':''}">${d}<br><span style="font-size:9px">${dow}</span></th>`;}).join('')}</tr></thead>`;
   const tbody=hotels.map(hotel=>{
     const hrs=relevant.filter(r=>r.hotel_name===hotel);
