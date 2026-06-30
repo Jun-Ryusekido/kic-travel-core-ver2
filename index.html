@@ -5323,55 +5323,65 @@ async function saveBookingDetail(){
     deposit_amount: bdSalesItems.reduce((s,it)=>s+(it.payments||[]).reduce((ps,p)=>ps+(Number(p.amount)||0),0),0),
     updated_at: new Date().toISOString()
   };
-  const {error} = await sb.from('bookings').update(payload).eq('id', currentDetailId);
-  if(error){ alert('保存に失敗しました: '+error.message); return; }
+  try {
+    // .select()を付けることで更新が実際に反映されたか検証（v2はselect()なしだと0行更新でもerror:nullを返す）
+    const {data: updatedRows, error} = await sb.from('bookings').update(payload).eq('id', currentDetailId).select();
+    if(error){ alert('保存に失敗しました: '+error.message); return; }
+    if(!updatedRows || updatedRows.length === 0){
+      alert('保存に失敗しました: 更新対象の予約が見つかりませんでした。ページを再読み込みして再度お試しください。');
+      return;
+    }
 
-  // 明細の同期（既存削除→再挿入）
-  await sb.from('booking_sales').delete().eq('booking_id', currentDetailId);
-  await sb.from('booking_costs').delete().eq('booking_id', currentDetailId);
+    // 明細の同期（既存削除→再挿入）
+    await sb.from('booking_sales').delete().eq('booking_id', currentDetailId);
+    await sb.from('booking_costs').delete().eq('booking_id', currentDetailId);
 
-  const salesToInsert = bdSalesItems.filter(it=>it.item_name||Number(it.amount)).map(it=>({
-    booking_id: currentDetailId, item_name: it.item_name||'', memo: it.memo||null, unit_price: Number(it.unit_price)||0,
-    qty: Number(it.qty)||1, amount: Number(it.amount)||0, payment_date: it.payment_date||null,
-    agent_name: it.agent_name||null, payments: it.payments||[]
-  }));
-  const costToInsert = bdCostItems.filter(it=>it.item_name||Number(it.amount)).map(it=>({
-    booking_id: currentDetailId, item_name: it.item_name||'', amount: Number(it.amount)||0,
-    payment_date: it.payment_date||null, memo: it.memo||''
-  }));
-  if(salesToInsert.length) await sb.from('booking_sales').insert(salesToInsert);
-  if(costToInsert.length) await sb.from('booking_costs').insert(costToInsert);
-  
-  for(const it of costToInsert){
-    if(it.item_name) await registerNewSupplier(it.item_name);
-  }
-  await saveLocalExpenses();
-  await saveHotelItems();
-  await saveBusItems();
-  await saveRestaurantItems();
-  await saveFacilityItems();
-  await saveBulletTrainItems();
-  const b = findBookingById(currentDetailId);
-  await logAction('予約編集', b ? b.ref_no : currentDetailId);
+    const salesToInsert = bdSalesItems.filter(it=>it.item_name||Number(it.amount)).map(it=>({
+      booking_id: currentDetailId, item_name: it.item_name||'', memo: it.memo||null, unit_price: Number(it.unit_price)||0,
+      qty: Number(it.qty)||1, amount: Number(it.amount)||0, payment_date: it.payment_date||null,
+      agent_name: it.agent_name||null, payments: it.payments||[]
+    }));
+    const costToInsert = bdCostItems.filter(it=>it.item_name||Number(it.amount)).map(it=>({
+      booking_id: currentDetailId, item_name: it.item_name||'', amount: Number(it.amount)||0,
+      payment_date: it.payment_date||null, memo: it.memo||''
+    }));
+    if(salesToInsert.length) await sb.from('booking_sales').insert(salesToInsert);
+    if(costToInsert.length) await sb.from('booking_costs').insert(costToInsert);
 
-  // キャッシュ更新 & 再描画
-  Object.assign(b, payload);
-  document.getElementById('bd-msg').style.display='inline';
-  document.getElementById('bd-msg-top').style.display='inline';
-  document.getElementById('bd-updated').textContent = '最終更新: '+new Date(payload.updated_at).toLocaleString('ja-JP');
-  setTimeout(()=>{
-    document.getElementById('bd-msg').style.display='none';
-    document.getElementById('bd-msg-top').style.display='none';
-  }, 2500);
+    for(const it of costToInsert){
+      if(it.item_name) await registerNewSupplier(it.item_name);
+    }
+    await saveLocalExpenses();
+    await saveHotelItems();
+    await saveBusItems();
+    await saveRestaurantItems();
+    await saveFacilityItems();
+    await saveBulletTrainItems();
+    const b = findBookingById(currentDetailId);
+    await logAction('予約編集', b ? b.ref_no : currentDetailId);
 
-  ['db','bl'].forEach(p=>{
-    if(document.getElementById(p+'-tbody')) filterBookingListGeneric(p);
-  });
+    // キャッシュ更新 & 再描画（キャッシュに存在する場合のみ更新）
+    if(b) Object.assign(b, payload);
+    document.getElementById('bd-msg').style.display='inline';
+    document.getElementById('bd-msg-top').style.display='inline';
+    document.getElementById('bd-updated').textContent = '最終更新: '+new Date(payload.updated_at).toLocaleString('ja-JP');
+    setTimeout(()=>{
+      document.getElementById('bd-msg').style.display='none';
+      document.getElementById('bd-msg-top').style.display='none';
+    }, 2500);
 
-  // 入金合計が売上合計以上になったらInvoiceをpaidに自動更新
-  const totalPaidNow = bdSalesItems.reduce((s,it)=>s+(it.payments||[]).reduce((ps,p)=>ps+(Number(p.amount)||0),0),0);
-  if(totalPaidNow>0 && totalPaidNow>=totalSales){
-    await sb.from('invoices').update({status:'paid'}).eq('booking_id', currentDetailId).eq('status','pending');
+    ['db','bl'].forEach(p=>{
+      if(document.getElementById(p+'-tbody')) filterBookingListGeneric(p);
+    });
+
+    // 入金合計が売上合計以上になったらInvoiceをpaidに自動更新
+    const totalPaidNow = bdSalesItems.reduce((s,it)=>s+(it.payments||[]).reduce((ps,p)=>ps+(Number(p.amount)||0),0),0);
+    if(totalPaidNow>0 && totalPaidNow>=totalSales){
+      await sb.from('invoices').update({status:'paid'}).eq('booking_id', currentDetailId).eq('status','pending');
+    }
+  } catch(e) {
+    alert('保存中にエラーが発生しました: ' + (e.message || String(e)));
+    console.error('saveBookingDetail error:', e);
   }
 }
 
