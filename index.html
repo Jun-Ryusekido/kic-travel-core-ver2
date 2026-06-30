@@ -883,7 +883,11 @@ th.sortable:hover{color:var(--blue)}
       <div id="pg-bullet-trains" class="page" style="display:none">
         <div class="card" style="position:sticky;top:50px;z-index:10;margin-bottom:0;border-radius:12px 12px 0 0">
           <div class="card-title">新幹線手配
-            <span><button class="btn btn-p" onclick="openBtModal(null)">＋ 新規追加</button></span>
+            <span style="display:flex;gap:6px;align-items:center">
+              <button class="btn btn-p" onclick="openBtModal(null)">＋ 新規追加</button>
+              <button class="btn" onclick="triggerBtCsvImport()">📥 CSV取込</button>
+              <input type="file" id="bt-csv-file" accept=".csv" style="display:none" onchange="onBtCsvFileSelected(event)">
+            </span>
           </div>
           <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr 1fr">
             <div class="form-field"><label>REF# / 列車名 / 区間で検索</label><input id="bt-search" placeholder="例: KIC250401" oninput="filterBulletTrains()"></div>
@@ -951,6 +955,22 @@ th.sortable:hover{color:var(--blue)}
             <button class="btn" id="bt-modal-delete" style="color:var(--red);margin-left:auto" onclick="deleteBtRecord()">🗑 削除</button>
           </div>
           <div class="msg-ok" id="bt-modal-msg" style="display:none">✓ 保存しました</div>
+        </div>
+      </div>
+
+      <!-- 新幹線 CSV取込確認モーダル -->
+      <div class="modal-overlay" id="bt-csv-modal">
+        <div class="modal-box" style="max-width:760px">
+          <div class="modal-header">
+            <div class="modal-title">CSV取込確認</div>
+            <div class="modal-close" onclick="closeBtCsvModal()">✕</div>
+          </div>
+          <div id="bt-csv-modal-body" style="max-height:60vh;overflow-y:auto;margin-top:8px"></div>
+          <div style="margin-top:14px;display:flex;gap:8px;align-items:center">
+            <button class="btn btn-p" onclick="importBtCsv()">✅ この内容で取り込む</button>
+            <button class="btn" onclick="closeBtCsvModal()">キャンセル</button>
+            <span id="bt-csv-import-status" style="font-size:11px;margin-left:8px"></span>
+          </div>
         </div>
       </div>
 
@@ -6111,6 +6131,267 @@ async function deleteBtRecord(){
   bulletTrainCache = bulletTrainCache.filter(x=>x.id!==currentBtId);
   closeBtModal();
   filterBulletTrains();
+}
+
+// ===================================================
+// 新幹線手配 CSV取込（VIEW/びゅう GroupTour CSV）
+// ===================================================
+let btCsvBlocks = [];
+let btCsvBookingsList = [];
+
+function triggerBtCsvImport(){
+  const el = document.getElementById('bt-csv-file');
+  el.value = '';
+  el.click();
+}
+
+function parseCsvRow(line){
+  const result = [];
+  let cur = '', inQ = false;
+  for(let i = 0; i < line.length; i++){
+    const c = line[i];
+    if(inQ){
+      if(c === '"'){ if(line[i+1] === '"'){ cur += '"'; i++; } else inQ = false; }
+      else cur += c;
+    } else {
+      if(c === '"') inQ = true;
+      else if(c === ',') { result.push(cur.trim()); cur = ''; }
+      else cur += c;
+    }
+  }
+  result.push(cur.trim());
+  return result;
+}
+
+function parseViewCsv(text){
+  const lines = text.split(/\r?\n/);
+  const blocks = [];
+  let i = 0;
+  while(i < lines.length){
+    while(i < lines.length && !lines[i].trim()) i++;
+    if(i >= lines.length) break;
+
+    const row1 = parseCsvRow(lines[i]);
+    const isHeaderRow = row1.some(c => c==='No.' || c==='団体名' || c==='グループ名');
+    if(!isHeaderRow){ i++; continue; }
+    const headerNames = row1;
+    i++;
+
+    while(i < lines.length && !lines[i].trim()) i++;
+    if(i >= lines.length) break;
+    const headerValues = parseCsvRow(lines[i]);
+    i++;
+
+    const header = {};
+    headerNames.forEach((name, idx) => { if(name) header[name] = (headerValues[idx]||'').trim(); });
+
+    while(i < lines.length && !lines[i].trim()) i++;
+    if(i >= lines.length){ blocks.push({header, details:[]}); break; }
+
+    const detailHeaderRow = parseCsvRow(lines[i]);
+    const isDetailHeader = detailHeaderRow.some(c => c==='列車名'||c==='列車乗車日'||c==='出発駅'||c==='乗車人数大人');
+    if(!isDetailHeader){ blocks.push({header, details:[]}); continue; }
+    const detailHeaders = detailHeaderRow;
+    i++;
+
+    const details = [];
+    while(i < lines.length && lines[i].trim()){
+      const row = parseCsvRow(lines[i]);
+      if(row.some(c => c)){
+        const detail = {};
+        detailHeaders.forEach((h, idx) => { if(h) detail[h] = (row[idx]||'').trim(); });
+        details.push(detail);
+      }
+      i++;
+    }
+    blocks.push({header, details});
+  }
+  return blocks;
+}
+
+function btNormalizeDate(s){
+  if(!s) return '';
+  s = s.trim();
+  if(/^\d{4}\/\d{2}\/\d{2}$/.test(s)) return s.replace(/\//g,'-');
+  if(/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  if(/^\d{8}$/.test(s)) return `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`;
+  return s;
+}
+
+function btNormalizeTime(s){
+  if(!s) return '';
+  s = s.trim();
+  const m = s.match(/^(\d{1,2}):(\d{2})/);
+  if(!m) return '';
+  return `${m[1].padStart(2,'0')}:${m[2]}`;
+}
+
+function btExtractRef(groupName){
+  if(!groupName) return null;
+  const m = groupName.match(/(\d+)/);
+  if(!m) return null;
+  return `#${parseInt(m[1],10)}`;
+}
+
+function btCsvStatusToDb(s){
+  if(!s) return '手配OK';
+  const u = s.trim().toUpperCase();
+  if(u==='OK'||u==='手配OK') return '手配OK';
+  if(u==='NG'||u==='キャンセル') return 'キャンセル';
+  return '手配OK';
+}
+
+async function onBtCsvFileSelected(e){
+  const file = e.target.files[0];
+  if(!file) return;
+  const buf = await file.arrayBuffer();
+  let text;
+  try { text = new TextDecoder('shift-jis').decode(buf); }
+  catch(_){ text = new TextDecoder('utf-8').decode(buf); }
+
+  const parsed = parseViewCsv(text);
+  if(!parsed.length){ alert('CSVのパースに失敗しました。ファイル形式を確認してください。'); return; }
+
+  const {data: bookings, error} = await sb.from('bookings').select('id,ref_no,tour_name,agent_name').order('ref_no',{ascending:true});
+  if(error){ alert('予約データ読み込みエラー: '+error.message); return; }
+  btCsvBookingsList = bookings||[];
+
+  btCsvBlocks = parsed.map(block => {
+    const groupName = block.header['団体名']||block.header['グループ名']||'';
+    const extractedRef = btExtractRef(groupName);
+    const matchedBooking = extractedRef ? (btCsvBookingsList.find(b=>b.ref_no===extractedRef)||null) : null;
+    return {...block, groupName, extractedRef, matchedBooking, selectedRef: matchedBooking?.ref_no||'', skip:false};
+  });
+
+  renderBtCsvModalBody();
+  document.getElementById('bt-csv-modal').classList.add('open');
+  document.getElementById('bt-csv-import-status').textContent='';
+}
+
+function closeBtCsvModal(){
+  document.getElementById('bt-csv-modal').classList.remove('open');
+  btCsvBlocks=[];
+}
+
+function renderBtCsvModalBody(){
+  const body = document.getElementById('bt-csv-modal-body');
+  const allRefs = btCsvBookingsList.map(b=>b.ref_no);
+  if(!btCsvBlocks.length){
+    body.innerHTML='<div class="empty" style="padding:20px;text-align:center">パース結果がありません</div>';
+    return;
+  }
+  body.innerHTML = btCsvBlocks.map((block,bi)=>{
+    const matched = !!block.matchedBooking || !!block.selectedRef;
+    const stBg = matched ? 'var(--green-lt)':'var(--red-lt)';
+    const stFg = matched ? 'var(--green)':'var(--red)';
+    const matchedB = block.matchedBooking || btCsvBookingsList.find(b=>b.ref_no===block.selectedRef);
+    const statusText = matched
+      ? `✓ ${matchedB?.ref_no||block.selectedRef}（${escHtml(matchedB?.tour_name||matchedB?.agent_name||'')}）`
+      : 'マッチなし';
+    const refDropdown = !block.matchedBooking ? `
+      <select onchange="btCsvBlocks[${bi}].selectedRef=this.value;renderBtCsvModalBody()" style="font-size:11px;padding:3px 6px;border:1px solid var(--border);border-radius:5px;margin-top:4px;max-width:220px">
+        <option value="">-- 手動でREF#を選択 --</option>
+        ${allRefs.map(r=>`<option value="${escAttr(r)}" ${block.selectedRef===r?'selected':''}>${escHtml(r)}</option>`).join('')}
+      </select>` : '';
+    const detailTable = block.details.length && !block.skip ? `
+      <details style="margin-top:8px">
+        <summary style="font-size:10px;color:var(--text3);cursor:pointer">明細を表示（${block.details.length}件）</summary>
+        <div class="tbl-wrap" style="margin-top:4px">
+          <table class="bl-table" style="font-size:10px;min-width:600px">
+            <thead><tr><th>乗車日</th><th>列車名</th><th>号数</th><th>区間</th><th>時刻</th><th>大人</th><th>小人</th><th>無賃</th><th>割引率</th><th>ステータス</th></tr></thead>
+            <tbody>${block.details.map(d=>`<tr>
+              <td>${btNormalizeDate(d['列車乗車日']||'')}</td>
+              <td>${escHtml(d['列車名']||'')}</td>
+              <td>${escHtml(d['列車番号']||'')}</td>
+              <td style="font-size:9px">${escHtml(d['出発駅']||'')}→${escHtml(d['到着駅']||'')}</td>
+              <td style="white-space:nowrap;font-size:9px">${btNormalizeTime(d['出発時間']||'')}-${btNormalizeTime(d['到着時間']||'')}</td>
+              <td style="text-align:center">${d['乗車人数大人']||0}</td>
+              <td style="text-align:center">${d['乗車人数小人']||0}</td>
+              <td style="text-align:center">${d['無賃']||0}</td>
+              <td style="text-align:right">${d['列車割引率']||0}%</td>
+              <td>${btCsvStatusToDb(d['ステータス']||'')}</td>
+            </tr>`).join('')}</tbody>
+          </table>
+        </div>
+      </details>` : '';
+    return `<div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px;opacity:${block.skip?.5:1};background:${block.skip?'var(--bg)':matched?'':'#fffbeb'}">
+      <div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
+        <div style="flex:1;min-width:200px">
+          <div style="font-size:10px;color:var(--text3)">団体名</div>
+          <div style="font-size:12px;font-weight:600">${escHtml(block.groupName||'（なし）')}</div>
+          <div style="font-size:10px;color:var(--text3);margin-top:2px">抽出REF#: <b>${block.extractedRef||'不明'}</b></div>
+        </div>
+        <div style="flex:2;min-width:220px">
+          <div style="font-size:10px;color:var(--text3)">マッチ結果</div>
+          <span style="font-size:11px;padding:2px 8px;border-radius:10px;font-weight:600;background:${stBg};color:${stFg}">${statusText}</span>
+          ${refDropdown}
+        </div>
+        <div style="min-width:70px;text-align:right">
+          <div style="font-size:10px;color:var(--text3)">明細</div>
+          <div style="font-size:14px;font-weight:700">${block.details.length}件</div>
+        </div>
+        <div style="min-width:80px;align-self:center;text-align:right">
+          <label style="font-size:11px;cursor:pointer;display:flex;align-items:center;gap:4px;justify-content:flex-end">
+            <input type="checkbox" ${block.skip?'checked':''} onchange="btCsvBlocks[${bi}].skip=this.checked;renderBtCsvModalBody()">スキップ
+          </label>
+        </div>
+      </div>
+      ${detailTable}
+    </div>`;
+  }).join('');
+}
+
+async function importBtCsv(){
+  const statusEl = document.getElementById('bt-csv-import-status');
+  const toImport = btCsvBlocks.filter(b=>!b.skip);
+  const noRef = toImport.filter(b=>!b.matchedBooking&&!b.selectedRef);
+  if(noRef.length){
+    statusEl.style.color='var(--red)';
+    statusEl.textContent=`REF#が未選択のブロックが${noRef.length}件あります。スキップするか手動でREF#を選択してください。`;
+    return;
+  }
+  statusEl.style.color='var(--text3)';
+  statusEl.textContent='取り込み中...';
+
+  const records = [];
+  toImport.forEach(block=>{
+    const ref = block.matchedBooking?.ref_no || block.selectedRef;
+    block.details.forEach(d=>{
+      records.push({
+        booking_ref:       ref,
+        ride_date:         btNormalizeDate(d['列車乗車日'])||null,
+        train_name:        d['列車名']||'',
+        train_number:      d['列車番号']||'',
+        departure_station: d['出発駅']||'',
+        departure_time:    btNormalizeTime(d['出発時間'])||null,
+        arrival_station:   d['到着駅']||'',
+        arrival_time:      btNormalizeTime(d['到着時間'])||null,
+        pax_adult:         Number(d['乗車人数大人'])||0,
+        pax_child:         Number(d['乗車人数小人'])||0,
+        pax_free:          Number(d['無賃'])||0,
+        discount_rate:     Number(d['列車割引率'])||0,
+        status:            btCsvStatusToDb(d['ステータス']||''),
+        memo:              ''
+      });
+    });
+  });
+
+  if(!records.length){
+    statusEl.style.color='var(--red)';
+    statusEl.textContent='取り込む明細がありません';
+    return;
+  }
+
+  const {error} = await sb.from('bullet_train_arrangements').insert(records);
+  if(error){
+    statusEl.style.color='var(--red)';
+    statusEl.textContent='取り込みエラー: '+error.message;
+    return;
+  }
+
+  statusEl.style.color='var(--green)';
+  statusEl.textContent=`✓ ${records.length}件を取り込みました`;
+  setTimeout(()=>{ closeBtCsvModal(); loadBulletTrains(); }, 1200);
 }
 
 function addHotelBookingRow(){
