@@ -32,6 +32,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Hiragino Kaku Goth
 .sb-sec{padding:12px 10px 2px;font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;font-weight:600}
 .sb-item{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;cursor:pointer;font-size:12px;color:var(--text2);margin:1px 6px}
 .sb-en{font-size:9px;color:var(--text3);margin-left:2px;font-weight:400}
+/* 新幹線手配ページ */
+.bt-desktop-only{display:block}.bt-mobile-only{display:none}
+.bt-card{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px;cursor:pointer;margin-bottom:6px;transition:border-color .15s}
+.bt-card:hover{border-color:var(--blue)}
+@media(max-width:768px){.bt-desktop-only{display:none !important}.bt-mobile-only{display:block !important}}
 .sb-item:hover{background:var(--bg)}
 .sb-item.active{background:var(--blue-lt);color:var(--blue);font-weight:600}
 .sb-badge{margin-left:auto;background:var(--blue-lt);color:var(--blue);font-size:9px;padding:1px 6px;border-radius:8px;font-weight:600}
@@ -340,6 +345,7 @@ th.sortable:hover{color:var(--blue)}
     <div class="sb-item" data-pg="new-booking" onclick="go('new-booking')">➕ New Booking</div>
     <div class="sb-item" data-pg="booking-list" onclick="go('booking-list')">📋 Booking List</div>
     <div class="sb-item" data-pg="hotels" onclick="go('hotels')">🏨 ホテル予約管理<span class="sb-en">/ Hotels</span></div>
+    <div class="sb-item" data-pg="bullet-trains" onclick="go('bullet-trains')">🚅 新幹線手配<span class="sb-en">/ Shinkansen</span></div>
     <div class="sb-sec">請求・精算 <span class="sb-en">/ Billing</span></div>
     <div class="sb-item" data-pg="invoice" onclick="go('invoice')">🧾 Invoice</div>
     <div class="sb-item" data-pg="estimation" onclick="go('estimation')">📝 見積もり<span class="sb-en">/ Estimation</span></div>
@@ -873,6 +879,81 @@ th.sortable:hover{color:var(--blue)}
         </div>
       </div>
       </div>
+      <!-- 新幹線手配 -->
+      <div id="pg-bullet-trains" class="page" style="display:none">
+        <div class="card" style="position:sticky;top:50px;z-index:10;margin-bottom:0;border-radius:12px 12px 0 0">
+          <div class="card-title">新幹線手配
+            <span><button class="btn btn-p" onclick="openBtModal(null)">＋ 新規追加</button></span>
+          </div>
+          <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr 1fr">
+            <div class="form-field"><label>REF# / 列車名 / 区間で検索</label><input id="bt-search" placeholder="例: KIC250401" oninput="filterBulletTrains()"></div>
+            <div class="form-field"><label>乗車日(From)</label><input id="bt-from" type="date" onchange="filterBulletTrains()"></div>
+            <div class="form-field"><label>乗車日(To)</label><input id="bt-to" type="date" onchange="filterBulletTrains()"></div>
+            <div class="form-field" style="align-self:end"><button class="btn" onclick="resetBtFilter()">条件クリア</button></div>
+          </div>
+          <div style="font-size:11px;color:var(--text3);margin-top:4px" id="bt-count"></div>
+        </div>
+        <div class="card" style="border-top:none;border-radius:0 0 12px 12px;padding-top:0;margin-bottom:14px">
+          <div class="tbl-wrap bt-desktop-only">
+            <table class="bl-table" style="min-width:900px">
+              <thead><tr>
+                <th style="width:9%;cursor:pointer" onclick="btSort('booking_ref')">REF# ↕</th>
+                <th style="width:8%;cursor:pointer" onclick="btSort('ride_date')">乗車日 ↕</th>
+                <th style="width:13%;cursor:pointer" onclick="btSort('train_name')">列車名・号数 ↕</th>
+                <th style="width:16%">区間</th>
+                <th style="width:10%">時刻</th>
+                <th style="width:5%;text-align:center">大人</th>
+                <th style="width:5%;text-align:center">小人</th>
+                <th style="width:5%;text-align:center">無賃</th>
+                <th style="width:7%;text-align:right">割引率</th>
+                <th style="width:10%;cursor:pointer" onclick="btSort('status')">ステータス ↕</th>
+                <th>備考</th>
+              </tr></thead>
+              <tbody id="bt-tbody"><tr><td colspan="11" class="empty">読み込み中...</td></tr></tbody>
+            </table>
+          </div>
+          <div id="bt-cards" class="bt-mobile-only"></div>
+        </div>
+      </div>
+
+      <!-- 新幹線手配 編集モーダル -->
+      <div class="modal-overlay" id="bt-edit-modal">
+        <div class="modal-box" style="max-width:580px">
+          <div class="modal-header">
+            <div class="modal-title" id="bt-modal-title">新幹線手配 編集</div>
+            <div class="modal-close" onclick="closeBtModal()">✕</div>
+          </div>
+          <div class="form-grid" style="margin-top:8px">
+            <div class="form-field" style="grid-column:1/-1"><label>REF#（ツアーコード）</label><input id="bt-m-booking-ref" placeholder="例: KIC250401-KK"></div>
+            <div class="form-field"><label>乗車日</label><input id="bt-m-ride-date" type="date"></div>
+            <div class="form-field"><label>ステータス</label>
+              <select id="bt-m-status">
+                <option value="回答待ち">回答待ち</option>
+                <option value="手配OK">手配OK</option>
+                <option value="キャンセル">キャンセル</option>
+              </select>
+            </div>
+            <div class="form-field"><label>列車名</label><input id="bt-m-train-name" placeholder="のぞみ"></div>
+            <div class="form-field"><label>号数</label><input id="bt-m-train-number" placeholder="123号"></div>
+            <div class="form-field"><label>出発駅</label><input id="bt-m-dep-station" placeholder="東京"></div>
+            <div class="form-field"><label>出発時刻</label><input id="bt-m-dep-time" type="time"></div>
+            <div class="form-field"><label>到着駅</label><input id="bt-m-arr-station" placeholder="新大阪"></div>
+            <div class="form-field"><label>到着時刻</label><input id="bt-m-arr-time" type="time"></div>
+            <div class="form-field"><label>大人</label><input id="bt-m-pax-adult" type="number" value="0" min="0"></div>
+            <div class="form-field"><label>小人</label><input id="bt-m-pax-child" type="number" value="0" min="0"></div>
+            <div class="form-field"><label>無賃</label><input id="bt-m-pax-free" type="number" value="0" min="0"></div>
+            <div class="form-field"><label>割引率(%)</label><input id="bt-m-discount" type="number" value="0" step="0.1" min="0"></div>
+            <div class="form-field" style="grid-column:1/-1"><label>備考</label><input id="bt-m-memo" placeholder="備考・確認番号など"></div>
+          </div>
+          <div style="margin-top:14px;display:flex;gap:8px;align-items:center">
+            <button class="btn btn-p" onclick="saveBtModal()">💾 保存</button>
+            <button class="btn" onclick="closeBtModal()">閉じる</button>
+            <button class="btn" id="bt-modal-delete" style="color:var(--red);margin-left:auto" onclick="deleteBtRecord()">🗑 削除</button>
+          </div>
+          <div class="msg-ok" id="bt-modal-msg" style="display:none">✓ 保存しました</div>
+        </div>
+      </div>
+
       <!-- 取引先マスタ -->
       <div id="pg-partners" class="page" style="display:none">
         <!-- 検索エリア（スティッキー） -->
@@ -1535,7 +1616,7 @@ function restoreSession(){
 const pageNames={
   dashboard:'Dashboard','new-booking':'New Booking','booking-list':'Booking List',
   invoice:'Invoice',estimation:'見積もり','guide-settlements':'ガイド精算一覧',gross:'GROSS / 粗利管理',payment:'入出金管理',accounts:'アカウント管理',logs:'アクセスログ'
-,hotels:'ホテル予約管理',partners:'取引先マスタ'
+,hotels:'ホテル予約管理',partners:'取引先マスタ','bullet-trains':'新幹線手配'
 };
 function go(id){
   if((id==='accounts'||id==='logs'||id==='gross') && currentUser && currentUser.role!=='admin') return;
@@ -1565,6 +1646,7 @@ function go(id){
   if(id==='accounts') loadAccounts();
   if(id==='partners') loadPartners();
   if(id==='hotels') loadHotelManagement();
+  if(id==='bullet-trains') loadBulletTrains();
   if(id==='logs') loadLogs();
 }
 
@@ -4554,9 +4636,9 @@ function renderBulletTrainTable(){
     tbody.innerHTML='<tr><td colspan="14" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
     return;
   }
-  const stStyle = s => s==='OK'
+  const stStyle = s => s==='手配OK'
     ? `background:var(--green-lt);color:var(--green)`
-    : s==='NG'
+    : s==='キャンセル'
       ? `background:var(--red-lt);color:var(--red)`
       : `background:var(--amber-lt);color:var(--amber)`;
   tbody.innerHTML = bdBulletTrainItems.map((it,i)=>`<tr>
@@ -4574,8 +4656,8 @@ function renderBulletTrainTable(){
     <td><select style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px;font-weight:600;${stStyle(it.status||'回答待ち')}"
       onchange="bdBulletTrainItems[${i}].status=this.value;renderBulletTrainTable()">
       <option value="回答待ち" ${(it.status||'回答待ち')==='回答待ち'?'selected':''}>回答待ち</option>
-      <option value="OK" ${it.status==='OK'?'selected':''}>OK</option>
-      <option value="NG" ${it.status==='NG'?'selected':''}>NG</option>
+      <option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option>
+      <option value="キャンセル" ${it.status==='キャンセル'?'selected':''}>キャンセル</option>
     </select></td>
     <td><input value="${escAttr(it.memo)}" oninput="bdBulletTrainItems[${i}].memo=this.value" style="width:100%"></td>
     <td class="li-del"><button class="btn" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="bdBulletTrainItems.splice(${i},1);renderBulletTrainTable()">✕</button></td>
@@ -5870,6 +5952,165 @@ function resetHotelManagementFilter(){
   document.getElementById('hm-from').value='';
   document.getElementById('hm-to').value='';
   filterHotelManagement();
+}
+
+// ===================================================
+// 新幹線手配管理（サイドバーページ）
+// ===================================================
+let bulletTrainCache = [];
+let currentBtId = null;
+let btSortKey = 'ride_date', btSortDir = 1;
+
+async function loadBulletTrains(){
+  document.getElementById('bt-tbody').innerHTML = '<tr><td colspan="11" class="empty">読み込み中...</td></tr>';
+  const {data, error} = await sb.from('bullet_train_arrangements').select('*').order('ride_date',{ascending:true});
+  if(error){ document.getElementById('bt-tbody').innerHTML = `<tr><td colspan="11" class="empty">読み込みエラー: ${error.message}</td></tr>`; return; }
+  bulletTrainCache = data||[];
+  filterBulletTrains();
+}
+
+function btSort(key){
+  if(btSortKey===key){ btSortDir*=-1; } else { btSortKey=key; btSortDir=1; }
+  filterBulletTrains();
+}
+
+function filterBulletTrains(){
+  const q = (document.getElementById('bt-search')?.value||'').trim().toLowerCase();
+  const from = document.getElementById('bt-from')?.value||'';
+  const to   = document.getElementById('bt-to')?.value||'';
+  let filtered = bulletTrainCache;
+  if(q) filtered = filtered.filter(r=>
+    (r.booking_ref||'').toLowerCase().includes(q)||
+    (r.train_name||'').toLowerCase().includes(q)||
+    (r.departure_station||'').toLowerCase().includes(q)||
+    (r.arrival_station||'').toLowerCase().includes(q)
+  );
+  if(from) filtered = filtered.filter(r=>r.ride_date && r.ride_date>=from);
+  if(to)   filtered = filtered.filter(r=>r.ride_date && r.ride_date<=to);
+  document.getElementById('bt-count').textContent = `${filtered.length}件 / 全${bulletTrainCache.length}件`;
+  filtered.sort((a,b)=>{
+    let av=a[btSortKey]??'', bv=b[btSortKey]??'';
+    if(!isNaN(Number(av))&&!isNaN(Number(bv))) return (Number(av)-Number(bv))*btSortDir;
+    return String(av).localeCompare(String(bv),'ja')*btSortDir;
+  });
+  const tbody = document.getElementById('bt-tbody');
+  const cards = document.getElementById('bt-cards');
+  const isMobile = window.innerWidth <= 768;
+  const stBg = s => s==='手配OK'?'var(--green-lt)':s==='キャンセル'?'var(--red-lt)':'var(--amber-lt)';
+  const stFg = s => s==='手配OK'?'var(--green)':s==='キャンセル'?'var(--red)':'var(--amber)';
+  const ft = t => t ? String(t).slice(0,5) : '';
+  if(filtered.length===0){
+    tbody.innerHTML = isMobile ? '' : '<tr><td colspan="11" class="empty">該当するデータがありません</td></tr>';
+    cards.innerHTML = isMobile ? '<div class="empty" style="text-align:center;padding:20px;color:var(--text3)">該当するデータがありません</div>' : '';
+    return;
+  }
+  tbody.innerHTML = filtered.map(r=>`
+    <tr style="cursor:pointer" onclick="openBtModal('${r.id}')">
+      <td class="lnk">${escHtml(r.booking_ref||'')}</td>
+      <td>${r.ride_date||''}</td>
+      <td>${escHtml(r.train_name||'')}${r.train_number?' '+escHtml(r.train_number):''}</td>
+      <td>${escHtml(r.departure_station||'')}→${escHtml(r.arrival_station||'')}</td>
+      <td style="white-space:nowrap">${ft(r.departure_time)}-${ft(r.arrival_time)}</td>
+      <td style="text-align:center">${r.pax_adult||0}</td>
+      <td style="text-align:center">${r.pax_child||0}</td>
+      <td style="text-align:center">${r.pax_free||0}</td>
+      <td style="text-align:right">${r.discount_rate||0}%</td>
+      <td><span style="font-size:10px;padding:2px 8px;border-radius:10px;font-weight:600;background:${stBg(r.status||'回答待ち')};color:${stFg(r.status||'回答待ち')}">${escHtml(r.status||'回答待ち')}</span></td>
+      <td style="font-size:10px;color:var(--text3)">${escHtml(r.memo||'')}</td>
+    </tr>`).join('');
+  cards.innerHTML = filtered.map(r=>`
+    <div class="bt-card" onclick="openBtModal('${r.id}')">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <div>
+          <span style="font-size:10px;font-weight:600;color:var(--blue)">${escHtml(r.booking_ref||'')}</span>
+          <span style="font-size:11px;font-weight:600;margin-left:8px">${escHtml(r.train_name||'')}${r.train_number?' '+escHtml(r.train_number):''}</span>
+        </div>
+        <span style="font-size:10px;padding:2px 8px;border-radius:10px;font-weight:600;background:${stBg(r.status||'回答待ち')};color:${stFg(r.status||'回答待ち')}">${escHtml(r.status||'回答待ち')}</span>
+      </div>
+      <div style="font-size:11px;color:var(--text2)">${r.ride_date||''} 　${escHtml(r.departure_station||'')} ${ft(r.departure_time)} → ${escHtml(r.arrival_station||'')} ${ft(r.arrival_time)}</div>
+      <div style="font-size:10px;color:var(--text3);margin-top:2px">大人:${r.pax_adult||0} 小人:${r.pax_child||0} 無賃:${r.pax_free||0} 割引:${r.discount_rate||0}%${r.memo?' | '+escHtml(r.memo):''}</div>
+    </div>`).join('');
+}
+
+function resetBtFilter(){
+  document.getElementById('bt-search').value='';
+  document.getElementById('bt-from').value='';
+  document.getElementById('bt-to').value='';
+  filterBulletTrains();
+}
+
+function openBtModal(id){
+  currentBtId = id;
+  const r = id ? (bulletTrainCache.find(x=>x.id===id)||{}) : {};
+  document.getElementById('bt-modal-title').textContent = id ? '新幹線手配 編集' : '新幹線手配 新規追加';
+  document.getElementById('bt-modal-delete').style.display = id ? '' : 'none';
+  document.getElementById('bt-modal-msg').style.display = 'none';
+  document.getElementById('bt-m-booking-ref').value  = r.booking_ref||'';
+  document.getElementById('bt-m-ride-date').value    = r.ride_date||'';
+  document.getElementById('bt-m-train-name').value   = r.train_name||'';
+  document.getElementById('bt-m-train-number').value = r.train_number||'';
+  document.getElementById('bt-m-dep-station').value  = r.departure_station||'';
+  document.getElementById('bt-m-dep-time').value     = r.departure_time ? String(r.departure_time).slice(0,5) : '';
+  document.getElementById('bt-m-arr-station').value  = r.arrival_station||'';
+  document.getElementById('bt-m-arr-time').value     = r.arrival_time ? String(r.arrival_time).slice(0,5) : '';
+  document.getElementById('bt-m-pax-adult').value    = r.pax_adult||0;
+  document.getElementById('bt-m-pax-child').value    = r.pax_child||0;
+  document.getElementById('bt-m-pax-free').value     = r.pax_free||0;
+  document.getElementById('bt-m-discount').value     = r.discount_rate||0;
+  document.getElementById('bt-m-status').value       = r.status||'回答待ち';
+  document.getElementById('bt-m-memo').value         = r.memo||'';
+  document.getElementById('bt-edit-modal').classList.add('open');
+}
+
+function closeBtModal(){
+  document.getElementById('bt-edit-modal').classList.remove('open');
+  currentBtId = null;
+}
+
+async function saveBtModal(){
+  const payload = {
+    booking_ref:       document.getElementById('bt-m-booking-ref').value.trim(),
+    ride_date:         document.getElementById('bt-m-ride-date').value||null,
+    train_name:        document.getElementById('bt-m-train-name').value.trim(),
+    train_number:      document.getElementById('bt-m-train-number').value.trim(),
+    departure_station: document.getElementById('bt-m-dep-station').value.trim(),
+    departure_time:    document.getElementById('bt-m-dep-time').value||null,
+    arrival_station:   document.getElementById('bt-m-arr-station').value.trim(),
+    arrival_time:      document.getElementById('bt-m-arr-time').value||null,
+    pax_adult:         Number(document.getElementById('bt-m-pax-adult').value)||0,
+    pax_child:         Number(document.getElementById('bt-m-pax-child').value)||0,
+    pax_free:          Number(document.getElementById('bt-m-pax-free').value)||0,
+    discount_rate:     Number(document.getElementById('bt-m-discount').value)||0,
+    status:            document.getElementById('bt-m-status').value,
+    memo:              document.getElementById('bt-m-memo').value.trim(),
+    updated_at:        new Date().toISOString()
+  };
+  if(!payload.booking_ref){ alert('REF#を入力してください'); return; }
+  if(currentBtId){
+    const {error} = await sb.from('bullet_train_arrangements').update(payload).eq('id', currentBtId);
+    if(error){ alert('保存エラー: '+error.message); return; }
+    const idx = bulletTrainCache.findIndex(x=>x.id===currentBtId);
+    if(idx>=0) Object.assign(bulletTrainCache[idx], payload);
+  }else{
+    const {data, error} = await sb.from('bullet_train_arrangements').insert(payload).select().single();
+    if(error){ alert('保存エラー: '+error.message); return; }
+    bulletTrainCache.push(data);
+    currentBtId = data.id;
+    document.getElementById('bt-modal-delete').style.display='';
+  }
+  const msg = document.getElementById('bt-modal-msg');
+  msg.style.display=''; setTimeout(()=>msg.style.display='none', 2000);
+  filterBulletTrains();
+}
+
+async function deleteBtRecord(){
+  if(!currentBtId) return;
+  if(!confirm('このレコードを削除しますか？')) return;
+  const {error} = await sb.from('bullet_train_arrangements').delete().eq('id', currentBtId);
+  if(error){ alert('削除エラー: '+error.message); return; }
+  bulletTrainCache = bulletTrainCache.filter(x=>x.id!==currentBtId);
+  closeBtModal();
+  filterBulletTrains();
 }
 
 function addHotelBookingRow(){
