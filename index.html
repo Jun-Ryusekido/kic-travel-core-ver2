@@ -8037,10 +8037,15 @@ async function showInvoicePreview(inv, booking){
 // ===== 起動時：ログインセッション復元 =====
 restoreSession();
 
-// ===== type="date" 全入力欄に autocomplete="off" を付与 =====
-// Chrome の補完・年→月自動遷移干渉を防止。静的・動的両方対応
+// ===== type="date" 全入力欄に autocomplete="off" / min / max を付与 =====
+// max="9999-12-31" を設定することで Chrome の年フィールドが4桁入力後に自動送りされる
+// （未設定時は Chrome が max=275760 を採用し6桁入力まで自動送りしないため年が蓄積する）
 (function(){
-  function applyAco(el){ if(el.autocomplete!=='off') el.autocomplete='off'; }
+  function applyAco(el){
+    if(el.autocomplete!=='off') el.autocomplete='off';
+    if(!el.max) el.max='9999-12-31';
+    if(!el.min) el.min='1900-01-01';
+  }
   function scanNode(n){
     if(!n || n.nodeType!==1) return;
     if(n.tagName==='INPUT' && n.type==='date') applyAco(n);
