@@ -833,9 +833,13 @@ th.sortable:hover{color:var(--blue)}
           </div>
           <!-- ホテル別タブ -->
           <div id="hm-tab-hotel" style="display:none">
-            <div class="form-field" style="max-width:360px;margin-bottom:10px">
-              <label>ホテルを選択</label>
-              <select id="hm-hotel-sel" onchange="renderHmHotelTab()" style="padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:12px;width:100%"><option value="">-- ホテルを選択 --</option></select>
+            <div class="form-field" style="max-width:360px;margin-bottom:10px;position:relative">
+              <label>ホテルで絞り込み</label>
+              <input type="text" id="hm-hotel-search" placeholder="ホテル名を入力..." autocomplete="off"
+                     oninput="hmHotelSearchInput()" onfocus="hmHotelSearchInput()"
+                     onblur="setTimeout(()=>{const d=document.getElementById('hm-hotel-dropdown');if(d)d.style.display='none'},150)"
+                     style="padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:12px;width:100%;box-sizing:border-box">
+              <div id="hm-hotel-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--card);border:1px solid var(--border);border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.12);z-index:50;max-height:240px;overflow-y:auto;margin-top:2px"></div>
             </div>
             <div id="hm-hotel-tab-body"></div>
           </div>
@@ -5736,17 +5740,38 @@ function switchHmTab(tab){
 }
 
 function populateHmHotelSelect(){
-  const hotels = [...new Set(hotelManagementCache.map(r=>r.hotel_name).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ja'));
-  const sel = document.getElementById('hm-hotel-sel');
-  const current = sel.value;
-  sel.innerHTML = '<option value="">-- ホテルを選択 --</option>' + hotels.map(h=>`<option value="${escHtml(h)}" ${h===current?'selected':''}>${escHtml(h)}</option>`).join('');
+  // データ更新後に現在の選択ホテルが残っていれば再描画
+  const current = (document.getElementById('hm-hotel-search')?.value||'').trim();
   if(current) renderHmHotelTab();
 }
 
+function hmHotelSearchInput(){
+  const q = (document.getElementById('hm-hotel-search')?.value||'').trim().toLowerCase();
+  const hotels = [...new Set(hotelManagementCache.map(r=>r.hotel_name).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ja'));
+  const filtered = q ? hotels.filter(h=>h.toLowerCase().includes(q)) : hotels;
+  const dd = document.getElementById('hm-hotel-dropdown');
+  if(!dd) return;
+  if(filtered.length===0){ dd.style.display='none'; return; }
+  dd.innerHTML = filtered.map(h=>
+    `<div data-hotel="${escHtml(h)}" onmousedown="selectHmHotel(this.dataset.hotel)"
+          style="padding:8px 12px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--border)"
+          onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''">${escHtml(h)}</div>`
+  ).join('');
+  dd.style.display='block';
+}
+
+function selectHmHotel(hotelName){
+  const inp = document.getElementById('hm-hotel-search');
+  if(inp) inp.value = hotelName;
+  const dd = document.getElementById('hm-hotel-dropdown');
+  if(dd) dd.style.display='none';
+  renderHmHotelTab();
+}
+
 function renderHmHotelTab(){
-  const hotelName = document.getElementById('hm-hotel-sel')?.value;
+  const hotelName = (document.getElementById('hm-hotel-search')?.value||'').trim();
   const body = document.getElementById('hm-hotel-tab-body');
-  if(!hotelName){ body.innerHTML='<p style="color:var(--text3);font-size:12px;margin-top:8px">ホテルを選択してください</p>'; return; }
+  if(!hotelName){ body.innerHTML='<p style="color:var(--text3);font-size:12px;margin-top:8px">上の入力欄にホテル名を入力して選択してください</p>'; return; }
   const rows = hotelManagementCache.filter(r=>r.hotel_name===hotelName).sort((a,b)=>(a.check_in||'').localeCompare(b.check_in||''));
   if(rows.length===0){ body.innerHTML='<p style="color:var(--text3);font-size:12px">該当データなし</p>'; return; }
   const total = rows.reduce((s,r)=>s+Number(r.amount||0),0);
