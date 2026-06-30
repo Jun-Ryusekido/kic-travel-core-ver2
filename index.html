@@ -4224,17 +4224,17 @@ function updateEstTotals(){
   const sumF = key => estDays.reduce((s,d)=>s+(Number(d[key])||0), 0);
   const setEl = (id, val) => { const el = document.getElementById(id); if(el) el.textContent = val ? yen(val) : ''; };
 
-  // 人数連動行（× PAX）
-  setEl('est-total-twin_rate',     sumF('twin_rate')     * pax);
-  setEl('est-total-lunch_rate',    sumF('lunch_rate')    * pax);
-  setEl('est-total-dinner_rate',   sumF('dinner_rate')   * pax);
-  // 入場料：複数行それぞれの合計を更新
+  // 各行の合計列（DAY列の単純合計。PAX乗算は結果テーブルのみ）
+  setEl('est-total-twin_rate',     sumF('twin_rate'));
+  setEl('est-total-lunch_rate',    sumF('lunch_rate'));
+  setEl('est-total-dinner_rate',   sumF('dinner_rate'));
+  // 入場料：複数行それぞれのDAY合計を更新
   estAdmissionRows.forEach((row, k) => {
     const s = (row.amounts||[]).reduce((acc,a)=>acc+(Number(a)||0), 0);
-    setEl(`est-total-admrow-${k}`, s * pax);
+    setEl(`est-total-admrow-${k}`, s);
   });
-  setEl('est-total-bullet_train',  sumF('bullet_train')  * (pax + 1));
-  setEl('est-total-treat',         sumF('treat')         * pax);
+  setEl('est-total-bullet_train',  sumF('bullet_train'));
+  setEl('est-total-treat',         sumF('treat'));
 
   // 固定費行（合計のみ）
   setEl('est-total-bus_rate',        sumF('bus_rate'));
@@ -4251,14 +4251,14 @@ function updateEstTotals(){
     setEl(`est-total-fixedrow-${k}`, sum);
   });
 
-  // セクション小計
+  // セクション小計（DAY合計の単純合計。PAX乗算は結果テーブルのみ）
   const fixedRowsSum = estFixedRows.reduce((s, row) => s + (row.amounts||[]).reduce((ss,a)=>ss+(Number(a)||0), 0), 0);
-  setEl('est-subtotal-hotel',  sumF('twin_rate') * pax + fixedRowsSum);
-  setEl('est-subtotal-food',   (sumF('lunch_rate') + sumF('dinner_rate')) * pax);
+  setEl('est-subtotal-hotel',  sumF('twin_rate') + fixedRowsSum);
+  setEl('est-subtotal-food',   sumF('lunch_rate') + sumF('dinner_rate'));
   setEl('est-subtotal-bus',    sumF('bus_rate') + sumF('bus_tip') + sumF('bus_driver_meal') + sumF('parking_tolls'));
   setEl('est-subtotal-guide',  sumF('guide_fee') + sumF('guide_tip') + sumF('guide_meal'));
   const admTotal = estAdmissionRows.reduce((s,row)=>s+(row.amounts||[]).reduce((ss,a)=>ss+(Number(a)||0),0), 0);
-  setEl('est-subtotal-pax',    admTotal * pax + sumF('bullet_train') * (pax + 1) + sumF('treat') * pax);
+  setEl('est-subtotal-pax',    admTotal + sumF('bullet_train') + sumF('treat'));
 }
 
 // ---- 計算エンジン ----
