@@ -1109,8 +1109,8 @@ th.sortable:hover{color:var(--blue)}
       </div>
       <div class="form-field" style="grid-column:1/-1">
         <div class="field-row3">
-          <div class="form-field"><label>In-Date</label><input id="bd-in" type="date"></div>
-          <div class="form-field"><label>Out-Date</label><input id="bd-out" type="date"></div>
+          <div class="form-field"><label>In-Date</label><input id="bd-in" type="date" autocomplete="off"></div>
+          <div class="form-field"><label>Out-Date</label><input id="bd-out" type="date" autocomplete="off"></div>
         </div>
       </div>
       <div class="form-field"><label>入金合計 (Deposit, JPY)</label><input id="bd-deposit" type="number" disabled style="background:var(--bg);color:var(--text)"></div>
@@ -4512,10 +4512,10 @@ function renderHotelTable(){
         <td><input type="date" value="${it.check_out}" onchange="bdHotelItems[${i}].check_out=this.value;hotelCalc(${i})"></td>
         <td><input value="${escAttr(it.room_type)}" oninput="bdHotelItems[${i}].room_type=this.value" style="width:100%"></td>
         <td><input type="number" value="${it.rooms||1}" onchange="bdHotelItems[${i}].rooms=Number(this.value);hotelCalc(${i})" style="width:100%"></td>
-        <td style="text-align:center">${nights}</td>
+        <td style="text-align:center" data-hotel-nights="${i}">${nights}</td>
         <td style="text-align:center"><input type="checkbox" ${it.breakfast?'checked':''} onchange="bdHotelItems[${i}].breakfast=this.checked"></td>
         <td><input type="text" inputmode="numeric" value="${Number(it.unit_price||0).toLocaleString('ja-JP')}" onchange="bdHotelItems[${i}].unit_price=parseNum(this.value);this.value=bdHotelItems[${i}].unit_price.toLocaleString('ja-JP');hotelCalc(${i})"></td>
-        <td style="text-align:right;white-space:nowrap">${yen(it.amount||0)}</td>
+        <td style="text-align:right;white-space:nowrap" data-hotel-amount="${i}">${yen(it.amount||0)}</td>
         <td><input value="${escAttr(it.confirmation_no)}" oninput="bdHotelItems[${i}].confirmation_no=this.value" style="width:100%"></td>
         <td><select onchange="bdHotelItems[${i}].status=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px"><option value="回答待ち" ${it.status!=='手配OK'?'selected':''}>回答待ち</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option></select></td>
         <td><input value="${escAttr(it.memo)}" oninput="bdHotelItems[${i}].memo=this.value" style="width:100%"></td>
@@ -4529,7 +4529,14 @@ function hotelCalc(i){
   const it = bdHotelItems[i];
   const nights = calcHotelNights(it.check_in, it.check_out);
   it.amount = Math.round(Number(it.unit_price||0) * Number(it.rooms||1) * nights);
-  renderHotelTable();
+  // フォーカス中の入力を破壊しないようにDOM全体を再描画せずin-placeで更新
+  const nightsEl = document.querySelector(`[data-hotel-nights="${i}"]`);
+  if(nightsEl) nightsEl.textContent = nights;
+  const amountEl = document.querySelector(`[data-hotel-amount="${i}"]`);
+  if(amountEl) amountEl.textContent = yen(it.amount||0);
+  const total = bdHotelItems.reduce((s,h)=>s+Number(h.amount||0),0);
+  const totalEl = document.getElementById('bd-hotels-total');
+  if(totalEl) totalEl.textContent = yen(total);
 }
 
 function addHotelRow(){
