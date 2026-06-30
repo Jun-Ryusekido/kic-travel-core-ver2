@@ -899,8 +899,8 @@ th.sortable:hover{color:var(--blue)}
         <!-- 結果エリア（スクロール可能） -->
         <div class="card" style="border-top:none;border-radius:0 0 12px 12px;padding-top:0;margin-bottom:14px">
           <div class="tbl-wrap pt-desktop-only"><table class="bl-table">
-            <thead><tr><th style="width:9%">種別</th><th style="width:16%">会社名</th><th style="width:12%">担当者</th><th style="width:14%">電話</th><th style="width:16%">メール</th><th style="width:23%">メモ</th><th style="width:10%"></th></tr></thead>
-            <tbody id="pt-tbody"><tr><td colspan="7" class="empty">読み込み中...</td></tr></tbody>
+            <thead><tr><th style="width:9%">種別</th><th style="width:20%">会社名</th><th style="width:13%">担当者</th><th style="width:13%">電話</th><th style="width:27%">メモ</th><th style="width:18%"></th></tr></thead>
+            <tbody id="pt-tbody"><tr><td colspan="6" class="empty">読み込み中...</td></tr></tbody>
           </table></div>
           <div id="pt-cards" class="pt-mobile-only"></div>
         </div>
@@ -5845,9 +5845,9 @@ function renderHmMatrix(){
 }
 
 async function loadPartners(){
-  document.getElementById('pt-tbody').innerHTML = '<tr><td colspan="7" class="empty">読み込み中...</td></tr>';
+  document.getElementById('pt-tbody').innerHTML = '<tr><td colspan="6" class="empty">読み込み中...</td></tr>';
   const {data, error} = await sb.from('business_partners').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('company_name');
-  if(error){ document.getElementById('pt-tbody').innerHTML = `<tr><td colspan="7" class="empty">読み込みエラー: ${error.message}</td></tr>`; return; }
+  if(error){ document.getElementById('pt-tbody').innerHTML = `<tr><td colspan="6" class="empty">読み込みエラー: ${error.message}</td></tr>`; return; }
   partnersCache = data||[];
   filterPartners();
 }
@@ -5879,7 +5879,7 @@ function filterPartners(){
 
   if(filtered.length===0){
     // スマホはカード側のみ、PCはテーブル側のみメッセージを出す（重複表示を防ぐ）
-    tbody.innerHTML = isMobile ? '' : '<tr><td colspan="7" class="empty">該当する取引先はいません</td></tr>';
+    tbody.innerHTML = isMobile ? '' : '<tr><td colspan="6" class="empty">該当する取引先はいません</td></tr>';
     cards.innerHTML = isMobile ? '<div class="empty" style="text-align:center;padding:20px;color:var(--text3)">該当する取引先はいません</div>' : '';
     return;
   }
@@ -5891,7 +5891,6 @@ function filterPartners(){
       <td>${escHtml(p.company_name||'')}${p.branch_name?(' / '+escHtml(p.branch_name)):''}${(p.company_name_en||p.branch_name_en)?('<br><span style="color:var(--text3);font-size:10px">'+escHtml([p.company_name_en,p.branch_name_en].filter(Boolean).join(' / '))+'</span>'):''}</td>
       <td>${escHtml(p.contact_person||'')}${p.position?(' / '+escHtml(p.position)):''}${(p.contact_person_en||p.position_en)?('<br><span style="color:var(--text3);font-size:10px">'+escHtml([p.contact_person_en,p.position_en].filter(Boolean).join(' / '))+'</span>'):''}</td>
       <td>${escHtml(p.phone||p.company_phone||'')}</td>
-      <td>${escHtml(p.email||'')}</td>
       <td style="white-space:normal;font-size:10px;color:var(--text3)">${escHtml(p.notes||'')}</td>
       <td style="white-space:nowrap">
         <button class="btn" style="font-size:11px" onclick="showPartnerDetail('${p.id}')">照会</button>
