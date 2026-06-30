@@ -6799,9 +6799,30 @@ async function onBtCsvFileSelected(e){
   btCsvBlocks = parsed.map(block => {
     const groupName = block.header['団体名']||block.header['グループ名']||'';
     const extractedRef = btExtractRef(groupName);
-    // trim() で前後空白の差異を吸収して比較
     const matchedBooking = extractedRef ? (btCsvBookingsList.find(b=>(b.ref_no||'').trim()===extractedRef)||null) : null;
     return {...block, groupName, extractedRef, matchedBooking, selectedRef: matchedBooking?.ref_no||'', skip:false};
+  });
+
+  // 重複チェック：マッチしたbooking_refのレコードをDB照会
+  const refsToCheck = [...new Set(btCsvBlocks.map(b=>b.matchedBooking?.ref_no).filter(Boolean))];
+  let existingSet = new Set();
+  if(refsToCheck.length){
+    const {data: existing} = await sb.from('bullet_train_arrangements')
+      .select('booking_ref,ride_date,train_number,departure_station,arrival_station')
+      .in('booking_ref', refsToCheck);
+    if(existing) existing.forEach(r=>{
+      existingSet.add(`${r.booking_ref}|${r.ride_date||''}|${r.train_number||''}|${r.departure_station||''}|${r.arrival_station||''}`);
+    });
+  }
+  // 各詳細行に重複フラグを付与（重複行はデフォルトでスキップ）
+  btCsvBlocks = btCsvBlocks.map(block=>{
+    const bookingRef = block.matchedBooking?.ref_no||'';
+    const details = block.details.map(d=>{
+      const key = `${bookingRef}|${btNormalizeDate(d['列車乗車日']||'')}|${d['列車番号']||''}|${d['出発駅']||''}|${d['到着駅']||''}`;
+      const isDuplicate = !!bookingRef && existingSet.has(key);
+      return {...d, _isDuplicate: isDuplicate, _skip: isDuplicate};
+    });
+    return {...block, details};
   });
 
   renderBtCsvModalBody();
@@ -6834,13 +6855,16 @@ function renderBtCsvModalBody(){
         <option value="">-- 手動でREF#を選択 --</option>
         ${allRefs.map(r=>`<option value="${escAttr(r)}" ${block.selectedRef===r?'selected':''}>${escHtml(r)}</option>`).join('')}
       </select>` : '';
+    const dupCount = block.details.filter(d=>d._isDuplicate).length;
+    const skipCount = block.details.filter(d=>d._skip).length;
+    const importCount = block.details.length - skipCount;
     const detailTable = block.details.length && !block.skip ? `
       <details style="margin-top:8px">
-        <summary style="font-size:10px;color:var(--text3);cursor:pointer">明細を表示（${block.details.length}件）</summary>
+        <summary style="font-size:10px;color:var(--text3);cursor:pointer">明細を表示（${importCount}/${block.details.length}件取込${dupCount>0?` ⚠ 重複${dupCount}件あり`:''}）</summary>
         <div class="tbl-wrap" style="margin-top:4px">
-          <table class="bl-table" style="font-size:10px;min-width:600px">
-            <thead><tr><th>乗車日</th><th>列車名</th><th>号数</th><th>区間</th><th>時刻</th><th>大人</th><th>小人</th><th>無賃</th><th>割引率</th><th>ステータス</th></tr></thead>
-            <tbody>${block.details.map(d=>`<tr>
+          <table class="bl-table" style="font-size:10px;min-width:720px">
+            <thead><tr><th>乗車日</th><th>列車名</th><th>号数</th><th>区間</th><th>時刻</th><th>大人</th><th>小人</th><th>無賃</th><th>割引率</th><th>ステータス</th><th>重複</th><th>取込</th></tr></thead>
+            <tbody>${block.details.map((d,di)=>`<tr style="${d._isDuplicate?'background:#fffbeb':''}${d._skip?';opacity:0.45':''}">
               <td>${btNormalizeDate(d['列車乗車日']||'')}</td>
               <td>${escHtml(d['列車名']||'')}</td>
               <td>${escHtml(d['列車番号']||'')}</td>
@@ -6851,6 +6875,8 @@ function renderBtCsvModalBody(){
               <td style="text-align:center">${d['無賃']||0}</td>
               <td style="text-align:right">${d['列車割引率']||0}%</td>
               <td>${btCsvStatusToDb(d['ステータス']||'')}</td>
+              <td style="text-align:center">${d._isDuplicate?'<span style="color:#d97706;font-size:9px;font-weight:700">⚠ 既存</span>':'<span style="color:var(--text3);font-size:9px">—</span>'}</td>
+              <td style="text-align:center"><label style="cursor:pointer"><input type="checkbox" ${d._skip?'checked':''} onchange="btCsvBlocks[${bi}].details[${di}]._skip=this.checked;renderBtCsvModalBody()" style="margin:0"> <span style="font-size:9px">${d._skip?'ｽｷｯﾌﾟ':'取込'}</span></label></td>
             </tr>`).join('')}</tbody>
           </table>
         </div>
@@ -6869,7 +6895,8 @@ function renderBtCsvModalBody(){
         </div>
         <div style="min-width:70px;text-align:right">
           <div style="font-size:10px;color:var(--text3)">明細</div>
-          <div style="font-size:14px;font-weight:700">${block.details.length}件</div>
+          <div style="font-size:14px;font-weight:700">${importCount}/${block.details.length}件</div>
+          ${dupCount>0?`<div style="font-size:9px;color:#d97706;font-weight:600;white-space:nowrap">⚠ 重複${dupCount}件</div>`:''}
         </div>
         <div style="min-width:80px;align-self:center;text-align:right">
           <label style="font-size:11px;cursor:pointer;display:flex;align-items:center;gap:4px;justify-content:flex-end">
@@ -6897,7 +6924,7 @@ async function importBtCsv(){
   const records = [];
   toImport.forEach(block=>{
     const ref = block.matchedBooking?.ref_no || block.selectedRef;
-    block.details.forEach(d=>{
+    block.details.filter(d=>!d._skip).forEach(d=>{
       records.push({
         booking_ref:       ref,
         ride_date:         btNormalizeDate(d['列車乗車日'])||null,
