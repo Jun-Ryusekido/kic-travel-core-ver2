@@ -1109,8 +1109,8 @@ th.sortable:hover{color:var(--blue)}
       </div>
       <div class="form-field" style="grid-column:1/-1">
         <div class="field-row3">
-          <div class="form-field"><label>In-Date</label><input id="bd-in" type="date" autocomplete="off"></div>
-          <div class="form-field"><label>Out-Date</label><input id="bd-out" type="date" autocomplete="off"></div>
+          <div class="form-field"><label>In-Date</label><input id="bd-in" type="date" autocomplete="off" onchange="bd_dateValidate(this,'IN-DATE')"></div>
+          <div class="form-field"><label>Out-Date</label><input id="bd-out" type="date" autocomplete="off" onchange="bd_dateValidate(this,'OUT-DATE')"></div>
         </div>
       </div>
       <div class="form-field"><label>入金合計 (Deposit, JPY)</label><input id="bd-deposit" type="number" disabled style="background:var(--bg);color:var(--text)"></div>
@@ -7976,42 +7976,15 @@ restoreSession();
     .observe(document.body,{childList:true,subtree:true});
 })();
 
-// ===== Chrome type="date" 年フィールド6桁バグ対策 =====
-// 既存値があるdate入力にフォーカスした際、valueを一時クリアしてChromeを
-// フレッシュエントリーモード（rolling/appendモード不可）に強制する。
-// focusout時に未入力なら元値を復元。changeが先に来た場合はその場でcleanup。
-(function(){
-  document.addEventListener('focusin', function(e){
-    var el = e.target;
-    if(!el || el.tagName !== 'INPUT' || el.type !== 'date' || !el.value) return;
-    el.dataset._dtSaved = el.value;
+// bd-in / bd-out の onchange バリデーター（Chrome が6桁年を許容したまま commit した値を検出・破棄）
+function bd_dateValidate(el, label){
+  if(el.value && !/^\d{4}-\d{2}-\d{2}$/.test(el.value)){
+    var bad = el.value;
     el.value = '';
-  }, true);
-
-  document.addEventListener('change', function(e){
-    var el = e.target;
-    if(!el || el.tagName !== 'INPUT' || el.type !== 'date') return;
-    if(el.dataset._dtSaved === undefined) return;
-    var saved = el.dataset._dtSaved;
-    delete el.dataset._dtSaved;
-    if(!el.value){
-      // changeが空値で発火 → ユーザーは入力せず離れた → 伝播を止めて元値を復元
-      e.stopImmediatePropagation();
-      el.value = saved;
-    }
-    // el.value が有効な日付の場合 → そのまま onchange ハンドラへ伝える
-  }, true);
-
-  document.addEventListener('focusout', function(e){
-    var el = e.target;
-    if(!el || el.tagName !== 'INPUT' || el.type !== 'date') return;
-    if(el.dataset._dtSaved === undefined) return;
-    var saved = el.dataset._dtSaved;
-    delete el.dataset._dtSaved;
-    // change が先に来なかった場合（ブラウザ差異）の復元フォールバック
-    if(!el.value) el.value = saved;
-  }, true);
-})();
+    alert(label + 'の日付が正しくありません（' + bad + '）。\n年は4桁で再度入力してください。');
+    el.focus();
+  }
+}
 
 // フォーカス中のdate inputを含むtbodyの再描画をスキップするガード
 function _dateInputFocusedIn(tbodyId){
