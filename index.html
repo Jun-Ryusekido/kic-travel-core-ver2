@@ -4565,6 +4565,23 @@ async function saveHotelItems(){
   if(rows.length) await sb.from('booking_hotels').insert(rows);
 }
 
+// テーブル全体を再描画せずに合計のみ更新するヘルパー（フォーカス中の日付入力を破壊しない）
+function busAmountCalc(i, el){
+  bdBusItems[i].amount = parseNum(el.value);
+  el.value = bdBusItems[i].amount.toLocaleString('ja-JP');
+  document.getElementById('bd-buses-total').textContent = yen(bdBusItems.reduce((s,h)=>s+Number(h.amount||0),0));
+}
+function restaurantAmountCalc(i, el){
+  bdRestaurantItems[i].amount = parseNum(el.value);
+  el.value = bdRestaurantItems[i].amount.toLocaleString('ja-JP');
+  document.getElementById('bd-restaurants-total').textContent = yen(bdRestaurantItems.reduce((s,h)=>s+Number(h.amount||0),0));
+}
+function facilityAmountCalc(i, el){
+  bdFacilityItems[i].amount = parseNum(el.value);
+  el.value = bdFacilityItems[i].amount.toLocaleString('ja-JP');
+  document.getElementById('bd-facilities-total').textContent = yen(bdFacilityItems.reduce((s,h)=>s+Number(h.amount||0),0));
+}
+
 // ─── バス ───────────────────────────────────────────────────────────────────
 function renderBusTable(){
   const tbody = document.getElementById('bd-buses-tbody');
@@ -4579,7 +4596,7 @@ function renderBusTable(){
       <td><input type="number" value="${it.buses||1}" onchange="bdBusItems[${i}].buses=Number(this.value)" style="width:100%"></td>
       <td><input type="date" value="${it.start_date||''}" onchange="bdBusItems[${i}].start_date=this.value"></td>
       <td><input type="date" value="${it.end_date||''}" onchange="bdBusItems[${i}].end_date=this.value"></td>
-      <td><input type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="bdBusItems[${i}].amount=parseNum(this.value);this.value=bdBusItems[${i}].amount.toLocaleString('ja-JP');renderBusTable()"></td>
+      <td><input type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="busAmountCalc(${i},this)"></td>
       <td><select onchange="bdBusItems[${i}].status=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px"><option value="問い合わせ中" ${(it.status||'問い合わせ中')==='問い合わせ中'?'selected':''}>問い合わせ中</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option></select></td>
       <td><input value="${escAttr(it.confirmation_no)}" oninput="bdBusItems[${i}].confirmation_no=this.value" style="width:100%"></td>
       <td><input value="${escAttr(it.memo)}" oninput="bdBusItems[${i}].memo=this.value" style="width:100%"></td>
@@ -4761,7 +4778,7 @@ function renderRestaurantTable(){
       </select></td>
       <td><input type="date" value="${it.date||''}" onchange="bdRestaurantItems[${i}].date=this.value"></td>
       <td><input type="number" value="${it.pax||0}" onchange="bdRestaurantItems[${i}].pax=Number(this.value)" style="width:100%"></td>
-      <td><input type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="bdRestaurantItems[${i}].amount=parseNum(this.value);this.value=bdRestaurantItems[${i}].amount.toLocaleString('ja-JP');renderRestaurantTable()"></td>
+      <td><input type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="restaurantAmountCalc(${i},this)"></td>
       <td><select onchange="bdRestaurantItems[${i}].status=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px"><option value="問い合わせ中" ${(it.status||'問い合わせ中')==='問い合わせ中'?'selected':''}>問い合わせ中</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option></select></td>
       <td><input value="${escAttr(it.confirmation_no)}" oninput="bdRestaurantItems[${i}].confirmation_no=this.value" style="width:100%"></td>
       <td><input value="${escAttr(it.memo)}" oninput="bdRestaurantItems[${i}].memo=this.value" style="width:100%"></td>
@@ -4936,7 +4953,7 @@ function renderFacilityTable(){
       <td><input value="${escAttr(it.facility_name)}" oninput="bdFacilityItems[${i}].facility_name=this.value" style="width:100%"></td>
       <td><input type="date" value="${it.date||''}" onchange="bdFacilityItems[${i}].date=this.value"></td>
       <td><input type="number" value="${it.pax||0}" onchange="bdFacilityItems[${i}].pax=Number(this.value)" style="width:100%"></td>
-      <td><input type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="bdFacilityItems[${i}].amount=parseNum(this.value);this.value=bdFacilityItems[${i}].amount.toLocaleString('ja-JP');renderFacilityTable()"></td>
+      <td><input type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="facilityAmountCalc(${i},this)"></td>
       <td><select onchange="bdFacilityItems[${i}].status=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px"><option value="問い合わせ中" ${(it.status||'問い合わせ中')==='問い合わせ中'?'selected':''}>問い合わせ中</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option></select></td>
       <td><input value="${escAttr(it.confirmation_no)}" oninput="bdFacilityItems[${i}].confirmation_no=this.value" style="width:100%"></td>
       <td><input value="${escAttr(it.memo)}" oninput="bdFacilityItems[${i}].memo=this.value" style="width:100%"></td>
