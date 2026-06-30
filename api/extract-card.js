@@ -3,7 +3,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
   try {
-    const { variants, mediaType, base64, hotelText, hotelPdfBase64, facilityText, facilityPdfBase64, busText, busPdfBase64 } = req.body;
+    const { variants, mediaType, base64, hotelText, hotelPdfBase64, facilityText, facilityPdfBase64, busText, busPdfBase64, restaurantText, restaurantPdfBase64 } = req.body;
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
       return res.status(500).json({ error: 'サーバー側にAPIキーが設定されていません' });
@@ -82,6 +82,36 @@ ${facilityText}`
 フィールド：facility_name(施設名・駐車場名等), date(YYYY-MM-DD), pax(人数・数値), amount(金額・数値・円), status, confirmation_no(確認番号), memo(備考)
 statusは「手配OK」または「問い合わせ中」のいずれかを入れてください。予約確定・確認番号あり・手配完了等の表現があれば「手配OK」、見積もり・問い合わせ・検討中等であれば「問い合わせ中」としてください。
 金額が不明な場合は0、人数不明は0としてください。
+JSONのみ返し、説明文・コードブロック記号は不要です。` }
+      ], 2000);
+      return res.status(200).json(data);
+    }
+
+    // レストランテキスト解析モード
+    if (restaurantText) {
+      const data = await callClaude([{
+        type: 'text',
+text: `以下のレストラン手配確認書やメールからレストラン手配情報を抽出してJSON配列で返してください。
+各レストランを1つのオブジェクトとして配列に含めてください。
+フィールド：restaurant_name(店名), meal_type(食事種別：「朝食」「昼食」「夕食」のいずれか), date(日付・YYYY-MM-DD), pax(人数・数値), amount(金額・数値・円), status, confirmation_no(確認番号), memo(備考)
+statusは「手配OK」または「問い合わせ中」のいずれかを入れてください。予約確定・確認番号あり・手配完了等の表現があれば「手配OK」、見積もり・問い合わせ・検討中等であれば「問い合わせ中」としてください。
+金額が不明な場合は0、人数不明は0としてください。日付が不明な場合は空文字にしてください。
+JSONのみ返し、説明文・コードブロック記号は不要です。
+
+${restaurantText}`
+      }], 2000);
+      return res.status(200).json(data);
+    }
+
+    // レストランPDF解析モード
+    if (restaurantPdfBase64) {
+      const data = await callClaude([
+        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: restaurantPdfBase64 } },
+        { type: 'text', text: `このPDFからレストラン手配情報を抽出してJSON配列で返してください。
+各レストランを1つのオブジェクトとして配列に含めてください。
+フィールド：restaurant_name(店名), meal_type(食事種別：「朝食」「昼食」「夕食」のいずれか), date(日付・YYYY-MM-DD), pax(人数・数値), amount(金額・数値・円), status, confirmation_no(確認番号), memo(備考)
+statusは「手配OK」または「問い合わせ中」のいずれかを入れてください。予約確定・確認番号あり・手配完了等の表現があれば「手配OK」、見積もり・問い合わせ・検討中等であれば「問い合わせ中」としてください。
+金額が不明な場合は0、人数不明は0としてください。日付が不明な場合は空文字にしてください。
 JSONのみ返し、説明文・コードブロック記号は不要です。` }
       ], 2000);
       return res.status(200).json(data);

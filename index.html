@@ -1216,21 +1216,18 @@ th.sortable:hover{color:var(--blue)}
       </table></div>
       <button class="btn" style="font-size:10px;margin-top:4px" onclick="addBusRow()">＋ 行追加</button>
       <div class="li-total">バス合計: <span id="bd-buses-total">¥0</span></div>
-      <div style="margin-top:12px;border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--bg)">
-        <div style="font-size:11px;font-weight:600;margin-bottom:8px">ファイル・テキストから一括読み取り</div>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <button class="btn" style="font-size:11px" onclick="toggleBusOcrArea()">📧 テキストから読み取り</button>
-          <label class="btn" style="font-size:11px;cursor:pointer">📎 Excel/PDFから読み取り<input type="file" accept=".xlsx,.xls,.pdf" style="display:none" onchange="extractBusFromFile(event)"></label>
-          <span id="bus-file-status" style="font-size:11px;color:var(--text3)"></span>
-        </div>
-        <div id="bus-ocr-area" style="display:none;margin-top:8px">
-          <textarea id="bus-ocr-text" rows="5" style="width:100%;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:11px;font-family:inherit;resize:vertical" placeholder="バス手配確認書・メールの本文をここに貼り付け..."></textarea>
-          <div style="margin-top:6px;display:flex;gap:6px;align-items:center">
-            <button class="btn btn-p" style="font-size:11px" onclick="extractBusFromText()">🤖 AIで読み取り</button>
-            <span id="bus-ocr-status" style="font-size:11px;color:var(--text3)"></span>
-          </div>
+      <div id="bus-ocr-area" style="display:none;margin-top:8px;border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--bg)">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:6px">メールや文書の内容をコピーして貼り付けてください</div>
+        <textarea id="bus-ocr-text" rows="5" style="width:100%;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:11px;font-family:inherit;resize:vertical" placeholder="バス手配確認書・メールの本文をここに貼り付け..."></textarea>
+        <div style="margin-top:6px;display:flex;gap:6px;align-items:center">
+          <button class="btn btn-p" style="font-size:11px" onclick="extractBusFromText()">🤖 AIで読み取り</button>
+          <button class="btn" style="font-size:11px" onclick="document.getElementById('bus-ocr-area').style.display='none'">閉じる</button>
+          <span id="bus-ocr-status" style="font-size:11px;color:var(--text3)"></span>
         </div>
       </div>
+      <button class="btn" style="font-size:10px;margin-top:6px" onclick="toggleBusOcrArea()">📧 メール/テキストから読み取り</button>
+      <label class="btn" style="font-size:10px;margin-top:6px;cursor:pointer">📎 Excel/PDFから読み取り<input type="file" accept=".xlsx,.xls,.pdf" style="display:none" onchange="extractBusFromFile(event)"></label>
+      <span id="bus-file-status" style="font-size:11px;color:var(--text3);margin-left:8px"></span>
     </div>
 
     <div id="arrtab-rest" style="display:none">
@@ -1250,6 +1247,18 @@ th.sortable:hover{color:var(--blue)}
       </table></div>
       <button class="btn" style="font-size:10px;margin-top:4px" onclick="addRestaurantRow()">＋ 行追加</button>
       <div class="li-total">レストラン合計: <span id="bd-restaurants-total">¥0</span></div>
+      <div id="rest-ocr-area" style="display:none;margin-top:8px;border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--bg)">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:6px">メールや文書の内容をコピーして貼り付けてください</div>
+        <textarea id="rest-ocr-text" rows="5" style="width:100%;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:11px;font-family:inherit;resize:vertical" placeholder="レストラン手配確認書・メールの本文をここに貼り付け..."></textarea>
+        <div style="margin-top:6px;display:flex;gap:6px;align-items:center">
+          <button class="btn btn-p" style="font-size:11px" onclick="extractRestaurantFromText()">🤖 AIで読み取り</button>
+          <button class="btn" style="font-size:11px" onclick="document.getElementById('rest-ocr-area').style.display='none'">閉じる</button>
+          <span id="rest-ocr-status" style="font-size:11px;color:var(--text3)"></span>
+        </div>
+      </div>
+      <button class="btn" style="font-size:10px;margin-top:6px" onclick="toggleRestOcrArea()">📧 メール/テキストから読み取り</button>
+      <label class="btn" style="font-size:10px;margin-top:6px;cursor:pointer">📎 Excel/PDFから読み取り<input type="file" accept=".xlsx,.xls,.pdf" style="display:none" onchange="extractRestaurantFromFile(event)"></label>
+      <span id="rest-file-status" style="font-size:11px;color:var(--text3);margin-left:8px"></span>
     </div>
 
     <div id="arrtab-fac" style="display:none">
@@ -1268,21 +1277,18 @@ th.sortable:hover{color:var(--blue)}
       </table></div>
       <button class="btn" style="font-size:10px;margin-top:4px" onclick="addFacilityRow()">＋ 行追加</button>
       <div class="li-total">観光施設合計: <span id="bd-facilities-total">¥0</span></div>
-      <div style="margin-top:12px;border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--bg)">
-        <div style="font-size:11px;font-weight:600;margin-bottom:8px">ファイル・テキストから一括読み取り</div>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <button class="btn" style="font-size:11px" onclick="toggleFacOcrArea()">📧 テキストから読み取り</button>
-          <label class="btn" style="font-size:11px;cursor:pointer">📎 Excel/PDFから読み取り<input type="file" accept=".xlsx,.xls,.pdf" style="display:none" onchange="extractFacilityFromFile(event)"></label>
-          <span id="fac-file-status" style="font-size:11px;color:var(--text3)"></span>
-        </div>
-        <div id="fac-ocr-area" style="display:none;margin-top:8px">
-          <textarea id="fac-ocr-text" rows="5" style="width:100%;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:11px;font-family:inherit;resize:vertical" placeholder="観光施設・バス駐車場等の手配確認書・メールの本文をここに貼り付け..."></textarea>
-          <div style="margin-top:6px;display:flex;gap:6px;align-items:center">
-            <button class="btn btn-p" style="font-size:11px" onclick="extractFacilityFromText()">🤖 AIで読み取り</button>
-            <span id="fac-ocr-status" style="font-size:11px;color:var(--text3)"></span>
-          </div>
+      <div id="fac-ocr-area" style="display:none;margin-top:8px;border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--bg)">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:6px">メールや文書の内容をコピーして貼り付けてください</div>
+        <textarea id="fac-ocr-text" rows="5" style="width:100%;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:11px;font-family:inherit;resize:vertical" placeholder="観光施設・バス駐車場等の手配確認書・メールの本文をここに貼り付け..."></textarea>
+        <div style="margin-top:6px;display:flex;gap:6px;align-items:center">
+          <button class="btn btn-p" style="font-size:11px" onclick="extractFacilityFromText()">🤖 AIで読み取り</button>
+          <button class="btn" style="font-size:11px" onclick="document.getElementById('fac-ocr-area').style.display='none'">閉じる</button>
+          <span id="fac-ocr-status" style="font-size:11px;color:var(--text3)"></span>
         </div>
       </div>
+      <button class="btn" style="font-size:10px;margin-top:6px" onclick="toggleFacOcrArea()">📧 メール/テキストから読み取り</button>
+      <label class="btn" style="font-size:10px;margin-top:6px;cursor:pointer">📎 Excel/PDFから読み取り<input type="file" accept=".xlsx,.xls,.pdf" style="display:none" onchange="extractFacilityFromFile(event)"></label>
+      <span id="fac-file-status" style="font-size:11px;color:var(--text3);margin-left:8px"></span>
     </div>
 
     <div id="arrtab-bullet" style="display:none">
@@ -4775,6 +4781,141 @@ async function saveRestaurantItems(){
     confirmation_no: it.confirmation_no||'', memo: it.memo||''
   }));
   if(rows.length) await sb.from('booking_restaurants').insert(rows);
+}
+
+// ─── レストランAI読み取り ─────────────────────────────────────────────────────
+function toggleRestOcrArea(){
+  const a=document.getElementById('rest-ocr-area');
+  if(a) a.style.display=a.style.display==='none'?'':'none';
+}
+
+async function extractRestaurantFromText(){
+  const text=(document.getElementById('rest-ocr-text')||{}).value||'';
+  if(!text.trim()){ alert('テキストを入力してください'); return; }
+  const statusEl=document.getElementById('rest-ocr-status');
+  statusEl.textContent='読み取り中...'; statusEl.style.color='var(--text3)';
+  try{
+    const resp=await fetch('/api/extract-card',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurantText:text.trim()})});
+    if(!resp.ok){const e=await resp.json();throw new Error(e.error||'サーバーエラー');}
+    const data=await resp.json();
+    const tb=data.content.find(b=>b.type==='text');
+    const cleaned=(tb.text||'').replace(/```json|```/g,'').trim();
+    const parsed=JSON.parse(cleaned);
+    const restaurants=Array.isArray(parsed)?parsed:[parsed];
+    statusEl.textContent=`✓ ${restaurants.length}件を読み取りました。内容を確認してください。`;
+    statusEl.style.color='var(--green)';
+    showRestaurantConfirmDialog(restaurants);
+    document.getElementById('rest-ocr-text').value='';
+  }catch(e){
+    statusEl.textContent='読み取り失敗: '+e.message;
+    statusEl.style.color='var(--red)';
+  }
+}
+
+async function extractRestaurantFromFile(event){
+  const file=event.target.files[0];
+  if(!file) return;
+  const statusEl=document.getElementById('rest-file-status');
+  statusEl.textContent='読み取り中...'; statusEl.style.color='var(--text3)';
+  try{
+    const isPdf=file.name.toLowerCase().endsWith('.pdf');
+    const isExcel=file.name.toLowerCase().match(/\.(xlsx|xls)$/);
+    let body;
+    if(isPdf){
+      const base64=await new Promise((resolve,reject)=>{
+        const r=new FileReader();
+        r.onload=()=>resolve(r.result.split(',')[1]);
+        r.onerror=reject;
+        r.readAsDataURL(file);
+      });
+      body={restaurantPdfBase64:base64};
+    }else if(isExcel){
+      const XLSX=await import('https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs');
+      const ab=await file.arrayBuffer();
+      const wb=XLSX.read(ab,{type:'array'});
+      const sheets=wb.SheetNames.map(n=>`[シート: ${n}]\n${XLSX.utils.sheet_to_csv(wb.Sheets[n])}`).join('\n\n');
+      body={restaurantText:sheets};
+    }else{
+      throw new Error('対応していないファイル形式です');
+    }
+    const resp=await fetch('/api/extract-card',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(!resp.ok){const e=await resp.json();throw new Error(e.error||'サーバーエラー');}
+    const data=await resp.json();
+    const tb=data.content.find(b=>b.type==='text');
+    const cleaned=(tb.text||'').replace(/```json|```/g,'').trim();
+    const parsed=JSON.parse(cleaned);
+    const restaurants=Array.isArray(parsed)?parsed:[parsed];
+    showRestaurantConfirmDialog(restaurants);
+    statusEl.textContent=`✓ ${restaurants.length}件を読み取りました`;
+    statusEl.style.color='var(--green)';
+  }catch(e){
+    statusEl.textContent='読み取り失敗: '+e.message;
+    statusEl.style.color='var(--red)';
+  }
+  event.target.value='';
+}
+
+function showRestaurantConfirmDialog(restaurants){
+  window._pendingRestaurants=restaurants;
+  const rows=restaurants.map((r,i)=>`<tr style="border-bottom:1px solid var(--border)">
+    <td style="padding:5px 4px"><input value="${escAttr(r.restaurant_name||'')}" id="rest-c-name-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
+    <td style="padding:5px 4px"><select id="rest-c-meal-${i}" style="font-size:11px;padding:3px;border:1px solid var(--border);border-radius:5px"><option value="朝食" ${r.meal_type==='朝食'?'selected':''}>朝食</option><option value="昼食" ${(r.meal_type||'昼食')==='昼食'?'selected':''}>昼食</option><option value="夕食" ${r.meal_type==='夕食'?'selected':''}>夕食</option></select></td>
+    <td style="padding:5px 4px"><input type="date" value="${r.date||''}" id="rest-c-date-${i}" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
+    <td style="padding:5px 4px"><input type="number" value="${r.pax||0}" id="rest-c-pax-${i}" style="width:55px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;text-align:right"></td>
+    <td style="padding:5px 4px"><input type="number" value="${r.amount||0}" id="rest-c-amount-${i}" style="width:90px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;text-align:right"></td>
+    <td style="padding:5px 4px"><select id="rest-c-status-${i}" style="font-size:11px;padding:3px;border:1px solid var(--border);border-radius:5px"><option value="問い合わせ中" ${(r.status||'問い合わせ中')==='問い合わせ中'?'selected':''}>問い合わせ中</option><option value="手配OK" ${r.status==='手配OK'?'selected':''}>手配OK</option></select></td>
+    <td style="padding:5px 4px"><input value="${escAttr(r.confirmation_no||'')}" id="rest-c-conf-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
+    <td style="padding:5px 4px"><input value="${escAttr(r.memo||'')}" id="rest-c-memo-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
+  </tr>`).join('');
+  const modal=document.createElement('div');
+  modal.id='rest-confirm-modal';
+  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:300;display:flex;align-items:center;justify-content:center;padding:20px';
+  modal.innerHTML=`
+    <div style="background:#fff;border-radius:12px;padding:20px;width:100%;max-width:950px;max-height:90vh;overflow-y:auto">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div style="font-size:14px;font-weight:700">読み取り結果の確認</div>
+        <button class="btn" onclick="document.getElementById('rest-confirm-modal').remove()">✕ 閉じる</button>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:10px">内容を確認・修正してから「明細に追加」してください。</div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">
+        <thead><tr style="background:var(--bg)">
+          <th style="padding:5px 4px;text-align:left;min-width:140px">店名</th>
+          <th style="padding:5px 4px;min-width:70px">食事種別</th>
+          <th style="padding:5px 4px;min-width:110px">日付</th>
+          <th style="padding:5px 4px;min-width:55px">人数</th>
+          <th style="padding:5px 4px;min-width:90px">金額</th>
+          <th style="padding:5px 4px;min-width:100px">ステータス</th>
+          <th style="padding:5px 4px;min-width:100px">確認番号</th>
+          <th style="padding:5px 4px;min-width:120px">備考</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+      <div style="margin-top:12px;display:flex;gap:8px">
+        <button class="btn btn-p" onclick="saveRestaurantConfirm()">＋ 明細に追加</button>
+        <button class="btn" onclick="document.getElementById('rest-confirm-modal').remove()">キャンセル</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+function saveRestaurantConfirm(){
+  const restaurants=window._pendingRestaurants;
+  if(!restaurants) return;
+  const b=findBookingById(currentDetailId);
+  restaurants.forEach((r,i)=>{
+    bdRestaurantItems.push({
+      restaurant_name: document.getElementById(`rest-c-name-${i}`)?.value||'',
+      meal_type: document.getElementById(`rest-c-meal-${i}`)?.value||'昼食',
+      date: document.getElementById(`rest-c-date-${i}`)?.value||'',
+      pax: Number(document.getElementById(`rest-c-pax-${i}`)?.value)||(b?b.pax||0:0),
+      amount: Number(document.getElementById(`rest-c-amount-${i}`)?.value)||0,
+      status: document.getElementById(`rest-c-status-${i}`)?.value||'問い合わせ中',
+      confirmation_no: document.getElementById(`rest-c-conf-${i}`)?.value||'',
+      memo: document.getElementById(`rest-c-memo-${i}`)?.value||''
+    });
+  });
+  renderRestaurantTable();
+  document.getElementById('rest-confirm-modal').remove();
 }
 
 // ─── 観光施設 ─────────────────────────────────────────────────────────────────
