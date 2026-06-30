@@ -1109,8 +1109,8 @@ th.sortable:hover{color:var(--blue)}
       </div>
       <div class="form-field" style="grid-column:1/-1">
         <div class="field-row3">
-          <div class="form-field"><label>In-Date</label><input id="bd-in" type="date" autocomplete="off" onchange="bd_dateValidate(this,'IN-DATE')"></div>
-          <div class="form-field"><label>Out-Date</label><input id="bd-out" type="date" autocomplete="off" onchange="bd_dateValidate(this,'OUT-DATE')"></div>
+          <div class="form-field"><label>In-Date</label><input id="bd-in" type="date" autocomplete="off"></div>
+          <div class="form-field"><label>Out-Date</label><input id="bd-out" type="date" autocomplete="off"></div>
         </div>
       </div>
       <div class="form-field"><label>入金合計 (Deposit, JPY)</label><input id="bd-deposit" type="number" disabled style="background:var(--bg);color:var(--text)"></div>
@@ -2802,7 +2802,7 @@ function arrDayCardHtml(d, i){
       </span>
     </div>
     <div class="form-grid">
-      <div class="form-field"><label>日付</label><input type="date" value="${_safeDate(d.day_date)}" onchange="arrDays[${i}].day_date=this.value;bd_dateValidate(this,'Day${i+1}日付')"></div>
+      <div class="form-field"><label>日付</label><input type="date" value="${_safeDate(d.day_date)}" onchange="arrDays[${i}].day_date=this.value"></div>
       <div class="form-field"><label>曜日</label><input value="${escAttr(d.day_of_week)}" placeholder="例: 月" onchange="arrDays[${i}].day_of_week=this.value"></div>
       <div class="form-field"><label>バス会社</label><input value="${escAttr(d.bus_company)}" onchange="arrDays[${i}].bus_company=this.value"></div>
       <div class="form-field"><label>ホテル名</label><input value="${escAttr(d.hotel_name)}" onchange="arrDays[${i}].hotel_name=this.value"></div>
@@ -4080,7 +4080,7 @@ function renderEstDays(){
   for(let i=0;i<n;i++){
     html += `<th style="min-width:110px;vertical-align:top">
       <div>DAY${i+1}</div>
-      <input type="date" value="${_safeDate(estDays[i].day_date)}" style="font-size:10px;padding:2px 4px;margin:3px 0;width:100%;box-sizing:border-box;border:1px solid var(--border);border-radius:4px;background:#fff" onchange="estDays[${i}].day_date=this.value;bd_dateValidate(this,'DAY${i+1}日付')">
+      <input type="date" value="${_safeDate(estDays[i].day_date)}" style="font-size:10px;padding:2px 4px;margin:3px 0;width:100%;box-sizing:border-box;border:1px solid var(--border);border-radius:4px;background:#fff" onchange="estDays[${i}].day_date=this.value">
       <div style="white-space:nowrap;margin-top:3px">
         <button class="btn" onclick="moveEstDay(${i},-1)">◀</button>
         <button class="btn" onclick="moveEstDay(${i},1)">▶</button>
@@ -5420,12 +5420,10 @@ async function saveBookingDetail(){
   const _outVal = document.getElementById('bd-out').value;
   if(_inVal && !_dateRe.test(_inVal)){
     alert(`IN-DATEの値が正しくありません（${_inVal}）。\n日付を入力し直してから保存してください。`);
-    document.getElementById('bd-in').focus();
     return;
   }
   if(_outVal && !_dateRe.test(_outVal)){
     alert(`OUT-DATEの値が正しくありません（${_outVal}）。\n日付を入力し直してから保存してください。`);
-    document.getElementById('bd-out').focus();
     return;
   }
 
@@ -8056,16 +8054,6 @@ restoreSession();
   new MutationObserver(muts=>muts.forEach(m=>m.addedNodes.forEach(n=>scanNode(n))))
     .observe(document.body,{childList:true,subtree:true});
 })();
-
-// bd-in / bd-out の onchange バリデーター（Chrome が6桁年を許容したまま commit した値を検出・破棄）
-function bd_dateValidate(el, label){
-  if(el.value && !/^\d{4}-\d{2}-\d{2}$/.test(el.value)){
-    var bad = el.value;
-    el.value = '';
-    alert(label + 'の日付が正しくありません（' + bad + '）。\n年は4桁で再度入力してください。');
-    el.focus();
-  }
-}
 
 // フォーカス中のdate inputを含むコンテナの再描画をスキップするガード
 function _dateInputFocusedIn(containerId){
