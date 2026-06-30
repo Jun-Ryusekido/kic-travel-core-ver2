@@ -405,8 +405,8 @@ th.sortable:hover{color:var(--blue)}
           <div class="card-title">検索・絞り込み</div>
           <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr 1fr">
             <div class="form-field"><label>検索（REF# / Agent / Tour）</label><input id="db-search" placeholder="例: Kesari, #1374, Kyoto" oninput="filterBookingListGeneric('db')"></div>
-            <div class="form-field"><label>出発日(From)</label><input id="db-from" type="date" onchange="filterBookingListGeneric('db')"></div>
-            <div class="form-field"><label>出発日(To)</label><input id="db-to" type="date" onchange="filterBookingListGeneric('db')"></div>
+            <div class="form-field"><label>出発日(From)</label><input id="db-from" type="date" onblur="filterBookingListGeneric('db')"></div>
+            <div class="form-field"><label>出発日(To)</label><input id="db-to" type="date" onblur="filterBookingListGeneric('db')"></div>
             <div class="form-field"><label>Status</label>
               <select id="db-status" onchange="filterBookingListGeneric('db')">
                 <option value="">すべて</option>
@@ -493,8 +493,8 @@ th.sortable:hover{color:var(--blue)}
         </div>
         <div class="card" id="bl-guide-advance-section" style="display:none">
           <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
-            <div class="form-field"><label>From（到着日）</label><input id="ga-from" type="date" onchange="loadGuideAdvanceList()"></div>
-            <div class="form-field"><label>To（到着日）</label><input id="ga-to" type="date" onchange="loadGuideAdvanceList()"></div>
+            <div class="form-field"><label>From（到着日）</label><input id="ga-from" type="date" onblur="loadGuideAdvanceList()"></div>
+            <div class="form-field"><label>To（到着日）</label><input id="ga-to" type="date" onblur="loadGuideAdvanceList()"></div>
             <div class="form-field" style="align-self:end"><button class="btn" onclick="setGuideAdvanceRangeDefault()">直近60日</button></div>
             <button class="btn" style="margin-left:auto" onclick="printGuideAdvanceList()">🖨 印刷（A4横）</button>
           </div>
@@ -527,8 +527,8 @@ th.sortable:hover{color:var(--blue)}
           <div class="card-title">検索・絞り込み</div>
           <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr 1fr">
             <div class="form-field"><label>検索（REF# / Agent / Tour）</label><input id="bl-search" placeholder="例: Kesari, #1374, Kyoto" oninput="filterBookingListGeneric('bl')"></div>
-            <div class="form-field"><label>出発日(From)</label><input id="bl-from" type="date" onchange="filterBookingListGeneric('bl')"></div>
-            <div class="form-field"><label>出発日(To)</label><input id="bl-to" type="date" onchange="filterBookingListGeneric('bl')"></div>
+            <div class="form-field"><label>出発日(From)</label><input id="bl-from" type="date" onblur="filterBookingListGeneric('bl')"></div>
+            <div class="form-field"><label>出発日(To)</label><input id="bl-to" type="date" onblur="filterBookingListGeneric('bl')"></div>
             <div class="form-field"><label>Status</label>
               <select id="bl-status" onchange="filterBookingListGeneric('bl')">
                 <option value="">すべて</option>
@@ -729,8 +729,8 @@ th.sortable:hover{color:var(--blue)}
         <div class="card">
           <div class="card-title">期間指定</div>
           <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr 1fr">
-            <div class="form-field"><label>From</label><input id="pay-from" type="date" onchange="loadPayments()"></div>
-            <div class="form-field"><label>To</label><input id="pay-to" type="date" onchange="loadPayments()"></div>
+            <div class="form-field"><label>From</label><input id="pay-from" type="date" onblur="loadPayments()"></div>
+            <div class="form-field"><label>To</label><input id="pay-to" type="date" onblur="loadPayments()"></div>
             <div class="form-field" style="align-self:end"><button class="btn" onclick="setPaymentRangeThisMonth()">今月</button></div>
             <div class="form-field"><label>決算年度</label>
               <div style="display:flex;gap:6px">
@@ -802,8 +802,8 @@ th.sortable:hover{color:var(--blue)}
           <div id="hm-tab-date">
             <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr 1fr">
               <div class="form-field"><label>ホテル名で絞り込み</label><input id="hm-search" placeholder="例: 京王プラザ" oninput="filterHotelManagement()"></div>
-              <div class="form-field"><label>チェックイン(From)</label><input id="hm-from" type="date" onchange="filterHotelManagement()"></div>
-              <div class="form-field"><label>チェックイン(To)</label><input id="hm-to" type="date" onchange="filterHotelManagement()"></div>
+              <div class="form-field"><label>チェックイン(From)</label><input id="hm-from" type="date" onblur="filterHotelManagement()"></div>
+              <div class="form-field"><label>チェックイン(To)</label><input id="hm-to" type="date" onblur="filterHotelManagement()"></div>
               <div class="form-field" style="align-self:end"><button class="btn" onclick="resetHotelManagementFilter()">条件クリア</button></div>
             </div>
             <div style="font-size:11px;color:var(--text3);margin:4px 0" id="hm-count"></div>
@@ -893,8 +893,8 @@ th.sortable:hover{color:var(--blue)}
           </div>
           <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr 1fr">
             <div class="form-field"><label>REF# / 列車名 / 区間で検索</label><input id="bt-search" placeholder="例: KIC250401" oninput="filterBulletTrains()"></div>
-            <div class="form-field"><label>乗車日(From)</label><input id="bt-from" type="date" onchange="filterBulletTrains()"></div>
-            <div class="form-field"><label>乗車日(To)</label><input id="bt-to" type="date" onchange="filterBulletTrains()"></div>
+            <div class="form-field"><label>乗車日(From)</label><input id="bt-from" type="date" onblur="filterBulletTrains()"></div>
+            <div class="form-field"><label>乗車日(To)</label><input id="bt-to" type="date" onblur="filterBulletTrains()"></div>
             <div class="form-field" style="align-self:end"><button class="btn" onclick="resetBtFilter()">条件クリア</button></div>
           </div>
           <div style="font-size:11px;color:var(--text3);margin-top:4px" id="bt-count"></div>
@@ -7930,6 +7930,24 @@ async function showInvoicePreview(inv, booking){
 
 // ===== 起動時：ログインセッション復元 =====
 restoreSession();
+
+// ===== type="date" 全入力欄に autocomplete="off" を付与 =====
+// Chrome の補完・年→月自動遷移干渉を防止。静的・動的両方対応
+(function(){
+  function applyAco(el){ if(el.autocomplete!=='off') el.autocomplete='off'; }
+  function scanNode(n){
+    if(!n || n.nodeType!==1) return;
+    if(n.tagName==='INPUT' && n.type==='date') applyAco(n);
+    n.querySelectorAll && n.querySelectorAll('input[type="date"]').forEach(applyAco);
+  }
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded',()=>scanNode(document.body));
+  } else {
+    scanNode(document.body);
+  }
+  new MutationObserver(muts=>muts.forEach(m=>m.addedNodes.forEach(n=>scanNode(n))))
+    .observe(document.body,{childList:true,subtree:true});
+})();
 
 </script>
 
