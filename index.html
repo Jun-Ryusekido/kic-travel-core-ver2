@@ -784,6 +784,7 @@ th.sortable:hover{color:var(--blue)}
 
 <!-- ホテル管理 -->
       <div id="pg-hotels" class="page" style="display:none">
+        <div id="hm-cancel-alert" style="display:flex;gap:8px;flex-wrap:nowrap;overflow-x:auto;padding:2px 0;margin-bottom:8px"></div>
         <div class="card">
           <div class="card-title">ホテル管理
             <span>
@@ -5900,11 +5901,55 @@ const {data, error} = await sb.from('booking_hotels').select('*,bookings(ref_no,
   hotelManagementCache = (data||[]).map(r=>({
     ...r,
   }));
+  renderHmCancelAlert();
   filterHotelManagement();
   await populateHmBookingSelect();
 }
 
 let hmSortKey='check_in', hmSortDir=1;
+let hmCancelAlertFilter = null;
+
+function hmCancelDays(checkInStr){
+  const today = new Date(); today.setHours(0,0,0,0);
+  return Math.floor((new Date(checkInStr) - today) / 86400000);
+}
+
+function renderHmCancelAlert(){
+  const el = document.getElementById('hm-cancel-alert');
+  if(!el) return;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const todayStr = today.toISOString().slice(0,10);
+  const tiers = [
+    {key:14, label:'🔴 14日以内', bg:'#fde8ea', fg:'#c0392b', abg:'#c0392b', border:'#f5c6cb'},
+    {key:30, label:'🟠 30日以内', bg:'#fff0e6', fg:'#d35400', abg:'#d35400', border:'#ffd9b3'},
+    {key:60, label:'🟡 60日以内', bg:'#fffae6', fg:'#b8860b', abg:'#b8860b', border:'#ffe08a'},
+    {key:90, label:'🔵 90日以内', bg:'#e8f5ff', fg:'#0a7fad', abg:'#0a7fad', border:'#b8e4f9'},
+  ];
+  const counts = {14:0,30:0,60:0,90:0};
+  hotelManagementCache.forEach(r=>{
+    if(r.status==='手配OK') return;
+    if(!r.check_in || r.check_in < todayStr) return;
+    const d = hmCancelDays(r.check_in);
+    if(d<=14) counts[14]++;
+    else if(d<=30) counts[30]++;
+    else if(d<=60) counts[60]++;
+    else if(d<=90) counts[90]++;
+  });
+  const hasAny = tiers.some(t=>counts[t.key]>0);
+  if(!hasAny){ el.innerHTML=''; return; }
+  el.innerHTML = '<span style="font-size:11px;font-weight:600;color:var(--text2);align-self:center;white-space:nowrap;margin-right:4px">キャンセル期限アラート</span>' +
+    tiers.filter(t=>counts[t.key]>0).map(t=>{
+      const active = hmCancelAlertFilter===t.key;
+      return `<span onclick="toggleHmCancelFilter(${t.key})" style="cursor:pointer;display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:20px;font-size:11px;font-weight:700;background:${active?t.abg:t.bg};color:${active?'#fff':t.fg};border:1.5px solid ${t.border};white-space:nowrap;flex-shrink:0;transition:all .15s">${t.label} <span style="background:rgba(${active?'255,255,255,.25':'0,0,0,.09'});padding:1px 7px;border-radius:10px">${counts[t.key]}件</span></span>`;
+    }).join('');
+}
+
+function toggleHmCancelFilter(key){
+  hmCancelAlertFilter = hmCancelAlertFilter===key ? null : key;
+  renderHmCancelAlert();
+  filterHotelManagement();
+}
+
 function hmSort(key){ if(hmSortKey===key){hmSortDir*=-1;}else{hmSortKey=key;hmSortDir=1;} filterHotelManagement(); }
 function filterHotelManagement(){
   const q = toHalfWidth((document.getElementById('hm-search')?.value||'').trim().toLowerCase());
@@ -5914,6 +5959,18 @@ function filterHotelManagement(){
   if(q) filtered = filtered.filter(r=>(r.hotel_name||'').toLowerCase().includes(q));
   if(from) filtered = filtered.filter(r=>r.check_in && r.check_in>=from);
   if(to) filtered = filtered.filter(r=>r.check_in && r.check_in<=to);
+  if(hmCancelAlertFilter!==null){
+    const today = new Date(); today.setHours(0,0,0,0);
+    const todayStr = today.toISOString().slice(0,10);
+    const ranges = {14:[0,14],30:[15,30],60:[31,60],90:[61,90]};
+    const [lo,hi] = ranges[hmCancelAlertFilter]||[0,999];
+    filtered = filtered.filter(r=>{
+      if(r.status==='手配OK') return false;
+      if(!r.check_in||r.check_in<todayStr) return false;
+      const d = hmCancelDays(r.check_in);
+      return d>=lo && d<=hi;
+    });
+  }
   document.getElementById('hm-count').textContent = `${filtered.length}件 / 全${hotelManagementCache.length}件`;
   const total = filtered.reduce((s,r)=>s+Number(r.amount||0),0);
   document.getElementById('hm-total').textContent = `合計: ${yen(total)}`;
@@ -5966,12 +6023,15 @@ async function toggleHmStatus(id){
   const newStatus = row.status==='手配OK'?'回答待ち':'手配OK';
   await supabase.from('booking_hotels').update({status:newStatus}).eq('id',id);
   row.status = newStatus;
+  renderHmCancelAlert();
   filterHotelManagement();
 }
 function resetHotelManagementFilter(){
   document.getElementById('hm-search').value='';
   document.getElementById('hm-from').value='';
   document.getElementById('hm-to').value='';
+  hmCancelAlertFilter = null;
+  renderHmCancelAlert();
   filterHotelManagement();
 }
 
