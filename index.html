@@ -197,6 +197,8 @@ th.sortable:hover{color:var(--blue)}
 .est-table input:focus{outline:none;border-color:var(--blue)}
 .est-table input.lbl-input{min-width:90px;font-weight:600}
 .est-table th .btn, .est-table td .btn{font-size:9px;padding:2px 5px}
+input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+input[type=number]{-moz-appearance:textfield}
 
 /* ガイド精算 */
 .gs-card{border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:10px;background:var(--bg)}
@@ -4081,14 +4083,13 @@ function renderEstDays(){
   // ヘッダー行
   let html = '<thead><tr><th class="est-lbl-th" style="min-width:150px;text-align:left">項目</th>';
   for(let i=0;i<n;i++){
+    const _ochg = i===0 ? `estDays[0].day_date=this.value;autoFillEstDayDates()` : `estDays[${i}].day_date=this.value`;
     html += `<th style="min-width:110px;vertical-align:top">
-      <div>DAY${i+1}</div>
-      <input type="date" min="1900-01-01" max="9999-12-31" value="${_safeDate(estDays[i].day_date)}" style="font-size:10px;padding:2px 4px;margin:3px 0;width:100%;box-sizing:border-box;border:1px solid var(--border);border-radius:4px;background:#fff" onchange="estDays[${i}].day_date=this.value">
-      <div style="white-space:nowrap;margin-top:3px">
-        <button class="btn" onclick="moveEstDay(${i},-1)">◀</button>
-        <button class="btn" onclick="moveEstDay(${i},1)">▶</button>
-        <button class="btn" style="color:var(--red)" onclick="removeEstDay(${i})">✕</button>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">
+        <span>DAY${i+1}</span>
+        <button class="btn" style="color:var(--red);font-size:9px;padding:1px 4px;line-height:1" onclick="removeEstDay(${i})">✕</button>
       </div>
+      <input type="date" min="1900-01-01" max="9999-12-31" value="${_safeDate(estDays[i].day_date)}" style="font-size:10px;padding:2px 4px;width:100%;box-sizing:border-box;border:1px solid var(--border);border-radius:4px;background:#fff" onchange="${_ochg}">
     </th>`;
   }
   html += `<th style="background:transparent;border:none;padding:4px 6px;white-space:nowrap;vertical-align:top">
@@ -4204,9 +4205,23 @@ function moveEstDay(i, dir){
   estAdmissionRows.forEach(r=>{ if(r.amounts && r.amounts.length>Math.max(i,j)) [r.amounts[i], r.amounts[j]] = [r.amounts[j], r.amounts[i]]; });
   renderEstDays(); calcEstimation();
 }
+function autoFillEstDayDates(){
+  const base = estDays[0] && estDays[0].day_date;
+  if(!base || !/^\d{4}-\d{2}-\d{2}$/.test(base)) return;
+  const [y,m,d] = base.split('-').map(Number);
+  const baseMs = Date.UTC(y, m-1, d);
+  const table = document.getElementById('est-days-table');
+  const dateInputs = table ? table.querySelectorAll('thead input[type="date"]') : [];
+  for(let i=1; i<estDays.length; i++){
+    if(estDays[i].day_date) continue;
+    const iso = new Date(baseMs + i*86400000).toISOString().slice(0,10);
+    estDays[i].day_date = iso;
+    if(dateInputs[i]) dateInputs[i].value = iso;
+  }
+}
 function addEstFixedRow(){
   estFixedRows.push({label:'', amounts: new Array(estDays.length).fill(0)});
-  renderEstDays();
+  renderEstDays(); calcEstimation();
 }
 function removeEstFixedRow(k){
   estFixedRows.splice(k,1);
@@ -4214,7 +4229,7 @@ function removeEstFixedRow(k){
 }
 function addEstAdmissionRow(){
   estAdmissionRows.push({remark:'', amounts: new Array(estDays.length).fill(0)});
-  renderEstDays();
+  renderEstDays(); calcEstimation();
 }
 function removeEstAdmissionRow(k){
   estAdmissionRows.splice(k,1);
