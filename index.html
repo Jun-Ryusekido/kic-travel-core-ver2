@@ -2713,19 +2713,40 @@ async function openBookingDetail(id){
   const rhDiv = document.getElementById('bd-reflect-history');
   rhDiv.style.display = 'none';
   const {data: reflections} = await sb.from('estimation_booking_reflections')
-    .select('reflected_pax,reflected_amount,reflected_at,created_by,estimation_id,estimations(title,tour_code)')
+    .select('tiers_snapshot,reflected_at,created_by,estimation_id,estimations(title,tour_code)')
     .eq('booking_id', id)
     .order('reflected_at', {ascending:false});
   if(reflections && reflections.length){
     const dtFmt = s => s ? new Date(s).toLocaleString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '-';
-    let rh = `<div style="font-weight:600;margin-bottom:4px">📝 見積もり反映履歴</div>`;
-    rh += reflections.map(r=>{
+    const thC = s => `<th style="border:1px solid #B8E0B8;padding:2px 5px;background:#C8ECC8;white-space:nowrap;font-size:9px">${s}</th>`;
+    const tdC = (s,right) => `<td style="border:1px solid #B8E0B8;padding:2px 5px;font-size:9px${right?';text-align:right':''}">${s}</td>`;
+    let rh = `<div style="font-weight:600;margin-bottom:6px">📝 見積もり反映履歴</div>`;
+    reflections.forEach((r, idx)=>{
       const est = r.estimations;
       const estLabel = est ? [est.title,est.tour_code].filter(Boolean).join(' / ') : '(不明)';
-      return `<div style="padding:2px 0;border-bottom:1px solid #B8E0B8;font-size:10px">
-        ${dtFmt(r.reflected_at)} — 「${escHtml(estLabel)}」より <strong>${r.reflected_pax||'-'}名 / ${yen(r.reflected_amount||0)}</strong>${r.created_by?` <span style="color:#4A8C4A">(${escHtml(r.created_by)})</span>`:''}
+      const snap = r.tiers_snapshot||[];
+      const detailId = `rh-detail-${id.slice(0,8)}-${idx}`;
+      let tableHtml = '';
+      if(snap.length){
+        tableHtml = `<div class="tbl-wrap" style="padding:6px 8px"><table style="border-collapse:collapse">`;
+        tableHtml += `<thead><tr>${['PAX帯','人数','Sub Total','ハンドリング','保険','合計','1名あたり'].map(thC).join('')}</tr></thead><tbody>`;
+        snap.forEach(t=>{
+          tableHtml += `<tr>${tdC(escHtml(t.tier_label))}${tdC(t.pax+'名',true)}${tdC(yen(t.subtotal),true)}${tdC(yen(t.handling),true)}${tdC(yen(t.insurance),true)}<td style="border:1px solid #B8E0B8;padding:2px 5px;text-align:right;font-weight:600;font-size:9px">${yen(t.total)}</td>${tdC(yen(t.per_pax),true)}</tr>`;
+        });
+        tableHtml += `</tbody></table></div>`;
+      } else {
+        tableHtml = `<div style="padding:6px 8px;font-size:10px;color:var(--text3)">データなし</div>`;
+      }
+      rh += `<div style="margin-bottom:5px;border:1px solid #B8E0B8;border-radius:4px;overflow:hidden">
+        <div style="padding:4px 8px;background:#D8F0D8;cursor:pointer;font-size:10px;display:flex;align-items:center;gap:8px" onclick="const d=document.getElementById('${detailId}');d.style.display=d.style.display==='none'?'':'none'">
+          <span style="font-weight:600">${dtFmt(r.reflected_at)}</span>
+          <span style="color:#1A5C1A">— 「${escHtml(estLabel)}」</span>
+          ${r.created_by?`<span style="color:#4A8C4A;margin-left:auto;font-size:9px">${escHtml(r.created_by)}</span>`:''}
+          <span style="margin-left:auto;font-size:10px;color:#4A8C4A">▾</span>
+        </div>
+        <div id="${detailId}" style="${idx===0?'':'display:none'}">${tableHtml}</div>
       </div>`;
-    }).join('');
+    });
     rhDiv.innerHTML = rh;
     rhDiv.style.display = '';
   }
@@ -4722,9 +4743,7 @@ function filterEstReflectBookings(){
 function toggleEstReflectBooking(cb){
   const bid = cb.dataset.bid;
   if(cb.checked){
-    const res = calcEstimation();
-    const first = res[0];
-    _reflectSelected[bid] = {ref_no:cb.dataset.refno, tour_name:cb.dataset.name, pax:first?first.pax:Number(cb.dataset.pax)||0, amount:first?Math.round(first.total/1000)*1000:0};
+    _reflectSelected[bid] = {ref_no:cb.dataset.refno, tour_name:cb.dataset.name};
   } else { delete _reflectSelected[bid]; }
   renderEstReflectSelected();
 }
@@ -4733,14 +4752,12 @@ function renderEstReflectSelected(){
   const div = document.getElementById('est-reflect-selected');
   const ids = Object.keys(_reflectSelected);
   if(!ids.length){ div.innerHTML=''; return; }
-  let h = `<div style="font-size:10px;color:var(--text2);font-weight:600;margin-bottom:4px">反映先ツアー（人数・金額を調整できます）:</div>`;
+  let h = `<div style="font-size:10px;color:var(--text2);font-weight:600;margin-bottom:4px">反映先ツアー（全PAX帯データをまるごと保存します）:</div>`;
   ids.forEach(id=>{
     const s = _reflectSelected[id];
     h += `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:11px;border-bottom:1px solid var(--border)">
       <span style="font-weight:600;color:var(--blue);white-space:nowrap;min-width:65px">${escHtml(s.ref_no||'')}</span>
       <span style="flex:1;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px">${escHtml(s.tour_name||'')}</span>
-      <label style="font-size:10px;white-space:nowrap">人数：<input type="number" min="0" value="${s.pax||''}" style="width:55px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;font-size:11px" onchange="if(_reflectSelected['${id}'])_reflectSelected['${id}'].pax=Number(this.value)"></label>
-      <label style="font-size:10px;white-space:nowrap">金額：<input type="number" min="0" value="${s.amount||''}" style="width:100px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;font-size:11px" onchange="if(_reflectSelected['${id}'])_reflectSelected['${id}'].amount=Number(this.value)"></label>
     </div>`;
   });
   div.innerHTML = h;
@@ -4749,31 +4766,28 @@ function renderEstReflectSelected(){
 async function reflectEstimationToBookings(){
   const ids = Object.keys(_reflectSelected);
   if(!ids.length){ alert('反映先のツアーを選択してください'); return; }
-  const lines = ids.map(id=>{ const s=_reflectSelected[id]; return `${s.ref_no}: ${s.pax}名 / ${yen(s.amount)}`; }).join('\n');
-  if(!confirm(`以下のツアーに反映しますか？\n${lines}`)) return;
+  const lines = ids.map(id=>_reflectSelected[id].ref_no).join('\n');
+  if(!confirm(`以下のツアーに全PAX帯データを反映しますか？\n${lines}`)) return;
 
   const now = new Date().toISOString();
   const nowLabel = new Date(now).toLocaleString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}).replace(/-/g,'/');
   const userEmail = currentUser?.email||null;
+
+  const results = calcEstimation();
+  const snap = results.map(r=>({tier_label:r.label, pax:r.pax, subtotal:Math.round(r.subtotal), handling:Math.round(r.handling), insurance:Math.round(r.insurance), total:Math.round(r.total), per_pax:Math.round(r.perPax)}));
   const errors = [];
 
   for(const bookingId of ids){
     const s = _reflectSelected[bookingId];
-    const pax = Number(s.pax)||0;
-    const amount = Number(s.amount)||0;
-    const {error:ue} = await sb.from('bookings').update({pax, pax_adult:pax, gross_cost:amount}).eq('id', bookingId);
-    if(ue){ errors.push(s.ref_no+': '+ue.message); continue; }
     const {error:ie} = await sb.from('estimation_booking_reflections').insert({
       estimation_id: currentEstimationId, booking_id: bookingId,
-      reflected_pax: pax, reflected_amount: amount, reflected_at: now, created_by: userEmail
+      tiers_snapshot: snap, reflected_at: now, created_by: userEmail
     });
-    if(ie) errors.push(s.ref_no+' (履歴): '+ie.message);
+    if(ie) errors.push(s.ref_no+': '+ie.message);
   }
 
   if(errors.length) alert('一部エラーが発生しました:\n'+errors.join('\n'));
 
-  const results = calcEstimation();
-  const snap = results.map(r=>({tier_label:r.label, pax:r.pax, subtotal:Math.round(r.subtotal), handling:Math.round(r.handling), insurance:Math.round(r.insurance), total:Math.round(r.total), per_pax:Math.round(r.perPax)}));
   await sb.from('estimations').update({status:'approved', calculated_tiers_snapshot:snap, updated_at:now}).eq('id', currentEstimationId);
   document.getElementById('est-status').value='approved';
   updateEstStatusColor(document.getElementById('est-status'));
