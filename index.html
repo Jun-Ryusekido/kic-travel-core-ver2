@@ -4366,6 +4366,8 @@ function renderEstResults(results){
   if(results.length===0){ table.innerHTML=''; return; }
   const selVal = document.getElementById('est-selected-tier').value;
   const selIdx = selVal==='' ? -1 : Number(selVal);
+  const handlingPct = Number(document.getElementById('est-handling').value)||0;
+  const insurancePerPax = Number(document.getElementById('est-insurance').value)||0;
 
   const head = `<tr><th></th>${results.map((r,i)=>`<th style="white-space:nowrap;text-align:right${i===selIdx?';background:#EAF3DE':''}">${escHtml(r.label)} (${r.pax}名)</th>`).join('')}</tr>`;
   const row = (label, key, fmt) => `<tr><td style="font-weight:700">${label}</td>${results.map((r,i)=>`<td style="text-align:right${i===selIdx?';background:#EAF3DE':''}">${fmt(r[key])}</td>`).join('')}</tr>`;
@@ -4374,8 +4376,8 @@ function renderEstResults(results){
     <thead>${head}</thead>
     <tbody>
       ${row('Sub Total','subtotal',yen)}
-      ${row('ハンドリング料','handling',yen)}
-      ${row('保険料','insurance',yen)}
+      ${row(`ハンドリング料 (${handlingPct}%)`,'handling',yen)}
+      ${row(`保険料 (¥${insurancePerPax.toLocaleString()}/名)`,'insurance',yen)}
       ${row('Total','total',yen)}
       ${row('Total / Pax','perPax',v=>yen(Math.round(v)))}
     </tbody>`;
