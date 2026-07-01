@@ -650,11 +650,8 @@ input[type=number]{-moz-appearance:textfield}
           <div class="modal-section-title">計算結果</div>
           <div class="tbl-wrap"><table id="est-results-table"></table></div>
 
+          <select id="est-selected-tier" style="display:none" onchange="calcEstimation()"></select>
           <div class="modal-section-title">予約への変換</div>
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
-            <label style="font-size:11px;color:var(--text3)">参考PAX帯（プレビュー用）：</label>
-            <select id="est-selected-tier" onchange="calcEstimation()"></select>
-          </div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             <label style="font-size:11px;font-weight:600;color:var(--text2)">最終決定人数：</label>
             <input type="number" id="est-final-pax" min="1" placeholder="名" style="width:72px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;font-size:12px">
@@ -2673,16 +2670,22 @@ async function openBookingDetail(id){
   const refDiv = document.getElementById('bd-est-ref');
   refDiv.style.display = 'none';
   const {data: estRef} = await sb.from('estimations')
-    .select('title,tour_code,final_pax,final_amount,approved_reference_data')
+    .select('title,tour_code,final_pax,final_amount,calculated_tiers_snapshot')
     .eq('converted_booking_id', id)
     .maybeSingle();
   if(estRef){
     const estLabel = [estRef.title, estRef.tour_code].filter(Boolean).join(' / ') || '(無題)';
-    const rd = estRef.approved_reference_data;
-    let html = `📋 この予約は見積もり「<strong>${escHtml(estLabel)}</strong>」から変換されました。<br>`;
-    html += `最終決定: ${estRef.final_pax||'-'}名 / ${yen(estRef.final_amount||0)}`;
-    if(rd){
-      html += `<br>参考PAX帯: ${escHtml(rd.tier_label)} ${rd.pax}名帯 — Sub Total ${yen(rd.subtotal)} / ハンドリング ${yen(rd.handling)} / 保険 ${yen(rd.insurance)} / <strong>合計 ${yen(rd.total)}</strong>（${yen(rd.per_pax)}/名）`;
+    const snap = estRef.calculated_tiers_snapshot;
+    let html = `📋 見積もり「<strong>${escHtml(estLabel)}</strong>」から変換 ／ 最終決定: <strong>${estRef.final_pax||'-'}名 / ${yen(estRef.final_amount||0)}</strong>`;
+    if(snap && snap.length){
+      const th = s => `<th style="border:1px solid #BDD8FF;padding:3px 6px;background:#D0E8FF;white-space:nowrap">${s}</th>`;
+      const td = (s,right) => `<td style="border:1px solid #BDD8FF;padding:3px 6px${right?';text-align:right':''}">${s}</td>`;
+      html += `<div class="tbl-wrap" style="margin-top:6px"><table style="border-collapse:collapse;font-size:10px">`;
+      html += `<thead><tr>${['PAX帯','人数','Sub Total','ハンドリング','保険','合計','1名あたり'].map(th).join('')}</tr></thead><tbody>`;
+      snap.forEach(r=>{
+        html += `<tr>${td(escHtml(r.tier_label))}${td(r.pax+'名',true)}${td(yen(r.subtotal),true)}${td(yen(r.handling),true)}${td(yen(r.insurance),true)}<td style="border:1px solid #BDD8FF;padding:3px 6px;text-align:right;font-weight:600">${yen(r.total)}</td>${td(yen(r.per_pax),true)}</tr>`;
+      });
+      html += `</tbody></table></div>`;
     }
     refDiv.innerHTML = html;
     refDiv.style.display = '';
@@ -4016,7 +4019,6 @@ async function openEstimationEditor(id){
   estFixedRows = [];
   estAdmissionRows = [];
   estPaxTiers = JSON.parse(JSON.stringify(EST_DEFAULT_TIERS));
-  let selectedTierIndex = '';
 
   document.getElementById('est-title').value='';
   document.getElementById('est-tour-code').value='';
@@ -4039,7 +4041,6 @@ async function openEstimationEditor(id){
       document.getElementById('est-insurance').value = est.insurance_per_pax||400;
       document.getElementById('est-notes').value = est.notes||'';
       if(est.pax_tiers && est.pax_tiers.length) estPaxTiers = JSON.parse(JSON.stringify(est.pax_tiers));
-      selectedTierIndex = (est.selected_tier_index!=null) ? est.selected_tier_index : '';
       document.getElementById('est-final-pax').value = est.final_pax||'';
       document.getElementById('est-final-amount').value = est.final_amount||'';
 
@@ -4059,7 +4060,6 @@ async function openEstimationEditor(id){
 
   renderEstTiers();
   renderEstDays();
-  document.getElementById('est-selected-tier').value = selectedTierIndex;
   calcEstimation();
 }
 
@@ -4381,7 +4381,6 @@ async function saveEstimation(){
       insurance_per_pax: Number(document.getElementById('est-insurance').value)||0,
       pax_tiers: estPaxTiers,
       notes: document.getElementById('est-notes').value,
-      selected_tier_index: document.getElementById('est-selected-tier').value!=='' ? Number(document.getElementById('est-selected-tier').value) : null,
       final_pax: Number(document.getElementById('est-final-pax').value)||null,
       final_amount: Number(document.getElementById('est-final-amount').value)||null,
       updated_at: new Date().toISOString()
@@ -4606,30 +4605,18 @@ async function convertEstimationToBooking(){
   if(finalPax <= 0){ alert('最終決定人数を入力してください'); return; }
   if(finalAmount <= 0){ alert('最終決定金額を入力してください'); return; }
 
-  const selVal = document.getElementById('est-selected-tier').value;
+  if(!confirm(`最終決定人数 ${finalPax}名 / 最終決定金額 ${yen(finalAmount)} で予約データを作成します。よろしいですか?`)) return;
+
   const results = calcEstimation();
-
-  // 選択されたPAX帯の計算内訳をリファレンスデータとして保存
-  let refData = null;
-  if(selVal !== ''){
-    const r = results[Number(selVal)];
-    if(r){
-      refData = {
-        tier_label: r.label,
-        pax: r.pax,
-        subtotal: Math.round(r.subtotal),
-        handling: Math.round(r.handling),
-        insurance: Math.round(r.insurance),
-        total: Math.round(r.total),
-        per_pax: Math.round(r.perPax)
-      };
-    }
-  }
-
-  const refNote = refData
-    ? `（参考: ${refData.tier_label} ${refData.pax}名帯、自動計算 ${yen(refData.total)}）`
-    : '';
-  if(!confirm(`最終決定人数 ${finalPax}名 / 最終決定金額 ${yen(finalAmount)} で予約データを作成します。${refNote}\nよろしいですか?`)) return;
+  const tiersSnapshot = results.map(r => ({
+    tier_label: r.label,
+    pax: r.pax,
+    subtotal: Math.round(r.subtotal),
+    handling: Math.round(r.handling),
+    insurance: Math.round(r.insurance),
+    total: Math.round(r.total),
+    per_pax: Math.round(r.perPax)
+  }));
 
   const bookings = await fetchAllBookings();
   let maxNum=0;
@@ -4652,11 +4639,10 @@ async function convertEstimationToBooking(){
 
   await sb.from('estimations').update({
     status: 'approved',
-    selected_tier_index: selVal!=='' ? Number(selVal) : null,
     converted_booking_id: newBooking.id,
     final_pax: finalPax,
     final_amount: finalAmount,
-    approved_reference_data: refData,
+    calculated_tiers_snapshot: tiersSnapshot,
     updated_at: new Date().toISOString()
   }).eq('id', currentEstimationId);
 
