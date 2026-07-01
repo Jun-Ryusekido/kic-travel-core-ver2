@@ -7507,18 +7507,24 @@ const rotateImage = (b64, mt, deg) => new Promise((resolve)=>{
       if(dup && dup.id !== currentPartnerEditId){
         const merge = confirm(`類似する取引先「${dup.company_name}」が既に登録されています。\nこの情報をマージしますか？\n\n「OK」: 既存データに統合（空欄のみ上書き）\n「キャンセル」: 別の新規取引先として登録`);
         if(merge){
-          currentPartnerEditId = dup.id;
+          // openPartnerEditor でフォームを既存データで正しく初期化してからOCRデータを空欄補完
+          openPartnerEditor(dup.id);
           document.getElementById('partner-modal-title').textContent = '取引先編集（マージ）';
-          document.getElementById('pt-category').value = dup.category || document.getElementById('pt-category').value;
-          document.getElementById('pt-company').value = dup.company_name || parsed.company_name || '';
-          document.getElementById('pt-branch').value = dup.branch_name || parsed.branch_name || '';
-          document.getElementById('pt-contact').value = dup.contact_person || parsed.contact_person || '';
-          document.getElementById('pt-position').value = dup.position || parsed.position || '';
-          document.getElementById('pt-company-phone').value = dup.company_phone || formatPhoneJP(parsed.company_phone) || '';
-          document.getElementById('pt-phone').value = dup.phone || formatPhoneJP(parsed.phone) || '';
-          document.getElementById('pt-fax').value = dup.fax || formatPhoneJP(parsed.fax) || '';
-          document.getElementById('pt-email').value = dup.email || parsed.email || '';
-          document.getElementById('pt-address').value = dup.address || parsed.address || '';
+          const _mif = (id, val) => { const el = document.getElementById(id); if(el && !el.value && val) el.value = val; };
+          _mif('pt-company',       parsed.company_name || '');
+          _mif('pt-company-en',    parsed.company_name_en || '');
+          _mif('pt-branch',        parsed.branch_name || '');
+          _mif('pt-branch-en',     parsed.branch_name_en || '');
+          _mif('pt-contact',       parsed.contact_person || '');
+          _mif('pt-contact-en',    parsed.contact_person_en || '');
+          _mif('pt-position',      parsed.position || '');
+          _mif('pt-position-en',   parsed.position_en || '');
+          _mif('pt-company-phone', formatPhoneJP(parsed.company_phone));
+          _mif('pt-phone',         formatPhoneJP(parsed.phone));
+          _mif('pt-fax',           formatPhoneJP(parsed.fax));
+          _mif('pt-email',         parsed.email || '');
+          _mif('pt-address',       parsed.address || '');
+          _mif('pt-address-en',    parsed.address_en || '');
           statusEl.textContent = '✓ 既存の取引先にマージしました。内容を確認して保存してください。';
           statusEl.style.color = 'var(--green)';
           event.target.value = '';
