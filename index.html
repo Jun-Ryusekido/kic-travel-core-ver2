@@ -4214,7 +4214,6 @@ function autoFillEstDayDates(){
   const table = document.getElementById('est-days-table');
   const dateInputs = table ? table.querySelectorAll('thead input[type="date"]') : [];
   for(let i=1; i<estDays.length; i++){
-    if(estDays[i].day_date) continue;
     const iso = new Date(baseMs + i*86400000).toISOString().slice(0,10);
     estDays[i].day_date = iso;
     if(dateInputs[i]) dateInputs[i].value = iso;
