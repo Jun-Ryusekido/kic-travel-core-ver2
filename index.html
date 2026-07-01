@@ -2897,7 +2897,7 @@ async function saveArrangement(){
 
   await logAction('手配書保存', b.ref_no + (payload.sheet_label?(' / '+payload.sheet_label):''));
   const msg = document.getElementById('arr-msg');
-  msg.style.display='';
+  msg.style.display='inline';
   setTimeout(()=>{ msg.style.display='none'; }, 2000);
 
   await loadArrangementsList();
@@ -4432,7 +4432,7 @@ async function saveEstimation(){
 
     await logAction('見積もり保存', payload.title || estId);
     const msg = document.getElementById('est-msg');
-    msg.style.display='';
+    msg.style.display='inline';
     setTimeout(()=>{ msg.style.display='none'; }, 2000);
 
     await loadEstimations();
@@ -4573,7 +4573,7 @@ async function convertEstimationToBooking(){
 
   const msg = document.getElementById('est-convert-msg');
   msg.textContent = '✓ 予約 '+refNo+' を作成しました';
-  msg.style.display='';
+  msg.style.display='inline';
 
   await loadEstimations();
 }
@@ -6812,7 +6812,7 @@ async function saveBtModal(){
     document.getElementById('bt-modal-delete').style.display='';
   }
   const msg = document.getElementById('bt-modal-msg');
-  msg.style.display=''; setTimeout(()=>msg.style.display='none', 2000);
+  msg.style.display='block'; setTimeout(()=>msg.style.display='none', 2000);
   filterBulletTrains();
 }
 
