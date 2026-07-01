@@ -4149,11 +4149,9 @@ function renderEstDays(){
     html += `<tr><td colspan="3" style="color:var(--text3);font-size:11px;padding:16px 12px;text-align:center">「＋ Day追加」ボタンで日程を追加してください</td></tr>`;
   } else {
     // セクション1: ホテル
-    html += secRow('セクション1: ホテル');
+    html += secRow('セクション1: ホテル', `<button class="btn" style="margin-left:8px;font-size:9px" onclick="addEstFixedRow('hotel')">＋ FOC行追加</button>`);
     html += textRow('ホテル名','hotel_name','例: ヒルトン大阪');
-    html += textRow('朝食','breakfast','例: Hotel / なし');
     html += numRow('ツイン代','twin_rate', BG_PAX, 'pax');
-    html += `<tr style="background:${BG_FIX}"><td class="lbl" style="color:var(--text3);background:${BG_FIX}">ホテル代 固定費${_badge('fix')}<button class="btn" style="margin-left:6px;font-size:9px" onclick="addEstFixedRow('hotel')">＋ 行追加</button></td>${'<td></td>'.repeat(n)}<td></td><td></td></tr>`;
     html += renderFixedSection('hotel', '例: FOC / ガイド / ドライバー');
     html += subRow('est-subtotal-hotel', '小計: ホテル');
 
@@ -4498,14 +4496,15 @@ function previewEstimation(){
   const _pvRow = (label, fn, key, pvBg) => {
     const totalCell = key!=null ? _totalTd(estDays.reduce((s,d)=>s+(Number(d[key])||0),0), pvBg) : _emptyTd;
     const lblBg = pvBg || '#f5f7fa';
-    return `<tr${pvBg?` style="background:${pvBg}"`:''}><td style="border:1px solid #999;padding:4px;font-weight:700;background:${lblBg};white-space:nowrap">${label}</td>${estDays.map(d=>`<td style="border:1px solid #999;padding:4px;text-align:center">${fn(d)}</td>`).join('')}${totalCell}</tr>`;
+    const cellAlign = key!=null ? 'right' : 'center';
+    return `<tr${pvBg?` style="background:${pvBg}"`:''}><td style="border:1px solid #999;padding:4px;font-weight:700;background:${lblBg};white-space:nowrap">${label}</td>${estDays.map(d=>`<td style="border:1px solid #999;padding:4px;text-align:${cellAlign}">${fn(d)}</td>`).join('')}${totalCell}</tr>`;
   };
   const _pvFixedRows = (sec) => {
     const secLabel = sec==='hotel' ? 'ホテル固定費' : sec==='bus' ? 'バス固定費' : 'ガイド固定費';
     return estFixedRows.filter(r=>(r.section||'hotel')===sec).map((row, fi)=>{
       const total = (row.amounts||[]).reduce((s,a)=>s+(Number(a)||0),0);
       const prefix = fi===0 ? secLabel+'：' : '';
-      return `<tr style="background:${_PV_FIX}"><td style="border:1px solid #999;padding:4px;font-weight:700;background:${_PV_FIX};white-space:nowrap">${prefix}${escHtml(row.label)}</td>${estDays.map((d,i)=>`<td style="border:1px solid #999;padding:4px;text-align:center">${yen((row.amounts||[])[i]||0)}</td>`).join('')}${_totalTd(total, _PV_FIX)}</tr>`;
+      return `<tr style="background:${_PV_FIX}"><td style="border:1px solid #999;padding:4px;font-weight:700;background:${_PV_FIX};white-space:nowrap">${prefix}${escHtml(row.label)}</td>${estDays.map((d,i)=>`<td style="border:1px solid #999;padding:4px;text-align:right">${yen((row.amounts||[])[i]||0)}</td>`).join('')}${_totalTd(total, _PV_FIX)}</tr>`;
     }).join('');
   };
 
@@ -4514,13 +4513,12 @@ function previewEstimation(){
     const label = k===0 ? '入場料' : '入場料'+(k+1);
     const remarkStr = row.remark ? '：'+escHtml(row.remark) : '';
     const total = (row.amounts||[]).reduce((s,a)=>s+(Number(a)||0),0);
-    admissionPreviewRows += `<tr style="background:${_PV_PAX}"><td style="border:1px solid #999;padding:4px;font-weight:700;background:${_PV_PAX};white-space:nowrap">${label}${remarkStr}</td>${estDays.map((d,i)=>`<td style="border:1px solid #999;padding:4px;text-align:center">${yen((row.amounts||[])[i]||0)}</td>`).join('')}${_totalTd(total, _PV_PAX)}</tr>`;
+    admissionPreviewRows += `<tr style="background:${_PV_PAX}"><td style="border:1px solid #999;padding:4px;font-weight:700;background:${_PV_PAX};white-space:nowrap">${label}${remarkStr}</td>${estDays.map((d,i)=>`<td style="border:1px solid #999;padding:4px;text-align:right">${yen((row.amounts||[])[i]||0)}</td>`).join('')}${_totalTd(total, _PV_PAX)}</tr>`;
   });
 
   const bodyRows = [
     _pvRow('Hotel',          d=>escHtml(d.hotel_name),                                null,             ''),
     _pvRow('ツイン代',       d=>yen(d.twin_rate),                                     'twin_rate',      _PV_PAX),
-    _pvRow('朝食',           d=>escHtml(d.breakfast),                                 null,             ''),
     _pvFixedRows('hotel'),
     _pvRow('朝食代',         d=>yen(d.breakfast_fee),                                 'breakfast_fee',  _PV_PAX),
     _pvRow('昼食代',         d=>yen(d.lunch_rate),                                    'lunch_rate',     _PV_PAX),
@@ -4541,7 +4539,7 @@ function previewEstimation(){
 
   const selVal = document.getElementById('est-selected-tier').value;
   const selIdx = selVal==='' ? -1 : Number(selVal);
-  const resHead = `<tr><th style="border:1px solid #999;padding:5px;background:#f5f7fa"></th>${results.map((r,i)=>`<th style="border:1px solid #999;padding:5px;background:#f5f7fa${i===selIdx?';background:#EAF3DE':''}">${escHtml(r.label)}<br>(${r.pax}名)</th>`).join('')}</tr>`;
+  const resHead = `<tr><th style="border:1px solid #999;padding:5px;background:#f5f7fa"></th>${results.map((r,i)=>`<th style="border:1px solid #999;padding:5px;white-space:nowrap;background:#f5f7fa${i===selIdx?';background:#EAF3DE':''}">${escHtml(r.label)} (${r.pax}名)</th>`).join('')}</tr>`;
   const resRow = (label, key, fmt) => `<tr><td style="border:1px solid #999;padding:5px;font-weight:700;background:#f5f7fa">${label}</td>${results.map((r,i)=>`<td style="border:1px solid #999;padding:5px;text-align:right${i===selIdx?';background:#EAF3DE':''}">${fmt(r[key])}</td>`).join('')}</tr>`;
 
   const html = `
