@@ -4355,7 +4355,7 @@ function renderEstResults(results){
   const selVal = document.getElementById('est-selected-tier').value;
   const selIdx = selVal==='' ? -1 : Number(selVal);
 
-  const head = `<tr><th></th>${results.map((r,i)=>`<th style="${i===selIdx?'background:#EAF3DE':''}">${escHtml(r.label)}<br>(${r.pax}名)</th>`).join('')}</tr>`;
+  const head = `<tr><th></th>${results.map((r,i)=>`<th style="white-space:nowrap${i===selIdx?';background:#EAF3DE':''}">${escHtml(r.label)} (${r.pax}名)</th>`).join('')}</tr>`;
   const row = (label, key, fmt) => `<tr><td style="font-weight:700">${label}</td>${results.map((r,i)=>`<td style="text-align:right${i===selIdx?';background:#EAF3DE':''}">${fmt(r[key])}</td>`).join('')}</tr>`;
 
   table.innerHTML = `
