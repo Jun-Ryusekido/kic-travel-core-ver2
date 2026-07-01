@@ -2720,42 +2720,41 @@ async function openBookingDetail(id){
   _bdReflections = reflections || [];
   if(_bdReflections.length){
     const dtFmt = s => s ? new Date(s).toLocaleString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '-';
-    const thS = `border:1px solid #B8E0B8;padding:2px 4px;background:#C8ECC8;white-space:nowrap;font-size:9px;overflow:hidden`;
+    const thS = `border:1px solid #B8E0B8;padding:1px 3px;background:#C8ECC8;white-space:nowrap;font-size:9px;overflow:hidden`;
     let rh = `<div class="modal-section-title">見積もり反映履歴</div>`;
-    rh += `<div style="display:flex;gap:10px;overflow-x:auto;padding-bottom:4px">`;
+    rh += `<div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:4px">`;
     _bdReflections.forEach((r, idx)=>{
       const est = r.estimations;
       const estLabel = est ? [est.title,est.tour_code].filter(Boolean).join(' / ') : '(不明)';
       const snap = r.tiers_snapshot||[];
       let tableHtml = '';
       if(snap.length){
-        tableHtml = `<table style="border-collapse:collapse;table-layout:fixed;width:340px">`;
-        tableHtml += `<colgroup><col style="width:120px"><col style="width:100px"><col style="width:120px"></colgroup>`;
+        tableHtml = `<table style="border-collapse:collapse;table-layout:fixed;width:190px">`;
+        tableHtml += `<colgroup><col style="width:70px"><col style="width:55px"><col style="width:65px"></colgroup>`;
         tableHtml += `<thead><tr>
           <th style="${thS}">PAX帯</th>
-          <th style="${thS};text-align:right">1名あたり参考</th>
+          <th style="${thS};text-align:right">参考単価</th>
           <th style="${thS};text-align:right">決定単価</th>
         </tr></thead><tbody>`;
         snap.forEach((t, ti)=>{
           const dv = (t.decided_unit_price!=null) ? t.decided_unit_price : '';
           tableHtml += `<tr>
-            <td style="border:1px solid #B8E0B8;padding:2px 4px;font-size:9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(t.tier_label)} (${t.pax}名)</td>
-            <td style="border:1px solid #B8E0B8;padding:2px 4px;font-size:9px;text-align:right;color:#555">${yen(t.per_pax)}</td>
-            <td style="border:1px solid #B8E0B8;padding:1px 3px;font-size:9px"><input type="number" min="0" value="${dv}" placeholder="未入力" style="width:100%;box-sizing:border-box;padding:1px 3px;border:1px solid #B8E0B8;border-radius:3px;font-size:9px;text-align:right;background:#FAFFF8" onchange="updateReflectionDecidedPrice('${r.id}',${ti},this.value)"></td>
+            <td style="border:1px solid #B8E0B8;padding:1px 3px;font-size:9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(t.tier_label)} (${t.pax}名)</td>
+            <td style="border:1px solid #B8E0B8;padding:1px 3px;font-size:9px;text-align:right;color:#555">${yen(t.per_pax)}</td>
+            <td style="border:1px solid #B8E0B8;padding:1px 2px;font-size:9px"><input type="number" min="0" value="${dv}" placeholder="-" style="width:100%;box-sizing:border-box;padding:1px 2px;border:none;background:#FAFFF8;font-size:9px;text-align:right" onchange="updateReflectionDecidedPrice('${r.id}',${ti},this.value)"></td>
           </tr>`;
         });
         tableHtml += `</tbody></table>`;
       } else {
         tableHtml = `<div style="padding:4px;font-size:9px;color:var(--text3)">データなし</div>`;
       }
-      const badge = idx===0 ? `<span style="font-size:8px;background:#0F6E56;color:#fff;border-radius:3px;padding:1px 4px;margin-left:4px">最新</span>` : '';
-      rh += `<div style="min-width:356px;max-width:356px;flex-shrink:0;border:1px solid #B8E0B8;border-radius:4px;overflow:hidden">
-        <div style="padding:3px 6px;background:#D8F0D8;font-size:9px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+      const badge = idx===0 ? `<span style="font-size:8px;background:#0F6E56;color:#fff;border-radius:3px;padding:1px 3px;margin-left:3px">最新</span>` : '';
+      rh += `<div style="min-width:210px;max-width:210px;flex-shrink:0;border:1px solid #B8E0B8;border-radius:4px;overflow:hidden">
+        <div style="padding:2px 5px;background:#D8F0D8;font-size:8px;display:flex;align-items:center;gap:4px;flex-wrap:wrap">
           <span style="font-weight:600">${dtFmt(r.reflected_at)}</span>${badge}
-          <span style="color:#1A5C1A;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">— 「${escHtml(estLabel)}」</span>
-          ${r.created_by?`<span style="color:#4A8C4A;margin-left:auto;font-size:8px">${escHtml(r.created_by)}</span>`:''}
+          <span style="color:#1A5C1A;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">— ${escHtml(estLabel)}</span>
         </div>
-        <div style="padding:4px 8px">${tableHtml}</div>
+        <div style="padding:3px 5px">${tableHtml}</div>
       </div>`;
     });
     rh += `</div>`;
