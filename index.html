@@ -4500,11 +4500,9 @@ function previewEstimation(){
     return `<tr${pvBg?` style="background:${pvBg}"`:''}><td style="border:1px solid #999;padding:4px;font-weight:700;background:${lblBg};white-space:nowrap">${label}</td>${estDays.map(d=>`<td style="border:1px solid #999;padding:4px;text-align:${cellAlign}">${fn(d)}</td>`).join('')}${totalCell}</tr>`;
   };
   const _pvFixedRows = (sec) => {
-    const secLabel = sec==='hotel' ? 'ホテル固定費' : sec==='bus' ? 'バス固定費' : 'ガイド固定費';
-    return estFixedRows.filter(r=>(r.section||'hotel')===sec).map((row, fi)=>{
+    return estFixedRows.filter(r=>(r.section||'hotel')===sec).map((row)=>{
       const total = (row.amounts||[]).reduce((s,a)=>s+(Number(a)||0),0);
-      const prefix = fi===0 ? secLabel+'：' : '';
-      return `<tr style="background:${_PV_FIX}"><td style="border:1px solid #999;padding:4px;font-weight:700;background:${_PV_FIX};white-space:nowrap">${prefix}${escHtml(row.label)}</td>${estDays.map((d,i)=>`<td style="border:1px solid #999;padding:4px;text-align:right">${yen((row.amounts||[])[i]||0)}</td>`).join('')}${_totalTd(total, _PV_FIX)}</tr>`;
+      return `<tr style="background:${_PV_FIX}"><td style="border:1px solid #999;padding:4px;font-weight:700;background:${_PV_FIX};white-space:nowrap">${escHtml(row.label)}</td>${estDays.map((d,i)=>`<td style="border:1px solid #999;padding:4px;text-align:right">${yen((row.amounts||[])[i]||0)}</td>`).join('')}${_totalTd(total, _PV_FIX)}</tr>`;
     }).join('');
   };
 
