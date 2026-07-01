@@ -629,7 +629,7 @@ input[type=number]{-moz-appearance:textfield}
             <div class="form-field"><label>ツアーコード</label><input id="est-tour-code" placeholder="例: KIC0922_KK"></div>
             <div class="form-field"><label>作成日</label><input id="est-date" type="date" min="1900-01-01" max="9999-12-31"></div>
             <div class="form-field"><label>Status</label>
-              <select id="est-status">
+              <select id="est-status" onchange="updateEstStatusColor(this)">
                 <option value="draft">Draft（作成中）</option>
                 <option value="sent">Sent（送付済）</option>
                 <option value="approved">Approved（承認済）</option>
@@ -4006,6 +4006,16 @@ async function reflectGuideItems(settlementId){
 // ===================================================
 // 見積もり (Estimation)
 // ===================================================
+function updateEstStatusColor(sel){
+  const colors={
+    draft:    {bg:'#E0E0E0',color:'#555555'},
+    sent:     {bg:'#FFF3CD',color:'#856404'},
+    approved: {bg:'#D4EDDA',color:'#0F6E56'}
+  };
+  const c=colors[sel.value]||colors.draft;
+  sel.style.background=c.bg;
+  sel.style.color=c.color;
+}
 function estStatusPill(status){
   const map={draft:['s-closed','Draft'],sent:['s-pending','Sent'],approved:['s-paid','Approved']};
   const [cls,label] = map[status] || ['s-closed', status||'Draft'];
@@ -4064,6 +4074,7 @@ async function openEstimationEditor(id){
   document.getElementById('est-notes').value='';
   setDateInputValue('est-date', new Date().toISOString().slice(0,10));
   document.getElementById('est-status').value='draft';
+  updateEstStatusColor(document.getElementById('est-status'));
   document.getElementById('est-handling').value=0;
   document.getElementById('est-insurance').value=400;
 
@@ -4074,6 +4085,7 @@ async function openEstimationEditor(id){
       document.getElementById('est-tour-code').value = est.tour_code||'';
       setDateInputValue('est-date', est.created_date);
       document.getElementById('est-status').value = est.status||'draft';
+      updateEstStatusColor(document.getElementById('est-status'));
       document.getElementById('est-handling').value = est.handling_fee_pct||0;
       document.getElementById('est-insurance').value = est.insurance_per_pax||400;
       document.getElementById('est-notes').value = est.notes||'';
