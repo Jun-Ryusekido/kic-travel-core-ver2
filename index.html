@@ -5417,6 +5417,19 @@ async function saveBookingDetail(){
     if(!confirm('仕入明細が0件になっています。本当に保存しますか？')) return;
   }
 
+  // 新幹線明細の内部重複チェック（DB制約違反→データ消失を防ぐ）
+  {
+    const btActive = bdBulletTrainItems.filter(it => it.departure_station||it.arrival_station||it.train_name);
+    if(btActive.length > 0){
+      const btKey = it => `${it.ride_date||''}|${it.train_number||''}|${it.departure_station||''}|${it.arrival_station||''}`;
+      const btKeys = btActive.map(btKey);
+      const hasBtDup = btKeys.some((k,i) => btKeys.indexOf(k) !== i);
+      if(hasBtDup){
+        if(!confirm('新幹線明細に重複する行があります（乗車日・号数・区間が同一）。\n重複行があるとDB保存でエラーになります。\n\nこのまま保存しますか？（重複行を先に削除することを推奨します）')) return;
+      }
+    }
+  }
+
   // IN-DATE / OUT-DATE の形式検証（YYYY-MM-DD 4桁年のみ許可）
   const _dateRe = /^\d{4}-\d{2}-\d{2}$/;
   const _inVal  = document.getElementById('bd-in').value;
@@ -6757,6 +6770,18 @@ async function saveBtModal(){
     updated_at:        new Date().toISOString()
   };
   if(!payload.booking_ref){ alert('REF#を入力してください'); return; }
+
+  // 重複チェック：同一の booking_ref + ride_date + train_number + 区間 が既存かどうか
+  {
+    const btDupKey = r => `${r.booking_ref||''}|${r.ride_date||''}|${r.train_number||''}|${r.departure_station||''}|${r.arrival_station||''}`;
+    const newBtKey = btDupKey(payload);
+    const dupRecord = bulletTrainCache.find(r => btDupKey(r) === newBtKey && r.id !== currentBtId);
+    if(dupRecord){
+      const label = `REF# ${payload.booking_ref}、${payload.ride_date||'日付未設定'}、${payload.departure_station||'?'}→${payload.arrival_station||'?'} ${payload.train_number||''}`;
+      if(!confirm(`同じ組み合わせが既に登録されています:\n${label}\n\nこのまま保存（上書き）しますか？`)) return;
+    }
+  }
+
   if(currentBtId){
     const {error} = await sb.from('bullet_train_arrangements').update(payload).eq('id', currentBtId);
     if(error){ alert('保存エラー: '+error.message); return; }
