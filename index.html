@@ -229,20 +229,14 @@ input[type=number]{-moz-appearance:textfield}
 @media print{ [contenteditable]:empty:before{content:''} [contenteditable]{border-color:#fff !important} }
 @media print{
   body *{visibility:hidden}
-  #inv-preview-card, #inv-preview-card *, #arr-preview-card, #arr-preview-card *, #est-preview-card, #est-preview-card *, #gs-print-card, #gs-print-card *, #ga-print-card, #ga-print-card *, #gsl-print-card, #gsl-print-card *{visibility:visible}
-  #inv-preview-card, #arr-preview-card, #est-preview-card, #gs-print-card, #ga-print-card, #gsl-print-card{position:absolute;left:0;top:0;width:100%;border:none;box-shadow:none;padding:0}
+  #inv-preview-card, #inv-preview-card *, #arr-preview-card, #arr-preview-card *, #gs-print-card, #gs-print-card *, #ga-print-card, #ga-print-card *, #gsl-print-card, #gsl-print-card *{visibility:visible}
+  #inv-preview-card, #arr-preview-card, #gs-print-card, #ga-print-card, #gsl-print-card{position:absolute;left:0;top:0;width:100%;border:none;box-shadow:none;padding:0}
   #inv-preview-card .card-title, #inv-preview-card button,
   #arr-preview-card .card-title, #arr-preview-card button,
-  #est-preview-card .card-title, #est-preview-card button,
   #gs-print-card .card-title, #gs-print-card button,
   #gsl-print-card .card-title, #gsl-print-card button{display:none}
   #arrangement-modal.open{position:static !important;background:none !important;padding:0 !important;overflow:visible !important;display:block !important}
   #arrangement-modal.open .modal-box{max-height:none !important;overflow:visible !important;box-shadow:none !important;max-width:none !important}
-  #est-preview-card table{font-size:7px !important}
-  #est-preview-card td,#est-preview-card th{padding:1px 3px !important;font-size:7px !important;line-height:1.3 !important}
-  #est-preview-card .tbl-wrap{overflow:visible !important}
-  #est-preview-body > div{padding:3mm !important;font-size:8px !important}
-  #est-preview-body .tbl-wrap+.tbl-wrap{page-break-inside:avoid}
 }
 
 /* ── 取引先モーダル：flex列で order 管理（PC・スマホ共通ベース） ── */
@@ -665,15 +659,6 @@ input[type=number]{-moz-appearance:textfield}
           </div>
         </div>
 
-        <div class="card" id="est-preview-card" style="display:none">
-          <div class="card-title">見積もり プレビュー
-            <span>
-              <button class="btn" onclick="printEstimation()">🖨 印刷 / PDF保存（A4横・1枚）</button>
-              <button class="btn" onclick="document.getElementById('est-preview-card').style.display='none'">閉じる</button>
-            </span>
-          </div>
-          <div id="est-preview-body"></div>
-        </div>
       </div>
 
       <!-- ガイド精算一覧 -->
@@ -3997,7 +3982,6 @@ async function openEstimationEditor(id){
   currentEstimationId = id;
   document.getElementById('est-list-card').style.display='none';
   document.getElementById('est-editor-card').style.display='';
-  document.getElementById('est-preview-card').style.display='none';
   document.getElementById('est-msg').style.display='none';
   document.getElementById('est-convert-msg').style.display='none';
 
@@ -4050,7 +4034,6 @@ async function openEstimationEditor(id){
 
 function closeEstimationEditor(){
   document.getElementById('est-editor-card').style.display='none';
-  document.getElementById('est-preview-card').style.display='none';
   document.getElementById('est-list-card').style.display='';
   currentEstimationId = null;
 }
@@ -4460,24 +4443,6 @@ async function saveEstimation(){
   }
 }
 
-// ---- 印刷（A4横・1枚） ----
-function printEstimation(){
-  const body = document.getElementById('est-preview-body').innerHTML;
-  const w = window.open('', '_blank');
-  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><style>
-@page{size:A4 landscape;margin:6mm}
-*{box-sizing:border-box}
-body{margin:0;padding:3mm;font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Meiryo",sans-serif}
-table{border-collapse:collapse;table-layout:fixed;width:auto}
-td,th{border:1px solid #999;padding:1px 3px;font-size:7px;line-height:1.3;vertical-align:top}
-td *,th *{font-size:7px}
-.tbl-wrap{overflow:visible;margin-bottom:4px}
-.tbl-wrap+.tbl-wrap{page-break-inside:avoid}
-</style></head><body>${body}</body></html>`);
-  w.document.close();
-  w.print();
-  w.onafterprint=()=>w.close();
-}
 
 // ---- プレビュー ----
 function previewEstimation(){
@@ -4565,9 +4530,38 @@ function previewEstimation(){
       <div style="text-align:right;font-weight:700;margin-top:10px;color:var(--blue)">KIC TRAVEL</div>
     </div>`;
 
-  document.getElementById('est-preview-body').innerHTML = html;
-  document.getElementById('est-preview-card').style.display='';
-  document.getElementById('est-preview-card').scrollIntoView({behavior:'smooth'});
+  const winHead = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+*{box-sizing:border-box}
+body{margin:0;font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Meiryo",sans-serif;color:#222;background:#eee}
+.pv-hd{position:sticky;top:0;z-index:100;background:#fff;border-bottom:2px solid #004A9F;padding:8px 16px;display:flex;align-items:center;justify-content:space-between}
+.pv-hd-title{font-size:15px;font-weight:700;color:#004A9F}
+.pv-btn{padding:5px 14px;font-size:12px;border-radius:4px;border:1px solid #aaa;cursor:pointer;background:#fff;margin-left:6px}
+.pv-btn-p{background:#004A9F;color:#fff;border-color:#004A9F}
+.pv-body{padding:12px}
+@page{size:A4 landscape;margin:6mm}
+@media print{
+  .pv-hd{display:none}
+  body{background:#fff}
+  table{border-collapse:collapse !important;table-layout:fixed !important;width:auto !important}
+  td,th{border:1px solid #999 !important;padding:1px 3px !important;font-size:7px !important;line-height:1.3 !important;vertical-align:top !important}
+  td *,th *{font-size:7px !important}
+  .tbl-wrap{overflow:visible !important;margin-bottom:4px !important}
+  .tbl-wrap+.tbl-wrap{page-break-inside:avoid}
+  .pv-body{padding:0}
+}
+</style></head><body>
+<div class="pv-hd">
+  <span class="pv-hd-title">見積もりプレビュー</span>
+  <span>
+    <button class="pv-btn pv-btn-p" onclick="window.print()">🖨 印刷 / PDF保存（A4横・1枚）</button>
+    <button class="pv-btn" onclick="window.close()">閉じる</button>
+  </span>
+</div>
+<div class="pv-body">`;
+  const winFoot = `</div></body></html>`;
+  const w = window.open('', '_blank');
+  w.document.write(winHead + html + winFoot);
+  w.document.close();
 }
 
 // ---- 承認 → 予約データへ変換 ----
