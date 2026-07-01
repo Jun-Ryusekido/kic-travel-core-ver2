@@ -4131,6 +4131,18 @@ function renderEstDays(){
   // 小計行
   const subRow = (id, label) =>
     `<tr style="background:#e8f0fe"><td style="font-weight:700;padding:4px 8px;font-size:11px;position:sticky;left:0;background:#e8f0fe">${label}</td>${'<td></td>'.repeat(n+1)}<td id="${id}" style="text-align:right;font-weight:700;font-size:11px;white-space:nowrap"></td></tr>`;
+  const renderFixedSection = (sec, ph) => {
+    let r = '';
+    estFixedRows.forEach((row, gk) => {
+      if((row.section||'hotel') !== sec) return;
+      row.amounts = row.amounts || [];
+      while(row.amounts.length < n) row.amounts.push(0);
+      r += `<tr style="background:${BG_FIX}"><td class="lbl" style="padding-left:16px;background:${BG_FIX}"><input class="lbl-input" value="${escAttr(row.label)}" placeholder="${ph}" onchange="estFixedRows[${gk}].label=this.value"> <button class="btn" style="font-size:9px;color:var(--red)" onclick="removeEstFixedRow(${gk})">✕</button></td>`;
+      for(let i=0;i<n;i++) r += `<td style="background:${BG_FIX}"><input type="text" inputmode="numeric" value="${row.amounts[i]||0}" oninput="this.value=this.value.replace(/[^0-9]/g,'');estFixedRows[${gk}].amounts[${i}]=Number(this.value);calcEstimation()" style="text-align:right"></td>`;
+      r += `<td style="background:${BG_FIX}"></td><td id="est-total-fixedrow-${gk}" style="text-align:right;font-weight:600;white-space:nowrap;background:${BG_FIX}"></td></tr>`;
+    });
+    return r;
+  };
 
   if(n===0){
     html += `<tr><td colspan="3" style="color:var(--text3);font-size:11px;padding:16px 12px;text-align:center">「＋ Day追加」ボタンで日程を追加してください</td></tr>`;
@@ -4141,14 +4153,8 @@ function renderEstDays(){
     html += textRow('朝食','breakfast','例: Hotel / なし');
     html += numRow('ツイン代','twin_rate', BG_PAX, 'pax');
     html += numRow('朝食代（人数連動）','breakfast_fee', BG_PAX);
-    html += `<tr style="background:${BG_FIX}"><td class="lbl" style="color:var(--text3);background:${BG_FIX}">ホテル代 固定費${_badge('fix')}<button class="btn" style="margin-left:6px;font-size:9px" onclick="addEstFixedRow()">＋ 行追加</button></td>${'<td></td>'.repeat(n)}<td></td><td></td></tr>`;
-    estFixedRows.forEach((row,k)=>{
-      row.amounts = row.amounts || [];
-      while(row.amounts.length < n) row.amounts.push(0);
-      html += `<tr style="background:${BG_FIX}"><td class="lbl" style="padding-left:16px;background:${BG_FIX}"><input class="lbl-input" value="${escAttr(row.label)}" placeholder="例: FOC / ガイド / ドライバー" onchange="estFixedRows[${k}].label=this.value"> <button class="btn" style="font-size:9px;color:var(--red)" onclick="removeEstFixedRow(${k})">✕</button></td>`;
-      for(let i=0;i<n;i++) html += `<td style="background:${BG_FIX}"><input type="text" inputmode="numeric" value="${row.amounts[i]||0}" oninput="this.value=this.value.replace(/[^0-9]/g,'');estFixedRows[${k}].amounts[${i}]=Number(this.value);calcEstimation()" style="text-align:right"></td>`;
-      html += `<td style="background:${BG_FIX}"></td><td id="est-total-fixedrow-${k}" style="text-align:right;font-weight:600;white-space:nowrap;background:${BG_FIX}"></td></tr>`;
-    });
+    html += `<tr style="background:${BG_FIX}"><td class="lbl" style="color:var(--text3);background:${BG_FIX}">ホテル代 固定費${_badge('fix')}<button class="btn" style="margin-left:6px;font-size:9px" onclick="addEstFixedRow('hotel')">＋ 行追加</button></td>${'<td></td>'.repeat(n)}<td></td><td></td></tr>`;
+    html += renderFixedSection('hotel', '例: FOC / ガイド / ドライバー');
     html += subRow('est-subtotal-hotel', '小計: ホテル');
 
     // セクション2: 食事
@@ -4163,6 +4169,8 @@ function renderEstDays(){
     html += numRow('チップ','bus_tip', BG_FIX);
     html += numRow('乗務員食事代','bus_driver_meal', BG_FIX);
     html += numRow('駐車場・通行料','parking_tolls', BG_FIX);
+    html += `<tr style="background:${BG_FIX}"><td class="lbl" style="color:var(--text3);background:${BG_FIX}">バス代 固定費${_badge('fix')}<button class="btn" style="margin-left:6px;font-size:9px" onclick="addEstFixedRow('bus')">＋ 行追加</button></td>${'<td></td>'.repeat(n)}<td></td><td></td></tr>`;
+    html += renderFixedSection('bus', '例: バスFOC / 添乗員FOC');
     html += subRow('est-subtotal-bus', '小計: バス代');
 
     // セクション4: ガイド代
@@ -4170,6 +4178,8 @@ function renderEstDays(){
     html += numRow('ガイド代','guide_fee', BG_FIX, 'fix');
     html += numRow('チップ','guide_tip', BG_FIX);
     html += numRow('食事代','guide_meal', BG_FIX);
+    html += `<tr style="background:${BG_FIX}"><td class="lbl" style="color:var(--text3);background:${BG_FIX}">ガイド代 固定費${_badge('fix')}<button class="btn" style="margin-left:6px;font-size:9px" onclick="addEstFixedRow('guide')">＋ 行追加</button></td>${'<td></td>'.repeat(n)}<td></td><td></td></tr>`;
+    html += renderFixedSection('guide', '例: ガイドFOC / ドライバーFOC');
     html += subRow('est-subtotal-guide', '小計: ガイド代');
 
     // セクション5: 人数連動の費用
@@ -4228,8 +4238,8 @@ function autoFillEstDayDates(){
     if(dateInputs[i]) dateInputs[i].value = iso;
   }
 }
-function addEstFixedRow(){
-  estFixedRows.push({label:'', amounts: new Array(estDays.length).fill(0)});
+function addEstFixedRow(section='hotel'){
+  estFixedRows.push({label:'', amounts: new Array(estDays.length).fill(0), section});
   renderEstDays(); calcEstimation();
 }
 function removeEstFixedRow(k){
@@ -4281,11 +4291,11 @@ function updateEstTotals(){
   });
 
   // セクション小計（DAY合計の単純合計。PAX乗算は結果テーブルのみ）
-  const fixedRowsSum = estFixedRows.reduce((s, row) => s + (row.amounts||[]).reduce((ss,a)=>ss+(Number(a)||0), 0), 0);
-  setEl('est-subtotal-hotel',  sumF('twin_rate') + sumF('breakfast_fee') + fixedRowsSum);
+  const _fixSecSum = sec => estFixedRows.filter(r=>(r.section||'hotel')===sec).reduce((s,row)=>s+(row.amounts||[]).reduce((ss,a)=>ss+(Number(a)||0),0),0);
+  setEl('est-subtotal-hotel',  sumF('twin_rate') + sumF('breakfast_fee') + _fixSecSum('hotel'));
   setEl('est-subtotal-food',   sumF('lunch_rate') + sumF('dinner_rate'));
-  setEl('est-subtotal-bus',    sumF('bus_rate') + sumF('bus_tip') + sumF('bus_driver_meal') + sumF('parking_tolls'));
-  setEl('est-subtotal-guide',  sumF('guide_fee') + sumF('guide_tip') + sumF('guide_meal'));
+  setEl('est-subtotal-bus',    sumF('bus_rate') + sumF('bus_tip') + sumF('bus_driver_meal') + sumF('parking_tolls') + _fixSecSum('bus'));
+  setEl('est-subtotal-guide',  sumF('guide_fee') + sumF('guide_tip') + sumF('guide_meal') + _fixSecSum('guide'));
   const admTotal = estAdmissionRows.reduce((s,row)=>s+(row.amounts||[]).reduce((ss,a)=>ss+(Number(a)||0),0), 0);
   setEl('est-subtotal-pax',    admTotal + sumF('bullet_train') + sumF('treat'));
 }
@@ -4422,7 +4432,7 @@ async function saveEstimation(){
       ...estFixedRows.map((r,k)=>({
         estimation_id: estId, label: r.label||'',
         amounts: (r.amounts||[]).map(a=>Number(a)||0),
-        sort_order: k
+        sort_order: k, section: r.section||'hotel'
       })),
       ...estAdmissionRows.map((r,k)=>({
         estimation_id: estId, label: '@admission:'+(r.remark||''),
@@ -4482,31 +4492,21 @@ function previewEstimation(){
 
   const _PV_PAX = '#EEF6FF';
   const _PV_FIX = '#F5F5F5';
-  // 第3要素: 合計キー（null=テキスト行）、第4要素: 背景色
-  const rows = [
-    ['Hotel',         d=>escHtml(d.hotel_name),                                        null,            ''],
-    ['ツイン代',      d=>yen(d.twin_rate),                                              'twin_rate',     _PV_PAX],
-    ['朝食',          d=>escHtml(d.breakfast),                                          null,            ''],
-    ['朝食代',        d=>yen(d.breakfast_fee),                                          'breakfast_fee', _PV_PAX],
-    ['昼食代',        d=>yen(d.lunch_rate),                                             'lunch_rate',    _PV_PAX],
-    ['夕食代',        d=>yen(d.dinner_rate),                                            'dinner_rate',   _PV_PAX],
-    ['バス代',        d=>yen(d.bus_rate),                                               'bus_rate',      _PV_FIX],
-    ['バスチップ',    d=>yen(d.bus_tip),                                                'bus_tip',       _PV_FIX],
-    ['乗務員食事代',  d=>yen(d.bus_driver_meal),                                        'bus_driver_meal',_PV_FIX],
-    ['駐車場・通行料',d=>yen(d.parking_tolls),                                          'parking_tolls', _PV_FIX],
-    ['ガイド代',      d=>yen(d.guide_fee),                                              'guide_fee',     _PV_FIX],
-    ['ガイドチップ',  d=>yen(d.guide_tip),                                              'guide_tip',     _PV_FIX],
-    ['ガイド食事代',  d=>yen(d.guide_meal),                                             'guide_meal',    _PV_FIX],
-    ['新幹線代(+1名)',d=>remarkHtml(d.bullet_train, d.bullet_train_remark),            'bullet_train',  _PV_PAX],
-    ['Treat',         d=>remarkHtml(d.treat, d.treat_remark),                           'treat',         _PV_PAX]
-  ];
   const _totalTd = (v, bg) => `<td style="border:1px solid #999;padding:4px;text-align:right;font-weight:600;white-space:nowrap${bg?`;background:${bg}`:''};">${yen(v)}</td>`;
   const _emptyTd = `<td style="border:1px solid #999;padding:4px"></td>`;
-  const bodyRows = rows.map(([label,fn,key,pvBg])=>{
+  const _pvRow = (label, fn, key, pvBg) => {
     const totalCell = key!=null ? _totalTd(estDays.reduce((s,d)=>s+(Number(d[key])||0),0), pvBg) : _emptyTd;
     const lblBg = pvBg || '#f5f7fa';
     return `<tr${pvBg?` style="background:${pvBg}"`:''}><td style="border:1px solid #999;padding:4px;font-weight:700;background:${lblBg};white-space:nowrap">${label}</td>${estDays.map(d=>`<td style="border:1px solid #999;padding:4px;text-align:center">${fn(d)}</td>`).join('')}${totalCell}</tr>`;
-  }).join('');
+  };
+  const _pvFixedRows = (sec) => {
+    const secLabel = sec==='hotel' ? 'ホテル固定費' : sec==='bus' ? 'バス固定費' : 'ガイド固定費';
+    return estFixedRows.filter(r=>(r.section||'hotel')===sec).map((row, fi)=>{
+      const total = (row.amounts||[]).reduce((s,a)=>s+(Number(a)||0),0);
+      const prefix = fi===0 ? secLabel+'：' : '';
+      return `<tr style="background:${_PV_FIX}"><td style="border:1px solid #999;padding:4px;font-weight:700;background:${_PV_FIX};white-space:nowrap">${prefix}${escHtml(row.label)}</td>${estDays.map((d,i)=>`<td style="border:1px solid #999;padding:4px;text-align:center">${yen((row.amounts||[])[i]||0)}</td>`).join('')}${_totalTd(total, _PV_FIX)}</tr>`;
+    }).join('');
+  };
 
   let admissionPreviewRows = '';
   estAdmissionRows.forEach((row,k)=>{
@@ -4516,11 +4516,27 @@ function previewEstimation(){
     admissionPreviewRows += `<tr style="background:${_PV_PAX}"><td style="border:1px solid #999;padding:4px;font-weight:700;background:${_PV_PAX};white-space:nowrap">${label}${remarkStr}</td>${estDays.map((d,i)=>`<td style="border:1px solid #999;padding:4px;text-align:center">${yen((row.amounts||[])[i]||0)}</td>`).join('')}${_totalTd(total, _PV_PAX)}</tr>`;
   });
 
-  let fixedRows='';
-  estFixedRows.forEach((row,k)=>{
-    const total = (row.amounts||[]).reduce((s,a)=>s+(Number(a)||0),0);
-    fixedRows += `<tr style="background:${_PV_FIX}"><td style="border:1px solid #999;padding:4px;font-weight:700;background:${_PV_FIX};white-space:nowrap">${k===0?'ホテル固定費：':''}${escHtml(row.label)}</td>${estDays.map((d,i)=>`<td style="border:1px solid #999;padding:4px;text-align:center">${yen((row.amounts||[])[i]||0)}</td>`).join('')}${_totalTd(total, _PV_FIX)}</tr>`;
-  });
+  const bodyRows = [
+    _pvRow('Hotel',          d=>escHtml(d.hotel_name),                                null,             ''),
+    _pvRow('ツイン代',       d=>yen(d.twin_rate),                                     'twin_rate',      _PV_PAX),
+    _pvRow('朝食',           d=>escHtml(d.breakfast),                                 null,             ''),
+    _pvRow('朝食代',         d=>yen(d.breakfast_fee),                                 'breakfast_fee',  _PV_PAX),
+    _pvFixedRows('hotel'),
+    _pvRow('昼食代',         d=>yen(d.lunch_rate),                                    'lunch_rate',     _PV_PAX),
+    _pvRow('夕食代',         d=>yen(d.dinner_rate),                                   'dinner_rate',    _PV_PAX),
+    _pvRow('バス代',         d=>yen(d.bus_rate),                                      'bus_rate',       _PV_FIX),
+    _pvRow('バスチップ',     d=>yen(d.bus_tip),                                       'bus_tip',        _PV_FIX),
+    _pvRow('乗務員食事代',   d=>yen(d.bus_driver_meal),                               'bus_driver_meal', _PV_FIX),
+    _pvRow('駐車場・通行料', d=>yen(d.parking_tolls),                                 'parking_tolls',  _PV_FIX),
+    _pvFixedRows('bus'),
+    _pvRow('ガイド代',       d=>yen(d.guide_fee),                                     'guide_fee',      _PV_FIX),
+    _pvRow('ガイドチップ',   d=>yen(d.guide_tip),                                     'guide_tip',      _PV_FIX),
+    _pvRow('ガイド食事代',   d=>yen(d.guide_meal),                                    'guide_meal',     _PV_FIX),
+    _pvFixedRows('guide'),
+    admissionPreviewRows,
+    _pvRow('新幹線代(+1名)', d=>remarkHtml(d.bullet_train, d.bullet_train_remark),    'bullet_train',   _PV_PAX),
+    _pvRow('Treat',          d=>remarkHtml(d.treat, d.treat_remark),                   'treat',          _PV_PAX),
+  ].join('');
 
   const selVal = document.getElementById('est-selected-tier').value;
   const selIdx = selVal==='' ? -1 : Number(selVal);
@@ -4533,7 +4549,7 @@ function previewEstimation(){
       <div style="margin-bottom:10px;font-size:12px"><strong>${escHtml(title)}</strong>${tourCode?(' / '+escHtml(tourCode)):''}</div>
       <div class="tbl-wrap"><table style="width:100%;border-collapse:collapse;font-size:10px;margin-bottom:14px">
         <thead><tr><th style="border:1px solid #999;padding:4px;background:#f5f7fa"></th>${dayHead}</tr></thead>
-        <tbody>${bodyRows}${admissionPreviewRows}${fixedRows}</tbody>
+        <tbody>${bodyRows}</tbody>
       </table></div>
       <div class="tbl-wrap"><table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:10px">
         <thead>${resHead}</thead>
