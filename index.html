@@ -4498,7 +4498,7 @@ function previewEstimation(){
     const totalCell = key!=null ? _totalTd(estDays.reduce((s,d)=>s+(Number(d[key])||0),0), pvBg) : _emptyTd;
     const lblBg = pvBg || '#f5f7fa';
     const cellAlign = key!=null ? 'right' : 'center';
-    return `<tr${pvBg?` style="background:${pvBg}"`:''}><td style="border:1px solid #999;padding:4px;font-weight:700;background:${lblBg};white-space:nowrap">${label}</td>${estDays.map(d=>`<td style="border:1px solid #999;padding:4px;text-align:${cellAlign}">${fn(d)}</td>`).join('')}${totalCell}</tr>`;
+    return `<tr${pvBg?` style="background:${pvBg}"`:''}><td style="border:1px solid #999;padding:4px;font-weight:700;background:${lblBg};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${label}</td>${estDays.map(d=>`<td style="border:1px solid #999;padding:4px;text-align:${cellAlign};word-break:break-all">${fn(d)}</td>`).join('')}${totalCell}</tr>`;
   };
   const _pvFixedRows = (sec) => {
     return estFixedRows.filter(r=>(r.section||'hotel')===sec).map((row)=>{
@@ -4545,7 +4545,7 @@ function previewEstimation(){
     <div style="background:#fff;border:1px solid #ddd;width:100%;margin:0 auto;padding:14px;font-size:11px;color:#222;box-sizing:border-box">
       <div style="text-align:center;font-size:16px;font-weight:700;letter-spacing:2px;color:var(--blue);margin-bottom:6px">見積書</div>
       <div style="margin-bottom:10px;font-size:12px"><strong>${escHtml(title)}</strong>${tourCode?(' / '+escHtml(tourCode)):''}</div>
-      <div class="tbl-wrap"><table style="width:100%;border-collapse:collapse;font-size:10px;margin-bottom:14px">
+      <div class="tbl-wrap"><table style="width:100%;border-collapse:collapse;font-size:10px;margin-bottom:14px;table-layout:fixed"><colgroup><col style="width:130px">${'<col>'.repeat(estDays.length)}<col style="width:72px"></colgroup>
         <thead><tr><th style="border:1px solid #999;padding:4px;background:#f5f7fa"></th>${dayHead}</tr></thead>
         <tbody>${bodyRows}</tbody>
       </table></div>
