@@ -4188,7 +4188,7 @@ function renderEstDays(){
     estAdmissionRows.forEach((row,k)=>{
       row.amounts = row.amounts||[];
       while(row.amounts.length<n) row.amounts.push(0);
-      html += `<tr style="background:${BG_PAX}"><td class="lbl-sub" style="padding-left:16px;background:${BG_PAX}"><input value="${escAttr(row.remark)}" placeholder="例: 通天閣入場料" style="font-size:10px" onchange="estAdmissionRows[${k}].remark=this.value"> <button class="btn" style="font-size:9px;color:var(--red)" onclick="removeEstAdmissionRow(${k})">✕</button></td>`;
+      html += `<tr style="background:${BG_PAX}"><td class="lbl-sub" style="padding-left:16px;background:${BG_PAX}"><input value="${escAttr(row.remark)}" placeholder="例: 通天閣入場料" style="font-size:10px;color:var(--text3)" onchange="estAdmissionRows[${k}].remark=this.value"> <button class="btn" style="font-size:9px;color:var(--red)" onclick="removeEstAdmissionRow(${k})">✕</button></td>`;
       for(let i=0;i<n;i++) html += `<td style="background:${BG_PAX}"><input type="text" inputmode="numeric" value="${row.amounts[i]||0}" oninput="this.value=this.value.replace(/[^0-9]/g,'');estAdmissionRows[${k}].amounts[${i}]=Number(this.value);calcEstimation()" style="text-align:right"></td>`;
       html += `<td style="background:${BG_PAX}"></td><td id="est-total-admrow-${k}" style="text-align:right;font-weight:600;white-space:nowrap;background:${BG_PAX}"></td></tr>`;
     });
