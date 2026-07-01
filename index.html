@@ -4089,7 +4089,7 @@ function renderEstDays(){
         <span>DAY${i+1}</span>
         <button class="btn" style="color:var(--red);font-size:9px;padding:1px 4px;line-height:1" onclick="removeEstDay(${i})">✕</button>
       </div>
-      <input type="date" min="1900-01-01" max="9999-12-31" value="${_safeDate(estDays[i].day_date)}" style="font-size:10px;padding:2px 4px;width:100%;box-sizing:border-box;border:1px solid var(--border);border-radius:4px;background:#fff" onchange="${_ochg}">
+      <input type="date" min="1900-01-01" max="9999-12-31" value="${_safeDate(estDays[i].day_date)}" style="font-size:10px;padding:2px 4px;width:100%;box-sizing:border-box;border:1px solid var(--border);border-radius:4px;background:#fff" oninput="${_ochg}" onchange="${_ochg}">
     </th>`;
   }
   html += `<th style="background:transparent;border:none;padding:4px 6px;white-space:nowrap;vertical-align:top">
@@ -4209,6 +4209,7 @@ function autoFillEstDayDates(){
   const base = estDays[0] && estDays[0].day_date;
   if(!base || !/^\d{4}-\d{2}-\d{2}$/.test(base)) return;
   const [y,m,d] = base.split('-').map(Number);
+  if(y < 1900 || y > 9999) return;
   const baseMs = Date.UTC(y, m-1, d);
   const table = document.getElementById('est-days-table');
   const dateInputs = table ? table.querySelectorAll('thead input[type="date"]') : [];
