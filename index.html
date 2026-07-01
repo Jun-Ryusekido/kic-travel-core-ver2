@@ -4464,6 +4464,8 @@ function previewEstimation(){
   const title = document.getElementById('est-title').value;
   const tourCode = document.getElementById('est-tour-code').value;
   const notes = document.getElementById('est-notes').value;
+  const handlingPct = Number(document.getElementById('est-handling').value)||0;
+  const insurancePerPax = Number(document.getElementById('est-insurance').value)||0;
 
   const dayHead = estDays.map((d,i)=>`<th style="border:1px solid #999;padding:4px;background:#f5f7fa;white-space:nowrap">DAY${i+1}</th>`).join('');
 
@@ -4516,8 +4518,8 @@ function previewEstimation(){
         <thead>${resHead}</thead>
         <tbody>
           ${resRow('Sub Total','subtotal',yen)}
-          ${resRow('ハンドリング料','handling',yen)}
-          ${resRow('保険料','insurance',yen)}
+          ${resRow(`ハンドリング料 (${handlingPct}%)`,'handling',yen)}
+          ${resRow(`保険料 (¥${insurancePerPax.toLocaleString()}/名)`,'insurance',yen)}
           ${resRow('Total','total',yen)}
           ${resRow('Total / Pax','perPax',v=>yen(Math.round(v)))}
         </tbody>
