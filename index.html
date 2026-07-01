@@ -651,14 +651,10 @@ input[type=number]{-moz-appearance:textfield}
           <div class="tbl-wrap"><table id="est-results-table"></table></div>
 
           <select id="est-selected-tier" style="display:none" onchange="calcEstimation()"></select>
-          <div class="modal-section-title">予約への変換</div>
+          <div class="modal-section-title">ツアーへの反映</div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <label style="font-size:11px;font-weight:600;color:var(--text2)">最終決定人数：</label>
-            <input type="number" id="est-final-pax" min="1" placeholder="名" style="width:72px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;font-size:12px">
-            <label style="font-size:11px;font-weight:600;color:var(--text2)">最終決定金額（円）：</label>
-            <input type="number" id="est-final-amount" min="0" placeholder="0" style="width:130px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;font-size:12px">
-            <button class="btn btn-p" onclick="convertEstimationToBooking()">✅ 承認して予約データを作成</button>
-            <span class="msg-ok" id="est-convert-msg">✓ 予約を作成しました</span>
+            <button class="btn btn-p" onclick="openEstReflectModal()">🔗 ツアーに反映</button>
+            <span class="msg-ok" id="est-convert-msg">✓ 反映しました</span>
           </div>
         </div>
 
@@ -1112,7 +1108,8 @@ input[type=number]{-moz-appearance:textfield}
       
     </div>
 
-    <div id="bd-est-ref" style="display:none;background:#EEF6FF;border:1px solid #BDD8FF;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:11px;line-height:1.7;color:#004A9F"></div>
+    <div id="bd-est-ref" style="display:none;background:#EEF6FF;border:1px solid #BDD8FF;border-radius:6px;padding:8px 12px;margin-bottom:8px;font-size:11px;line-height:1.7;color:#004A9F"></div>
+    <div id="bd-reflect-history" style="display:none;background:#F0FBF0;border:1px solid #B8E0B8;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:11px;line-height:1.6;color:#1A5C1A"></div>
 
     <div class="modal-section-title">関連Invoice</div>
     <div class="tbl-wrap"><table>
@@ -1459,6 +1456,27 @@ input[type=number]{-moz-appearance:textfield}
         </span>
       </div>
       <div id="arr-preview-body"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Est→Booking Reflect Modal ===== -->
+<div class="modal-overlay" id="est-reflect-modal">
+  <div class="modal-box" style="max-width:680px">
+    <div class="modal-header">
+      <div class="modal-title">見積もりをツアーに反映</div>
+      <button class="modal-close" onclick="closeEstReflectModal()">✕</button>
+    </div>
+    <div id="est-reflect-calc-ref" style="margin-bottom:10px;font-size:11px;background:var(--bg);border-radius:6px;padding:8px 10px"></div>
+    <div style="margin-bottom:8px">
+      <input id="est-reflect-search" placeholder="REF# またはツアー名で検索..." style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px" oninput="filterEstReflectBookings()">
+    </div>
+    <div id="est-reflect-book-list" style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;margin-bottom:10px"></div>
+    <div id="est-reflect-selected" style="margin-bottom:10px"></div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button class="btn btn-p" onclick="reflectEstimationToBookings()">✅ 反映実行</button>
+      <button class="btn" onclick="closeEstReflectModal()">キャンセル</button>
+      <span class="msg-ok" id="est-reflect-msg">✓ 反映しました</span>
     </div>
   </div>
 </div>
@@ -2689,6 +2707,27 @@ async function openBookingDetail(id){
     }
     refDiv.innerHTML = html;
     refDiv.style.display = '';
+  }
+
+  // 反映履歴を表示
+  const rhDiv = document.getElementById('bd-reflect-history');
+  rhDiv.style.display = 'none';
+  const {data: reflections} = await sb.from('estimation_booking_reflections')
+    .select('reflected_pax,reflected_amount,reflected_at,created_by,estimation_id,estimations(title,tour_code)')
+    .eq('booking_id', id)
+    .order('reflected_at', {ascending:false});
+  if(reflections && reflections.length){
+    const dtFmt = s => s ? new Date(s).toLocaleString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '-';
+    let rh = `<div style="font-weight:600;margin-bottom:4px">📝 見積もり反映履歴</div>`;
+    rh += reflections.map(r=>{
+      const est = r.estimations;
+      const estLabel = est ? [est.title,est.tour_code].filter(Boolean).join(' / ') : '(不明)';
+      return `<div style="padding:2px 0;border-bottom:1px solid #B8E0B8;font-size:10px">
+        ${dtFmt(r.reflected_at)} — 「${escHtml(estLabel)}」より <strong>${r.reflected_pax||'-'}名 / ${yen(r.reflected_amount||0)}</strong>${r.created_by?` <span style="color:#4A8C4A">(${escHtml(r.created_by)})</span>`:''}
+      </div>`;
+    }).join('');
+    rhDiv.innerHTML = rh;
+    rhDiv.style.display = '';
   }
 
   document.getElementById('detail-modal').classList.add('open');
@@ -4027,8 +4066,6 @@ async function openEstimationEditor(id){
   document.getElementById('est-status').value='draft';
   document.getElementById('est-handling').value=0;
   document.getElementById('est-insurance').value=400;
-  document.getElementById('est-final-pax').value='';
-  document.getElementById('est-final-amount').value='';
 
   if(id){
     const {data: est} = await sb.from('estimations').select('*').eq('id', id).maybeSingle();
@@ -4041,8 +4078,6 @@ async function openEstimationEditor(id){
       document.getElementById('est-insurance').value = est.insurance_per_pax||400;
       document.getElementById('est-notes').value = est.notes||'';
       if(est.pax_tiers && est.pax_tiers.length) estPaxTiers = JSON.parse(JSON.stringify(est.pax_tiers));
-      document.getElementById('est-final-pax').value = est.final_pax||'';
-      document.getElementById('est-final-amount').value = est.final_amount||'';
 
       const {data: days} = await sb.from('estimation_days').select('*').eq('estimation_id', id).order('sort_order');
       estDays = (days||[]).map(d=>({...d}));
@@ -4395,8 +4430,6 @@ async function saveEstimation(){
       insurance_per_pax: Number(document.getElementById('est-insurance').value)||0,
       pax_tiers: estPaxTiers,
       notes: document.getElementById('est-notes').value,
-      final_pax: Number(document.getElementById('est-final-pax').value)||null,
-      final_amount: Number(document.getElementById('est-final-amount').value)||null,
       updated_at: new Date().toISOString()
     };
 
@@ -4619,64 +4652,129 @@ body{margin:0;font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Meiryo",s
   w.document.close();
 }
 
-// ---- 承認 → 予約データへ変換 ----
-async function convertEstimationToBooking(){
+// ---- ツアーへの反映 ----
+let _reflectSelected = {}; // {booking_id: {ref_no, tour_name, pax, amount}}
+
+async function openEstReflectModal(){
   if(!currentEstimationId){ alert('まず見積もりを保存してください'); return; }
+  _reflectSelected = {};
 
-  const finalPax = Number(document.getElementById('est-final-pax').value)||0;
-  const finalAmount = Number(document.getElementById('est-final-amount').value)||0;
-  if(finalPax <= 0){ alert('最終決定人数を入力してください'); return; }
-  if(finalAmount <= 0){ alert('最終決定金額を入力してください'); return; }
+  // 計算結果 参照テーブル
+  const results = calcEstimation();
+  const handlingPct = Number(document.getElementById('est-handling').value)||0;
+  const insurancePerPax = Number(document.getElementById('est-insurance').value)||0;
+  const calcDiv = document.getElementById('est-reflect-calc-ref');
+  if(results.length){
+    const thS = 'border:1px solid var(--border);padding:3px 6px;background:var(--card);white-space:nowrap';
+    const tdS = (r) => 'border:1px solid var(--border);padding:3px 6px'+(r?';text-align:right':'');
+    let h = `<div style="font-size:10px;color:var(--text2);margin-bottom:4px;font-weight:600">計算結果（参考値）— ハンドリング ${handlingPct}%・保険 ¥${insurancePerPax}/名</div>`;
+    h += `<div style="overflow-x:auto"><table style="border-collapse:collapse;font-size:10px">`;
+    h += `<thead><tr>${['PAX帯','人数','合計','1名あたり'].map(s=>`<th style="${thS}">${s}</th>`).join('')}</tr></thead><tbody>`;
+    results.forEach(r=>{
+      h += `<tr><td style="${tdS(false)}">${escHtml(r.label)}</td><td style="${tdS(true)}">${r.pax}名</td><td style="${tdS(true)}">${yen(Math.round(r.total))}</td><td style="${tdS(true)}">${yen(Math.round(r.perPax))}</td></tr>`;
+    });
+    h += '</tbody></table></div>';
+    calcDiv.innerHTML = h;
+  } else {
+    calcDiv.innerHTML = '<span style="font-size:11px;color:var(--text3)">人数帯が設定されていません</span>';
+  }
 
-  if(!confirm(`最終決定人数 ${finalPax}名 / 最終決定金額 ${yen(finalAmount)} で予約データを作成します。よろしいですか?`)) return;
+  if(!allBookingsCache.length) allBookingsCache = await fetchAllBookings();
+  document.getElementById('est-reflect-search').value = '';
+  filterEstReflectBookings();
+  renderEstReflectSelected();
+  document.getElementById('est-reflect-msg').style.display = 'none';
+  document.getElementById('est-reflect-modal').classList.add('open');
+}
+
+function closeEstReflectModal(){
+  document.getElementById('est-reflect-modal').classList.remove('open');
+}
+
+function filterEstReflectBookings(){
+  const q = (document.getElementById('est-reflect-search').value||'').toLowerCase();
+  const list = allBookingsCache.filter(b=>!q ||(b.ref_no||'').toLowerCase().includes(q)||(b.tour_name||'').toLowerCase().includes(q)||(b.agent_name||'').toLowerCase().includes(q)).slice(0,40);
+  const div = document.getElementById('est-reflect-book-list');
+  if(!list.length){ div.innerHTML='<div style="padding:8px;font-size:11px;color:var(--text3)">該当するツアーがありません</div>'; return; }
+  div.innerHTML = list.map(b=>{
+    const chk = _reflectSelected[b.id] ? 'checked' : '';
+    return `<label style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-bottom:1px solid var(--border);cursor:pointer;font-size:11px">
+      <input type="checkbox" data-bid="${escAttr(b.id)}" data-refno="${escAttr(b.ref_no||'')}" data-name="${escAttr(b.tour_name||b.agent_name||'')}" data-pax="${Number(b.pax)||0}" ${chk} onchange="toggleEstReflectBooking(this)">
+      <span style="font-weight:600;color:var(--blue);white-space:nowrap;min-width:60px">${escHtml(b.ref_no||'')}</span>
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(b.tour_name||b.agent_name||'')}</span>
+      <span style="color:var(--text3);white-space:nowrap;font-size:10px">${b.pax||'-'}名</span>
+    </label>`;
+  }).join('');
+}
+
+function toggleEstReflectBooking(cb){
+  const bid = cb.dataset.bid;
+  if(cb.checked){
+    const res = calcEstimation();
+    const first = res[0];
+    _reflectSelected[bid] = {ref_no:cb.dataset.refno, tour_name:cb.dataset.name, pax:first?first.pax:Number(cb.dataset.pax)||0, amount:first?Math.round(first.total):0};
+  } else { delete _reflectSelected[bid]; }
+  renderEstReflectSelected();
+}
+
+function renderEstReflectSelected(){
+  const div = document.getElementById('est-reflect-selected');
+  const ids = Object.keys(_reflectSelected);
+  if(!ids.length){ div.innerHTML=''; return; }
+  let h = `<div style="font-size:10px;color:var(--text2);font-weight:600;margin-bottom:4px">反映先ツアー（人数・金額を調整できます）:</div>`;
+  ids.forEach(id=>{
+    const s = _reflectSelected[id];
+    h += `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:11px;border-bottom:1px solid var(--border)">
+      <span style="font-weight:600;color:var(--blue);white-space:nowrap;min-width:65px">${escHtml(s.ref_no||'')}</span>
+      <span style="flex:1;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px">${escHtml(s.tour_name||'')}</span>
+      <label style="font-size:10px;white-space:nowrap">人数：<input type="number" min="0" value="${s.pax||''}" style="width:55px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;font-size:11px" onchange="if(_reflectSelected['${id}'])_reflectSelected['${id}'].pax=Number(this.value)"></label>
+      <label style="font-size:10px;white-space:nowrap">金額：<input type="number" min="0" value="${s.amount||''}" style="width:100px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;font-size:11px" onchange="if(_reflectSelected['${id}'])_reflectSelected['${id}'].amount=Number(this.value)"></label>
+    </div>`;
+  });
+  div.innerHTML = h;
+}
+
+async function reflectEstimationToBookings(){
+  const ids = Object.keys(_reflectSelected);
+  if(!ids.length){ alert('反映先のツアーを選択してください'); return; }
+  const lines = ids.map(id=>{ const s=_reflectSelected[id]; return `${s.ref_no}: ${s.pax}名 / ${yen(s.amount)}`; }).join('\n');
+  if(!confirm(`以下のツアーに反映しますか？\n${lines}`)) return;
+
+  const now = new Date().toISOString();
+  const userEmail = currentUser?.email||null;
+  const errors = [];
+
+  for(const bookingId of ids){
+    const s = _reflectSelected[bookingId];
+    const pax = Number(s.pax)||0;
+    const amount = Number(s.amount)||0;
+    const {error:ue} = await sb.from('bookings').update({pax, pax_adult:pax, gross_cost:amount}).eq('id', bookingId);
+    if(ue){ errors.push(s.ref_no+': '+ue.message); continue; }
+    const {error:ie} = await sb.from('estimation_booking_reflections').insert({
+      estimation_id: currentEstimationId, booking_id: bookingId,
+      reflected_pax: pax, reflected_amount: amount, reflected_at: now, created_by: userEmail
+    });
+    if(ie) errors.push(s.ref_no+' (履歴): '+ie.message);
+  }
+
+  if(errors.length) alert('一部エラーが発生しました:\n'+errors.join('\n'));
 
   const results = calcEstimation();
-  const tiersSnapshot = results.map(r => ({
-    tier_label: r.label,
-    pax: r.pax,
-    subtotal: Math.round(r.subtotal),
-    handling: Math.round(r.handling),
-    insurance: Math.round(r.insurance),
-    total: Math.round(r.total),
-    per_pax: Math.round(r.perPax)
-  }));
-
-  const bookings = await fetchAllBookings();
-  let maxNum=0;
-  bookings.forEach(b=>{ const m=(b.ref_no||'').match(/(\d+)/); if(m){ const n=parseInt(m[1],10); if(n>maxNum) maxNum=n; } });
-  const refNo = '#'+(maxNum+1);
-
-  const title = document.getElementById('est-title').value;
-  const tourCode = document.getElementById('est-tour-code').value;
-
-  const {data: newBooking, error} = await sb.from('bookings').insert({
-    ref_no: refNo,
-    agent_name: '',
-    tour_name: tourCode || title || '',
-    pax: finalPax, pax_adult: finalPax, pax_child: 0, pax_infant: 0,
-    gross_cost: finalAmount,
-    gross_sales: 0,
-    status: 'open'
-  }).select().single();
-  if(error){ alert('予約の作成に失敗しました: '+error.message); return; }
-
-  await sb.from('estimations').update({
-    status: 'approved',
-    converted_booking_id: newBooking.id,
-    final_pax: finalPax,
-    final_amount: finalAmount,
-    calculated_tiers_snapshot: tiersSnapshot,
-    updated_at: new Date().toISOString()
-  }).eq('id', currentEstimationId);
-
+  const snap = results.map(r=>({tier_label:r.label, pax:r.pax, subtotal:Math.round(r.subtotal), handling:Math.round(r.handling), insurance:Math.round(r.insurance), total:Math.round(r.total), per_pax:Math.round(r.perPax)}));
+  await sb.from('estimations').update({status:'approved', calculated_tiers_snapshot:snap, updated_at:now}).eq('id', currentEstimationId);
   document.getElementById('est-status').value='approved';
-  await logAction('見積もり承認→予約作成', (title||tourCode||'')+' → '+refNo);
 
-  const msg = document.getElementById('est-convert-msg');
-  msg.textContent = '✓ 予約 '+refNo+' を作成しました';
-  msg.style.display='inline';
+  const msg = document.getElementById('est-reflect-msg');
+  msg.textContent = `✓ ${ids.length}件のツアーに反映しました`;
+  msg.style.display = 'inline';
 
+  await logAction('見積もりをツアーに反映', ids.map(id=>_reflectSelected[id].ref_no).join(', '));
+  allBookingsCache = await fetchAllBookings();
   await loadEstimations();
+
+  const convMsg = document.getElementById('est-convert-msg');
+  convMsg.textContent = `✓ ${ids.length}件のツアーに反映しました`;
+  convMsg.style.display = 'inline';
 }
 
 async function issueInvoiceFromBookingDetail(currency, agentFilter){
