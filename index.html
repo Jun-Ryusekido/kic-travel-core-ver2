@@ -2741,7 +2741,7 @@ async function openBookingDetail(id){
           tableHtml += `<tr>
             <td style="border:1px solid #B8E0B8;padding:1px 3px;font-size:9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(t.tier_label)} (${t.pax}名)</td>
             <td style="border:1px solid #B8E0B8;padding:1px 3px;font-size:9px;text-align:right;color:#555">${yen(t.per_pax)}</td>
-            <td style="border:1px solid #B8E0B8;padding:1px 2px;font-size:9px"><input type="text" inputmode="numeric" value="${escAttr(dvFmt)}" placeholder="-" style="width:100%;box-sizing:border-box;padding:1px 2px;border:none;background:#FAFFF8;font-size:9px;text-align:right" onfocus="this.value=this.value.replace(/[^0-9]/g,'')" onblur="const v=this.value.replace(/[^0-9]/g,'');updateReflectionDecidedPrice('${r.id}',${ti},v);this.value=v?yen(Number(v)):''"></td>
+            <td style="border:1px solid #B8E0B8;padding:1px 2px;font-size:9px"><input id="dp-${r.id}-${ti}" type="text" inputmode="numeric" value="${escAttr(dvFmt)}" placeholder="-" style="width:100%;box-sizing:border-box;padding:1px 2px;border:none;background:#FAFFF8;font-size:9px;text-align:right" onfocus="this.value=this.value.replace(/[^0-9]/g,'')" onblur="const v=this.value.replace(/[^0-9]/g,'');updateReflectionDecidedPrice('${r.id}',${ti},v);this.value=v?yen(Number(v)):''" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();const nx=document.getElementById('dp-${r.id}-${ti+1}');if(nx)nx.focus();}"></td>
           </tr>`;
         });
         tableHtml += `</tbody></table>`;
