@@ -4466,38 +4466,46 @@ function previewEstimation(){
   const handlingPct = Number(document.getElementById('est-handling').value)||0;
   const insurancePerPax = Number(document.getElementById('est-insurance').value)||0;
 
-  const dayHead = estDays.map((d,i)=>`<th style="border:1px solid #999;padding:4px;background:#f5f7fa;white-space:nowrap">DAY${i+1}</th>`).join('');
+  const dayHead = estDays.map((d,i)=>`<th style="border:1px solid #999;padding:4px;background:#f5f7fa;white-space:nowrap">DAY${i+1}</th>`).join('') + `<th style="border:1px solid #999;padding:4px;background:#f5f7fa;white-space:nowrap">合計</th>`;
 
   const remarkHtml = (val, remark) => yen(val) + (remark ? `<br><span style="color:#888;font-size:9px">${escHtml(remark)}</span>` : '');
 
+  // 第3要素: 合計対象のキー（null = テキスト行のため合計なし）
   const rows = [
-    ['Hotel', d=>escHtml(d.hotel_name)],
-    ['ツイン代', d=>yen(d.twin_rate)],
-    ['朝食', d=>escHtml(d.breakfast)],
-    ['昼食代', d=>yen(d.lunch_rate)],
-    ['夕食代', d=>yen(d.dinner_rate)],
-    ['バス代', d=>yen(d.bus_rate)],
-    ['バスチップ', d=>yen(d.bus_tip)],
-    ['乗務員食事代', d=>yen(d.bus_driver_meal)],
-    ['駐車場・通行料', d=>yen(d.parking_tolls)],
-    ['ガイド代', d=>yen(d.guide_fee)],
-    ['ガイドチップ', d=>yen(d.guide_tip)],
-    ['ガイド食事代', d=>yen(d.guide_meal)],
-    ['新幹線代(+1名)', d=>remarkHtml(d.bullet_train, d.bullet_train_remark)],
-    ['Treat', d=>remarkHtml(d.treat, d.treat_remark)]
+    ['Hotel',        d=>escHtml(d.hotel_name),                                       null],
+    ['ツイン代',     d=>yen(d.twin_rate),                                             'twin_rate'],
+    ['朝食',         d=>escHtml(d.breakfast),                                         null],
+    ['昼食代',       d=>yen(d.lunch_rate),                                            'lunch_rate'],
+    ['夕食代',       d=>yen(d.dinner_rate),                                           'dinner_rate'],
+    ['バス代',       d=>yen(d.bus_rate),                                              'bus_rate'],
+    ['バスチップ',   d=>yen(d.bus_tip),                                               'bus_tip'],
+    ['乗務員食事代', d=>yen(d.bus_driver_meal),                                       'bus_driver_meal'],
+    ['駐車場・通行料',d=>yen(d.parking_tolls),                                        'parking_tolls'],
+    ['ガイド代',     d=>yen(d.guide_fee),                                             'guide_fee'],
+    ['ガイドチップ', d=>yen(d.guide_tip),                                             'guide_tip'],
+    ['ガイド食事代', d=>yen(d.guide_meal),                                            'guide_meal'],
+    ['新幹線代(+1名)',d=>remarkHtml(d.bullet_train, d.bullet_train_remark),           'bullet_train'],
+    ['Treat',        d=>remarkHtml(d.treat, d.treat_remark),                          'treat']
   ];
-  const bodyRows = rows.map(([label,fn])=>`<tr><td style="border:1px solid #999;padding:4px;font-weight:700;background:#f5f7fa;white-space:nowrap">${label}</td>${estDays.map(d=>`<td style="border:1px solid #999;padding:4px;text-align:center">${fn(d)}</td>`).join('')}</tr>`).join('');
+  const _totalTd = (v) => `<td style="border:1px solid #999;padding:4px;text-align:right;font-weight:600;white-space:nowrap">${yen(v)}</td>`;
+  const _emptyTd = `<td style="border:1px solid #999;padding:4px"></td>`;
+  const bodyRows = rows.map(([label,fn,key])=>{
+    const totalCell = key!=null ? _totalTd(estDays.reduce((s,d)=>s+(Number(d[key])||0),0)) : _emptyTd;
+    return `<tr><td style="border:1px solid #999;padding:4px;font-weight:700;background:#f5f7fa;white-space:nowrap">${label}</td>${estDays.map(d=>`<td style="border:1px solid #999;padding:4px;text-align:center">${fn(d)}</td>`).join('')}${totalCell}</tr>`;
+  }).join('');
 
   let admissionPreviewRows = '';
   estAdmissionRows.forEach((row,k)=>{
     const label = k===0 ? '入場料' : '入場料'+(k+1);
     const remarkStr = row.remark ? '：'+escHtml(row.remark) : '';
-    admissionPreviewRows += `<tr><td style="border:1px solid #999;padding:4px;font-weight:700;background:#f5f7fa;white-space:nowrap">${label}${remarkStr}</td>${estDays.map((d,i)=>`<td style="border:1px solid #999;padding:4px;text-align:center">${yen((row.amounts||[])[i]||0)}</td>`).join('')}</tr>`;
+    const total = (row.amounts||[]).reduce((s,a)=>s+(Number(a)||0),0);
+    admissionPreviewRows += `<tr><td style="border:1px solid #999;padding:4px;font-weight:700;background:#f5f7fa;white-space:nowrap">${label}${remarkStr}</td>${estDays.map((d,i)=>`<td style="border:1px solid #999;padding:4px;text-align:center">${yen((row.amounts||[])[i]||0)}</td>`).join('')}${_totalTd(total)}</tr>`;
   });
 
   let fixedRows='';
   estFixedRows.forEach((row,k)=>{
-    fixedRows += `<tr><td style="border:1px solid #999;padding:4px;font-weight:700;background:#f5f7fa;white-space:nowrap">${k===0?'ホテル固定費：':''}${escHtml(row.label)}</td>${estDays.map((d,i)=>`<td style="border:1px solid #999;padding:4px;text-align:center">${yen((row.amounts||[])[i]||0)}</td>`).join('')}</tr>`;
+    const total = (row.amounts||[]).reduce((s,a)=>s+(Number(a)||0),0);
+    fixedRows += `<tr><td style="border:1px solid #999;padding:4px;font-weight:700;background:#f5f7fa;white-space:nowrap">${k===0?'ホテル固定費：':''}${escHtml(row.label)}</td>${estDays.map((d,i)=>`<td style="border:1px solid #999;padding:4px;text-align:center">${yen((row.amounts||[])[i]||0)}</td>`).join('')}${_totalTd(total)}</tr>`;
   });
 
   const selVal = document.getElementById('est-selected-tier').value;
