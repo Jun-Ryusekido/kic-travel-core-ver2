@@ -4050,10 +4050,17 @@ async function openEstimationEditor(id){
       const {data: frows} = await sb.from('estimation_fixed_rows').select('*').eq('estimation_id', id).order('sort_order');
       const _admPrefix = '@admission:';
       estFixedRows = (frows||[]).filter(r=>!(r.label||'').startsWith(_admPrefix)).map(r=>({label:r.label||'', amounts:(r.amounts||[]).map(a=>Number(a)||0)}));
-      estAdmissionRows = (frows||[]).filter(r=>(r.label||'').startsWith(_admPrefix)).map(r=>({remark:(r.label||'').slice(_admPrefix.length), amounts:(r.amounts||[]).map(a=>Number(a)||0)}));
+      estAdmissionRows = (frows||[]).filter(r=>(r.label||'').startsWith(_admPrefix)).map(r=>{
+        const raw = (r.label||'').slice(_admPrefix.length);
+        const sep = raw.indexOf('@@');
+        const remark = sep>=0 ? raw.slice(0,sep) : raw;
+        let contents = [];
+        if(sep>=0){ try{ contents = JSON.parse(raw.slice(sep+2)); }catch(e){} }
+        return {remark, contents, amounts:(r.amounts||[]).map(a=>Number(a)||0)};
+      });
       // 旧データ移行: admission_feeが日程に残っている場合は1行として取り込む
       if(estAdmissionRows.length===0 && estDays.some(d=>Number(d.admission_fee)||0)){
-        estAdmissionRows = [{remark: estDays.find(d=>d.admission_remark)?.admission_remark||'', amounts: estDays.map(d=>Number(d.admission_fee)||0)}];
+        estAdmissionRows = [{remark: estDays.find(d=>d.admission_remark)?.admission_remark||'', contents: estDays.map(()=>''), amounts: estDays.map(d=>Number(d.admission_fee)||0)}];
       }
     }
   }
@@ -4201,10 +4208,15 @@ function renderEstDays(){
     html += `<tr style="background:${BG_PAX}"><td class="lbl" style="background:${BG_PAX}">入場料${_badge('pax')}<button class="btn" style="margin-left:6px;font-size:9px" onclick="addEstAdmissionRow()">＋ 行追加</button></td>${'<td></td>'.repeat(n)}<td></td><td></td></tr>`;
     estAdmissionRows.forEach((row,k)=>{
       row.amounts = row.amounts||[];
+      row.contents = row.contents||[];
       while(row.amounts.length<n) row.amounts.push(0);
+      while(row.contents.length<n) row.contents.push('');
       html += `<tr style="background:${BG_PAX}"><td class="lbl-sub" style="padding-left:16px;background:${BG_PAX}"><input value="${escAttr(row.remark)}" placeholder="例: 通天閣入場料" style="font-size:9px;color:var(--text3);font-weight:400;border:none;background:transparent;min-width:0;padding:0 2px;overflow:hidden;text-overflow:ellipsis" onchange="estAdmissionRows[${k}].remark=this.value"> <button class="btn" style="font-size:9px;color:var(--red)" onclick="removeEstAdmissionRow(${k})">✕</button></td>`;
       for(let i=0;i<n;i++) html += `<td style="background:${BG_PAX}"><input type="text" inputmode="numeric" value="${row.amounts[i]||0}" oninput="this.value=this.value.replace(/[^0-9]/g,'');estAdmissionRows[${k}].amounts[${i}]=Number(this.value);calcEstimation()" style="text-align:right"></td>`;
       html += `<td style="background:${BG_PAX}"></td><td id="est-total-admrow-${k}" style="text-align:right;font-weight:600;white-space:nowrap;background:${BG_PAX}"></td></tr>`;
+      html += `<tr style="background:${BG_PAX}"><td class="lbl-sub" style="padding-left:16px;background:${BG_PAX}">　入場料 内容</td>`;
+      for(let i=0;i<n;i++) html += `<td style="background:${BG_PAX}"><input value="${escAttr(row.contents[i]||'')}" placeholder="" style="font-size:9px;overflow:hidden;text-overflow:ellipsis" onchange="estAdmissionRows[${k}].contents[${i}]=this.value"></td>`;
+      html += `<td style="background:${BG_PAX}"></td><td style="background:${BG_PAX}"></td></tr>`;
     });
     html += numRow('新幹線代（人数+1）','bullet_train', BG_PAX);
     html += subTextRow('新幹線 内容','bullet_train_remark','例: 東京→大阪');
@@ -4220,14 +4232,14 @@ function renderEstDays(){
 function addEstDay(){
   estDays.push(JSON.parse(JSON.stringify(EST_DAY_BLANK)));
   estFixedRows.forEach(r=>{ r.amounts = r.amounts||[]; r.amounts.push(0); });
-  estAdmissionRows.forEach(r=>{ r.amounts = r.amounts||[]; r.amounts.push(0); });
+  estAdmissionRows.forEach(r=>{ r.amounts = r.amounts||[]; r.amounts.push(0); r.contents = r.contents||[]; r.contents.push(''); });
   renderEstDays(); autoFillEstDayDates(); calcEstimation();
 }
 function removeEstDay(i){
   if(!confirm('この日程を削除しますか?')) return;
   estDays.splice(i,1);
   estFixedRows.forEach(r=>{ if(r.amounts) r.amounts.splice(i,1); });
-  estAdmissionRows.forEach(r=>{ if(r.amounts) r.amounts.splice(i,1); });
+  estAdmissionRows.forEach(r=>{ if(r.amounts) r.amounts.splice(i,1); if(r.contents) r.contents.splice(i,1); });
   renderEstDays(); calcEstimation();
 }
 function moveEstDay(i, dir){
@@ -4235,7 +4247,7 @@ function moveEstDay(i, dir){
   if(j<0 || j>=estDays.length) return;
   [estDays[i], estDays[j]] = [estDays[j], estDays[i]];
   estFixedRows.forEach(r=>{ if(r.amounts && r.amounts.length>Math.max(i,j)) [r.amounts[i], r.amounts[j]] = [r.amounts[j], r.amounts[i]]; });
-  estAdmissionRows.forEach(r=>{ if(r.amounts && r.amounts.length>Math.max(i,j)) [r.amounts[i], r.amounts[j]] = [r.amounts[j], r.amounts[i]]; });
+  estAdmissionRows.forEach(r=>{ if(r.amounts && r.amounts.length>Math.max(i,j)) [r.amounts[i], r.amounts[j]] = [r.amounts[j], r.amounts[i]]; if(r.contents && r.contents.length>Math.max(i,j)) [r.contents[i], r.contents[j]] = [r.contents[j], r.contents[i]]; });
   renderEstDays(); calcEstimation();
 }
 function autoFillEstDayDates(){
@@ -4261,7 +4273,7 @@ function removeEstFixedRow(k){
   renderEstDays(); calcEstimation();
 }
 function addEstAdmissionRow(){
-  estAdmissionRows.push({remark:'', amounts: new Array(estDays.length).fill(0)});
+  estAdmissionRows.push({remark:'', contents: new Array(estDays.length).fill(''), amounts: new Array(estDays.length).fill(0)});
   renderEstDays(); calcEstimation();
 }
 function removeEstAdmissionRow(k){
@@ -4449,11 +4461,11 @@ async function saveEstimation(){
         amounts: (r.amounts||[]).map(a=>Number(a)||0),
         sort_order: k, section: r.section||'hotel'
       })),
-      ...estAdmissionRows.map((r,k)=>({
-        estimation_id: estId, label: '@admission:'+(r.remark||''),
-        amounts: (r.amounts||[]).map(a=>Number(a)||0),
-        sort_order: 1000+k
-      }))
+      ...estAdmissionRows.map((r,k)=>{
+        const cts = r.contents||[];
+        const label = '@admission:'+(r.remark||'') + (cts.some(c=>c) ? '@@'+JSON.stringify(cts) : '');
+        return {estimation_id: estId, label, amounts: (r.amounts||[]).map(a=>Number(a)||0), sort_order: 1000+k};
+      })
     ];
     if(allFrRows.length>0){
       const {error: frErr} = await sb.from('estimation_fixed_rows').insert(allFrRows);
@@ -4515,7 +4527,8 @@ function previewEstimation(){
     const label = k===0 ? '入場料' : '入場料'+(k+1);
     const remarkStr = row.remark ? `：<span style="font-size:9px;font-weight:400;color:#555">${escHtml(row.remark)}</span>` : '';
     const total = (row.amounts||[]).reduce((s,a)=>s+(Number(a)||0),0);
-    admissionPreviewRows += `<tr style="background:${_PV_PAX}"><td style="border:1px solid #999;padding:4px;font-weight:700;background:${_PV_PAX};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${label}${remarkStr}</td>${estDays.map((d,i)=>`<td style="border:1px solid #999;padding:4px;text-align:right">${yen((row.amounts||[])[i]||0)}</td>`).join('')}${_totalTd(total, _PV_PAX)}</tr>`;
+    const cts = row.contents||[];
+    admissionPreviewRows += `<tr style="background:${_PV_PAX}"><td style="border:1px solid #999;padding:4px;font-weight:700;background:${_PV_PAX};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${label}${remarkStr}</td>${estDays.map((d,i)=>{const amt=(row.amounts||[])[i]||0;const c=cts[i]||'';return `<td style="border:1px solid #999;padding:4px;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c?`<span style="white-space:nowrap">${yen(amt)}<span style="color:#888;font-size:9px"> ${escHtml(c)}</span></span>`:yen(amt)}</td>`;}).join('')}${_totalTd(total, _PV_PAX)}</tr>`;
   });
 
   const bodyRows = [
