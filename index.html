@@ -1915,7 +1915,7 @@ let originalCostsCount = 0;
 let bdLocalExpenses = [];
 const LOCAL_EXPENSE_CATEGORIES = ['D（ドライバー）','ゲスト','ゲスト・TG','その他'];
 const LOCAL_EXPENSE_PAYMENT_METHODS = ['現地払い','前振込み','後請求','全旅クーポン'];
-let bdLocked = false; let suppliersCache = [];
+let bdLocked = false; let suppliersCache = []; let busCompaniesCache = [];
 let arrangementsCache = [];
 let currentArrangementId = null;
 let arrDays = [];
@@ -2269,6 +2269,44 @@ function showSupplierSuggestions(inputEl, idx){
 
 function hideSupplierSuggestions(){
   const box = document.getElementById('supplier-suggest-box');
+  if(box) box.remove();
+}
+
+async function loadBusCompaniesCache(){
+  if(busCompaniesCache.length>0) return;
+  const {data} = await sb.from('business_partners')
+    .select('company_name,phone')
+    .eq('category','バス・ハイヤー等')
+    .or('is_deleted.is.null,is_deleted.eq.false')
+    .order('company_name');
+  busCompaniesCache = data||[];
+}
+async function showBusCompanySuggest(inputEl, idx){
+  hideBusCompanySuggest();
+  await loadBusCompaniesCache();
+  const q = inputEl.value.trim().toLowerCase();
+  const matches = (q
+    ? busCompaniesCache.filter(p=>p.company_name.toLowerCase().includes(q))
+    : busCompaniesCache
+  ).slice(0,12);
+  if(!matches.length) return;
+  const box = document.createElement('div');
+  box.id = 'bus-company-suggest-box';
+  box.style.cssText = 'position:absolute;z-index:200;background:#fff;border:1px solid var(--border);border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.12);max-height:200px;overflow-y:auto;font-size:11px';
+  const rect = inputEl.getBoundingClientRect();
+  box.style.left = (rect.left+window.scrollX)+'px';
+  box.style.top  = (rect.bottom+window.scrollY)+'px';
+  box.style.width = Math.max(rect.width,180)+'px';
+  box.innerHTML = matches.map(p=>`<div class="bus-co-item" style="padding:4px 8px;cursor:pointer" data-name="${escAttr(p.company_name)}">${escHtml(p.company_name)}${p.phone?`<span style="color:var(--text3);margin-left:6px;font-size:10px">${escHtml(p.phone)}</span>`:''}</div>`).join('');
+  document.body.appendChild(box);
+  box.querySelectorAll('.bus-co-item').forEach(item=>{
+    item.addEventListener('mousedown',e=>{ e.preventDefault(); const n=item.getAttribute('data-name'); inputEl.value=n; bdBusItems[idx].bus_company=n; hideBusCompanySuggest(); });
+    item.addEventListener('mouseenter',()=>{ item.style.background='var(--bg)'; });
+    item.addEventListener('mouseleave',()=>{ item.style.background=''; });
+  });
+}
+function hideBusCompanySuggest(){
+  const box = document.getElementById('bus-company-suggest-box');
   if(box) box.remove();
 }
 
@@ -4955,7 +4993,7 @@ function renderBusTable(){
     tbody.innerHTML='<tr><td colspan="10" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
   }else{
     tbody.innerHTML = bdBusItems.map((it,i)=>`<tr>
-      <td><input value="${escAttr(it.bus_company)}" oninput="bdBusItems[${i}].bus_company=this.value" style="width:100%"></td>
+      <td style="position:relative"><input value="${escAttr(it.bus_company)}" oninput="bdBusItems[${i}].bus_company=this.value;showBusCompanySuggest(this,${i})" onfocus="showBusCompanySuggest(this,${i})" onblur="setTimeout(hideBusCompanySuggest,150)" style="width:100%"></td>
       <td><input value="${escAttr(it.bus_type)}" oninput="bdBusItems[${i}].bus_type=this.value" style="width:100%"></td>
       <td><input type="number" value="${it.buses||1}" onchange="bdBusItems[${i}].buses=Number(this.value)" style="width:100%"></td>
       <td><input type="date" min="1900-01-01" max="9999-12-31" value="${it.start_date||''}" onchange="bdBusItems[${i}].start_date=this.value"></td>
