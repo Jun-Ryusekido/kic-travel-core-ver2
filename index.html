@@ -1909,6 +1909,7 @@ function statusPill(status){
 let currentDetailId = null;
 let bdSalesItems = [];
 let bdCostItems = [];
+let _bdReflections = []; // 反映履歴キャッシュ（decided_unit_price の即時保存用）
 let originalSalesCount = 0;
 let originalCostsCount = 0;
 let bdLocalExpenses = [];
@@ -2713,25 +2714,31 @@ async function openBookingDetail(id){
   const rhDiv = document.getElementById('bd-reflect-history');
   rhDiv.style.display = 'none';
   const {data: reflections} = await sb.from('estimation_booking_reflections')
-    .select('tiers_snapshot,reflected_at,created_by,estimation_id,estimations(title,tour_code)')
+    .select('id,tiers_snapshot,reflected_at,created_by,estimation_id,estimations(title,tour_code)')
     .eq('booking_id', id)
     .order('reflected_at', {ascending:false});
-  if(reflections && reflections.length){
+  _bdReflections = reflections || [];
+  if(_bdReflections.length){
     const dtFmt = s => s ? new Date(s).toLocaleString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '-';
-    const thC = s => `<th style="border:1px solid #B8E0B8;padding:2px 5px;background:#C8ECC8;white-space:nowrap;font-size:9px">${s}</th>`;
-    const tdC = (s,right) => `<td style="border:1px solid #B8E0B8;padding:2px 5px;font-size:9px${right?';text-align:right':''}">${s}</td>`;
+    const thR = s => `<th style="border:1px solid #B8E0B8;padding:2px 6px;background:#C8ECC8;white-space:nowrap;font-size:9px;text-align:right">${s}</th>`;
+    const thL = s => `<th style="border:1px solid #B8E0B8;padding:2px 6px;background:#C8ECC8;white-space:nowrap;font-size:9px">${s}</th>`;
     let rh = `<div style="font-weight:600;margin-bottom:6px">📝 見積もり反映履歴</div>`;
-    reflections.forEach((r, idx)=>{
+    _bdReflections.forEach((r, idx)=>{
       const est = r.estimations;
       const estLabel = est ? [est.title,est.tour_code].filter(Boolean).join(' / ') : '(不明)';
       const snap = r.tiers_snapshot||[];
       const detailId = `rh-detail-${id.slice(0,8)}-${idx}`;
       let tableHtml = '';
       if(snap.length){
-        tableHtml = `<div class="tbl-wrap" style="padding:6px 8px"><table style="border-collapse:collapse">`;
-        tableHtml += `<thead><tr>${['PAX帯','人数','Sub Total','ハンドリング','保険','合計','1名あたり'].map(thC).join('')}</tr></thead><tbody>`;
-        snap.forEach(t=>{
-          tableHtml += `<tr>${tdC(escHtml(t.tier_label))}${tdC(t.pax+'名',true)}${tdC(yen(t.subtotal),true)}${tdC(yen(t.handling),true)}${tdC(yen(t.insurance),true)}<td style="border:1px solid #B8E0B8;padding:2px 5px;text-align:right;font-weight:600;font-size:9px">${yen(t.total)}</td>${tdC(yen(t.per_pax),true)}</tr>`;
+        tableHtml = `<div style="padding:4px 6px"><table style="border-collapse:collapse">`;
+        tableHtml += `<thead><tr>${thL('PAX帯')}${thR('1名あたり参考')}${thR('決定単価')}</tr></thead><tbody>`;
+        snap.forEach((t, ti)=>{
+          const dv = (t.decided_unit_price!=null) ? t.decided_unit_price : '';
+          tableHtml += `<tr>
+            <td style="border:1px solid #B8E0B8;padding:2px 6px;font-size:9px;white-space:nowrap">${escHtml(t.tier_label)} (${t.pax}名)</td>
+            <td style="border:1px solid #B8E0B8;padding:2px 6px;font-size:9px;text-align:right;color:#666">${yen(t.per_pax)}</td>
+            <td style="border:1px solid #B8E0B8;padding:2px 4px;font-size:9px"><input type="number" min="0" value="${dv}" placeholder="未入力" style="width:90px;padding:1px 3px;border:1px solid #B8E0B8;border-radius:3px;font-size:9px;text-align:right;background:#FAFFF8" onchange="updateReflectionDecidedPrice('${r.id}',${ti},this.value)"></td>
+          </tr>`;
         });
         tableHtml += `</tbody></table></div>`;
       } else {
@@ -2757,6 +2764,16 @@ async function openBookingDetail(id){
 function closeBookingDetail(){
   document.getElementById('detail-modal').classList.remove('open');
   currentDetailId = null;
+}
+
+function updateReflectionDecidedPrice(reflId, tierIdx, val){
+  const r = _bdReflections.find(x=>x.id===reflId);
+  if(!r || !r.tiers_snapshot) return;
+  r.tiers_snapshot[tierIdx].decided_unit_price = val===''?null:(Number(val)||0);
+  sb.from('estimation_booking_reflections')
+    .update({tiers_snapshot: r.tiers_snapshot})
+    .eq('id', reflId)
+    .then(({error})=>{ if(error) console.error('決定単価保存エラー:', error.message); });
 }
 
 // ===================================================
