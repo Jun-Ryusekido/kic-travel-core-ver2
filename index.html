@@ -2721,7 +2721,7 @@ async function openBookingDetail(id){
   if(_bdReflections.length){
     const dtFmt = s => s ? new Date(s).toLocaleString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '-';
     const thS = `border:1px solid #B8E0B8;padding:2px 5px;background:#C8ECC8;white-space:nowrap;font-size:9px`;
-    let rh = `<div style="font-weight:600;font-size:11px;margin-bottom:5px">📝 見積もり反映履歴</div>`;
+    let rh = `<div class="modal-section-title">見積もり反映履歴</div>`;
     rh += `<div style="display:flex;gap:10px;overflow-x:auto;padding-bottom:4px">`;
     _bdReflections.forEach((r, idx)=>{
       const est = r.estimations;
