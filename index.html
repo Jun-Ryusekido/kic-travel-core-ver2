@@ -4100,9 +4100,9 @@ function renderEstDays(){
   const BG_PAX = '#EEF6FF';
   const BG_FIX = '#F5F5F5';
   const _badge = type => type==='pax'
-      ? `<span style="font-size:8px;color:#0057B3;background:#D0E8FF;border-radius:3px;padding:1px 4px;margin-left:4px;font-weight:400">人数連動</span>`
+      ? `<span style="font-size:9px;color:#004A9F;background:#BDD8FF;border:1px solid #7CB3E8;border-radius:3px;padding:1px 5px;margin-left:5px;font-weight:600">1名あたり ×人数</span>`
       : type==='fix'
-      ? `<span style="font-size:8px;color:#555;background:#E0E0E0;border-radius:3px;padding:1px 4px;margin-left:4px;font-weight:400">固定費</span>`
+      ? `<span style="font-size:9px;color:#444;background:#D0D0D0;border:1px solid #AAAAAA;border-radius:3px;padding:1px 5px;margin-left:5px;font-weight:600">全体でこの金額（人数按分）</span>`
       : '';
   // 数値行：右端に id 付き合計セル
   const numRow = (label, key, bg, type) => {
@@ -4152,13 +4152,13 @@ function renderEstDays(){
     html += textRow('ホテル名','hotel_name','例: ヒルトン大阪');
     html += textRow('朝食','breakfast','例: Hotel / なし');
     html += numRow('ツイン代','twin_rate', BG_PAX, 'pax');
-    html += numRow('朝食代（人数連動）','breakfast_fee', BG_PAX);
     html += `<tr style="background:${BG_FIX}"><td class="lbl" style="color:var(--text3);background:${BG_FIX}">ホテル代 固定費${_badge('fix')}<button class="btn" style="margin-left:6px;font-size:9px" onclick="addEstFixedRow('hotel')">＋ 行追加</button></td>${'<td></td>'.repeat(n)}<td></td><td></td></tr>`;
     html += renderFixedSection('hotel', '例: FOC / ガイド / ドライバー');
     html += subRow('est-subtotal-hotel', '小計: ホテル');
 
     // セクション2: 食事
     html += secRow('セクション2: 食事（人数連動）');
+    html += numRow('朝食代','breakfast_fee', BG_PAX, 'pax');
     html += numRow('昼食代','lunch_rate', BG_PAX, 'pax');
     html += numRow('夕食代','dinner_rate', BG_PAX);
     html += subRow('est-subtotal-food', '小計: 食事');
@@ -4292,8 +4292,8 @@ function updateEstTotals(){
 
   // セクション小計（DAY合計の単純合計。PAX乗算は結果テーブルのみ）
   const _fixSecSum = sec => estFixedRows.filter(r=>(r.section||'hotel')===sec).reduce((s,row)=>s+(row.amounts||[]).reduce((ss,a)=>ss+(Number(a)||0),0),0);
-  setEl('est-subtotal-hotel',  sumF('twin_rate') + sumF('breakfast_fee') + _fixSecSum('hotel'));
-  setEl('est-subtotal-food',   sumF('lunch_rate') + sumF('dinner_rate'));
+  setEl('est-subtotal-hotel',  sumF('twin_rate') + _fixSecSum('hotel'));
+  setEl('est-subtotal-food',   sumF('breakfast_fee') + sumF('lunch_rate') + sumF('dinner_rate'));
   setEl('est-subtotal-bus',    sumF('bus_rate') + sumF('bus_tip') + sumF('bus_driver_meal') + sumF('parking_tolls') + _fixSecSum('bus'));
   setEl('est-subtotal-guide',  sumF('guide_fee') + sumF('guide_tip') + sumF('guide_meal') + _fixSecSum('guide'));
   const admTotal = estAdmissionRows.reduce((s,row)=>s+(row.amounts||[]).reduce((ss,a)=>ss+(Number(a)||0),0), 0);
@@ -4520,8 +4520,8 @@ function previewEstimation(){
     _pvRow('Hotel',          d=>escHtml(d.hotel_name),                                null,             ''),
     _pvRow('ツイン代',       d=>yen(d.twin_rate),                                     'twin_rate',      _PV_PAX),
     _pvRow('朝食',           d=>escHtml(d.breakfast),                                 null,             ''),
-    _pvRow('朝食代',         d=>yen(d.breakfast_fee),                                 'breakfast_fee',  _PV_PAX),
     _pvFixedRows('hotel'),
+    _pvRow('朝食代',         d=>yen(d.breakfast_fee),                                 'breakfast_fee',  _PV_PAX),
     _pvRow('昼食代',         d=>yen(d.lunch_rate),                                    'lunch_rate',     _PV_PAX),
     _pvRow('夕食代',         d=>yen(d.dinner_rate),                                   'dinner_rate',    _PV_PAX),
     _pvRow('バス代',         d=>yen(d.bus_rate),                                      'bus_rate',       _PV_FIX),
