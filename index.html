@@ -4735,7 +4735,6 @@ function filterEstReflectBookings(){
       <input type="checkbox" data-bid="${escAttr(b.id)}" data-refno="${escAttr(b.ref_no||'')}" data-name="${escAttr(b.tour_name||b.agent_name||'')}" data-pax="${Number(b.pax)||0}" ${chk} onchange="toggleEstReflectBooking(this)">
       <span style="font-weight:600;color:var(--blue);white-space:nowrap;min-width:60px">${escHtml(b.ref_no||'')}</span>
       <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(b.tour_name||b.agent_name||'')}</span>
-      <span style="color:var(--text3);white-space:nowrap;font-size:10px">${b.pax||'-'}名</span>
     </label>`;
   }).join('');
 }
