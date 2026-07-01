@@ -4462,19 +4462,21 @@ async function saveEstimation(){
 
 // ---- 印刷（A4横・1枚） ----
 function printEstimation(){
-  let style = document.getElementById('est-print-style');
-  if(!style){
-    style = document.createElement('style');
-    style.id = 'est-print-style';
-    document.head.appendChild(style);
-  }
-  style.textContent = '@page{size:A4 landscape;margin:6mm}';
-  window.onafterprint = ()=>{
-    const s = document.getElementById('est-print-style');
-    if(s) s.remove();
-    window.onafterprint = null;
-  };
-  window.print();
+  const body = document.getElementById('est-preview-body').innerHTML;
+  const w = window.open('', '_blank');
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+@page{size:A4 landscape;margin:6mm}
+*{box-sizing:border-box}
+body{margin:0;padding:3mm;font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Meiryo",sans-serif}
+table{border-collapse:collapse;table-layout:fixed;width:auto}
+td,th{border:1px solid #999;padding:1px 3px;font-size:7px;line-height:1.3;vertical-align:top}
+td *,th *{font-size:7px}
+.tbl-wrap{overflow:visible;margin-bottom:4px}
+.tbl-wrap+.tbl-wrap{page-break-inside:avoid}
+</style></head><body>${body}</body></html>`);
+  w.document.close();
+  w.print();
+  w.onafterprint=()=>w.close();
 }
 
 // ---- プレビュー ----
@@ -4545,7 +4547,7 @@ function previewEstimation(){
     <div style="background:#fff;border:1px solid #ddd;width:100%;margin:0 auto;padding:14px;font-size:11px;color:#222;box-sizing:border-box">
       <div style="text-align:center;font-size:16px;font-weight:700;letter-spacing:2px;color:var(--blue);margin-bottom:6px">見積書</div>
       <div style="margin-bottom:10px;font-size:12px"><strong>${escHtml(title)}</strong>${tourCode?(' / '+escHtml(tourCode)):''}</div>
-      <div class="tbl-wrap"><table style="width:100%;border-collapse:collapse;font-size:10px;margin-bottom:14px;table-layout:fixed"><colgroup><col style="width:130px">${'<col>'.repeat(estDays.length)}<col style="width:72px"></colgroup>
+      <div class="tbl-wrap"><table style="width:100%;border-collapse:collapse;font-size:10px;margin-bottom:14px;table-layout:fixed"><colgroup><col style="width:100px">${'<col style="width:62px">'.repeat(estDays.length)}<col style="width:70px"></colgroup>
         <thead><tr><th style="border:1px solid #999;padding:4px;background:#f5f7fa"></th>${dayHead}</tr></thead>
         <tbody>${bodyRows}</tbody>
       </table></div>
