@@ -4100,7 +4100,7 @@ function renderEstDays(){
   // 数値行：右端に id 付き合計セル
   const numRow = (label, key) => {
     let r = `<tr><td class="lbl">${label}</td>`;
-    for(let i=0;i<n;i++) r += `<td><input type="number" value="${estDays[i][key]||0}" oninput="estDays[${i}].${key}=Number(this.value);calcEstimation()" style="text-align:right"></td>`;
+    for(let i=0;i<n;i++) r += `<td><input type="text" inputmode="numeric" value="${estDays[i][key]||0}" oninput="this.value=this.value.replace(/[^0-9]/g,'');estDays[${i}].${key}=Number(this.value);calcEstimation()" style="text-align:right"></td>`;
     r += `<td></td><td id="est-total-${key}" style="text-align:right;font-weight:600;white-space:nowrap"></td>`;
     return r + '</tr>';
   };
@@ -4137,7 +4137,7 @@ function renderEstDays(){
       row.amounts = row.amounts || [];
       while(row.amounts.length < n) row.amounts.push(0);
       html += `<tr><td class="lbl" style="padding-left:16px"><input class="lbl-input" value="${escAttr(row.label)}" placeholder="例: FOC / ガイド / ドライバー" onchange="estFixedRows[${k}].label=this.value"> <button class="btn" style="font-size:9px;color:var(--red)" onclick="removeEstFixedRow(${k})">✕</button></td>`;
-      for(let i=0;i<n;i++) html += `<td><input type="number" value="${row.amounts[i]||0}" oninput="estFixedRows[${k}].amounts[${i}]=Number(this.value);calcEstimation()" style="text-align:right"></td>`;
+      for(let i=0;i<n;i++) html += `<td><input type="text" inputmode="numeric" value="${row.amounts[i]||0}" oninput="this.value=this.value.replace(/[^0-9]/g,'');estFixedRows[${k}].amounts[${i}]=Number(this.value);calcEstimation()" style="text-align:right"></td>`;
       html += `<td></td><td id="est-total-fixedrow-${k}" style="text-align:right;font-weight:600;white-space:nowrap"></td></tr>`;
     });
     html += subRow('est-subtotal-hotel', '小計: ホテル');
@@ -4170,7 +4170,7 @@ function renderEstDays(){
       row.amounts = row.amounts||[];
       while(row.amounts.length<n) row.amounts.push(0);
       html += `<tr><td class="lbl" style="padding-left:16px"><input class="lbl-input" value="${escAttr(row.remark)}" placeholder="例: 通天閣" onchange="estAdmissionRows[${k}].remark=this.value"> <button class="btn" style="font-size:9px;color:var(--red)" onclick="removeEstAdmissionRow(${k})">✕</button></td>`;
-      for(let i=0;i<n;i++) html += `<td><input type="number" value="${row.amounts[i]||0}" oninput="estAdmissionRows[${k}].amounts[${i}]=Number(this.value);calcEstimation()" style="text-align:right"></td>`;
+      for(let i=0;i<n;i++) html += `<td><input type="text" inputmode="numeric" value="${row.amounts[i]||0}" oninput="this.value=this.value.replace(/[^0-9]/g,'');estAdmissionRows[${k}].amounts[${i}]=Number(this.value);calcEstimation()" style="text-align:right"></td>`;
       html += `<td></td><td id="est-total-admrow-${k}" style="text-align:right;font-weight:600;white-space:nowrap"></td></tr>`;
     });
     html += numRow('新幹線代（人数+1）','bullet_train');
