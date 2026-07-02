@@ -1000,6 +1000,7 @@ input[type=number]{-moz-appearance:textfield}
           <div class="card-title">取引先マスタ
             <span>
               <button class="btn admin-only" style="display:none" onclick="openDeletedPartnersModal()">🗑 削除済み一覧</button>
+              <button class="btn" style="background:#F0F6FF;border-color:#7CB3E8;color:#004A9F;font-size:11px" onclick="openMultiLocBatchDialog()">📋 複数拠点まとめて読み取り</button>
               <button class="btn btn-p" onclick="openPartnerEditor(null)">＋ 新規登録</button>
             </span>
           </div>
@@ -8073,6 +8074,255 @@ function copyMultiLocationResult(btn){
   }).catch(() => { alert('コピーに失敗しました。テキストを手動で選択してください。'); });
 }
 
+// ===================================================
+// 複数拠点一括登録フロー
+// ===================================================
+let multiLocBatch = null;
+
+function openMultiLocBatchDialog(){
+  document.getElementById('mlbd-step1').style.display = '';
+  document.getElementById('mlbd-step2').style.display = 'none';
+  document.getElementById('mlbd-status').textContent = '';
+  document.getElementById('multi-loc-batch-dialog').classList.add('open');
+}
+function closeMultiLocBatchDialog(){
+  document.getElementById('multi-loc-batch-dialog').classList.remove('open');
+}
+function mlbdGoStep2(){
+  document.getElementById('mlbd-step1').style.display = 'none';
+  document.getElementById('mlbd-step2').style.display = '';
+}
+function mlbdGoStep1(){
+  document.getElementById('mlbd-step1').style.display = '';
+  document.getElementById('mlbd-step2').style.display = 'none';
+}
+
+async function handleMultiLocBatchUpload(event){
+  const file = event.target.files[0];
+  event.target.value = '';
+  if(!file) return;
+  const category = document.getElementById('mlbd-category').value;
+  const statusEl = document.getElementById('mlbd-status');
+  statusEl.textContent = '読み取り中...';
+  statusEl.style.color = 'var(--text3)';
+
+  const compressImage = f => new Promise((resolve, reject) => {
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onload = () => { img.src = reader.result; };
+    reader.onerror = reject;
+    img.onload = () => {
+      const maxDim = 1800;
+      let w = img.width, h = img.height;
+      if(w > maxDim || h > maxDim){
+        if(w > h){ h = Math.round(h * maxDim / w); w = maxDim; }
+        else { w = Math.round(w * maxDim / h); h = maxDim; }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL('image/jpeg', 0.80).split(',')[1]);
+    };
+    img.onerror = reject;
+    reader.readAsDataURL(f);
+  });
+
+  try{
+    const base64 = await compressImage(file);
+    const response = await fetch('/api/extract-multi-locations', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ base64, mediaType: 'image/jpeg', returnJson: true })
+    });
+    if(!response.ok){ const e = await response.json(); throw new Error(e.error || 'サーバーエラー'); }
+    const data = await response.json();
+    const locations = data.locations;
+    if(!Array.isArray(locations) || locations.length === 0){
+      statusEl.textContent = '拠点情報を読み取れませんでした。画像を確認してください。';
+      statusEl.style.color = 'var(--red)';
+      return;
+    }
+    statusEl.textContent = `✓ ${locations.length}件を検出しました。1件ずつ確認して登録します。`;
+    statusEl.style.color = 'var(--green)';
+    closeMultiLocBatchDialog();
+    try{
+      const {data: freshPartners} = await sb.from('business_partners').select('*').order('company_name');
+      if(freshPartners) partnersCache = freshPartners;
+    }catch(e){ console.error(e); }
+    startMultiLocBatch(locations, category);
+  }catch(e){
+    statusEl.textContent = '読み取り失敗: ' + e.message;
+    statusEl.style.color = 'var(--red)';
+  }
+}
+
+function startMultiLocBatch(items, category){
+  multiLocBatch = { items, idx: 0, savedCount: 0, skippedCount: 0, category };
+  loadBatchItem(0);
+}
+
+function loadBatchItem(idx){
+  const batch = multiLocBatch;
+  const item = batch.items[idx];
+  currentPartnerEditId = null;
+  document.getElementById('partner-modal-title').textContent = '取引先登録（一括）';
+  document.getElementById('pt-category').value = batch.category;
+  document.getElementById('pt-company').value = item.company_name || '';
+  document.getElementById('pt-company-en').value = item.company_name_en || '';
+  document.getElementById('pt-branch').value = item.branch_name || '';
+  document.getElementById('pt-branch-en').value = item.branch_name_en || '';
+  document.getElementById('pt-contact').value = item.contact_person || '';
+  document.getElementById('pt-contact-en').value = '';
+  document.getElementById('pt-position').value = '';
+  document.getElementById('pt-position-en').value = '';
+  document.getElementById('pt-company-phone').value = item.company_phone || '';
+  document.getElementById('pt-phone').value = item.phone || '';
+  document.getElementById('pt-fax').value = item.fax || '';
+  document.getElementById('pt-email').value = item.email || '';
+  document.getElementById('pt-address').value = item.address || '';
+  document.getElementById('pt-address-en').value = '';
+  document.getElementById('pt-notes').value = item.notes || '';
+  document.getElementById('pt-msg').style.display = 'none';
+  document.getElementById('pt-batch-progress-text').textContent = `${idx + 1} / ${batch.items.length}件目`;
+  document.getElementById('pt-batch-bar').style.display = '';
+  document.getElementById('pt-save-bar').style.display = 'none';
+  document.getElementById('pt-card-upload-section').style.display = 'none';
+  document.getElementById('pt-multi-result-section').style.display = 'none';
+  document.getElementById('partner-modal').classList.add('open');
+  const sy = window.scrollY;
+  document.body.style.position = 'fixed';
+  document.body.style.top = `-${sy}px`;
+  document.body.style.width = '100%';
+  document.body.dataset.scrollY = sy;
+  const fa = document.getElementById('pt-form-area');
+  if(fa) setTimeout(() => { fa.scrollTop = 0; }, 50);
+}
+
+async function batchSaveAndNext(){
+  const fmtPhone = s => {
+    if(!s) return '';
+    let v = String(s).trim();
+    v = v.replace(/^\+?81[-\s]?/, '0');
+    v = v.replace(/^0+(\d)/, '0$1');
+    v = v.replace(/[()]/g, '');
+    v = v.replace(/[\s.]+/g, '-');
+    v = v.replace(/-+/g, '-');
+    v = v.replace(/^-|-$/g, '');
+    return v;
+  };
+  document.getElementById('pt-company-phone').value = fmtPhone(document.getElementById('pt-company-phone').value);
+  document.getElementById('pt-phone').value = fmtPhone(document.getElementById('pt-phone').value);
+  document.getElementById('pt-fax').value = fmtPhone(document.getElementById('pt-fax').value);
+
+  const company = document.getElementById('pt-company').value.trim();
+  const companyEn = document.getElementById('pt-company-en').value.trim();
+  if(!company && !companyEn){ alert('会社名を入力してください'); return; }
+
+  const norm     = s => (s||'').replace(/[^0-9a-zA-Z]/g,'').toLowerCase();
+  const normJa   = s => (s||'')
+    .replace(/株式会社|有限会社|合同会社|一般社団法人|公益社団法人|一般財団法人|公益財団法人/g,'')
+    .replace(/Co\.,?\s*Ltd\.?|Inc\.?|Corp\.?|Ltd\.?|LLC/gi,'')
+    .replace(/[　 \t\r\n\-・,，.。\/（）()]/g,'')
+    .toLowerCase();
+  const normPhone = s => { let v = norm(s); if(v.startsWith('81')) v = '0'+v.slice(2); return v; };
+  const newPhone   = normPhone(document.getElementById('pt-company-phone').value);
+  const newJa      = normJa(company);
+  const newEn      = norm(companyEn);
+  const newJaAlpha = norm(company);
+  const dup = partnersCache.find(p => {
+    const pPhone   = normPhone(p.company_phone||'');
+    const pJa      = normJa(p.company_name||'');
+    const pEn      = norm(p.company_name_en||'');
+    const pJaAlpha = norm(p.company_name||'');
+    const phoneMatch = newPhone && pPhone && newPhone === pPhone;
+    const cm = (a,b)=>!!(a && b && a.length>=2 && b.length>=2 && (a===b||a.includes(b)||b.includes(a)));
+    const companyMatch = cm(newJa,pJa)||cm(newEn,pEn)||cm(newJaAlpha,pEn)||cm(newEn,pJaAlpha);
+    return phoneMatch || companyMatch;
+  });
+  if(dup){
+    const skip = confirm(`類似する取引先「${dup.company_name}」が既に登録されています。\n\n「OK」: スキップして次へ\n「キャンセル」: このまま新規登録する`);
+    if(skip){ batchSkip(); return; }
+  }
+
+  const payload = {
+    category: document.getElementById('pt-category').value,
+    company_name: company || companyEn,
+    company_name_en: document.getElementById('pt-company-en').value.trim() || null,
+    branch_name: document.getElementById('pt-branch').value.trim() || null,
+    branch_name_en: document.getElementById('pt-branch-en').value.trim() || null,
+    contact_person: document.getElementById('pt-contact').value.trim() || null,
+    contact_person_en: document.getElementById('pt-contact-en').value.trim() || null,
+    position: document.getElementById('pt-position').value.trim() || null,
+    position_en: document.getElementById('pt-position-en').value.trim() || null,
+    company_phone: document.getElementById('pt-company-phone').value.trim() || null,
+    phone: document.getElementById('pt-phone').value.trim() || null,
+    fax: document.getElementById('pt-fax').value.trim() || null,
+    email: document.getElementById('pt-email').value.trim() || null,
+    address: document.getElementById('pt-address').value.trim() || null,
+    address_en: document.getElementById('pt-address-en').value.trim() || null,
+    notes: document.getElementById('pt-notes').value.trim() || null,
+    created_by: currentUser ? currentUser.email : null,
+    updated_at: new Date().toISOString()
+  };
+  const {error} = await sb.from('business_partners').insert(payload);
+  if(error){ alert('保存に失敗しました: ' + error.message); return; }
+  await logAction('取引先登録更新', payload.company_name);
+  multiLocBatch.savedCount++;
+  try{
+    const {data: freshPartners} = await sb.from('business_partners').select('*').order('company_name');
+    if(freshPartners) partnersCache = freshPartners;
+  }catch(e){ console.error(e); }
+  batchAdvance();
+}
+
+function batchSkip(){
+  multiLocBatch.skippedCount++;
+  batchAdvance();
+}
+
+function batchAdvance(){
+  multiLocBatch.idx++;
+  if(multiLocBatch.idx >= multiLocBatch.items.length){ batchDone(); return; }
+  loadBatchItem(multiLocBatch.idx);
+}
+
+function batchDone(){
+  const { savedCount, skippedCount } = multiLocBatch;
+  multiLocBatch = null;
+  document.getElementById('pt-batch-bar').style.display = 'none';
+  document.getElementById('pt-save-bar').style.display = '';
+  document.getElementById('pt-card-upload-section').style.display = '';
+  document.getElementById('partner-modal').classList.remove('open');
+  const sy = parseInt(document.body.dataset.scrollY || '0', 10);
+  document.body.style.position = '';
+  document.body.style.top = '';
+  document.body.style.width = '';
+  delete document.body.dataset.scrollY;
+  window.scrollTo(0, sy);
+  alert(`一括登録が完了しました。\n\n登録: ${savedCount}件\nスキップ: ${skippedCount}件`);
+  loadPartners();
+}
+
+function batchCancel(){
+  if(!confirm('一括登録を中止しますか？')) return;
+  const batch = multiLocBatch;
+  multiLocBatch = null;
+  document.getElementById('pt-batch-bar').style.display = 'none';
+  document.getElementById('pt-save-bar').style.display = '';
+  document.getElementById('pt-card-upload-section').style.display = '';
+  document.getElementById('partner-modal').classList.remove('open');
+  const sy = parseInt(document.body.dataset.scrollY || '0', 10);
+  document.body.style.position = '';
+  document.body.style.top = '';
+  document.body.style.width = '';
+  delete document.body.dataset.scrollY;
+  window.scrollTo(0, sy);
+  if(batch && (batch.savedCount > 0 || batch.skippedCount > 0)){
+    alert(`中止しました。\n\n登録済み: ${batch.savedCount}件\nスキップ: ${batch.skippedCount}件`);
+    loadPartners();
+  }
+}
+
 function openPartnerEditor(id){
   currentPartnerEditId = id;
   const p = id ? partnersCache.find(x=>x.id===id) : null;
@@ -8104,6 +8354,13 @@ function openPartnerEditor(id){
 }
 
 function closePartnerEditor(){
+  if(multiLocBatch){
+    if(!confirm('一括登録を中止しますか？')) return;
+    multiLocBatch = null;
+    document.getElementById('pt-batch-bar').style.display = 'none';
+    document.getElementById('pt-save-bar').style.display = '';
+    document.getElementById('pt-card-upload-section').style.display = '';
+  }
   document.getElementById('partner-modal').classList.remove('open');
   const sy = parseInt(document.body.dataset.scrollY || '0', 10);
   document.body.style.position = '';
@@ -8697,6 +8954,47 @@ function setDateInputValue(el, d){
 </div>
 
 <!-- 取引先編集モーダル -->
+<div class="modal-overlay" id="multi-loc-batch-dialog">
+  <div class="modal-box" style="max-width:420px">
+    <div class="modal-header">
+      <div class="modal-title">複数拠点まとめて読み取り</div>
+      <div class="modal-close" onclick="closeMultiLocBatchDialog()">✕</div>
+    </div>
+    <div id="mlbd-step1">
+      <div style="font-size:12px;color:var(--text2);margin-bottom:14px">読み取る拠点の種別を選択してください。選んだ種別は今回の全件に初期適用されます（後で1件ごとに変更も可能です）。</div>
+      <div class="form-field"><label>種別</label>
+        <select id="mlbd-category">
+          <option value="バス・ハイヤー等">バス・ハイヤー等</option>
+          <option value="レストラン">レストラン</option>
+          <option value="ホテル">ホテル</option>
+          <option value="その他">その他</option>
+        </select>
+      </div>
+      <div style="margin-top:14px;display:flex;gap:8px">
+        <button class="btn btn-p" onclick="mlbdGoStep2()">次へ →</button>
+        <button class="btn" onclick="closeMultiLocBatchDialog()">キャンセル</button>
+      </div>
+    </div>
+    <div id="mlbd-step2" style="display:none">
+      <div style="font-size:12px;color:var(--text2);margin-bottom:14px">複数拠点の連絡先一覧が載っている画像を選択してください。AIが拠点ごとに情報を読み取り、1件ずつ確認しながら登録できます。</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <label class="btn btn-p" style="cursor:pointer;display:inline-flex">
+          📷 カメラで撮影
+          <input type="file" accept="image/*" capture="environment" style="display:none" onchange="handleMultiLocBatchUpload(event)">
+        </label>
+        <label class="btn" style="cursor:pointer;display:inline-flex">
+          🖼 ギャラリーから選択
+          <input type="file" accept="image/*" style="display:none" onchange="handleMultiLocBatchUpload(event)">
+        </label>
+      </div>
+      <div id="mlbd-status" style="margin-top:10px;font-size:12px;color:var(--text3)"></div>
+      <div style="margin-top:14px">
+        <button class="btn" onclick="mlbdGoStep1()">← 戻る</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="partner-modal">
   <div class="modal-box">
     <div class="modal-header" style="align-items:flex-start">
@@ -8743,6 +9041,17 @@ function setDateInputValue(el, d){
       <div style="margin-top:6px;display:flex;gap:6px">
         <button class="btn btn-p" style="font-size:11px" onclick="copyMultiLocationResult(this)">📋 全文コピー</button>
         <button class="btn" style="font-size:11px" onclick="document.getElementById('pt-multi-result-section').style.display='none'">閉じる</button>
+      </div>
+    </div>
+    <div id="pt-batch-bar" style="display:none;background:#EBF4FF;border-radius:8px;padding:10px;margin-bottom:4px">
+      <div style="font-size:12px;font-weight:700;color:#004A9F;margin-bottom:8px">
+        <span id="pt-batch-progress-text">1 / 1件目</span>
+        <span style="font-size:11px;font-weight:400;color:var(--text3);margin-left:8px">一括登録モード</span>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-p" style="font-size:12px" onclick="batchSaveAndNext()">💾 保存して次へ</button>
+        <button class="btn" style="font-size:12px" onclick="batchSkip()">スキップ →</button>
+        <button class="btn" style="font-size:12px;color:var(--red)" onclick="batchCancel()">✕ 中止</button>
       </div>
     </div>
     <div id="pt-save-bar" style="display:flex;gap:8px;align-items:center">
