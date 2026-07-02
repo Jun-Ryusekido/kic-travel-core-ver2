@@ -1113,9 +1113,13 @@ input[type=number]{-moz-appearance:textfield}
 
     <div class="modal-section-title">基本情報</div>
     <div class="form-grid">
-      <div class="form-field"><label>REF#</label><input id="bd-ref-input" disabled></div>
-      <div class="form-field"><label>Agent</label><input id="bd-agent"></div>
-      <div class="form-field" style="grid-column:1/-1"><label>Tour Name</label><input id="bd-tour"></div>
+      <div class="form-field" style="grid-column:1/-1">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+          <div class="form-field" style="flex:0 1 120px"><label>REF#</label><input id="bd-ref-input" disabled></div>
+          <div class="form-field" style="flex:0 1 220px"><label>Agent</label><input id="bd-agent"></div>
+          <div class="form-field" style="flex:1 1 260px"><label>Tour Name</label><input id="bd-tour"></div>
+        </div>
+      </div>
       <div class="form-field" style="grid-column:1/-1">
         <div class="pax-row">
           <div class="form-field"><label>大人 (ADT)</label><input id="bd-pax-adt" type="number" min="0" oninput="updateBdPaxTotal()"></div>
@@ -1124,7 +1128,7 @@ input[type=number]{-moz-appearance:textfield}
           <div class="form-field"><label>合計 (TCP)</label><input id="bd-pax-total" type="number" disabled></div>
           <div class="form-field" style="flex:1 1 160px;max-width:200px">
             <label>手配状況 / Status</label>
-            <select id="bd-status">
+            <select id="bd-status" onchange="applyBdStatusColor()">
               <option value="open">Open / 新規</option>
               <option value="pending">Pending / 手配中</option>
               <option value="confirmed">Confirmed / 催行確定</option>
@@ -2101,6 +2105,24 @@ function updateBdPaxTotal(){
   document.getElementById('bd-pax-total').value = adt+chd+inf;
 }
 
+function applyBdStatusColor(){
+  const sel = document.getElementById('bd-status');
+  if(!sel) return;
+  const colors = {
+    open:       {bg:'#f0f0f0', fg:'#555555'},
+    pending:    {bg:'#fff3cd', fg:'#856404'},
+    confirmed:  {bg:'#d4edda', fg:'#155724'},
+    invoiced:   {bg:'#cce5ff', fg:'#004085'},
+    paid:       {bg:'#d1ecf1', fg:'#0c5460'},
+    settlement: {bg:'#e2d9f3', fg:'#6f42c1'},
+    closed:     {bg:'#e2e3e5', fg:'#383d41'},
+    cancelled:  {bg:'#f8d7da', fg:'#721c24'},
+  };
+  const c = colors[sel.value] || {bg:'', fg:''};
+  sel.style.background = c.bg;
+  sel.style.color = c.fg;
+}
+
 function updateDetailGrossPreview(){
   const sales = bdSalesTotal();
      const totalPaid = bdSalesItems.reduce((s,it)=>s+salesPaymentsTotal(it),0);
@@ -2764,6 +2786,7 @@ async function openBookingDetail(id){
   document.getElementById('bd-pax-inf').value = b.pax_infant||0;
   updateBdPaxTotal();
   document.getElementById('bd-status').value = b.status||'open';
+  applyBdStatusColor();
   setDateInputValue('bd-in', b.in_date);
   setDateInputValue('bd-out', b.out_date);
   document.getElementById('bd-staff').value = b.staff_in_charge||'';
@@ -6883,9 +6906,8 @@ async function extractHotelFromFileHmParsed(bodyData, statusEl){
 
 async function showHotelConfirmDialog(hotels){
   window._pendingHotels = hotels;
-  const bookings = allBookingsCache;
-  if(bookings.length===0){ allBookingsCache = await fetchAllBookings(); }
-const bookings2 = allBookingsCache;
+  allBookingsCache = await fetchAllBookings();
+  const bookings2 = allBookingsCache;
 
   const rows = hotels.map((h,i)=>{
     const nights = calcHotelNights(h.check_in||'', h.check_out||'');
