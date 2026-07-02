@@ -4569,7 +4569,7 @@ function renderEstDays(){
     html += secRow('セクション2: 食事（人数連動）');
     html += numRow('朝食代','breakfast_fee', BG_PAX, 'pax');
     html += numRow('昼食代','lunch_rate', BG_PAX, 'pax');
-    html += numRow('夕食代','dinner_rate', BG_PAX);
+    html += numRow('夕食代','dinner_rate', BG_PAX, 'pax');
     html += subRow('est-subtotal-food', '小計: 食事');
 
     // セクション3: バス代
@@ -4606,9 +4606,9 @@ function renderEstDays(){
       for(let i=0;i<n;i++) html += `<td><input value="${escAttr(row.contents[i]||'')}" placeholder="" style="font-size:9px;overflow:hidden;text-overflow:ellipsis" onchange="estAdmissionRows[${k}].contents[${i}]=this.value"></td>`;
       html += `<td></td><td></td></tr>`;
     });
-    html += numRow('新幹線代（人数+1）','bullet_train', BG_PAX);
+    html += numRow('新幹線代（人数+1）','bullet_train', BG_PAX, 'pax');
     html += subTextRow('新幹線 内容','bullet_train_remark','例: 東京→大阪');
-    html += numRow('Treat','treat', BG_PAX);
+    html += numRow('Treat','treat', BG_PAX, 'pax');
     html += subTextRow('Treat 内容','treat_remark');
     html += subRow('est-subtotal-pax', '小計: 人数連動費用');
   }
