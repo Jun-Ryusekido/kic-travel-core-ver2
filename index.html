@@ -4568,12 +4568,13 @@ function calcEstimation(){
   let results;
   if(currentEstType === 'fit'){
     const N = Number(document.getElementById('est-pax-count').value)||0;
-    const subtotal = perPaxSum*N + bulletSum*(N+1) + fixedSum;
+    const paxLinked = perPaxSum*N + bulletSum*(N+1);
+    const subtotal = paxLinked + fixedSum;
     const handling = subtotal * handlingPct/100;
     const insurance = insurancePerPax*N;
     const total = subtotal+handling+insurance;
     const perPax = N>0 ? total/N : 0;
-    results = [{label:'合計', pax:N, subtotal, handling, insurance, total, perPax}];
+    results = [{label:'合計', pax:N, subtotal, paxLinked, fixedTotal:fixedSum, handling, insurance, total, perPax}];
   } else {
     results = estPaxTiers.map(t=>{
       const N = Number(t.pax)||0;
@@ -4601,9 +4602,12 @@ function renderEstResults(results){
   if(currentEstType === 'fit'){
     const r = results[0];
     const td = (v) => `<td style="text-align:right;padding:4px 8px">${v}</td>`;
+    const tdSm = (v) => `<td style="text-align:right;padding:2px 8px;font-size:10px;color:#555">${v}</td>`;
     table.innerHTML = `<tbody>
       <tr><td style="font-weight:700;padding:4px 8px">人数</td>${td(r.pax+'名')}</tr>
       <tr><td style="font-weight:700;padding:4px 8px">Sub Total</td>${td(yen(r.subtotal))}</tr>
+      <tr><td style="padding:2px 8px 2px 16px;font-size:10px;color:#555">└ 人数連動費 合計（×${r.pax}名）</td>${tdSm(yen(r.paxLinked))}</tr>
+      <tr><td style="padding:2px 8px 4px 16px;font-size:10px;color:#555">└ 固定費 合計</td>${tdSm(yen(r.fixedTotal))}</tr>
       <tr><td style="font-weight:700;padding:4px 8px">ハンドリング料 (${handlingPct}%)</td>${td(yen(r.handling))}</tr>
       <tr><td style="font-weight:700;padding:4px 8px">保険料 (¥${insurancePerPax.toLocaleString()}/名)</td>${td(yen(r.insurance))}</tr>
       <tr style="background:#EAF3DE"><td style="font-weight:700;padding:4px 8px">Total</td>${td(yen(r.total))}</tr>
@@ -4763,7 +4767,10 @@ function previewEstimation(){
   const _p2 = n => String(n).padStart(2,'0');
   const printDate = `${_now.getFullYear()}/${_p2(_now.getMonth()+1)}/${_p2(_now.getDate())} ${_p2(_now.getHours())}:${_p2(_now.getMinutes())}`;
 
-  const dayHead = estDays.map((d,i)=>`<th style="border:1px solid #999;padding:4px;background:#f5f7fa;white-space:nowrap">DAY${i+1}</th>`).join('') + `<th style="border:1px solid #999;padding:4px;background:#f5f7fa;white-space:nowrap">合計</th>`;
+  const dayHead = estDays.map((d,i)=>`<th style="border:1px solid #999;padding:4px;background:#f5f7fa;white-space:nowrap">DAY${i+1}</th>`).join('') +
+    (currentEstType==='fit'
+      ? `<th style="border:1px solid #999;padding:4px;background:#f5f7fa;white-space:nowrap">合計<br><span style="font-size:8px;font-weight:400;color:#888">1名あたり</span></th>`
+      : `<th style="border:1px solid #999;padding:4px;background:#f5f7fa;white-space:nowrap">合計</th>`);
 
   const remarkHtml = (val, remark) => remark ? `${yen(val)}<br><span class="pv-remark" style="color:#888;font-size:8px">${escHtml(remark)}</span>` : yen(val);
 
@@ -4816,12 +4823,15 @@ function previewEstimation(){
 
   let resultTableHtml;
   if(currentEstType === 'fit'){
-    const r = results[0] || {pax:0, subtotal:0, handling:0, insurance:0, total:0, perPax:0};
+    const r = results[0] || {pax:0, subtotal:0, paxLinked:0, fixedTotal:0, handling:0, insurance:0, total:0, perPax:0};
     const td2 = (a, b) => `<tr><td style="border:1px solid #999;padding:5px;font-weight:700;background:#f5f7fa;white-space:nowrap">${a}</td><td style="border:1px solid #999;padding:5px;text-align:right">${b}</td></tr>`;
-    resultTableHtml = `<div class="tbl-wrap"><table style="width:260px;border-collapse:collapse;font-size:11px;margin-bottom:10px">
+    const td2sm = (a, b) => `<tr><td style="border:1px solid #999;padding:3px 5px 3px 14px;font-size:9px;color:#555;background:#f9f9f9">${a}</td><td style="border:1px solid #999;padding:3px 5px;text-align:right;font-size:9px;color:#555;background:#f9f9f9">${b}</td></tr>`;
+    resultTableHtml = `<div class="tbl-wrap"><table style="width:280px;border-collapse:collapse;font-size:11px;margin-bottom:10px">
       <tbody>
         ${td2('人数', r.pax+'名')}
         ${td2('Sub Total', yen(r.subtotal))}
+        ${td2sm('└ 人数連動費 合計（×'+r.pax+'名）', yen(r.paxLinked))}
+        ${td2sm('└ 固定費 合計', yen(r.fixedTotal))}
         ${td2(`ハンドリング料 (${handlingPct}%)`, yen(r.handling))}
         ${td2(`保険料 (¥${insurancePerPax.toLocaleString()}/名)`, yen(r.insurance))}
         <tr style="background:#EAF3DE"><td style="border:1px solid #999;padding:5px;font-weight:700;background:#EAF3DE;white-space:nowrap">Total</td><td style="border:1px solid #999;padding:5px;text-align:right;font-weight:700">${yen(r.total)}</td></tr>
