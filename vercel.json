@@ -9,6 +9,7 @@
   "routes": [
     { "src": "/api/generate-haichisho", "dest": "/api/generate-haichisho.js" },
     { "src": "/api/extract-card", "dest": "/api/extract-card.js" },
+    { "src": "/api/extract-multi-locations", "dest": "/api/extract-multi-locations.js" },
     { "src": "/api/extract-receipt", "dest": "/api/extract-receipt.js" },
     { "src": "/api/extract-bankbook", "dest": "/api/extract-bankbook.js" },
     { "src": "/guide_settlement_jp.pdf", "dest": "/public/guide_settlement_jp.pdf" },
