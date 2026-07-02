@@ -4606,7 +4606,7 @@ function renderEstResults(results){
     table.innerHTML = `<tbody>
       <tr><td style="font-weight:700;padding:4px 8px">人数</td>${td(r.pax+'名')}</tr>
       <tr><td style="font-weight:700;padding:4px 8px">Sub Total</td>${td(yen(r.subtotal))}</tr>
-      <tr><td style="padding:2px 8px 2px 16px;font-size:10px;color:#555">└ 人数連動費 合計（×${r.pax}名）</td>${tdSm(yen(r.paxLinked))}</tr>
+      <tr><td style="padding:2px 8px 2px 16px;font-size:10px;color:#555">└ 人数連動費 （${r.pax>0?yen(Math.round(r.paxLinked/r.pax)):'¥0'}）</td>${tdSm(yen(r.paxLinked))}</tr>
       <tr><td style="padding:2px 8px 4px 16px;font-size:10px;color:#555">└ 固定費 合計</td>${tdSm(yen(r.fixedTotal))}</tr>
       <tr><td style="font-weight:700;padding:4px 8px">ハンドリング料 (${handlingPct}%)</td>${td(yen(r.handling))}</tr>
       <tr><td style="font-weight:700;padding:4px 8px">保険料 (¥${insurancePerPax.toLocaleString()}/名)</td>${td(yen(r.insurance))}</tr>
@@ -4830,7 +4830,7 @@ function previewEstimation(){
       <tbody>
         ${td2('人数', r.pax+'名')}
         ${td2('Sub Total', yen(r.subtotal))}
-        ${td2sm('└ 人数連動費 合計（×'+r.pax+'名）', yen(r.paxLinked))}
+        ${td2sm('└ 人数連動費 （'+(r.pax>0?yen(Math.round(r.paxLinked/r.pax)):'¥0')+'）', yen(r.paxLinked))}
         ${td2sm('└ 固定費 合計', yen(r.fixedTotal))}
         ${td2(`ハンドリング料 (${handlingPct}%)`, yen(r.handling))}
         ${td2(`保険料 (¥${insurancePerPax.toLocaleString()}/名)`, yen(r.insurance))}
