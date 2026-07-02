@@ -646,7 +646,7 @@ input[type=number]{-moz-appearance:textfield}
               </select>
             </div>
             <div class="form-field"><label>ハンドリング料 (%)</label><input id="est-handling" type="number" step="0.1" oninput="calcEstimation()"></div>
-            <div class="form-field"><label>保険料(1名あたり)</label><input id="est-insurance" type="number" oninput="calcEstimation()"></div>
+            <div class="form-field"><label>保険料(1名あたり)</label><input id="est-insurance" type="text" inputmode="numeric" onfocus="amtFocus(this)" onblur="amtBlur(this)" oninput="calcEstimation()"></div>
           </div>
           <div class="form-field" style="margin-top:8px"><label>メモ</label><textarea id="est-notes" rows="2" placeholder="見積もりに関する補足事項"></textarea></div>
 
@@ -1981,6 +1981,12 @@ let estDays = [];
 let estFixedRows = [];
 let estAdmissionRows = [];
 let estPaxTiers = [];
+// 金額フォーマットユーティリティ
+function fmtAmt(n){ const v=Number(n)||0; return v?v.toLocaleString('ja-JP'):''; }
+function parseAmt(s){ return Number(String(s).replace(/,/g,''))||0; }
+function amtFocus(el){ const v=parseAmt(el.value); el.value=v?String(v):''; }
+function amtBlur(el){ const v=parseAmt(el.value); el.value=v?v.toLocaleString('ja-JP'):''; }
+
 const EST_DEFAULT_TIERS = [
   {label:'10～14', pax:12},
   {label:'15～19', pax:17},
@@ -4209,7 +4215,7 @@ async function openEstimationEditor(id){
   document.getElementById('est-status').value='draft';
   updateEstStatusColor(document.getElementById('est-status'));
   document.getElementById('est-handling').value=0;
-  document.getElementById('est-insurance').value=400;
+  document.getElementById('est-insurance').value=fmtAmt(400);
 
   if(id){
     const {data: est} = await sb.from('estimations').select('*').eq('id', id).maybeSingle();
@@ -4220,7 +4226,7 @@ async function openEstimationEditor(id){
       document.getElementById('est-status').value = est.status||'draft';
       updateEstStatusColor(document.getElementById('est-status'));
       document.getElementById('est-handling').value = est.handling_fee_pct||0;
-      document.getElementById('est-insurance').value = est.insurance_per_pax||400;
+      document.getElementById('est-insurance').value = fmtAmt(est.insurance_per_pax||400);
       document.getElementById('est-notes').value = est.notes||'';
       currentEstType = est.type || 'group';
       document.getElementById('est-customer-name').value = est.customer_name||'';
@@ -4327,7 +4333,7 @@ function renderEstDays(){
   const numRow = (label, key, bg, type) => {
     const b = bg||'';
     let r = `<tr${b?` style="background:${b}"`:''}><td class="lbl"${b?` style="background:${b}"`:''}>${label}${_badge(type)}</td>`;
-    for(let i=0;i<n;i++) r += `<td><input type="text" inputmode="numeric" value="${estDays[i][key]||0}" oninput="this.value=this.value.replace(/[^0-9]/g,'');estDays[${i}].${key}=Number(this.value);calcEstimation()" style="text-align:right"></td>`;
+    for(let i=0;i<n;i++) r += `<td><input type="text" inputmode="numeric" value="${fmtAmt(estDays[i][key])}" onfocus="amtFocus(this)" onblur="amtBlur(this)" oninput="estDays[${i}].${key}=parseAmt(this.value);calcEstimation()" style="text-align:right"></td>`;
     r += `<td></td><td id="est-total-${key}" style="text-align:right;font-weight:600;white-space:nowrap"></td>`;
     return r + '</tr>';
   };
@@ -4357,7 +4363,7 @@ function renderEstDays(){
       row.amounts = row.amounts || [];
       while(row.amounts.length < n) row.amounts.push(0);
       r += `<tr style="background:${BG_FIX}"><td class="lbl" style="padding-left:16px;background:${BG_FIX}"><input class="lbl-input" value="${escAttr(row.label)}" placeholder="${ph}" onchange="estFixedRows[${gk}].label=this.value"> <button class="btn" style="font-size:9px;color:var(--red)" onclick="removeEstFixedRow(${gk})">✕</button></td>`;
-      for(let i=0;i<n;i++) r += `<td style="background:${BG_FIX}"><input type="text" inputmode="numeric" value="${row.amounts[i]||0}" oninput="this.value=this.value.replace(/[^0-9]/g,'');estFixedRows[${gk}].amounts[${i}]=Number(this.value);calcEstimation()" style="text-align:right"></td>`;
+      for(let i=0;i<n;i++) r += `<td style="background:${BG_FIX}"><input type="text" inputmode="numeric" value="${fmtAmt(row.amounts[i])}" onfocus="amtFocus(this)" onblur="amtBlur(this)" oninput="estFixedRows[${gk}].amounts[${i}]=parseAmt(this.value);calcEstimation()" style="text-align:right"></td>`;
       r += `<td style="background:${BG_FIX}"></td><td id="est-total-fixedrow-${gk}" style="text-align:right;font-weight:600;white-space:nowrap;background:${BG_FIX}"></td></tr>`;
     });
     return r;
@@ -4408,7 +4414,7 @@ function renderEstDays(){
       while(row.amounts.length<n) row.amounts.push(0);
       while(row.contents.length<n) row.contents.push('');
       html += `<tr style="background:${BG_PAX}"><td class="lbl-sub" style="padding-left:16px;background:${BG_PAX}"><input value="${escAttr(row.remark)}" placeholder="例: 通天閣入場料" style="font-size:9px;color:var(--text3);font-weight:400;border:none;background:transparent;min-width:0;padding:0 2px;overflow:hidden;text-overflow:ellipsis" onchange="estAdmissionRows[${k}].remark=this.value"> <button class="btn" style="font-size:9px;color:var(--red)" onclick="removeEstAdmissionRow(${k})">✕</button></td>`;
-      for(let i=0;i<n;i++) html += `<td style="background:${BG_PAX}"><input type="text" inputmode="numeric" value="${row.amounts[i]||0}" oninput="this.value=this.value.replace(/[^0-9]/g,'');estAdmissionRows[${k}].amounts[${i}]=Number(this.value);calcEstimation()" style="text-align:right"></td>`;
+      for(let i=0;i<n;i++) html += `<td style="background:${BG_PAX}"><input type="text" inputmode="numeric" value="${fmtAmt(row.amounts[i])}" onfocus="amtFocus(this)" onblur="amtBlur(this)" oninput="estAdmissionRows[${k}].amounts[${i}]=parseAmt(this.value);calcEstimation()" style="text-align:right"></td>`;
       html += `<td style="background:${BG_PAX}"></td><td id="est-total-admrow-${k}" style="text-align:right;font-weight:600;white-space:nowrap;background:${BG_PAX}"></td></tr>`;
       html += `<tr><td class="lbl-sub" style="padding-left:16px">　入場料 内容</td>`;
       for(let i=0;i<n;i++) html += `<td><input value="${escAttr(row.contents[i]||'')}" placeholder="" style="font-size:9px;overflow:hidden;text-overflow:ellipsis" onchange="estAdmissionRows[${k}].contents[${i}]=this.value"></td>`;
@@ -4525,7 +4531,7 @@ function updateEstTotals(){
 // ---- 計算エンジン ----
 function calcEstimation(){
   const handlingPct = Number(document.getElementById('est-handling').value)||0;
-  const insurancePerPax = Number(document.getElementById('est-insurance').value)||0;
+  const insurancePerPax = parseAmt(document.getElementById('est-insurance').value);
 
   let perPaxSum=0, bulletSum=0, fixedSum=0;
   estDays.forEach(d=>{
@@ -4563,7 +4569,7 @@ function renderEstResults(results){
   const selVal = document.getElementById('est-selected-tier').value;
   const selIdx = selVal==='' ? -1 : Number(selVal);
   const handlingPct = Number(document.getElementById('est-handling').value)||0;
-  const insurancePerPax = Number(document.getElementById('est-insurance').value)||0;
+  const insurancePerPax = parseAmt(document.getElementById('est-insurance').value);
 
   const head = `<tr><th></th>${results.map((r,i)=>`<th style="white-space:nowrap;text-align:right${i===selIdx?';background:#EAF3DE':''}">${escHtml(r.label)} (${r.pax}名)</th>`).join('')}</tr>`;
   const row = (label, key, fmt) => `<tr><td style="font-weight:700">${label}</td>${results.map((r,i)=>`<td style="text-align:right${i===selIdx?';background:#EAF3DE':''}">${fmt(r[key])}</td>`).join('')}</tr>`;
@@ -4588,7 +4594,7 @@ async function saveEstimation(){
       created_date: document.getElementById('est-date').value || null,
       status: document.getElementById('est-status').value,
       handling_fee_pct: Number(document.getElementById('est-handling').value)||0,
-      insurance_per_pax: Number(document.getElementById('est-insurance').value)||0,
+      insurance_per_pax: parseAmt(document.getElementById('est-insurance').value),
       pax_tiers: estPaxTiers,
       notes: document.getElementById('est-notes').value,
       type: currentEstType,
@@ -4694,7 +4700,7 @@ function previewEstimation(){
   const notes = document.getElementById('est-notes').value;
   const customerName = document.getElementById('est-customer-name').value;
   const handlingPct = Number(document.getElementById('est-handling').value)||0;
-  const insurancePerPax = Number(document.getElementById('est-insurance').value)||0;
+  const insurancePerPax = parseAmt(document.getElementById('est-insurance').value);
 
   const _now = new Date();
   const _p2 = n => String(n).padStart(2,'0');
@@ -4827,7 +4833,7 @@ async function openEstReflectModal(){
   // 計算結果 参照テーブル
   const results = calcEstimation();
   const handlingPct = Number(document.getElementById('est-handling').value)||0;
-  const insurancePerPax = Number(document.getElementById('est-insurance').value)||0;
+  const insurancePerPax = parseAmt(document.getElementById('est-insurance').value);
   const calcDiv = document.getElementById('est-reflect-calc-ref');
   if(results.length){
     const thS = 'border:1px solid var(--border);padding:2px 5px;background:var(--card);white-space:nowrap;font-size:9px';
