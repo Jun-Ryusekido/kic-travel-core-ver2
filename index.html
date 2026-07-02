@@ -6918,11 +6918,19 @@ async function showHotelConfirmDialog(hotels){
   const rows = hotels.map((h,i)=>{
     const nights = calcHotelNights(h.check_in||'', h.check_out||'');
     const amount = Number(h.unit_price||0)*Number(h.rooms||1)*nights;
-    // REF#で自動マッチ（#を除去した数値で比較）
+    // REF#で自動マッチ（2段階）
+    // 1) 最初の連続数字列で比較: "#1154"→"1154"、"KIC1154_J1"→"1154" どちらもマッチ
+    //    ※replace(/[^0-9]/g,'')は"KIC1154_J1"を"11541"にしてしまうため使用不可
+    // 2) tour_nameとの直接比較: AIが"KIC1154_J1"をそのままh.ref_noに入れる場合に対応
+    const firstNum = s => { const m=(s||'').match(/(\d+)/); return m?m[1]:''; };
     const matchedBooking = h.ref_no ? sortedBookings.find(b=>{
-      const bRef = (b.ref_no||'').replace(/^#/,'').replace(/[^0-9]/g,'');
-      const hRef = (h.ref_no||'').replace(/^#/,'').replace(/[^0-9]/g,'');
-      return bRef && hRef && bRef===hRef;
+      const bNum = firstNum(b.ref_no);
+      const hNum = firstNum(h.ref_no);
+      if(bNum && hNum && bNum===hNum) return true;
+      const norm = s => (s||'').trim().toUpperCase();
+      const hNorm = norm(h.ref_no);
+      const tNorm = norm(b.tour_name);
+      return hNorm && tNorm && (hNorm===tNorm || tNorm.includes(hNorm) || hNorm.includes(tNorm));
     }) : null;
     hotels[i]._bookingId = matchedBooking ? matchedBooking.id : null;
     const inputVal = matchedBooking ? escHtml(matchedBooking.ref_no||'(REF#なし)') : '';
