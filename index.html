@@ -605,11 +605,11 @@ input[type=number]{-moz-appearance:textfield}
       <div id="pg-estimation" class="page" style="display:none">
         <div class="card" id="est-list-card">
           <div class="card-title">見積もり一覧
-            <span><button class="btn btn-p" onclick="openEstimationEditor(null)">＋ 新規見積もり作成</button></span>
+            <span><button class="btn btn-p" onclick="openEstTypeModal()">＋ 新規見積もり作成</button></span>
           </div>
           <div class="tbl-wrap"><table>
-            <thead><tr><th>タイトル</th><th>ツアーコード</th><th>作成日</th><th>Status</th><th style="width:140px"></th></tr></thead>
-            <tbody id="est-tbody"><tr><td colspan="5" class="empty">読み込み中...</td></tr></tbody>
+            <thead><tr><th style="width:70px">種別</th><th>タイトル</th><th>ツアーコード</th><th>作成日</th><th>Status</th><th style="width:140px"></th></tr></thead>
+            <tbody id="est-tbody"><tr><td colspan="6" class="empty">読み込み中...</td></tr></tbody>
           </table></div>
         </div>
 
@@ -635,27 +635,47 @@ input[type=number]{-moz-appearance:textfield}
                 <option value="approved">Approved（承認済）</option>
               </select>
             </div>
-            <div class="form-field"><label>ハンドリング料 (%)</label><input id="est-handling" type="number" step="0.1" oninput="calcEstimation()"></div>
-            <div class="form-field"><label>保険料(1名あたり)</label><input id="est-insurance" type="number" oninput="calcEstimation()"></div>
+            <div class="form-field"><label>ハンドリング料 (%)</label><input id="est-handling" type="number" step="0.1" oninput="currentEstType==='fit'?calcFitTotals():calcEstimation()"></div>
+            <div class="form-field"><label>保険料(1名あたり)</label><input id="est-insurance" type="number" oninput="currentEstType==='fit'?calcFitTotals():calcEstimation()"></div>
           </div>
           <div class="form-field" style="margin-top:8px"><label>メモ</label><textarea id="est-notes" rows="2" placeholder="見積もりに関する補足事項"></textarea></div>
 
-          <div class="modal-section-title">PAX人数帯</div>
-          <div id="est-tiers"></div>
-          <button class="btn" style="font-size:10px" onclick="addEstTier()">＋ 人数帯を追加</button>
-
-          <div class="modal-section-title">日程別コスト</div>
-          <div class="est-table-wrap"><table class="est-table" id="est-days-table"></table></div>
-
-          <div class="modal-section-title">計算結果</div>
-          <div class="tbl-wrap"><table id="est-results-table"></table></div>
-
-          <select id="est-selected-tier" style="display:none" onchange="calcEstimation()"></select>
-          <div class="modal-section-title">ツアーへの反映</div>
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <button class="btn btn-p" onclick="openEstReflectModal()">🔗 ツアーに反映</button>
-            <span class="msg-ok" id="est-convert-msg">✓ 反映しました</span>
+          <div id="est-fit-basic" style="display:none">
+            <div class="form-grid" style="margin-top:8px">
+              <div class="form-field"><label>お客様名</label><input id="est-customer-name" placeholder="例: 山田 太郎 様"></div>
+              <div class="form-field"><label>人数</label><input id="est-pax-count" type="number" min="1" placeholder="例: 2" oninput="calcFitTotals()"></div>
+            </div>
           </div>
+
+          <div id="est-group-section">
+            <div class="modal-section-title">PAX人数帯</div>
+            <div id="est-tiers"></div>
+            <button class="btn" style="font-size:10px" onclick="addEstTier()">＋ 人数帯を追加</button>
+
+            <div class="modal-section-title">日程別コスト</div>
+            <div class="est-table-wrap"><table class="est-table" id="est-days-table"></table></div>
+
+            <div class="modal-section-title">計算結果</div>
+            <div class="tbl-wrap"><table id="est-results-table"></table></div>
+
+            <select id="est-selected-tier" style="display:none" onchange="calcEstimation()"></select>
+            <div class="modal-section-title">ツアーへの反映</div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <button class="btn btn-p" onclick="openEstReflectModal()">🔗 ツアーに反映</button>
+              <span class="msg-ok" id="est-convert-msg">✓ 反映しました</span>
+            </div>
+          </div><!-- /#est-group-section -->
+
+          <div id="est-fit-section" style="display:none">
+            <div class="modal-section-title">日程・旅程</div>
+            <div id="est-fit-days"></div>
+            <button class="btn" style="font-size:10px;margin-bottom:12px" onclick="addEstDay()">＋ DAY追加</button>
+            <div class="modal-section-title">費用明細</div>
+            <div class="tbl-wrap"><table id="est-fit-items-table" style="width:100%;border-collapse:collapse;font-size:11px"></table></div>
+            <button class="btn" style="font-size:10px;margin-top:4px" onclick="addFitItem()">＋ 行追加</button>
+            <div class="modal-section-title">合計</div>
+            <div id="est-fit-totals" style="font-size:12px;padding:8px 0"></div>
+          </div><!-- /#est-fit-section -->
         </div>
 
       </div>
@@ -1460,6 +1480,25 @@ input[type=number]{-moz-appearance:textfield}
   </div>
 </div>
 
+<!-- ===== Est種別選択モーダル ===== -->
+<div class="modal-overlay" id="est-type-modal" style="display:none">
+  <div class="modal-box" style="max-width:360px">
+    <div class="modal-header">新規見積もり — 種別選択 <button class="modal-close" onclick="closeEstTypeModal()">✕</button></div>
+    <div style="padding:20px 24px 24px;display:flex;gap:14px;justify-content:center">
+      <button onclick="createEstimationWithType('group')"
+        style="width:130px;height:90px;font-size:14px;font-weight:700;border-radius:8px;border:2px solid #004A9F;background:#EEF5FF;color:#004A9F;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px">
+        <span>グループ</span>
+        <span style="font-size:10px;font-weight:400;color:#555">団体旅行向け</span>
+      </button>
+      <button onclick="createEstimationWithType('fit')"
+        style="width:130px;height:90px;font-size:14px;font-weight:700;border-radius:8px;border:2px solid #155724;background:#F0FAF1;color:#155724;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px">
+        <span>FIT</span>
+        <span style="font-size:10px;font-weight:400;color:#555">個人・少人数旅行</span>
+      </button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== Est→Booking Reflect Modal ===== -->
 <div class="modal-overlay" id="est-reflect-modal">
   <div class="modal-box" style="max-width:680px">
@@ -1940,10 +1979,12 @@ function backToSelectCategory(id){
 // ===== 見積もり (Estimation) =====
 let estimationsCache = [];
 let currentEstimationId = null;
+let currentEstType = 'group';
 let estDays = [];
 let estFixedRows = [];
 let estAdmissionRows = [];
 let estPaxTiers = [];
+let estFitItems = [];
 const EST_DEFAULT_TIERS = [
   {label:'10～14', pax:12},
   {label:'15～19', pax:17},
@@ -4108,10 +4149,14 @@ function estStatusPill(status){
   const [cls,label] = map[status] || ['s-closed', status||'Draft'];
   return `<span class="pill ${cls}">${label}</span>`;
 }
+function estTypePill(type){
+  if(type==='fit') return '<span class="pill" style="background:#D4EDDA;color:#155724;font-weight:700">FIT</span>';
+  return '<span class="pill" style="background:#CCE5FF;color:#004085;font-weight:700">グループ</span>';
+}
 
 async function loadEstimations(){
   const tbody = document.getElementById('est-tbody');
-  tbody.innerHTML = '<tr><td colspan="5" class="empty">読み込み中...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="6" class="empty">読み込み中...</td></tr>';
   const {data} = await sb.from('estimations').select('*').order('created_at',{ascending:false});
   estimationsCache = data||[];
   renderEstimationsList();
@@ -4120,11 +4165,12 @@ async function loadEstimations(){
 function renderEstimationsList(){
   const tbody = document.getElementById('est-tbody');
   if(estimationsCache.length===0){
-    tbody.innerHTML = '<tr><td colspan="5" class="empty">見積もりはありません</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="empty">見積もりはありません</td></tr>';
     return;
   }
   tbody.innerHTML = estimationsCache.map(e=>`
     <tr>
+      <td>${estTypePill(e.type||'group')}</td>
       <td class="lnk" onclick="openEstimationEditor('${e.id}')">${escHtml(e.title||'(無題)')}</td>
       <td>${escHtml(e.tour_code||'')}</td>
       <td>${e.created_date||''}</td>
@@ -4138,6 +4184,7 @@ function renderEstimationsList(){
 
 async function deleteEstimation(id){
   if(!confirm('この見積もりを削除しますか?')) return;
+  await sb.from('estimation_fit_items').delete().eq('estimation_id', id);
   await sb.from('estimation_fixed_rows').delete().eq('estimation_id', id);
   await sb.from('estimation_days').delete().eq('estimation_id', id);
   await sb.from('estimations').delete().eq('id', id);
@@ -4155,10 +4202,14 @@ async function openEstimationEditor(id){
   estFixedRows = [];
   estAdmissionRows = [];
   estPaxTiers = JSON.parse(JSON.stringify(EST_DEFAULT_TIERS));
+  estFitItems = [];
+  currentEstType = 'group';
 
   document.getElementById('est-title').value='';
   document.getElementById('est-tour-code').value='';
   document.getElementById('est-notes').value='';
+  document.getElementById('est-customer-name').value='';
+  document.getElementById('est-pax-count').value='';
   setDateInputValue('est-date', new Date().toISOString().slice(0,10));
   document.getElementById('est-status').value='draft';
   updateEstStatusColor(document.getElementById('est-status'));
@@ -4176,38 +4227,241 @@ async function openEstimationEditor(id){
       document.getElementById('est-handling').value = est.handling_fee_pct||0;
       document.getElementById('est-insurance').value = est.insurance_per_pax||400;
       document.getElementById('est-notes').value = est.notes||'';
+      currentEstType = est.type || 'group';
+      document.getElementById('est-customer-name').value = est.customer_name||'';
+      document.getElementById('est-pax-count').value = est.pax_count != null ? est.pax_count : '';
       if(est.pax_tiers && est.pax_tiers.length) estPaxTiers = JSON.parse(JSON.stringify(est.pax_tiers));
 
       const {data: days} = await sb.from('estimation_days').select('*').eq('estimation_id', id).order('sort_order');
       estDays = (days||[]).map(d=>({...d}));
 
-      const {data: frows} = await sb.from('estimation_fixed_rows').select('*').eq('estimation_id', id).order('sort_order');
-      const _admPrefix = '@admission:';
-      estFixedRows = (frows||[]).filter(r=>!(r.label||'').startsWith(_admPrefix)).map(r=>({label:r.label||'', amounts:(r.amounts||[]).map(a=>Number(a)||0)}));
-      estAdmissionRows = (frows||[]).filter(r=>(r.label||'').startsWith(_admPrefix)).map(r=>{
-        const raw = (r.label||'').slice(_admPrefix.length);
-        const sep = raw.indexOf('@@');
-        const remark = sep>=0 ? raw.slice(0,sep) : raw;
-        let contents = [];
-        if(sep>=0){ try{ contents = JSON.parse(raw.slice(sep+2)); }catch(e){} }
-        return {remark, contents, amounts:(r.amounts||[]).map(a=>Number(a)||0)};
-      });
-      // 旧データ移行: admission_feeが日程に残っている場合は1行として取り込む
-      if(estAdmissionRows.length===0 && estDays.some(d=>Number(d.admission_fee)||0)){
-        estAdmissionRows = [{remark: estDays.find(d=>d.admission_remark)?.admission_remark||'', contents: estDays.map(()=>''), amounts: estDays.map(d=>Number(d.admission_fee)||0)}];
+      if(currentEstType === 'fit'){
+        const {data: fitItems} = await sb.from('estimation_fit_items').select('*').eq('estimation_id', id).order('sort_order');
+        estFitItems = (fitItems||[]).map(r=>({...r}));
+      } else {
+        const {data: frows} = await sb.from('estimation_fixed_rows').select('*').eq('estimation_id', id).order('sort_order');
+        const _admPrefix = '@admission:';
+        estFixedRows = (frows||[]).filter(r=>!(r.label||'').startsWith(_admPrefix)).map(r=>({label:r.label||'', amounts:(r.amounts||[]).map(a=>Number(a)||0)}));
+        estAdmissionRows = (frows||[]).filter(r=>(r.label||'').startsWith(_admPrefix)).map(r=>{
+          const raw = (r.label||'').slice(_admPrefix.length);
+          const sep = raw.indexOf('@@');
+          const remark = sep>=0 ? raw.slice(0,sep) : raw;
+          let contents = [];
+          if(sep>=0){ try{ contents = JSON.parse(raw.slice(sep+2)); }catch(e){} }
+          return {remark, contents, amounts:(r.amounts||[]).map(a=>Number(a)||0)};
+        });
+        // 旧データ移行: admission_feeが日程に残っている場合は1行として取り込む
+        if(estAdmissionRows.length===0 && estDays.some(d=>Number(d.admission_fee)||0)){
+          estAdmissionRows = [{remark: estDays.find(d=>d.admission_remark)?.admission_remark||'', contents: estDays.map(()=>''), amounts: estDays.map(d=>Number(d.admission_fee)||0)}];
+        }
       }
     }
   }
 
-  renderEstTiers();
-  renderEstDays();
-  calcEstimation();
+  updateEstEditorLayout();
+  if(currentEstType === 'fit'){
+    renderFitDays();
+    renderFitItems();
+    calcFitTotals();
+  } else {
+    renderEstTiers();
+    renderEstDays();
+    calcEstimation();
+  }
 }
 
 function closeEstimationEditor(){
   document.getElementById('est-editor-card').style.display='none';
   document.getElementById('est-list-card').style.display='';
   currentEstimationId = null;
+  currentEstType = 'group';
+  estFitItems = [];
+}
+
+// ---- 種別選択モーダル ----
+function openEstTypeModal(){
+  document.getElementById('est-type-modal').style.display='flex';
+}
+function closeEstTypeModal(){
+  document.getElementById('est-type-modal').style.display='none';
+}
+function createEstimationWithType(type){
+  currentEstType = type;
+  closeEstTypeModal();
+  openEstimationEditor(null);
+}
+
+// ---- グループ/FIT レイアウト切替 ----
+function updateEstEditorLayout(){
+  const isFit = currentEstType === 'fit';
+  document.getElementById('est-fit-basic').style.display = isFit ? '' : 'none';
+  document.getElementById('est-group-section').style.display = isFit ? 'none' : '';
+  document.getElementById('est-fit-section').style.display = isFit ? '' : 'none';
+}
+
+// ---- FIT 日程・旅程 ----
+function renderFitDays(){
+  const container = document.getElementById('est-fit-days');
+  if(!container) return;
+  if(estDays.length === 0){
+    container.innerHTML = '<div style="color:var(--text3);font-size:11px;padding:8px 0">DAYがありません。「＋DAY追加」で追加してください。</div>';
+    return;
+  }
+  container.innerHTML = estDays.map((d,i)=>`
+    <div style="border:1px solid var(--border);border-radius:4px;padding:8px;margin-bottom:8px;background:var(--card)">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <strong style="font-size:12px;color:var(--blue)">DAY${i+1}</strong>
+        <input type="date" value="${d.day_date||''}" min="1900-01-01" max="9999-12-31"
+          style="font-size:11px;padding:3px 6px"
+          onchange="estDays[${i}].day_date=this.value;${i===0?'autoFillEstDayDates();renderFitDays()':''}"
+          onfocus="this._fit_entering=true" onblur="this._fit_entering=false">
+        <button class="btn" style="font-size:10px;padding:2px 7px;margin-left:auto" onclick="removeFitDay(${i})">✕ 削除</button>
+      </div>
+      <textarea style="width:100%;font-size:11px;padding:4px 6px;min-height:80px;box-sizing:border-box;resize:vertical"
+        placeholder="9:00 ホテル発&#10;10:00 ○○観光&#10;12:00 昼食&#10;..."
+        oninput="estDays[${i}].itinerary_text=this.value">${escHtml(d.itinerary_text||'')}</textarea>
+    </div>`).join('');
+}
+function removeFitDay(i){
+  estDays.splice(i,1);
+  renderFitDays();
+}
+
+// ---- FIT 費用明細 ----
+function addFitItem(){
+  estFitItems.push({item_name:'', unit_price:0, quantity:1});
+  renderFitItems();
+  calcFitTotals();
+}
+function removeFitItem(i){
+  estFitItems.splice(i,1);
+  renderFitItems();
+  calcFitTotals();
+}
+function renderFitItems(){
+  const table = document.getElementById('est-fit-items-table');
+  if(!table) return;
+  const thS = 'border:1px solid var(--border);padding:4px 6px;background:var(--bg);font-size:11px';
+  const tdS = 'border:1px solid var(--border);padding:2px 4px';
+  let html = `<thead><tr>
+    <th style="${thS};text-align:left">項目名</th>
+    <th style="${thS};text-align:right;width:100px">単価</th>
+    <th style="${thS};text-align:right;width:70px">数量</th>
+    <th style="${thS};text-align:right;width:90px">小計</th>
+    <th style="${thS};width:30px"></th>
+  </tr></thead><tbody>`;
+  estFitItems.forEach((it,i)=>{
+    const subtotal = (Number(it.unit_price)||0)*(Number(it.quantity)||0);
+    html += `<tr>
+      <td style="${tdS}"><input style="width:100%;font-size:11px;border:none;background:transparent" value="${escAttr(it.item_name||'')}" oninput="estFitItems[${i}].item_name=this.value"></td>
+      <td style="${tdS};text-align:right"><input type="number" style="width:90px;font-size:11px;text-align:right;border:none;background:transparent" value="${it.unit_price||0}" oninput="estFitItems[${i}].unit_price=Number(this.value)||0;renderFitItems();calcFitTotals()"></td>
+      <td style="${tdS};text-align:right"><input type="number" style="width:60px;font-size:11px;text-align:right;border:none;background:transparent" value="${it.quantity||1}" oninput="estFitItems[${i}].quantity=Number(this.value)||0;renderFitItems();calcFitTotals()"></td>
+      <td style="${tdS};text-align:right;font-size:11px;white-space:nowrap">${yen(subtotal)}</td>
+      <td style="${tdS};text-align:center"><button class="btn" style="font-size:10px;padding:2px 6px" onclick="removeFitItem(${i})">✕</button></td>
+    </tr>`;
+  });
+  if(estFitItems.length === 0){
+    html += `<tr><td colspan="5" style="${tdS};text-align:center;color:var(--text3);padding:8px">明細がありません。「＋行追加」で追加してください。</td></tr>`;
+  }
+  html += '</tbody>';
+  table.innerHTML = html;
+}
+function calcFitTotals(){
+  const itemsSubtotal = estFitItems.reduce((s,it)=>s+(Number(it.unit_price)||0)*(Number(it.quantity)||0),0);
+  const handlingPct = Number(document.getElementById('est-handling').value)||0;
+  const insurancePerPax = Number(document.getElementById('est-insurance').value)||0;
+  const paxCount = Number(document.getElementById('est-pax-count').value)||0;
+  const handling = Math.round(itemsSubtotal * handlingPct / 100);
+  const insurance = insurancePerPax * paxCount;
+  const total = itemsSubtotal + handling + insurance;
+  const perPax = paxCount > 0 ? Math.round(total / paxCount) : null;
+  const div = document.getElementById('est-fit-totals');
+  if(!div) return;
+  const row = (lbl,val,bold)=>`<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--border);font-size:12px${bold?';font-weight:700;color:var(--blue);font-size:13px':''}"><span>${lbl}</span><span>${yen(val)}</span></div>`;
+  div.innerHTML = row('費用明細合計', itemsSubtotal)
+    + row(`ハンドリング料 (${handlingPct}%)`, handling)
+    + row(`保険料合計 (¥${insurancePerPax.toLocaleString()} × ${paxCount}名)`, insurance)
+    + row('Total', total, true)
+    + `<div style="display:flex;justify-content:space-between;padding:2px 0;font-size:11px;color:var(--text2)"><span>Total / Pax</span><span>${perPax !== null ? yen(perPax) : '-'}</span></div>`;
+}
+
+// ---- FIT プレビュー ----
+function previewFitEstimation(){
+  const title = document.getElementById('est-title').value;
+  const tourCode = document.getElementById('est-tour-code').value;
+  const notes = document.getElementById('est-notes').value;
+  const customerName = document.getElementById('est-customer-name').value;
+  const paxCount = Number(document.getElementById('est-pax-count').value)||0;
+  const handlingPct = Number(document.getElementById('est-handling').value)||0;
+  const insurancePerPax = Number(document.getElementById('est-insurance').value)||0;
+  const _now = new Date();
+  const _p2 = n=>String(n).padStart(2,'0');
+  const printDate = `${_now.getFullYear()}/${_p2(_now.getMonth()+1)}/${_p2(_now.getDate())} ${_p2(_now.getHours())}:${_p2(_now.getMinutes())}`;
+  const itemsSubtotal = estFitItems.reduce((s,it)=>s+(Number(it.unit_price)||0)*(Number(it.quantity)||0),0);
+  const handling = Math.round(itemsSubtotal * handlingPct / 100);
+  const insurance = insurancePerPax * paxCount;
+  const total = itemsSubtotal + handling + insurance;
+  const perPax = paxCount > 0 ? Math.round(total / paxCount) : null;
+
+  const itineraryHtml = estDays.length ? estDays.map((d,i)=>`
+    <div style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid #eee">
+      <div style="font-weight:700;font-size:12px;color:#004A9F;margin-bottom:4px">DAY${i+1}${d.day_date?' ('+d.day_date+')':''}</div>
+      <div style="font-size:11px;white-space:pre-wrap;color:#333;line-height:1.6">${escHtml(d.itinerary_text||'（旅程未入力）')}</div>
+    </div>`).join('') : '';
+
+  const itemsHtml = estFitItems.length ? estFitItems.map(it=>{
+    const st=(Number(it.unit_price)||0)*(Number(it.quantity)||0);
+    return `<tr><td style="border:1px solid #ccc;padding:4px 6px;font-size:11px">${escHtml(it.item_name||'')}</td><td style="border:1px solid #ccc;padding:4px 6px;text-align:right;font-size:11px;white-space:nowrap">${yen(Number(it.unit_price)||0)}</td><td style="border:1px solid #ccc;padding:4px 6px;text-align:right;font-size:11px">${Number(it.quantity)||0}</td><td style="border:1px solid #ccc;padding:4px 6px;text-align:right;font-size:11px;white-space:nowrap">${yen(st)}</td></tr>`;
+  }).join('') : '<tr><td colspan="4" style="border:1px solid #ccc;padding:6px;text-align:center;color:#888;font-size:11px">明細なし</td></tr>';
+
+  const html = `<div style="background:#fff;border:1px solid #ddd;width:100%;max-width:680px;margin:0 auto;padding:16px;font-size:11px;color:#222;box-sizing:border-box">
+    <div style="position:relative;text-align:center;margin-bottom:10px">
+      <div style="font-size:16px;font-weight:700;letter-spacing:2px;color:#004A9F">FIT見積書</div>
+      <div style="position:absolute;right:0;top:0;font-size:9px;color:#888">印刷日: ${printDate}</div>
+    </div>
+    ${customerName?`<div style="font-size:13px;font-weight:700;margin-bottom:4px">${escHtml(customerName)} 様</div>`:''}
+    <div style="margin-bottom:10px;font-size:12px"><strong>${escHtml(title)}</strong>${tourCode?' / '+escHtml(tourCode):''}</div>
+    ${itineraryHtml?`<div style="font-size:12px;font-weight:700;color:#333;margin:12px 0 6px;border-bottom:2px solid #004A9F;padding-bottom:2px">旅程</div>${itineraryHtml}`:''}
+    <div style="font-size:12px;font-weight:700;color:#333;margin:12px 0 6px;border-bottom:2px solid #004A9F;padding-bottom:2px">費用明細</div>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:10px">
+      <thead><tr>
+        <th style="border:1px solid #ccc;padding:4px 6px;background:#f5f7fa;font-size:11px;text-align:left">項目名</th>
+        <th style="border:1px solid #ccc;padding:4px 6px;background:#f5f7fa;font-size:11px;text-align:right;width:90px">単価</th>
+        <th style="border:1px solid #ccc;padding:4px 6px;background:#f5f7fa;font-size:11px;text-align:right;width:60px">数量</th>
+        <th style="border:1px solid #ccc;padding:4px 6px;background:#f5f7fa;font-size:11px;text-align:right;width:90px">小計</th>
+      </tr></thead>
+      <tbody>${itemsHtml}</tbody>
+    </table>
+    <table style="width:260px;border-collapse:collapse;margin-left:auto;font-size:11px;margin-bottom:10px">
+      <tbody>
+        <tr><td style="padding:3px 6px;color:#555">費用明細合計</td><td style="padding:3px 6px;text-align:right;font-weight:600">${yen(itemsSubtotal)}</td></tr>
+        <tr><td style="padding:3px 6px;color:#555">ハンドリング料 (${handlingPct}%)</td><td style="padding:3px 6px;text-align:right">${yen(handling)}</td></tr>
+        <tr><td style="padding:3px 6px;color:#555">保険料合計 (¥${insurancePerPax.toLocaleString()}×${paxCount}名)</td><td style="padding:3px 6px;text-align:right">${yen(insurance)}</td></tr>
+        <tr style="border-top:2px solid #004A9F"><td style="padding:5px 6px;font-weight:700;font-size:13px;color:#004A9F">Total</td><td style="padding:5px 6px;text-align:right;font-weight:700;font-size:13px;color:#004A9F">${yen(total)}</td></tr>
+        <tr><td style="padding:2px 6px;color:#777;font-size:10px">Total / Pax</td><td style="padding:2px 6px;text-align:right;color:#777;font-size:10px">${perPax!==null?yen(perPax):'-'}</td></tr>
+      </tbody>
+    </table>
+    ${notes?`<div style="font-size:10px;color:#444;white-space:pre-wrap;border-top:1px solid #ddd;padding-top:8px">${escHtml(notes)}</div>`:''}
+    <div style="text-align:right;font-weight:700;margin-top:10px;color:#004A9F">KIC TRAVEL</div>
+  </div>`;
+
+  const winHead = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+*{box-sizing:border-box}body{margin:0;font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Meiryo",sans-serif;color:#222;background:#eee}
+.pv-hd{position:sticky;top:0;z-index:100;background:#fff;border-bottom:2px solid #004A9F;padding:8px 16px;display:flex;align-items:center;justify-content:space-between}
+.pv-hd-title{font-size:15px;font-weight:700;color:#004A9F}.pv-btn{padding:5px 14px;font-size:12px;border-radius:4px;border:1px solid #aaa;cursor:pointer;background:#fff;margin-left:6px}
+.pv-btn-p{background:#004A9F;color:#fff;border-color:#004A9F}.pv-body{padding:12px}
+@page{size:A4 portrait;margin:10mm}
+@media print{.pv-hd{display:none}body{background:#fff}table{border-collapse:collapse !important}
+td,th{border:1px solid #ccc !important;padding:3px 5px !important;font-size:10px !important;line-height:1.4 !important;vertical-align:top !important}
+.pv-body{padding:0}.pv-body>div{padding:6px !important;border:none !important}}
+</style></head><body>
+<div class="pv-hd"><span class="pv-hd-title">FIT見積書 プレビュー</span><span>
+  <button class="pv-btn pv-btn-p" onclick="window.print()">🖨 印刷 / PDF保存</button>
+  <button class="pv-btn" onclick="window.close()">閉じる</button>
+</span></div><div class="pv-body">`;
+  const w = window.open('','_blank');
+  w.document.write(winHead + html + '</div></body></html>');
+  w.document.close();
 }
 
 // ---- PAX人数帯 ----
@@ -4365,9 +4619,14 @@ function renderEstDays(){
 
 function addEstDay(){
   estDays.push(JSON.parse(JSON.stringify(EST_DAY_BLANK)));
-  estFixedRows.forEach(r=>{ r.amounts = r.amounts||[]; r.amounts.push(0); });
-  estAdmissionRows.forEach(r=>{ r.amounts = r.amounts||[]; r.amounts.push(0); r.contents = r.contents||[]; r.contents.push(''); });
-  renderEstDays(); autoFillEstDayDates(); calcEstimation();
+  if(currentEstType === 'fit'){
+    autoFillEstDayDates();
+    renderFitDays();
+  } else {
+    estFixedRows.forEach(r=>{ r.amounts = r.amounts||[]; r.amounts.push(0); });
+    estAdmissionRows.forEach(r=>{ r.amounts = r.amounts||[]; r.amounts.push(0); r.contents = r.contents||[]; r.contents.push(''); });
+    renderEstDays(); autoFillEstDayDates(); calcEstimation();
+  }
 }
 function removeEstDay(i){
   if(!confirm('この日程を削除しますか?')) return;
@@ -4529,6 +4788,9 @@ async function saveEstimation(){
       insurance_per_pax: Number(document.getElementById('est-insurance').value)||0,
       pax_tiers: estPaxTiers,
       notes: document.getElementById('est-notes').value,
+      type: currentEstType,
+      customer_name: currentEstType === 'fit' ? (document.getElementById('est-customer-name').value || null) : null,
+      pax_count: currentEstType === 'fit' ? (Number(document.getElementById('est-pax-count').value) || null) : null,
       updated_at: new Date().toISOString()
     };
 
@@ -4568,6 +4830,7 @@ async function saveEstimation(){
       const dayRows = estDays.map((d,i)=>({
         estimation_id: estId, day_number: i+1,
         ...(d.day_date ? {day_date: d.day_date} : {}),
+        itinerary_text: d.itinerary_text || null,
         hotel_name: d.hotel_name||'',
         twin_rate: Number(d.twin_rate)||0, breakfast: d.breakfast||'', breakfast_fee: Number(d.breakfast_fee)||0,
         lunch_rate: Number(d.lunch_rate)||0, dinner_rate: Number(d.dinner_rate)||0,
@@ -4611,6 +4874,27 @@ async function saveEstimation(){
       }
     }
 
+    // FIT費用明細の保存
+    if(currentEstType === 'fit'){
+      const {data: fitBackup} = await sb.from('estimation_fit_items').select('*').eq('estimation_id', estId);
+      const {error: delFitErr} = await sb.from('estimation_fit_items').delete().eq('estimation_id', estId);
+      if(delFitErr){ alert('費用明細の削除に失敗しました:\n'+delFitErr.message); return; }
+      if(estFitItems.length > 0){
+        const fitRows = estFitItems.map((it,k)=>({
+          estimation_id: estId, item_name: it.item_name||'',
+          unit_price: Number(it.unit_price)||0, quantity: Number(it.quantity)||1,
+          sort_order: k
+        }));
+        const {error: fitErr} = await sb.from('estimation_fit_items').insert(fitRows);
+        if(fitErr){
+          await sb.from('estimation_fit_items').delete().eq('estimation_id', estId);
+          if(fitBackup && fitBackup.length) await sb.from('estimation_fit_items').insert(fitBackup.map(({id,created_at,...r})=>r));
+          alert('費用明細の保存に失敗しました:\n'+fitErr.message);
+          return;
+        }
+      }
+    }
+
     await logAction('見積もり保存', payload.title || estId);
     await loadEstimations();
     const msg = document.getElementById('est-msg');
@@ -4624,6 +4908,7 @@ async function saveEstimation(){
 
 // ---- プレビュー ----
 function previewEstimation(){
+  if(currentEstType === 'fit'){ previewFitEstimation(); return; }
   const results = calcEstimation();
   const title = document.getElementById('est-title').value;
   const tourCode = document.getElementById('est-tour-code').value;
