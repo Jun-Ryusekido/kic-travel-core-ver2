@@ -824,7 +824,6 @@ input[type=number]{-moz-appearance:textfield}
         <div class="card">
           <div class="card-title">ホテル管理
             <span>
-              <button class="btn" onclick="openHmMailModal()">📧 メール取込</button>
               <button class="btn btn-p" onclick="addHotelBookingRow()">＋ 新規追加</button>
             </span>
           </div>
@@ -897,22 +896,7 @@ input[type=number]{-moz-appearance:textfield}
             <div id="hm-tour-body" style="overflow-x:auto"></div>
           </div>
         </div>
-        <!-- メール取込モーダル -->
-        <div id="hm-mail-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;align-items:center;justify-content:center;padding:20px">
-          <div style="background:#fff;border-radius:12px;padding:20px;width:100%;max-width:640px;max-height:90vh;overflow-y:auto">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-              <div style="font-size:14px;font-weight:700">📧 メール取込</div>
-              <button class="btn" onclick="document.getElementById('hm-mail-modal').style.display='none'">✕ 閉じる</button>
-            </div>
-            <div style="font-size:11px;color:var(--text3);margin-bottom:8px">ホテル確認メールの本文を貼り付けてください。AIがホテル名・日付・料金・確認番号などを自動抽出します。</div>
-            <textarea id="hm-mail-modal-text" rows="10" style="width:100%;padding:8px;border-radius:8px;border:1px solid var(--border);font-size:12px;font-family:inherit;resize:vertical" placeholder="メール本文をここに貼り付け..."></textarea>
-            <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-              <button class="btn btn-p" onclick="extractHotelFromMailModal()">🤖 AIで読み取る</button>
-              <button class="btn" onclick="document.getElementById('hm-mail-modal').style.display='none'">キャンセル</button>
-              <span id="hm-mail-modal-status" style="font-size:11px;color:var(--text3)"></span>
-            </div>
-          </div>
-        </div>
+
       </div>
       <!-- 新幹線手配 -->
       <div id="pg-bullet-trains" class="page" style="display:none">
@@ -7755,37 +7739,6 @@ async function importBtCsv(){
 
 function addHotelBookingRow(){
   showHotelConfirmDialog([{hotel_name:'',check_in:'',check_out:'',room_type:'',rooms:1,unit_price:0,confirmation_no:'',status:'回答待ち'}]);
-}
-
-function openHmMailModal(){
-  const m = document.getElementById('hm-mail-modal');
-  m.style.display = 'flex';
-  document.getElementById('hm-mail-modal-text').value = '';
-  document.getElementById('hm-mail-modal-status').textContent = '';
-}
-
-async function extractHotelFromMailModal(){
-  const text = document.getElementById('hm-mail-modal-text').value.trim();
-  if(!text){ alert('テキストを入力してください'); return; }
-  const statusEl = document.getElementById('hm-mail-modal-status');
-  statusEl.textContent = '読み取り中...';
-  statusEl.style.color = 'var(--text3)';
-  try{
-    const response = await fetch('/api/extract-card',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hotelText:text})});
-    if(!response.ok){ const e = await response.json(); throw new Error(e.error||'サーバーエラー'); }
-    const data = await response.json();
-    const textBlock = data.content.find(b=>b.type==='text');
-    const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
-    const parsed = JSON.parse(cleaned);
-    const hotels = Array.isArray(parsed) ? parsed : [parsed];
-    statusEl.textContent = '✓ '+hotels.length+'件を読み取りました';
-    statusEl.style.color = 'var(--green)';
-    document.getElementById('hm-mail-modal').style.display = 'none';
-    showHotelConfirmDialog(hotels);
-  }catch(e){
-    statusEl.textContent = '読み取り失敗: '+e.message;
-    statusEl.style.color = 'var(--red)';
-  }
 }
 
 function switchHmTab(tab){
