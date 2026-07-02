@@ -405,6 +405,10 @@ input[type=number]{-moz-appearance:textfield}
             <div id="db-bankbook-results" style="margin-top:12px"></div>
           </div>
         </div>
+        <div class="card" id="db-arrival-alert-card">
+          <div class="card-title">到着日アラート <span style="font-size:10px;font-weight:400;color:var(--text3)">今後60日以内の進行中予約</span></div>
+          <div id="db-arrival-alert"><span style="font-size:12px;color:var(--text3)">読み込み中...</span></div>
+        </div>
         <div class="card">
           <div class="card-title">検索・絞り込み</div>
           <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr 1fr">
@@ -1822,6 +1826,7 @@ async function loadBookingListGeneric(prefix){
   const isAdmin = currentUser && currentUser.role==='admin';
   if(fromEl && !fromEl.value && !isAdmin) fromEl.value = TEMP_DEFAULT_FROM;
   filterBookingListGeneric(prefix);
+  if(prefix === 'db') renderDbArrivalAlert();
 }
 
 function resetBookingFilter(prefix){
@@ -1832,6 +1837,68 @@ function resetBookingFilter(prefix){
   document.getElementById(prefix+'-status').value='';
   listState[prefix].page = 1;
   filterBookingListGeneric(prefix);
+}
+
+function renderDbArrivalAlert(){
+  const el = document.getElementById('db-arrival-alert');
+  if(!el) return;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const todayStr = today.toISOString().slice(0,10);
+  const inDays = dateStr => Math.floor((new Date(dateStr) - today) / 86400000);
+
+  const active = allBookingsCache.filter(b => {
+    if(!b.in_date || b.in_date < todayStr) return false;
+    if(b.status === 'cancelled' || b.status === 'closed') return false;
+    return inDays(b.in_date) <= 60;
+  });
+
+  const tiers = [
+    { max:8,  minEx:null, label:'🔴 8日以内',  bg:'#fde8ea', fg:'#c0392b', border:'#f5c6cb' },
+    { max:15, minEx:8,    label:'🟠 15日以内', bg:'#fff0e6', fg:'#d35400', border:'#ffd9b3' },
+    { max:30, minEx:15,   label:'🟡 30日以内', bg:'#fffae6', fg:'#b8860b', border:'#ffe08a' },
+    { max:60, minEx:30,   label:'🔵 60日以内', bg:'#e8f5ff', fg:'#0a7fad', border:'#b8e4f9' },
+  ];
+
+  const buckets = tiers.map(t => ({
+    ...t,
+    items: active
+      .filter(b => { const d = inDays(b.in_date); return d <= t.max && (t.minEx === null || d > t.minEx); })
+      .sort((a,b) => (a.in_date||'').localeCompare(b.in_date||''))
+  }));
+
+  const hasAny = buckets.some(b => b.items.length > 0);
+  if(!hasAny){
+    el.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:4px 0">到着が60日以内に迫っている進行中の予約はありません。</div>';
+    return;
+  }
+
+  el.innerHTML = buckets.filter(b => b.items.length > 0).map(b => {
+    const rows = b.items.map(bk => {
+      const d = inDays(bk.in_date);
+      return `<tr onclick="openBookingDetail('${bk.id}')" style="cursor:pointer" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''">
+        <td class="lnk" style="padding:5px 8px;white-space:nowrap">${escHtml(bk.ref_no||'')}</td>
+        <td style="padding:5px 8px">${escHtml(bk.tour_name||'')}</td>
+        <td style="padding:5px 8px;color:var(--text3)">${escHtml(bk.agent_name||'')}</td>
+        <td style="padding:5px 8px;white-space:nowrap">${bk.in_date||''}</td>
+        <td style="padding:5px 8px;text-align:center;font-weight:700;color:${b.fg}">${d}日</td>
+      </tr>`;
+    }).join('');
+    return `<div style="margin-bottom:14px">
+      <div style="display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:20px;font-size:11px;font-weight:700;background:${b.bg};color:${b.fg};border:1.5px solid ${b.border};margin-bottom:8px">
+        ${b.label} <span style="background:rgba(0,0,0,.09);padding:1px 7px;border-radius:10px">${b.items.length}件</span>
+      </div>
+      <div class="tbl-wrap"><table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="background:var(--bg)">
+          <th style="padding:4px 8px;text-align:left;white-space:nowrap;width:11%">REF#</th>
+          <th style="padding:4px 8px;text-align:left">ツアー名</th>
+          <th style="padding:4px 8px;text-align:left">Agent</th>
+          <th style="padding:4px 8px;text-align:left;white-space:nowrap;width:11%">到着日</th>
+          <th style="padding:4px 8px;text-align:center;white-space:nowrap;width:7%">残り</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+    </div>`;
+  }).join('');
 }
 
 // 全角英数記号を半角に変換（検索用）
