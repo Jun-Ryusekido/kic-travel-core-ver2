@@ -4438,7 +4438,7 @@ function renderEstDays(){
       for(let i=0;i<n;i++) html += `<td><input value="${escAttr(row.contents[i]||'')}" placeholder="" style="font-size:9px;overflow:hidden;text-overflow:ellipsis" onchange="estAdmissionRows[${k}].contents[${i}]=this.value"></td>`;
       html += `<td></td><td></td></tr>`;
     });
-    html += numRow('新幹線代（人数+1）','bullet_train', BG_PAX, 'pax');
+    html += numRow(currentEstType==='fit'?'新幹線代':'新幹線代（人数+1）','bullet_train', BG_PAX, 'pax');
     html += subTextRow('新幹線 内容','bullet_train_remark','例: 東京→大阪');
     html += numRow('Treat','treat', BG_PAX, 'pax');
     html += subTextRow('Treat 内容','treat_remark');
@@ -4568,7 +4568,7 @@ function calcEstimation(){
   let results;
   if(currentEstType === 'fit'){
     const N = Number(document.getElementById('est-pax-count').value)||0;
-    const paxLinked = perPaxSum*N + bulletSum*(N+1);
+    const paxLinked = perPaxSum*N + bulletSum*N;
     const subtotal = paxLinked + fixedSum;
     const handling = subtotal * handlingPct/100;
     const insurance = insurancePerPax*N;
@@ -4817,7 +4817,7 @@ function previewEstimation(){
     _pvRow('ガイド食事代',   d=>yen(d.guide_meal),                                    'guide_meal',     _PV_FIX),
     _pvFixedRows('guide'),
     admissionPreviewRows,
-    _pvRow('新幹線代(+1名)', d=>remarkHtml(d.bullet_train, d.bullet_train_remark),    'bullet_train',   _PV_PAX),
+    _pvRow(currentEstType==='fit'?'新幹線代':'新幹線代(+1名)', d=>remarkHtml(d.bullet_train, d.bullet_train_remark),    'bullet_train',   _PV_PAX),
     _pvRow('Treat',          d=>remarkHtml(d.treat, d.treat_remark),                   'treat',          _PV_PAX),
   ].join('');
 
