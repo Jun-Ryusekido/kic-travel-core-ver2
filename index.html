@@ -282,7 +282,7 @@ input[type=number]{-moz-appearance:textfield}
     flex-direction: column;
     padding: 0;
     overflow: hidden;        /* ボックス自体はスクロールしない */
-    max-height: 100vh;
+    height: 100vh;           /* flex-grow が機能するために明示的な高さが必要 */
   }
   #partner-modal .modal-header {
     order: 1;
