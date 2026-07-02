@@ -654,24 +654,33 @@ input[type=number]{-moz-appearance:textfield}
             <div class="form-field"><label>お客様名</label><input id="est-customer-name" placeholder="例: 山田 太郎 様（FITの場合）"></div>
           </div>
 
-          <div id="est-group-section">
+          <!-- PAX人数帯（グループのみ表示） -->
+          <div id="est-pax-tiers-section">
             <div class="modal-section-title">PAX人数帯</div>
             <div id="est-tiers"></div>
             <button class="btn" style="font-size:10px" onclick="addEstTier()">＋ 人数帯を追加</button>
+          </div>
 
-            <div class="modal-section-title">日程別コスト</div>
-            <div class="est-table-wrap"><table class="est-table" id="est-days-table"></table></div>
-
-            <div class="modal-section-title">計算結果</div>
-            <div class="tbl-wrap"><table id="est-results-table"></table></div>
-
-            <select id="est-selected-tier" style="display:none" onchange="calcEstimation()"></select>
-            <div class="modal-section-title">ツアーへの反映</div>
-            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-              <button class="btn btn-p" onclick="openEstReflectModal()">🔗 ツアーに反映</button>
-              <span class="msg-ok" id="est-convert-msg">✓ 反映しました</span>
+          <!-- 人数固定入力（FITのみ表示） -->
+          <div id="est-fit-pax-section" style="display:none">
+            <div class="modal-section-title">人数</div>
+            <div class="form-grid">
+              <div class="form-field"><label>人数</label><input id="est-pax-count" type="number" min="1" placeholder="例: 2" oninput="calcEstimation()"></div>
             </div>
-          </div><!-- /#est-group-section -->
+          </div>
+
+          <div class="modal-section-title">日程別コスト</div>
+          <div class="est-table-wrap"><table class="est-table" id="est-days-table"></table></div>
+
+          <div class="modal-section-title">計算結果</div>
+          <div class="tbl-wrap"><table id="est-results-table"></table></div>
+
+          <select id="est-selected-tier" style="display:none" onchange="calcEstimation()"></select>
+          <div class="modal-section-title">ツアーへの反映</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button class="btn btn-p" onclick="openEstReflectModal()">🔗 ツアーに反映</button>
+            <span class="msg-ok" id="est-convert-msg">✓ 反映しました</span>
+          </div>
 
         </div>
 
@@ -4216,6 +4225,7 @@ async function openEstimationEditor(id){
   updateEstStatusColor(document.getElementById('est-status'));
   document.getElementById('est-handling').value=0;
   document.getElementById('est-insurance').value=fmtAmt(400);
+  document.getElementById('est-pax-count').value='';
 
   if(id){
     const {data: est} = await sb.from('estimations').select('*').eq('id', id).maybeSingle();
@@ -4230,6 +4240,7 @@ async function openEstimationEditor(id){
       document.getElementById('est-notes').value = est.notes||'';
       currentEstType = est.type || 'group';
       document.getElementById('est-customer-name').value = est.customer_name||'';
+      if(est.pax_count != null) document.getElementById('est-pax-count').value = est.pax_count;
       if(est.pax_tiers && est.pax_tiers.length) estPaxTiers = JSON.parse(JSON.stringify(est.pax_tiers));
 
       const {data: days} = await sb.from('estimation_days').select('*').eq('estimation_id', id).order('sort_order');
@@ -4253,6 +4264,7 @@ async function openEstimationEditor(id){
     }
   }
 
+  updateEstTypeUI();
   renderEstTiers();
   renderEstDays();
   calcEstimation();
@@ -4276,6 +4288,12 @@ function createEstimationWithType(type){
   currentEstType = type;
   closeEstTypeModal();
   openEstimationEditor(null);
+}
+
+function updateEstTypeUI(){
+  const isFit = currentEstType === 'fit';
+  document.getElementById('est-pax-tiers-section').style.display = isFit ? 'none' : '';
+  document.getElementById('est-fit-pax-section').style.display = isFit ? '' : 'none';
 }
 
 // ---- PAX人数帯 ----
@@ -4547,15 +4565,26 @@ function calcEstimation(){
     (row.amounts||[]).forEach(a=>{ perPaxSum += Number(a)||0; });
   });
 
-  const results = estPaxTiers.map(t=>{
-    const N = Number(t.pax)||0;
+  let results;
+  if(currentEstType === 'fit'){
+    const N = Number(document.getElementById('est-pax-count').value)||0;
     const subtotal = perPaxSum*N + bulletSum*(N+1) + fixedSum;
     const handling = subtotal * handlingPct/100;
     const insurance = insurancePerPax*N;
     const total = subtotal+handling+insurance;
     const perPax = N>0 ? total/N : 0;
-    return {label:t.label, pax:N, subtotal, handling, insurance, total, perPax};
-  });
+    results = [{label:'合計', pax:N, subtotal, handling, insurance, total, perPax}];
+  } else {
+    results = estPaxTiers.map(t=>{
+      const N = Number(t.pax)||0;
+      const subtotal = perPaxSum*N + bulletSum*(N+1) + fixedSum;
+      const handling = subtotal * handlingPct/100;
+      const insurance = insurancePerPax*N;
+      const total = subtotal+handling+insurance;
+      const perPax = N>0 ? total/N : 0;
+      return {label:t.label, pax:N, subtotal, handling, insurance, total, perPax};
+    });
+  }
 
   renderEstResults(results);
   updateEstTotals();
@@ -4566,11 +4595,25 @@ function renderEstResults(results){
   const table = document.getElementById('est-results-table');
   if(!table) return;
   if(results.length===0){ table.innerHTML=''; return; }
-  const selVal = document.getElementById('est-selected-tier').value;
-  const selIdx = selVal==='' ? -1 : Number(selVal);
   const handlingPct = Number(document.getElementById('est-handling').value)||0;
   const insurancePerPax = parseAmt(document.getElementById('est-insurance').value);
 
+  if(currentEstType === 'fit'){
+    const r = results[0];
+    const td = (v) => `<td style="text-align:right;padding:4px 8px">${v}</td>`;
+    table.innerHTML = `<tbody>
+      <tr><td style="font-weight:700;padding:4px 8px">人数</td>${td(r.pax+'名')}</tr>
+      <tr><td style="font-weight:700;padding:4px 8px">Sub Total</td>${td(yen(r.subtotal))}</tr>
+      <tr><td style="font-weight:700;padding:4px 8px">ハンドリング料 (${handlingPct}%)</td>${td(yen(r.handling))}</tr>
+      <tr><td style="font-weight:700;padding:4px 8px">保険料 (¥${insurancePerPax.toLocaleString()}/名)</td>${td(yen(r.insurance))}</tr>
+      <tr style="background:#EAF3DE"><td style="font-weight:700;padding:4px 8px">Total</td>${td(yen(r.total))}</tr>
+      <tr style="background:#EAF3DE"><td style="font-weight:700;padding:4px 8px">Total / Pax</td>${td(yen(Math.round(r.perPax)))}</tr>
+    </tbody>`;
+    return;
+  }
+
+  const selVal = document.getElementById('est-selected-tier').value;
+  const selIdx = selVal==='' ? -1 : Number(selVal);
   const head = `<tr><th></th>${results.map((r,i)=>`<th style="white-space:nowrap;text-align:right${i===selIdx?';background:#EAF3DE':''}">${escHtml(r.label)} (${r.pax}名)</th>`).join('')}</tr>`;
   const row = (label, key, fmt) => `<tr><td style="font-weight:700">${label}</td>${results.map((r,i)=>`<td style="text-align:right${i===selIdx?';background:#EAF3DE':''}">${fmt(r[key])}</td>`).join('')}</tr>`;
 
@@ -4608,7 +4651,8 @@ async function saveEstimation(){
       status: document.getElementById('est-status').value,
       handling_fee_pct: Number(document.getElementById('est-handling').value)||0,
       insurance_per_pax: parseAmt(document.getElementById('est-insurance').value),
-      pax_tiers: estPaxTiers,
+      pax_tiers: currentEstType === 'fit' ? null : estPaxTiers,
+      pax_count: currentEstType === 'fit' ? (Number(document.getElementById('est-pax-count').value)||null) : null,
       notes: document.getElementById('est-notes').value,
       type: currentEstType,
       customer_name: document.getElementById('est-customer-name').value || null,
@@ -4770,10 +4814,34 @@ function previewEstimation(){
     _pvRow('Treat',          d=>remarkHtml(d.treat, d.treat_remark),                   'treat',          _PV_PAX),
   ].join('');
 
-  const selVal = document.getElementById('est-selected-tier').value;
-  const selIdx = selVal==='' ? -1 : Number(selVal);
-  const resHead = `<tr><th style="border:1px solid #999;padding:5px;background:#f5f7fa"></th>${results.map((r,i)=>`<th style="border:1px solid #999;padding:5px;white-space:nowrap;background:#f5f7fa${i===selIdx?';background:#EAF3DE':''}">${escHtml(r.label)} (${r.pax}名)</th>`).join('')}</tr>`;
-  const resRow = (label, key, fmt) => `<tr><td style="border:1px solid #999;padding:5px;font-weight:700;background:#f5f7fa">${label}</td>${results.map((r,i)=>`<td style="border:1px solid #999;padding:5px;text-align:right${i===selIdx?';background:#EAF3DE':''}">${fmt(r[key])}</td>`).join('')}</tr>`;
+  let resultTableHtml;
+  if(currentEstType === 'fit'){
+    const r = results[0] || {pax:0, subtotal:0, handling:0, insurance:0, total:0, perPax:0};
+    const td2 = (a, b) => `<tr><td style="border:1px solid #999;padding:5px;font-weight:700;background:#f5f7fa;white-space:nowrap">${a}</td><td style="border:1px solid #999;padding:5px;text-align:right">${b}</td></tr>`;
+    resultTableHtml = `<div class="tbl-wrap"><table style="width:260px;border-collapse:collapse;font-size:11px;margin-bottom:10px">
+      <tbody>
+        ${td2('人数', r.pax+'名')}
+        ${td2('Sub Total', yen(r.subtotal))}
+        ${td2(`ハンドリング料 (${handlingPct}%)`, yen(r.handling))}
+        ${td2(`保険料 (¥${insurancePerPax.toLocaleString()}/名)`, yen(r.insurance))}
+        <tr style="background:#EAF3DE"><td style="border:1px solid #999;padding:5px;font-weight:700;background:#EAF3DE;white-space:nowrap">Total</td><td style="border:1px solid #999;padding:5px;text-align:right;font-weight:700">${yen(r.total)}</td></tr>
+        <tr style="background:#EAF3DE"><td style="border:1px solid #999;padding:5px;font-weight:700;background:#EAF3DE;white-space:nowrap">Total / Pax</td><td style="border:1px solid #999;padding:5px;text-align:right;font-weight:700">${yen(Math.round(r.perPax))}</td></tr>
+      </tbody></table></div>`;
+  } else {
+    const selVal = document.getElementById('est-selected-tier').value;
+    const selIdx = selVal==='' ? -1 : Number(selVal);
+    const resHead = `<tr><th style="border:1px solid #999;padding:5px;background:#f5f7fa"></th>${results.map((r,i)=>`<th style="border:1px solid #999;padding:5px;white-space:nowrap;background:#f5f7fa${i===selIdx?';background:#EAF3DE':''}">${escHtml(r.label)} (${r.pax}名)</th>`).join('')}</tr>`;
+    const resRow = (label, key, fmt) => `<tr><td style="border:1px solid #999;padding:5px;font-weight:700;background:#f5f7fa">${label}</td>${results.map((r,i)=>`<td style="border:1px solid #999;padding:5px;text-align:right${i===selIdx?';background:#EAF3DE':''}">${fmt(r[key])}</td>`).join('')}</tr>`;
+    resultTableHtml = `<div class="tbl-wrap"><table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:10px">
+      <thead>${resHead}</thead>
+      <tbody>
+        ${resRow('Sub Total','subtotal',yen)}
+        ${resRow(`ハンドリング料 (${handlingPct}%)`,'handling',yen)}
+        ${resRow(`保険料 (¥${insurancePerPax.toLocaleString()}/名)`,'insurance',yen)}
+        ${resRow('Total','total',yen)}
+        ${resRow('Total / Pax','perPax',v=>yen(Math.round(v)))}
+      </tbody></table></div>`;
+  }
 
   const html = `
     <div style="background:#fff;border:1px solid #ddd;width:100%;margin:0 auto;padding:14px;font-size:11px;color:#222;box-sizing:border-box">
@@ -4787,16 +4855,7 @@ function previewEstimation(){
         <thead><tr><th style="border:1px solid #999;padding:4px;background:#f5f7fa"></th>${dayHead}</tr></thead>
         <tbody>${bodyRows}</tbody>
       </table></div>
-      <div class="tbl-wrap"><table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:10px">
-        <thead>${resHead}</thead>
-        <tbody>
-          ${resRow('Sub Total','subtotal',yen)}
-          ${resRow(`ハンドリング料 (${handlingPct}%)`,'handling',yen)}
-          ${resRow(`保険料 (¥${insurancePerPax.toLocaleString()}/名)`,'insurance',yen)}
-          ${resRow('Total','total',yen)}
-          ${resRow('Total / Pax','perPax',v=>yen(Math.round(v)))}
-        </tbody>
-      </table></div>
+      ${resultTableHtml}
       ${notes ? `<div style="font-size:10px;color:#444;white-space:pre-wrap;border-top:1px solid #ddd;padding-top:8px">${escHtml(notes)}</div>` : ''}
       <div style="text-align:right;font-weight:700;margin-top:10px;color:var(--blue)">KIC TRAVEL</div>
     </div>`;
