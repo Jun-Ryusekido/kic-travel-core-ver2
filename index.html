@@ -4765,7 +4765,7 @@ function previewEstimation(){
 
   const dayHead = estDays.map((d,i)=>`<th style="border:1px solid #999;padding:4px;background:#f5f7fa;white-space:nowrap">DAY${i+1}</th>`).join('') + `<th style="border:1px solid #999;padding:4px;background:#f5f7fa;white-space:nowrap">合計</th>`;
 
-  const remarkHtml = (val, remark) => remark ? `${yen(val)}<br><span style="color:#888;font-size:9px">${escHtml(remark)}</span>` : yen(val);
+  const remarkHtml = (val, remark) => remark ? `${yen(val)}<br><span class="pv-remark" style="color:#888;font-size:8px">${escHtml(remark)}</span>` : yen(val);
 
   const _PV_PAX = '#EEF6FF';
   const _PV_FIX = '#F5F5F5';
@@ -4790,7 +4790,7 @@ function previewEstimation(){
     const remarkStr = row.remark ? `：<span style="font-size:9px;font-weight:400;color:#555">${escHtml(row.remark)}</span>` : '';
     const total = (row.amounts||[]).reduce((s,a)=>s+(Number(a)||0),0);
     const cts = row.contents||[];
-    admissionPreviewRows += `<tr style="background:${_PV_PAX}"><td style="border:1px solid #999;padding:4px;font-weight:700;background:${_PV_PAX};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${label}${remarkStr}</td>${estDays.map((d,i)=>{const amt=(row.amounts||[])[i]||0;const c=cts[i]||'';return `<td style="border:1px solid #999;padding:4px;text-align:right">${c?`${yen(amt)}<br><span style="color:#888;font-size:9px">${escHtml(c)}</span>`:yen(amt)}</td>`;}).join('')}${_totalTd(total, _PV_PAX)}</tr>`;
+    admissionPreviewRows += `<tr style="background:${_PV_PAX}"><td style="border:1px solid #999;padding:4px;font-weight:700;background:${_PV_PAX};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${label}${remarkStr}</td>${estDays.map((d,i)=>{const amt=(row.amounts||[])[i]||0;const c=cts[i]||'';return `<td style="border:1px solid #999;padding:4px;text-align:right">${c?`${yen(amt)}<br><span class="pv-remark" style="color:#888;font-size:8px">${escHtml(c)}</span>`:yen(amt)}</td>`;}).join('')}${_totalTd(total, _PV_PAX)}</tr>`;
   });
 
   const bodyRows = [
@@ -4875,6 +4875,7 @@ body{margin:0;font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Meiryo",s
   table{border-collapse:collapse !important;table-layout:fixed !important;width:auto !important}
   td,th{border:1px solid #999 !important;padding:3px 5px !important;font-size:10px !important;line-height:1.4 !important;vertical-align:top !important}
   td *,th *{font-size:10px !important}
+  td .pv-remark,th .pv-remark{font-size:8px !important}
   .tbl-wrap{overflow:visible !important;margin-bottom:6px !important}
   .tbl-wrap+.tbl-wrap{page-break-inside:avoid}
   .pv-body{padding:0}
