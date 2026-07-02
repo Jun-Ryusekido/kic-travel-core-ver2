@@ -4587,6 +4587,19 @@ function renderEstResults(results){
 
 // ---- 保存 ----
 async function saveEstimation(){
+  // 新幹線代が入力されているDAYがあればバス台数の確認を促す
+  const bulletDays = estDays.reduce((acc, d, i) => {
+    if(Number(d.bullet_train) > 0){
+      const label = `DAY${i+1}${d.day_date ? '（'+d.day_date+'）' : ''}`;
+      acc.push(label);
+    }
+    return acc;
+  }, []);
+  if(bulletDays.length > 0){
+    const msg = bulletDays.join('\n') + '\n\nに新幹線代の入力があります。バスは2台以上使用ではないですか？\n\nOK ＝ このまま保存する\nキャンセル ＝ 戻って確認する';
+    if(!confirm(msg)) return;
+  }
+
   try {
     const payload = {
       title: document.getElementById('est-title').value,
