@@ -1123,20 +1123,17 @@ input[type=number]{-moz-appearance:textfield}
               <option value="cancelled">Cancelled / 中止</option>
             </select>
           </div>
-          <div class="form-field" style="flex:1 1 160px;max-width:200px">
-            <label>ツアー担当者（社内）</label>
-            <input id="bd-staff" placeholder="例: 熊谷">
-          </div>
         </div>
       </div>
       <div class="form-field" style="grid-column:1/-1">
-        <div class="field-row3">
-          <div class="form-field"><label>In-Date</label><input id="bd-in" type="date" min="1900-01-01" max="9999-12-31" autocomplete="off"></div>
-          <div class="form-field"><label>Out-Date</label><input id="bd-out" type="date" min="1900-01-01" max="9999-12-31" autocomplete="off"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start">
+          <div class="form-field" style="flex:0 1 150px"><label>ツアー担当者（社内）</label><input id="bd-staff" placeholder="例: 熊谷"></div>
+          <div class="form-field" style="flex:0 1 155px"><label>In-Date</label><input id="bd-in" type="date" min="1900-01-01" max="9999-12-31" autocomplete="off"></div>
+          <div class="form-field" style="flex:0 1 155px"><label>Out-Date</label><input id="bd-out" type="date" min="1900-01-01" max="9999-12-31" autocomplete="off"></div>
+          <div class="form-field" style="flex:0 1 160px"><label>入金合計 (Deposit, JPY)</label><input id="bd-deposit" type="number" disabled style="background:var(--bg);color:var(--text)"></div>
+          <div class="form-field" style="flex:2 1 200px"><label>Memo</label><textarea id="bd-memo" rows="2" placeholder="内部メモ・特記事項など"></textarea></div>
         </div>
       </div>
-      <div class="form-field"><label>入金合計 (Deposit, JPY)</label><input id="bd-deposit" type="number" disabled style="background:var(--bg);color:var(--text)"></div>
-      
     </div>
 
     <div id="bd-est-ref" style="display:none;background:#EEF6FF;border:1px solid #BDD8FF;border-radius:6px;padding:8px 12px;margin-bottom:8px;font-size:11px;line-height:1.7;color:#004A9F"></div>
@@ -2758,6 +2755,7 @@ async function openBookingDetail(id){
   setDateInputValue('bd-in', b.in_date);
   setDateInputValue('bd-out', b.out_date);
   document.getElementById('bd-staff').value = b.staff_in_charge||'';
+  document.getElementById('bd-memo').value = b.memo||'';
   // deposit reset handled after sales load
   document.getElementById('bd-updated').textContent = b.updated_at ? ('最終更新: '+new Date(b.updated_at).toLocaleString('ja-JP')) : '';
   document.getElementById('bd-msg').style.display='none';
@@ -5993,6 +5991,7 @@ async function saveBookingDetail(){
     in_date: sanitizeDateField(document.getElementById('bd-in').value),
     out_date: sanitizeDateField(document.getElementById('bd-out').value),
     staff_in_charge: document.getElementById('bd-staff').value.trim() || null,
+    memo: document.getElementById('bd-memo').value.trim() || null,
     gross_sales: totalSales,
     gross_cost: totalCost,
     deposit_amount: bdSalesItems.reduce((s,it)=>s+(it.payments||[]).reduce((ps,p)=>ps+(Number(p.amount)||0),0),0),
