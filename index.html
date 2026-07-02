@@ -833,6 +833,7 @@ input[type=number]{-moz-appearance:textfield}
             <button id="hm-tab-btn-date" onclick="switchHmTab('date')" style="padding:6px 14px;font-size:12px;border:none;border-bottom:3px solid var(--blue);background:none;cursor:pointer;color:var(--blue);font-weight:600;margin-bottom:-2px">📅 日付順</button>
             <button id="hm-tab-btn-hotel" onclick="switchHmTab('hotel')" style="padding:6px 14px;font-size:12px;border:none;background:none;cursor:pointer;color:var(--text3)">🏨 ホテル別</button>
             <button id="hm-tab-btn-matrix" onclick="switchHmTab('matrix')" style="padding:6px 14px;font-size:12px;border:none;background:none;cursor:pointer;color:var(--text3)">📊 マトリクス</button>
+            <button id="hm-tab-btn-tour" onclick="switchHmTab('tour')" style="padding:6px 14px;font-size:12px;border:none;background:none;cursor:pointer;color:var(--text3)">🗓 ツアー別</button>
           </div>
           <!-- 日付順タブ -->
           <div id="hm-tab-date">
@@ -883,6 +884,17 @@ input[type=number]{-moz-appearance:textfield}
               <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:#fff3cd;color:#856404">回答待ち</span>
             </div>
             <div id="hm-matrix-body" style="overflow-x:auto"></div>
+          </div>
+          <!-- ツアー別タブ -->
+          <div id="hm-tab-tour" style="display:none">
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+              <select id="hm-tour-ym" onchange="renderHmTourTab()" style="padding:6px 10px;border-radius:8px;border:1px solid var(--border);font-size:12px"></select>
+              <input id="hm-tour-search" placeholder="ツアーコードで絞り込み" oninput="renderHmTourTab()" style="padding:6px 10px;border-radius:8px;border:1px solid var(--border);font-size:12px;width:200px">
+              <span style="font-size:11px;color:var(--text3)">凡例：</span>
+              <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:#d4edda;color:#155724">手配OK</span>
+              <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:#fff3cd;color:#856404">回答待ち</span>
+            </div>
+            <div id="hm-tour-body" style="overflow-x:auto"></div>
           </div>
         </div>
         <!-- メール取込モーダル -->
@@ -7018,7 +7030,7 @@ async function extractHotelFromFileHm(event){
 }
 async function loadHotelManagement(){
   document.getElementById('hm-tbody').innerHTML = '<tr><td colspan="12" class="empty">読み込み中...</td></tr>';
-const {data, error} = await sb.from('booking_hotels').select('*,bookings(ref_no,agent_name,tour_name)').order('check_in',{ascending:true});
+const {data, error} = await sb.from('booking_hotels').select('*,bookings(ref_no,agent_name,tour_name,pax)').order('check_in',{ascending:true});
   if(error){ document.getElementById('hm-tbody').innerHTML = `<tr><td colspan="12" class="empty">読み込みエラー: ${error.message}</td></tr>`; return; }
   hotelManagementCache = (data||[]).map(r=>({
     ...r,
@@ -7677,7 +7689,7 @@ async function extractHotelFromMailModal(){
 }
 
 function switchHmTab(tab){
-  ['date','hotel','matrix'].forEach(t=>{
+  ['date','hotel','matrix','tour'].forEach(t=>{
     document.getElementById('hm-tab-'+t).style.display = t===tab ? '' : 'none';
     const btn = document.getElementById('hm-tab-btn-'+t);
     if(btn){
@@ -7689,6 +7701,7 @@ function switchHmTab(tab){
   });
   if(tab==='hotel') populateHmHotelSelect();
   if(tab==='matrix') initHmMatrix();
+  if(tab==='tour') initHmTourTab();
 }
 
 function populateHmHotelSelect(){
@@ -7783,6 +7796,78 @@ function renderHmMatrix(){
     return `<tr><td style="padding:4px 6px;font-size:11px;white-space:nowrap;position:sticky;left:0;background:#fff;border-right:2px solid var(--border)">${escHtml(hotel)}</td>${cells}</tr>`;
   }).join('');
   document.getElementById('hm-matrix-body').innerHTML=`<table style="border-collapse:collapse;font-size:11px">${thead}<tbody>${tbody}</tbody></table>`;
+}
+
+function initHmTourTab(){
+  const sel = document.getElementById('hm-tour-ym');
+  const now = new Date();
+  const months = [];
+  for(let i=-2;i<=12;i++){
+    const d = new Date(now.getFullYear(),now.getMonth()+i,1);
+    months.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);
+  }
+  const cur = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  sel.innerHTML = months.map(ym=>`<option value="${ym}" ${ym===cur?'selected':''}>${ym.replace('-','年')}月</option>`).join('');
+  renderHmTourTab();
+}
+
+function renderHmTourTab(){
+  const ym = document.getElementById('hm-tour-ym')?.value;
+  if(!ym) return;
+  const q = (document.getElementById('hm-tour-search')?.value||'').trim().toLowerCase();
+  const [year,month] = ym.split('-').map(Number);
+  const daysInMonth = new Date(year,month,0).getDate();
+  const monthStart = `${ym}-01`;
+  const monthEnd = `${ym}-${String(daysInMonth).padStart(2,'0')}`;
+  const relevant = hotelManagementCache.filter(r=>r.check_in&&r.check_out&&r.check_in<=monthEnd&&r.check_out>monthStart);
+  const bookingMap = new Map();
+  relevant.forEach(r=>{
+    const bid = r.booking_id;
+    if(!bid) return;
+    if(!bookingMap.has(bid)){
+      bookingMap.set(bid,{
+        booking_id: bid,
+        ref_no: r.bookings?.ref_no||'',
+        agent_name: r.bookings?.agent_name||'',
+        pax: r.bookings?.pax||'',
+        hotels: []
+      });
+    }
+    bookingMap.get(bid).hotels.push(r);
+  });
+  let bookings = [...bookingMap.values()].sort((a,b)=>(a.ref_no||'').localeCompare(b.ref_no||''));
+  if(q) bookings = bookings.filter(b=>
+    (b.ref_no||'').toLowerCase().includes(q)||
+    (b.agent_name||'').toLowerCase().includes(q)
+  );
+  const body = document.getElementById('hm-tour-body');
+  if(bookings.length===0){ body.innerHTML='<p style="color:var(--text3);font-size:12px">この月のツアーデータはありません</p>'; return; }
+  const days = Array.from({length:daysInMonth},(_,i)=>i+1);
+  const bgFn=s=>s==='手配OK'||s==='確定'?'#d4edda':'#fff3cd';
+  const fgFn=s=>s==='手配OK'||s==='確定'?'#155724':'#856404';
+  const thead=`<thead><tr><th style="min-width:150px;padding:4px 6px;text-align:left;position:sticky;left:0;background:var(--card);z-index:2;border-right:2px solid var(--border)">ツアー</th>${days.map(d=>{const dt=new Date(year,month-1,d);const dow=['日','月','火','水','木','金','土'][dt.getDay()];const we=dt.getDay()===0||dt.getDay()===6;return `<th style="min-width:36px;text-align:center;padding:3px 2px;font-size:10px;${we?'color:var(--blue)':''}">${d}<br><span style="font-size:9px">${dow}</span></th>`;}).join('')}</tr></thead>`;
+  const tbody=bookings.map(bk=>{
+    const hotels=[...bk.hotels].sort((a,b)=>(a.check_in||'').localeCompare(b.check_in||''));
+    let cells='';
+    let day=1;
+    while(day<=daysInMonth){
+      const ds=`${ym}-${String(day).padStart(2,'0')}`;
+      const h=hotels.find(r=>r.check_in<=ds&&r.check_out>ds);
+      if(h){
+        const coYm=h.check_out.slice(0,7);
+        const lastDay=coYm>ym ? daysInMonth : parseInt(h.check_out.slice(8,10))-1;
+        const colspan=lastDay-day+1;
+        cells+=`<td colspan="${colspan}" style="border:1px solid var(--border);padding:2px 4px;background:${bgFn(h.status)};cursor:pointer;text-align:center;vertical-align:middle" onclick="openBookingDetail('${h.booking_id}')" title="${escHtml(h.hotel_name||'')}｜${escHtml(h.status||'')}"><span style="font-size:9px;color:${fgFn(h.status)};white-space:nowrap;display:block">${escHtml(h.hotel_name||'')}</span></td>`;
+        day+=colspan;
+      } else {
+        cells+=`<td style="border:1px solid var(--border);padding:2px;min-width:36px"></td>`;
+        day++;
+      }
+    }
+    const paxStr=bk.pax ? ` ${bk.pax}名` : '';
+    return `<tr><td style="padding:4px 6px;font-size:11px;white-space:nowrap;position:sticky;left:0;background:var(--card);border-right:2px solid var(--border);cursor:pointer" onclick="openBookingDetail('${bk.booking_id}')"><div style="font-weight:600;color:var(--blue)">${escHtml(bk.ref_no)}</div><div style="font-size:10px;color:var(--text2)">${escHtml(bk.agent_name)}${paxStr}</div></td>${cells}</tr>`;
+  }).join('');
+  body.innerHTML=`<table style="border-collapse:collapse;font-size:11px">${thead}<tbody>${tbody}</tbody></table>`;
 }
 
 async function loadPartners(){
