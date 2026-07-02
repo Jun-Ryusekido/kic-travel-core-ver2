@@ -6911,27 +6911,38 @@ async function showHotelConfirmDialog(hotels){
   // #を除去して数値順ソート（ref_noが #1154 形式を前提）
   const _hmNumOf = ref => { const n=parseInt((ref||'').replace(/^#/,''),10); return isNaN(n)?Infinity:n; };
   const sortedBookings = bookings2
-    .filter(b => b.ref_no || b.agent_name)
+    .filter(b => b.ref_no || b.agent_name || b.tour_name)
     .sort((a,b) => _hmNumOf(a.ref_no) - _hmNumOf(b.ref_no));
   window._hmConfirmBookings = sortedBookings;
 
   const rows = hotels.map((h,i)=>{
     const nights = calcHotelNights(h.check_in||'', h.check_out||'');
     const amount = Number(h.unit_price||0)*Number(h.rooms||1)*nights;
-    // REF#で自動マッチ（2段階）
+    // REF#で自動マッチ（3段階）
     // 1) 最初の連続数字列で比較: "#1154"→"1154"、"KIC1154_J1"→"1154" どちらもマッチ
     //    ※replace(/[^0-9]/g,'')は"KIC1154_J1"を"11541"にしてしまうため使用不可
-    // 2) tour_nameとの直接比較: AIが"KIC1154_J1"をそのままh.ref_noに入れる場合に対応
+    // 2) h.ref_noとb.tour_nameの直接比較（大文字正規化）
+    // 3) h.ref_noが空の場合: b.tour_nameがhotelオブジェクト内の任意文字列と一致
     const firstNum = s => { const m=(s||'').match(/(\d+)/); return m?m[1]:''; };
-    const matchedBooking = h.ref_no ? sortedBookings.find(b=>{
-      const bNum = firstNum(b.ref_no);
-      const hNum = firstNum(h.ref_no);
-      if(bNum && hNum && bNum===hNum) return true;
-      const norm = s => (s||'').trim().toUpperCase();
-      const hNorm = norm(h.ref_no);
-      const tNorm = norm(b.tour_name);
-      return hNorm && tNorm && (hNorm===tNorm || tNorm.includes(hNorm) || hNorm.includes(tNorm));
-    }) : null;
+    const norm = s => (s||'').trim().toUpperCase();
+    // h全フィールドを結合した文字列（ステージ3用）
+    const hAllText = [h.ref_no, h.hotel_name, h.memo, h.confirmation_no].map(v=>norm(v)).join(' ');
+    const matchedBooking = sortedBookings.find(b=>{
+      // ステージ1: 最初の連続数字列で比較
+      if(h.ref_no){
+        const bNum = firstNum(b.ref_no);
+        const hNum = firstNum(h.ref_no);
+        if(bNum && hNum && bNum===hNum) return true;
+        // ステージ2: tour_nameとの直接比較
+        const hNorm = norm(h.ref_no);
+        const tNorm = norm(b.tour_name);
+        if(hNorm && tNorm && (hNorm===tNorm || tNorm.includes(hNorm) || hNorm.includes(tNorm))) return true;
+      }
+      // ステージ3: b.tour_nameがhotelの全フィールド文字列に含まれるか
+      // 数字を含む5文字以上のツアーコード形式のみ対象（誤マッチ防止）
+      const bTour = norm(b.tour_name);
+      return bTour.length >= 5 && /\d/.test(bTour) && hAllText.includes(bTour);
+    });
     hotels[i]._bookingId = matchedBooking ? matchedBooking.id : null;
     const inputVal = matchedBooking ? escHtml(matchedBooking.ref_no||'(REF#なし)') : '';
     const hiddenVal = matchedBooking ? String(matchedBooking.id) : '';
