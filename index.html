@@ -314,8 +314,11 @@ input[type=number]{-moz-appearance:textfield}
     flex: 1 1 0;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;  /* スクロールが親（背面ページ）に伝播しない */
     padding: 12px 14px;
   }
+  /* モーダル表示中はオーバーレイ自身のスクロールを止める */
+  #partner-modal.open { overflow: hidden; }
   /* PC用のカメラセクションのdashed枠をスマホでは消す */
   #pt-card-upload-section { border-top: 1px solid var(--border) }
 }
@@ -8175,10 +8178,22 @@ function openPartnerEditor(id){
   document.getElementById('pt-notes').value = p ? (p.notes||'') : '';
   document.getElementById('pt-msg').style.display='none';
   document.getElementById('partner-modal').classList.add('open');
+  // iOS Safari では fixed overlay を通して body がスクロールしてしまうため body をロック
+  const sy = window.scrollY;
+  document.body.style.position = 'fixed';
+  document.body.style.top = `-${sy}px`;
+  document.body.style.width = '100%';
+  document.body.dataset.scrollY = sy;
 }
 
 function closePartnerEditor(){
   document.getElementById('partner-modal').classList.remove('open');
+  const sy = parseInt(document.body.dataset.scrollY || '0', 10);
+  document.body.style.position = '';
+  document.body.style.top = '';
+  document.body.style.width = '';
+  delete document.body.dataset.scrollY;
+  window.scrollTo(0, sy);
 }
 
 async function savePartner(){
