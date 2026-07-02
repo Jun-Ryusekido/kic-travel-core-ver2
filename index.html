@@ -6908,25 +6908,36 @@ async function showHotelConfirmDialog(hotels){
   window._pendingHotels = hotels;
   allBookingsCache = await fetchAllBookings();
   const bookings2 = allBookingsCache;
-  // ref_noの有無を問わず全件対象にし、ref_no順でソート
+  // #を除去して数値順ソート（ref_noが #1154 形式を前提）
+  const _hmNumOf = ref => { const n=parseInt((ref||'').replace(/^#/,''),10); return isNaN(n)?Infinity:n; };
   const sortedBookings = bookings2
     .filter(b => b.ref_no || b.agent_name)
-    .sort((a,b)=>String(a.ref_no||'').localeCompare(String(b.ref_no||''),'ja',{numeric:true}));
+    .sort((a,b) => _hmNumOf(a.ref_no) - _hmNumOf(b.ref_no));
+  window._hmConfirmBookings = sortedBookings;
 
   const rows = hotels.map((h,i)=>{
     const nights = calcHotelNights(h.check_in||'', h.check_out||'');
     const amount = Number(h.unit_price||0)*Number(h.rooms||1)*nights;
-    // REF#で自動マッチ
+    // REF#で自動マッチ（#を除去した数値で比較）
     const matchedBooking = h.ref_no ? sortedBookings.find(b=>{
-      const bRef = (b.ref_no||'').replace(/[^0-9]/g,'');
-      const hRef = (h.ref_no||'').replace(/[^0-9]/g,'');
+      const bRef = (b.ref_no||'').replace(/^#/,'').replace(/[^0-9]/g,'');
+      const hRef = (h.ref_no||'').replace(/^#/,'').replace(/[^0-9]/g,'');
       return bRef && hRef && bRef===hRef;
     }) : null;
     hotels[i]._bookingId = matchedBooking ? matchedBooking.id : null;
-    const selectHtml = `<select id="hm-confirm-booking-${i}" style="font-size:10px;padding:3px;border-radius:6px;border:1px solid var(--border);width:100%">
-      <option value="">-- 選択（計${sortedBookings.length}件）--</option>
-      ${sortedBookings.map(b=>`<option value="${b.id}" ${matchedBooking&&matchedBooking.id===b.id?'selected':''}>${escHtml(b.ref_no||'(REF#なし)')} ${escHtml(b.agent_name||'')} ${escHtml(b.tour_name||'')}</option>`).join('')}
-    </select>`;
+    const inputVal = matchedBooking ? escHtml(matchedBooking.ref_no||'(REF#なし)') : '';
+    const hiddenVal = matchedBooking ? String(matchedBooking.id) : '';
+    const comboHtml = `<div style="position:relative">
+      <input type="text" id="hm-confirm-input-${i}" value="${inputVal}"
+             placeholder="REF#またはツアー名で検索… (計${sortedBookings.length}件)"
+             autocomplete="off"
+             oninput="filterHmConfirmDD(${i})"
+             onfocus="showHmConfirmDD(${i})"
+             onblur="setTimeout(()=>hideHmConfirmDD(${i}),200)"
+             style="font-size:10px;padding:4px 6px;border-radius:6px;border:1px solid var(--border);width:100%;box-sizing:border-box">
+      <input type="hidden" id="hm-confirm-booking-${i}" value="${hiddenVal}">
+      <div id="hm-confirm-dd-${i}" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--card,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:999;max-height:180px;overflow-y:auto;margin-top:2px"></div>
+    </div>`;
     return `<tr style="border-bottom:1px solid var(--border)">
       <td style="padding:6px 8px">${escHtml(h.hotel_name||'')}</td>
       <td style="padding:6px 8px">${h.check_in||''}</td>
@@ -6937,7 +6948,7 @@ async function showHotelConfirmDialog(hotels){
       <td style="padding:6px 8px;text-align:right">${yen(amount)}</td>
       <td style="padding:6px 8px">${escHtml(h.confirmation_no||'')}</td>
       <td style="padding:6px 8px"><select id="hm-confirm-status-${i}" style="font-size:10px;padding:3px"><option value="回答待ち">回答待ち</option><option value="手配OK">手配OK</option></select></td>
-      <td style="padding:6px 8px;min-width:200px">${selectHtml}${matchedBooking?`<div style="font-size:9px;color:var(--green)">✓ 自動マッチ: ${escHtml(matchedBooking.ref_no)}</div>`:''}</td>
+      <td style="padding:6px 8px;min-width:220px">${comboHtml}${matchedBooking?`<div style="font-size:9px;color:var(--green)">✓ 自動マッチ: ${escHtml(matchedBooking.ref_no||'')}</div>`:''}</td>
     </tr>`;
   }).join('');
 
@@ -6974,6 +6985,50 @@ async function showHotelConfirmDialog(hotels){
     </div>`;
   document.body.appendChild(modal);
 }
+function filterHmConfirmDD(i){
+  const q = document.getElementById('hm-confirm-input-'+i)?.value||'';
+  if(!q.trim()) document.getElementById('hm-confirm-booking-'+i).value='';
+  renderHmConfirmDD(i, q);
+}
+function showHmConfirmDD(i){
+  renderHmConfirmDD(i, document.getElementById('hm-confirm-input-'+i)?.value||'');
+}
+function hideHmConfirmDD(i){
+  const dd=document.getElementById('hm-confirm-dd-'+i); if(dd) dd.style.display='none';
+}
+function renderHmConfirmDD(i, q){
+  const dd=document.getElementById('hm-confirm-dd-'+i); if(!dd) return;
+  const books=window._hmConfirmBookings||[];
+  const lq=q.replace(/^#/,'').toLowerCase();
+  const filtered=lq
+    ? books.filter(b=>{
+        const ref=(b.ref_no||'').replace(/^#/,'').toLowerCase();
+        const tour=(b.tour_name||'').toLowerCase();
+        const agent=(b.agent_name||'').toLowerCase();
+        return ref.includes(lq)||tour.includes(lq)||agent.includes(lq);
+      })
+    : books.slice(0,50);
+  if(!filtered.length){
+    dd.innerHTML='<div style="padding:6px 8px;font-size:10px;color:var(--text3)">該当なし</div>';
+  } else {
+    dd.innerHTML=filtered.slice(0,100).map(b=>{
+      const ref=escHtml(b.ref_no||'(REF#なし)');
+      const agent=escHtml(b.agent_name||'');
+      const tour=escHtml(b.tour_name||'');
+      return '<div data-id="'+b.id+'" data-ref="'+ref+'" onmousedown="selectHmConfirmItem('+i+',this.dataset.id,this.dataset.ref)" style="padding:5px 8px;font-size:10px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background=\'var(--bg)\'" onmouseout="this.style.background=\'\'"><b>'+ref+'</b>'+(agent?' <span style="color:var(--text3)">'+agent+'</span>':'')+(tour?' <span style="font-size:9px;color:var(--text2)">'+tour+'</span>':'')+'</div>';
+    }).join('');
+  }
+  dd.style.display='block';
+}
+function selectHmConfirmItem(i, bookingId, ref){
+  const input=document.getElementById('hm-confirm-input-'+i);
+  const hidden=document.getElementById('hm-confirm-booking-'+i);
+  const dd=document.getElementById('hm-confirm-dd-'+i);
+  if(input) input.value=ref;
+  if(hidden) hidden.value=bookingId;
+  if(dd) dd.style.display='none';
+}
+
 function saveHotelConfirmNew(){
     const hotels = window._pendingHotels;
     if(!hotels) return;
