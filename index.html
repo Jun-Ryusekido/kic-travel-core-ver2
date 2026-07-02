@@ -605,7 +605,14 @@ input[type=number]{-moz-appearance:textfield}
       <div id="pg-estimation" class="page" style="display:none">
         <div class="card" id="est-list-card">
           <div class="card-title">見積もり一覧
-            <span><button class="btn btn-p" onclick="openEstTypeModal()">＋ 新規見積もり作成</button></span>
+            <span>
+              <select id="est-type-filter" style="font-size:11px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--text)" onchange="renderEstimationsList()">
+                <option value="">すべて</option>
+                <option value="group">グループ</option>
+                <option value="fit">FIT</option>
+              </select>
+              <button class="btn btn-p" onclick="openEstTypeModal()">＋ 新規見積もり作成</button>
+            </span>
           </div>
           <div class="tbl-wrap"><table>
             <thead><tr><th style="width:70px">種別</th><th>タイトル</th><th>ツアーコード</th><th>作成日</th><th>Status</th><th style="width:140px"></th></tr></thead>
@@ -4164,11 +4171,13 @@ async function loadEstimations(){
 
 function renderEstimationsList(){
   const tbody = document.getElementById('est-tbody');
-  if(estimationsCache.length===0){
-    tbody.innerHTML = '<tr><td colspan="6" class="empty">見積もりはありません</td></tr>';
+  const typeFilter = (document.getElementById('est-type-filter')||{}).value || '';
+  const filtered = typeFilter ? estimationsCache.filter(e=>(e.type||'group')===typeFilter) : estimationsCache;
+  if(filtered.length===0){
+    tbody.innerHTML = `<tr><td colspan="6" class="empty">${estimationsCache.length===0?'見積もりはありません':'該当する見積もりはありません'}</td></tr>`;
     return;
   }
-  tbody.innerHTML = estimationsCache.map(e=>`
+  tbody.innerHTML = filtered.map(e=>`
     <tr>
       <td>${estTypePill(e.type||'group')}</td>
       <td class="lnk" onclick="openEstimationEditor('${e.id}')">${escHtml(e.title||'(無題)')}</td>
