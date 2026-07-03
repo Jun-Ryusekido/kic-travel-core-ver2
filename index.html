@@ -7483,7 +7483,7 @@ async function saveInvoiceConfirm(){
 
   const allRows = expenses.map((e,i)=>({
     booking_id: document.getElementById(`inv-confirm-booking-${i}`)?.value || null,
-    expense_date: document.getElementById(`inv-confirm-date-${i}`)?.value || null,
+    expense_date: sanitizeDateField(document.getElementById(`inv-confirm-date-${i}`)?.value),
     content: document.getElementById(`inv-confirm-content-${i}`)?.value || '',
     category: document.getElementById(`inv-confirm-category-${i}`)?.value || 'ゲスト',
     unit_price: Number(document.getElementById(`inv-confirm-uprice-${i}`)?.value)||0,
@@ -7497,7 +7497,8 @@ async function saveInvoiceConfirm(){
   const unmatched = allRows.filter(r=>!r.booking_id && (r.content||r.amount));
 
   if(!rows.length){
-    statusEl.textContent = '⚠ ツアーREF#が1件も選択されていません。左端の「ツアーREF#」欄から予約を選択してください。';
+    alert('⚠ ツアーREF#が1件も選択されていません。\n一番左の「ツアーREF#」欄から予約を選択してから保存してください。');
+    statusEl.textContent = '⚠ REF#未選択のため保存できません';
     statusEl.style.color = 'var(--red)';
     return;
   }
@@ -7505,23 +7506,31 @@ async function saveInvoiceConfirm(){
     if(!confirm(`${unmatched.length}行はツアーREF#が未選択のため保存されません。\n残り${rows.length}行を保存しますか？`)) return;
   }
 
+  statusEl.textContent = '保存中...'; statusEl.style.color = 'var(--text3)';
   const {error} = await sb.from('local_expenses').insert(rows);
   if(error){
+    alert('保存エラー:\n'+error.message);
     statusEl.textContent = '保存エラー: '+error.message;
     statusEl.style.color = 'var(--red)';
     return;
   }
-  statusEl.textContent = `✓ ${rows.length}件を保存しました`;
+
+  const savedIds = new Set(rows.map(r=>r.booking_id).filter(Boolean));
+  const savedRefs = [...savedIds].map(id=>{
+    const b=(allBookingsCache||[]).find(b=>b.id===id);
+    return b?(b.ref_no||b.tour_name||'(REF#なし)'):'(不明)';
+  }).join(', ');
+  statusEl.textContent = `✓ ${rows.length}件を保存しました（${savedRefs}）`;
   statusEl.style.color = 'var(--green)';
 
-  // 予約詳細画面が開いている場合、仕入明細を再読み込み
-  if(presetBookingId && currentDetailId===presetBookingId){
-    const {data} = await sb.from('local_expenses').select('*').eq('booking_id',presetBookingId).order('sort_order',{ascending:true});
+  // 保存先の予約が現在開いている予約詳細と一致する場合、仕入明細を再読み込み
+  if(currentDetailId && savedIds.has(currentDetailId)){
+    const {data} = await sb.from('local_expenses').select('*').eq('booking_id',currentDetailId).order('sort_order',{ascending:true});
     bdLocalExpenses = data||[];
     renderLocalExpenses();
   }
 
-  setTimeout(()=>{ document.getElementById('invoice-confirm-modal')?.remove(); }, 1500);
+  setTimeout(()=>{ document.getElementById('invoice-confirm-modal')?.remove(); }, 2500);
 }
 
 async function loadHotelManagement(){
