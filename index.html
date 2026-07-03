@@ -1078,6 +1078,7 @@ input[type=number]{-moz-appearance:textfield}
       <div class="modal-title">予約台帳 <span id="bd-ref" style="color:var(--blue)"></span></div>
       <div style="display:flex;gap:8px;align-items:center">
         <span class="msg-ok" id="bd-msg-top" style="margin-top:0">✓ 保存しました</span>
+        <button class="btn" onclick="openVoucherModal()">🎫 バウチャー発行</button>
         <button class="btn btn-p" onclick="saveBookingDetail()">💾 保存</button>
         <button class="btn" onclick="closeBookingDetail()">閉じる</button>
         <div class="modal-close" onclick="closeBookingDetail()">✕</div>
@@ -1108,6 +1109,7 @@ input[type=number]{-moz-appearance:textfield}
         <div class="pax-row">
           <div class="form-field"><label>大人 (ADT)</label><input id="bd-pax-adt" type="number" min="0" oninput="updateBdPaxTotal()"></div>
           <div class="form-field"><label>子供 (CHD)</label><input id="bd-pax-chd" type="number" min="0" oninput="updateBdPaxTotal()"></div>
+          <div class="form-field" style="flex:0 1 180px"><label>子供年齢 (Age of CHD)</label><input id="bd-children-ages" placeholder="例: 8, 5, 12"></div>
           <div class="form-field"><label>乳児 (INF)</label><input id="bd-pax-inf" type="number" min="0" oninput="updateBdPaxTotal()"></div>
           <div class="form-field"><label>合計 (TCP)</label><input id="bd-pax-total" type="number" disabled></div>
           <div class="form-field" style="flex:1 1 160px;max-width:200px">
@@ -2767,6 +2769,7 @@ async function openBookingDetail(id){
   document.getElementById('bd-tour').value = b.tour_name||'';
   document.getElementById('bd-pax-adt').value = b.pax_adult||0;
   document.getElementById('bd-pax-chd').value = b.pax_child||0;
+  document.getElementById('bd-children-ages').value = b.children_ages||'';
   document.getElementById('bd-pax-inf').value = b.pax_infant||0;
   updateBdPaxTotal();
   document.getElementById('bd-status').value = b.status||'open';
@@ -6006,6 +6009,7 @@ async function saveBookingDetail(){
     pax_adult: adt,
     pax_child: chd,
     pax_infant: inf,
+    children_ages: document.getElementById('bd-children-ages').value.trim() || null,
     status: document.getElementById('bd-status').value,
     in_date: sanitizeDateField(document.getElementById('bd-in').value),
     out_date: sanitizeDateField(document.getElementById('bd-out').value),
@@ -7741,6 +7745,221 @@ function addHotelBookingRow(){
   showHotelConfirmDialog([{hotel_name:'',check_in:'',check_out:'',room_type:'',rooms:1,unit_price:0,confirmation_no:'',status:'回答待ち'}]);
 }
 
+// ===== ミールバウチャー発行 =====
+function openVoucherModal(){
+  if(!currentDetailId){ alert('予約詳細を開いてください'); return; }
+  const b = findBookingById(currentDetailId) || {};
+  document.getElementById('vc-guide-name').value = document.getElementById('arr-guide-name')?.value || '';
+  document.getElementById('vc-guide-phone').value = document.getElementById('arr-guide-phone')?.value || '';
+  document.getElementById('vc-children-ages').value = document.getElementById('bd-children-ages').value || '';
+  populateGuideRegistrySelects([document.getElementById('vc-guide-select')]);
+  _renderVoucherEntries(b);
+  document.getElementById('voucher-modal').style.display = 'flex';
+}
+
+function closeVoucherModal(){
+  document.getElementById('voucher-modal').style.display = 'none';
+}
+
+function _renderVoucherEntries(b){
+  const paxAdult = Number(b?.pax_adult)||0;
+  const paxChild = Number(b?.pax_child)||0;
+  const container = document.getElementById('vc-restaurant-entries');
+  if(!bdRestaurantItems||bdRestaurantItems.length===0){
+    container.innerHTML = '<p style="color:var(--text3);font-size:12px;padding:8px">レストランデータがありません。予約詳細のレストラン欄にデータを追加してください。</p>';
+    return;
+  }
+  container.innerHTML = bdRestaurantItems.map((r,i)=>`
+    <div style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px">
+      <div style="font-size:13px;font-weight:700;margin-bottom:10px">${i+1}. ${escHtml(r.restaurant_name||'（名称未設定）')} <span style="font-size:11px;color:var(--text3);font-weight:400">${escHtml(r.meal_type||'')}${r.date?' / '+r.date:''}</span></div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:8px">
+        <div class="form-field"><label style="font-size:10px">有料大人</label><input type="number" id="vc-r-paid-adult-${i}" value="${paxAdult}" min="0" style="font-size:12px"></div>
+        <div class="form-field"><label style="font-size:10px">有料子供</label><input type="number" id="vc-r-paid-child-${i}" value="${paxChild}" min="0" style="font-size:12px"></div>
+        <div class="form-field"><label style="font-size:10px">FOC</label><input type="number" id="vc-r-foc-${i}" value="0" min="0" style="font-size:12px"></div>
+        <div class="form-field"><label style="font-size:10px">支払方法</label><input id="vc-r-payment-${i}" value="請求書払い" style="font-size:12px"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px">
+        <div class="form-field"><label style="font-size:10px">Veg</label><input type="number" id="vc-r-veg-${i}" value="0" min="0" style="font-size:12px"></div>
+        <div class="form-field"><label style="font-size:10px">Non-Veg</label><input type="number" id="vc-r-nonveg-${i}" value="0" min="0" style="font-size:12px"></div>
+        <div class="form-field"><label style="font-size:10px">Jain</label><input type="number" id="vc-r-jain-${i}" value="0" min="0" style="font-size:12px"></div>
+      </div>
+      <div class="form-field"><label style="font-size:10px">備考</label><input id="vc-r-memo-${i}" value="${escAttr(r.memo||'')}" style="font-size:12px;width:100%"></div>
+    </div>
+  `).join('');
+}
+
+function generateMealVoucher(){
+  if(!bdRestaurantItems||bdRestaurantItems.length===0){ alert('バウチャー発行するレストランがありません'); return; }
+  const guideName  = document.getElementById('vc-guide-name').value.trim();
+  const guidePhone = document.getElementById('vc-guide-phone').value.trim();
+  const childrenAges = document.getElementById('vc-children-ages').value.trim();
+  const b = findBookingById(currentDetailId)||{};
+  const tourName = b.tour_name||b.ref_no||'';
+  const restaurants = bdRestaurantItems.map((r,i)=>({
+    ...r,
+    paid_adult:  Number(document.getElementById(`vc-r-paid-adult-${i}`)?.value)||0,
+    paid_child:  Number(document.getElementById(`vc-r-paid-child-${i}`)?.value)||0,
+    foc:         Number(document.getElementById(`vc-r-foc-${i}`)?.value)||0,
+    veg:         Number(document.getElementById(`vc-r-veg-${i}`)?.value)||0,
+    non_veg:     Number(document.getElementById(`vc-r-nonveg-${i}`)?.value)||0,
+    jain:        Number(document.getElementById(`vc-r-jain-${i}`)?.value)||0,
+    payment_method: document.getElementById(`vc-r-payment-${i}`)?.value||'請求書払い',
+    memo:        document.getElementById(`vc-r-memo-${i}`)?.value||'',
+  }));
+  const html = _buildVoucherHtml(restaurants, tourName, guideName, guidePhone, childrenAges);
+  const win = window.open('','_blank');
+  if(!win){ alert('ポップアップがブロックされました。ブラウザの設定を確認してください。'); return; }
+  win.document.write(html);
+  win.document.close();
+}
+
+function _buildVoucherHtml(restaurants, tourName, guideName, guidePhone, childrenAges){
+  const logoUrl = window.location.origin + '/kic-logo.png';
+  const eh = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+  function buildCell(r, isKic){
+    const mealChar = {'朝食':'B','昼食':'L','夕食':'D'}[r.meal_type]||'';
+    const cb = m => mealChar===m ? '&#9745;' : '&#9744;';
+    const paidTotal  = (Number(r.paid_adult)||0)+(Number(r.paid_child)||0);
+    const foc        = Number(r.foc)||0;
+    const veg        = Number(r.veg)||0;
+    const nonVeg     = Number(r.non_veg)||0;
+    const jain       = Number(r.jain)||0;
+    const ctrlColor  = isKic ? '#1a5fa8' : '#222';
+    const ctrlLabel  = isKic ? 'KIC控え' : 'レストラン控え';
+    const dateDisp   = (r.date||'').replace(/-/g,'/');
+    const childCount = Number(r.paid_child)||0;
+    const agesStr    = childrenAges ? `&#xFF08;${eh(childrenAges)}&#xFF09;` : '';
+    const memoText   = eh(r.memo||'');
+    const guideText  = [eh(guideName), eh(guidePhone)].filter(Boolean).join('&ensp;');
+    const payText    = eh(r.payment_method||'請求書払い');
+
+    return `<div style="padding:3mm;box-sizing:border-box;height:143.5mm;overflow:hidden;font-family:Arial,'Helvetica Neue',Helvetica,sans-serif">
+
+  <!-- ヘッダー -->
+  <table width="100%" style="border-collapse:collapse;margin-bottom:1.5mm"><tr>
+    <td style="vertical-align:middle;white-space:nowrap">
+      <img src="${logoUrl}" height="26" style="vertical-align:middle;margin-right:2mm">
+      <span style="font-size:11.5pt;font-weight:700;vertical-align:middle">MEAL VOUCHER</span>
+    </td>
+    <td style="text-align:right;vertical-align:middle;white-space:nowrap">
+      <span style="border:1.5px solid #333;padding:0.5mm 2mm;font-size:7.5pt;font-weight:700;display:inline-block">${eh(tourName)}</span>&ensp;
+      <span style="border:1.5px solid #333;padding:0.5mm 2mm;font-size:7.5pt;display:inline-block">${dateDisp}</span>&ensp;
+      <span style="border:1.5px solid ${ctrlColor};padding:0.5mm 2mm;font-size:7.5pt;font-weight:700;color:${ctrlColor};display:inline-block">${ctrlLabel}</span>
+    </td>
+  </tr></table>
+  <hr style="border:none;border-top:1.5px solid #333;margin:0 0 2mm 0">
+
+  <!-- レストラン名 -->
+  <div style="font-size:13pt;font-weight:700;margin-bottom:1.5mm;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${eh(r.restaurant_name||'')}</div>
+
+  <!-- 食事タイプ -->
+  <div style="font-size:12pt;font-weight:700;margin-bottom:2mm">${cb('B')}B&nbsp;&nbsp;&nbsp;${cb('L')}L&nbsp;&nbsp;&nbsp;${cb('D')}D</div>
+
+  <!-- 有料計 / FOC / Veg -->
+  <table style="border-collapse:collapse;margin-bottom:2.5mm"><tr>
+    <td style="vertical-align:middle">
+      <table style="border-collapse:collapse;border:1.5px solid #333"><tr>
+        <td style="padding:1mm 2.5mm;font-size:17pt;font-weight:700;vertical-align:middle;line-height:1">${paidTotal}</td>
+        <td style="padding:1mm 2mm 1mm 0;font-size:8.5pt;font-weight:700;vertical-align:middle;line-height:1">有料計</td>
+      </tr></table>
+    </td>
+    <td style="vertical-align:middle;padding-left:5mm">
+      <span style="font-size:17pt;font-weight:700;vertical-align:middle;line-height:1">${foc}</span>
+      <span style="font-size:8.5pt;font-weight:700;vertical-align:middle"> FOC</span>
+    </td>
+    <td style="vertical-align:middle;padding-left:7mm;font-size:9.5pt;line-height:1.55">
+      Veg: ${veg}<br>Non-Veg: ${nonVeg}<br>Jain: ${jain}
+    </td>
+  </tr></table>
+
+  <!-- お客様人数 -->
+  <table style="border-collapse:collapse;margin-bottom:2mm;width:100%">
+    <tr><td colspan="4" style="font-size:9pt;font-weight:700;padding-bottom:0.5mm">お客様人数</td></tr>
+    <tr>
+      <td style="font-size:10.5pt;font-weight:700;white-space:nowrap;padding-right:2mm">大人</td>
+      <td style="font-size:10.5pt;white-space:nowrap;padding-right:6mm">${Number(r.paid_adult)||0}</td>
+      <td style="font-size:10.5pt;font-weight:700;white-space:nowrap;padding-right:2mm">子供</td>
+      <td style="font-size:10.5pt">${childCount}${agesStr}</td>
+    </tr>
+  </table>
+
+  <!-- ガイド名 / 支払方法 -->
+  <table style="border-collapse:collapse;margin-bottom:2.5mm;width:100%">
+    <tr>
+      <td style="font-size:9pt;font-weight:700;white-space:nowrap;padding-right:2.5mm;padding-bottom:1mm;vertical-align:top">ガイド名</td>
+      <td style="font-size:10.5pt;padding-bottom:1mm">${guideText}</td>
+    </tr>
+    <tr>
+      <td style="font-size:9pt;font-weight:700;white-space:nowrap;padding-right:2.5mm;vertical-align:top">支払方法</td>
+      <td style="font-size:10.5pt">${payText}</td>
+    </tr>
+  </table>
+
+  <!-- 署名欄 -->
+  <table style="border-collapse:collapse;width:100%;margin-bottom:1.5mm"><tr>
+    <td style="width:50%;vertical-align:top;padding-right:1.5mm">
+      <div style="font-size:8pt;margin-bottom:0.5mm">ガイド署名</div>
+      <div style="border:1.5px solid #333;height:14mm;box-sizing:border-box"></div>
+    </td>
+    <td style="width:50%;vertical-align:top;padding-left:1.5mm">
+      <div style="font-size:8pt;margin-bottom:0.5mm">レストラン署名</div>
+      <div style="border:1.5px solid #333;height:14mm;box-sizing:border-box"></div>
+    </td>
+  </tr></table>
+
+  <!-- 子供料金ポリシー -->
+  <div style="font-size:6.5pt;color:#555;margin-bottom:1.5mm">*Child rate policy: 50% of adult rate (3-6 yrs) / 80% of adult rate (7-11 yrs)</div>
+
+  <!-- 備考 -->
+  <div style="font-size:8pt;font-weight:700;margin-bottom:0.5mm">備考</div>
+  <div style="border:1.5px solid #333;height:13mm;padding:1mm;font-size:9pt;box-sizing:border-box">${memoText}</div>
+
+</div>`;
+  }
+
+  // 2件ずつページに分割
+  const pages = [];
+  for(let i=0; i<restaurants.length; i+=2) pages.push(restaurants.slice(i,i+2));
+
+  const pageHtml = pages.map((pg, pi)=>{
+    const r1 = pg[0];
+    const r2 = pg[1]||null;
+    return `${pi>0?'<div style="page-break-before:always"></div>':''}<table style="width:200mm;border-collapse:collapse;table-layout:fixed"><tbody>
+<tr>
+  <td style="width:100mm;height:143.5mm;border-right:1.5px dashed #999;border-bottom:1.5px dashed #999;vertical-align:top;padding:0">${buildCell(r1,true)}</td>
+  <td style="width:100mm;height:143.5mm;border-bottom:1.5px dashed #999;vertical-align:top;padding:0">${buildCell(r1,false)}</td>
+</tr>
+<tr>
+  <td style="width:100mm;height:143.5mm;border-right:1.5px dashed #999;vertical-align:top;padding:0">${r2?buildCell(r2,true):''}</td>
+  <td style="width:100mm;height:143.5mm;vertical-align:top;padding:0">${r2?buildCell(r2,false):''}</td>
+</tr>
+</tbody></table>`;
+  }).join('\n');
+
+  return `<!DOCTYPE html>
+<html lang="ja"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Meal Voucher — ${eh(tourName)}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#fff;font-family:Arial,'Helvetica Neue',Helvetica,sans-serif}
+@media screen{body{padding:8mm;background:#e8e8e8}.voucher-wrap{background:#fff;display:inline-block;box-shadow:0 2px 10px rgba(0,0,0,.2)}}
+@media print{@page{size:A4;margin:5mm}body{padding:0;background:#fff}.no-print{display:none!important}}
+</style>
+</head>
+<body>
+<div class="no-print" style="font-family:Arial;font-size:12px;text-align:center;padding:6px 12px;background:#1a5fa8;color:#fff;margin-bottom:6mm">
+  📄 印刷するには Ctrl+P（Mac: ⌘P）を押してください。「用紙サイズ: A4」「余白: 最小」でご利用ください。
+</div>
+<div class="voucher-wrap">
+${pageHtml}
+</div>
+</body>
+</html>`;
+}
+
 function switchHmTab(tab){
   ['date','hotel','matrix','tour'].forEach(t=>{
     document.getElementById('hm-tab-'+t).style.display = t===tab ? '' : 'none';
@@ -9285,6 +9504,43 @@ function setDateInputValue(el, d){
         <div class="form-field"><label>住所（英語）</label><input id="pt-address-en" placeholder="e.g. 1-1 Kobe-shi, Hyogo"></div>
         <div class="form-field" style="grid-column:1/-1"><label>備考・補足</label><textarea id="pt-notes" rows="3" placeholder="単価、特徴、注意事項など"></textarea></div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== バウチャー発行モーダル ===== -->
+<div id="voucher-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:300;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto">
+  <div style="background:#fff;border-radius:12px;padding:20px;width:100%;max-width:720px;margin:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div style="font-size:16px;font-weight:700">🎫 ミールバウチャー発行</div>
+      <button class="btn" onclick="closeVoucherModal()">✕ 閉じる</button>
+    </div>
+
+    <!-- ガイド情報 -->
+    <div style="background:var(--bg);border-radius:8px;padding:12px;margin-bottom:14px">
+      <div style="font-size:12px;font-weight:700;margin-bottom:8px;color:var(--text3)">ガイド情報</div>
+      <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+        <div class="form-field" style="flex:1 1 180px"><label>ガイド名</label><input id="vc-guide-name" placeholder="例: 山田 太郎"></div>
+        <div class="form-field" style="flex:0 1 160px"><label>携帯番号</label><input id="vc-guide-phone" placeholder="090-0000-0000"></div>
+        <div style="display:flex;gap:4px;align-items:flex-end;padding-bottom:2px">
+          <input id="vc-guide-search" placeholder="🔍 絞り込み" oninput="filterGuideSelect(this,document.getElementById('vc-guide-select'))" style="font-size:11px;padding:4px 6px;border-radius:6px;border:1px solid var(--border);width:80px">
+          <select id="vc-guide-select" onchange="applyGuideFromRegistry(this,'vc-guide-name','vc-guide-phone')" style="font-size:11px;padding:6px;border-radius:8px;border:1px solid var(--border)"></select>
+        </div>
+      </div>
+    </div>
+
+    <!-- 子供年齢 -->
+    <div style="background:var(--bg);border-radius:8px;padding:12px;margin-bottom:14px">
+      <div class="form-field" style="margin:0"><label>子供年齢（カンマ区切り）<span style="font-size:10px;color:var(--text3);font-weight:400"> 例: 8, 5, 12</span></label><input id="vc-children-ages" placeholder="子供がいる場合は年齢を入力"></div>
+    </div>
+
+    <!-- レストランエントリー -->
+    <div style="font-size:12px;font-weight:700;margin-bottom:6px">レストラン情報（件ごとに入力）</div>
+    <div id="vc-restaurant-entries"></div>
+
+    <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+      <button class="btn" onclick="closeVoucherModal()">キャンセル</button>
+      <button class="btn btn-p" onclick="generateMealVoucher()">🖨 バウチャー生成（新タブ）</button>
     </div>
   </div>
 </div>
