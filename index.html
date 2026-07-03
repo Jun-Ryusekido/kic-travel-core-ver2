@@ -812,6 +812,7 @@ input[type=number]{-moz-appearance:textfield}
             <button class="btn" style="font-size:11px" onclick="toggleInvOcrArea()">📧 テキストから読み取り</button>
             <label class="btn" style="font-size:11px;cursor:pointer">📎 PDFから読み取り<input type="file" accept=".pdf" style="display:none" onchange="extractInvoiceFromFile(event,'pdf')"></label>
             <label class="btn" style="font-size:11px;cursor:pointer">🖼 画像から読み取り<input type="file" accept="image/*" style="display:none" onchange="extractInvoiceFromFile(event,'image')"></label>
+            <label class="btn" style="font-size:11px;cursor:pointer">📷 カメラで撮影<input type="file" accept="image/*" capture="environment" style="display:none" onchange="extractInvoiceFromFile(event,'image')"></label>
             <span id="inv-file-status" style="font-size:11px;color:var(--text3)"></span>
           </div>
           <div id="inv-ocr-area" style="display:none;margin-top:8px">
