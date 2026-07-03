@@ -7400,6 +7400,7 @@ async function showInvoiceConfirmDialog(expenses, presetBookingId){
     const catOpts = LOCAL_EXPENSE_CATEGORIES.map(c=>`<option value="${c}" ${e.category===c?'selected':''}>${c}</option>`).join('');
     const payOpts = LOCAL_EXPENSE_PAYMENT_METHODS.map(m=>`<option value="${m}" ${(e.payment_method||'後請求')===m?'selected':''}>${m}</option>`).join('');
     return `<tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:4px 6px;min-width:200px">${comboHtml}</td>
       <td style="padding:4px 6px"><input type="date" id="inv-confirm-date-${i}" value="${e.expense_date||''}" style="font-size:10px;width:110px"></td>
       <td style="padding:4px 6px"><input type="text" id="inv-confirm-content-${i}" value="${escAttr(e.content||'')}" style="font-size:10px;width:160px"></td>
       <td style="padding:4px 6px"><select id="inv-confirm-category-${i}" style="font-size:10px">${catOpts}</select></td>
@@ -7407,7 +7408,6 @@ async function showInvoiceConfirmDialog(expenses, presetBookingId){
       <td style="padding:4px 6px;text-align:center"><input type="number" id="inv-confirm-qty-${i}" value="${e.qty||1}" style="font-size:10px;width:45px"></td>
       <td style="padding:4px 6px;text-align:right"><input type="number" id="inv-confirm-amount-${i}" value="${e.amount||0}" style="font-size:10px;width:80px;text-align:right"></td>
       <td style="padding:4px 6px"><select id="inv-confirm-payment-${i}" style="font-size:10px">${payOpts}</select></td>
-      <td style="padding:4px 6px;min-width:190px">${comboHtml}</td>
     </tr>`;
   }).join('');
 
@@ -7423,6 +7423,7 @@ async function showInvoiceConfirmDialog(expenses, presetBookingId){
       <div style="font-size:11px;color:var(--text3);margin-bottom:10px">各行の内容・ツアーREF#を確認・修正してから「保存」してください。ツアーREF#が未選択の行は保存されません。</div>
       <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">
         <thead><tr style="background:var(--bg)">
+          <th style="padding:6px 8px;text-align:left;min-width:200px">ツアーREF# ★</th>
           <th style="padding:6px 8px;text-align:left">日付</th>
           <th style="padding:6px 8px;text-align:left">内容</th>
           <th style="padding:6px 8px">区分</th>
@@ -7430,7 +7431,6 @@ async function showInvoiceConfirmDialog(expenses, presetBookingId){
           <th style="padding:6px 8px">数量</th>
           <th style="padding:6px 8px">金額</th>
           <th style="padding:6px 8px">支払方法</th>
-          <th style="padding:6px 8px">ツアーREF#</th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table></div>
@@ -7483,9 +7483,9 @@ async function saveInvoiceConfirm(){
   const presetBookingId = window._invPresetBookingId;
   if(!expenses) return;
   const statusEl = document.getElementById('invoice-confirm-status');
-  statusEl.textContent = '保存中...'; statusEl.style.color = 'var(--text3)';
+  statusEl.textContent = ''; statusEl.style.color = 'var(--text3)';
 
-  const rows = expenses.map((e,i)=>({
+  const allRows = expenses.map((e,i)=>({
     booking_id: document.getElementById(`inv-confirm-booking-${i}`)?.value || null,
     expense_date: document.getElementById(`inv-confirm-date-${i}`)?.value || null,
     content: document.getElementById(`inv-confirm-content-${i}`)?.value || '',
@@ -7495,12 +7495,18 @@ async function saveInvoiceConfirm(){
     amount: Number(document.getElementById(`inv-confirm-amount-${i}`)?.value)||0,
     payment_method: document.getElementById(`inv-confirm-payment-${i}`)?.value||'後請求',
     sort_order: i
-  })).filter(r=>r.booking_id && (r.content||r.amount));
+  }));
+
+  const rows = allRows.filter(r=>r.booking_id && (r.content||r.amount));
+  const unmatched = allRows.filter(r=>!r.booking_id && (r.content||r.amount));
 
   if(!rows.length){
-    statusEl.textContent = 'ツアーREF#が未選択の行は保存されません';
+    statusEl.textContent = '⚠ ツアーREF#が1件も選択されていません。左端の「ツアーREF#」欄から予約を選択してください。';
     statusEl.style.color = 'var(--red)';
     return;
+  }
+  if(unmatched.length>0){
+    if(!confirm(`${unmatched.length}行はツアーREF#が未選択のため保存されません。\n残り${rows.length}行を保存しますか？`)) return;
   }
 
   const {error} = await sb.from('local_expenses').insert(rows);
