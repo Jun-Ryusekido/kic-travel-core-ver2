@@ -1108,7 +1108,6 @@ input[type=number]{-moz-appearance:textfield}
       <div class="modal-title">予約台帳 <span id="bd-ref" style="color:var(--blue)"></span></div>
       <div style="display:flex;gap:8px;align-items:center">
         <span class="msg-ok" id="bd-msg-top" style="margin-top:0">✓ 保存しました</span>
-        <button class="btn" onclick="openVoucherModal()">🎫 バウチャー発行</button>
         <button class="btn btn-p" onclick="saveBookingDetail()">💾 保存</button>
         <button class="btn" onclick="closeBookingDetail()">閉じる</button>
         <div class="modal-close" onclick="closeBookingDetail()">✕</div>
@@ -1309,9 +1308,12 @@ input[type=number]{-moz-appearance:textfield}
           <span id="rest-ocr-status" style="font-size:11px;color:var(--text3)"></span>
         </div>
       </div>
-      <button class="btn" style="font-size:10px;margin-top:6px" onclick="toggleRestOcrArea()">📧 メール/テキストから読み取り</button>
-      <label class="btn" style="font-size:10px;margin-top:6px;cursor:pointer">📎 Excel/PDFから読み取り<input type="file" accept=".xlsx,.xls,.pdf" style="display:none" onchange="extractRestaurantFromFile(event)"></label>
-      <span id="rest-file-status" style="font-size:11px;color:var(--text3);margin-left:8px"></span>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px">
+        <button class="btn" style="font-size:10px" onclick="toggleRestOcrArea()">📧 メール/テキストから読み取り</button>
+        <label class="btn" style="font-size:10px;cursor:pointer">📎 Excel/PDFから読み取り<input type="file" accept=".xlsx,.xls,.pdf" style="display:none" onchange="extractRestaurantFromFile(event)"></label>
+        <button class="btn" style="font-size:10px;background:#F0F6FF;border-color:#7CB3E8;color:#004A9F" onclick="openVoucherModal()">🎫 バウチャー発行</button>
+        <span id="rest-file-status" style="font-size:11px;color:var(--text3)"></span>
+      </div>
     </div>
 
     <div id="arrtab-fac" style="display:none">
