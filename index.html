@@ -2063,7 +2063,7 @@ let originalCostsCount = 0;
 let bdLocalExpenses = [];
 const LOCAL_EXPENSE_CATEGORIES = ['D（ドライバー）','ゲスト','ゲスト・TG','その他'];
 const LOCAL_EXPENSE_PAYMENT_METHODS = ['現地払い','前振込み','後請求','全旅クーポン'];
-let bdLocked = false; let suppliersCache = []; let busCompaniesCache = [];
+let bdLocked = false; let suppliersCache = []; let busCompaniesCache = []; let restaurantPartnersCache = [];
 let arrangementsCache = [];
 let currentArrangementId = null;
 let arrDays = [];
@@ -2480,6 +2480,43 @@ async function showBusCompanySuggest(inputEl, idx){
 }
 function hideBusCompanySuggest(){
   const box = document.getElementById('bus-company-suggest-box');
+  if(box) box.remove();
+}
+async function loadRestaurantPartnersCache(){
+  if(restaurantPartnersCache.length>0) return;
+  const {data} = await sb.from('business_partners')
+    .select('company_name,phone')
+    .eq('category','レストラン')
+    .or('is_deleted.is.null,is_deleted.eq.false')
+    .order('company_name');
+  restaurantPartnersCache = data||[];
+}
+async function showRestaurantSuggest(inputEl, idx){
+  hideRestaurantSuggest();
+  await loadRestaurantPartnersCache();
+  const q = inputEl.value.trim().toLowerCase();
+  const matches = (q
+    ? restaurantPartnersCache.filter(p=>p.company_name.toLowerCase().includes(q))
+    : restaurantPartnersCache
+  ).slice(0,12);
+  if(!matches.length) return;
+  const box = document.createElement('div');
+  box.id = 'restaurant-suggest-box';
+  box.style.cssText = 'position:absolute;z-index:200;background:#fff;border:1px solid var(--border);border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.12);max-height:200px;overflow-y:auto;font-size:11px';
+  const rect = inputEl.getBoundingClientRect();
+  box.style.left = (rect.left+window.scrollX)+'px';
+  box.style.top  = (rect.bottom+window.scrollY)+'px';
+  box.style.width = Math.max(rect.width,200)+'px';
+  box.innerHTML = matches.map(p=>`<div class="rest-suggest-item" style="padding:4px 8px;cursor:pointer" data-name="${escAttr(p.company_name)}">${escHtml(p.company_name)}${p.phone?`<span style="color:var(--text3);margin-left:6px;font-size:10px">${escHtml(p.phone)}</span>`:''}</div>`).join('');
+  document.body.appendChild(box);
+  box.querySelectorAll('.rest-suggest-item').forEach(item=>{
+    item.addEventListener('mousedown',e=>{ e.preventDefault(); const n=item.getAttribute('data-name'); inputEl.value=n; bdRestaurantItems[idx].restaurant_name=n; hideRestaurantSuggest(); });
+    item.addEventListener('mouseenter',()=>{ item.style.background='var(--bg)'; });
+    item.addEventListener('mouseleave',()=>{ item.style.background=''; });
+  });
+}
+function hideRestaurantSuggest(){
+  const box = document.getElementById('restaurant-suggest-box');
   if(box) box.remove();
 }
 
@@ -5451,7 +5488,7 @@ function renderRestaurantTable(){
     tbody.innerHTML='<tr><td colspan="9" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
   }else{
     tbody.innerHTML = bdRestaurantItems.map((it,i)=>`<tr>
-      <td><input value="${escAttr(it.restaurant_name)}" oninput="bdRestaurantItems[${i}].restaurant_name=this.value" style="width:100%"></td>
+      <td style="position:relative"><input value="${escAttr(it.restaurant_name)}" oninput="bdRestaurantItems[${i}].restaurant_name=this.value;showRestaurantSuggest(this,${i})" onfocus="showRestaurantSuggest(this,${i})" onblur="setTimeout(hideRestaurantSuggest,200)" style="width:100%"></td>
       <td><select onchange="bdRestaurantItems[${i}].meal_type=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px">
         <option value="朝食" ${it.meal_type==='朝食'?'selected':''}>朝食</option>
         <option value="昼食" ${(it.meal_type||'昼食')==='昼食'?'selected':''}>昼食</option>
