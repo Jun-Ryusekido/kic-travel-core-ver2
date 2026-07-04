@@ -7395,16 +7395,14 @@ async function showInvoiceConfirmDialog(expenses, presetBookingId){
              onblur="setTimeout(()=>hideInvConfirmDD(${i}),200)"
              style="font-size:10px;padding:4px 6px;border-radius:6px;border:1px solid var(--border);width:100%;box-sizing:border-box">
       <input type="hidden" id="inv-confirm-booking-${i}" value="${hiddenVal}">
-      <div id="inv-confirm-dd-${i}" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--card,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:999;max-height:180px;overflow-y:auto;margin-top:2px"></div>
-    </div>${matchedBooking?`<div style="font-size:9px;color:var(--green)">✓ ${presetBookingId?'現在の予約':'自動マッチ'}: ${escHtml(matchedBooking.ref_no||'')}</div>`:''}`;
-    const payOpts = LOCAL_EXPENSE_PAYMENT_METHODS.map(m=>`<option value="${m}" ${(e.payment_method||'後請求')===m?'selected':''}>${m}</option>`).join('');
+      <div id="inv-confirm-dd-${i}" style="display:none;position:absolute;top:100%;left:0;min-width:200px;background:var(--card,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:999;max-height:180px;overflow-y:auto;margin-top:2px"></div>
+    </div>${matchedBooking?`<div style="font-size:9px;color:var(--green);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">✓ ${presetBookingId?'現在の予約':'自動マッチ'}: ${escHtml(matchedBooking.ref_no||'')}</div>`:''}`;
     return `<tr style="border-bottom:1px solid var(--border)">
-      <td style="padding:4px 6px;min-width:190px">${comboHtml}</td>
-      <td style="padding:4px 6px;text-align:right"><input type="number" id="inv-confirm-uprice-${i}" value="${e.unit_price||0}" style="font-size:10px;width:72px;text-align:right"></td>
-      <td style="padding:4px 6px;text-align:center"><input type="number" id="inv-confirm-qty-${i}" value="${e.qty||1}" style="font-size:10px;width:40px;text-align:center"></td>
-      <td style="padding:4px 6px;text-align:right;font-weight:600"><input type="number" id="inv-confirm-amount-${i}" value="${e.amount||0}" style="font-size:10px;width:80px;text-align:right;font-weight:600"></td>
-      <td style="padding:4px 6px"><input type="text" id="inv-confirm-content-${i}" value="${escAttr(e.content||'')}" style="font-size:10px;width:150px"></td>
-      <td style="padding:4px 6px"><select id="inv-confirm-payment-${i}" style="font-size:10px">${payOpts}</select></td>
+      <td style="padding:4px 3px;overflow:hidden">${comboHtml}</td>
+      <td style="padding:4px 3px;text-align:right"><input type="number" id="inv-confirm-uprice-${i}" value="${e.unit_price||0}" style="font-size:10px;width:100%;min-width:0;text-align:right;box-sizing:border-box"></td>
+      <td style="padding:4px 3px;text-align:center"><input type="number" id="inv-confirm-qty-${i}" value="${e.qty||1}" style="font-size:10px;width:100%;min-width:0;text-align:center;box-sizing:border-box"></td>
+      <td style="padding:4px 3px;text-align:right;font-weight:600"><input type="number" id="inv-confirm-amount-${i}" value="${e.amount||0}" style="font-size:10px;width:100%;min-width:0;text-align:right;font-weight:600;box-sizing:border-box"></td>
+      <td style="padding:4px 3px"><input type="text" id="inv-confirm-content-${i}" value="${escAttr(e.content||'')}" style="font-size:10px;width:100%;min-width:0;box-sizing:border-box"></td>
       <td style="display:none"><input type="hidden" id="inv-confirm-category-${i}" value="${escAttr(e.category||'ゲスト')}"><input type="hidden" id="inv-confirm-date-${i}" value="${e.expense_date||''}"></td>
     </tr>`;
   }).join('');
@@ -7419,14 +7417,14 @@ async function showInvoiceConfirmDialog(expenses, presetBookingId){
         <button class="btn" onclick="document.getElementById('invoice-confirm-modal').remove()">✕ 閉じる</button>
       </div>
       <div style="font-size:11px;color:var(--text3);margin-bottom:8px">ツアーREF#を選択してから「保存」してください。REF#未選択の行は保存されません。</div>
-      <div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table style="width:100%;border-collapse:collapse;font-size:11px;min-width:600px">
+      <div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table style="width:100%;border-collapse:collapse;font-size:11px;table-layout:fixed;min-width:300px">
+        <colgroup><col style="width:18%"><col style="width:10%"><col style="width:8%"><col style="width:12%"><col></colgroup>
         <thead><tr style="background:var(--bg)">
-          <th style="padding:6px 8px;text-align:left">ツアーREF# ★</th>
-          <th style="padding:6px 8px;text-align:right">単価</th>
-          <th style="padding:6px 8px;text-align:center">数量</th>
-          <th style="padding:6px 8px;text-align:right">金額</th>
-          <th style="padding:6px 8px;text-align:left">内容</th>
-          <th style="padding:6px 8px">支払方法</th>
+          <th style="padding:6px 4px;text-align:left;font-size:10px">REF# ★</th>
+          <th style="padding:6px 4px;text-align:right;font-size:10px">単価</th>
+          <th style="padding:6px 4px;text-align:center;font-size:10px">数量</th>
+          <th style="padding:6px 4px;text-align:right;font-size:10px">金額</th>
+          <th style="padding:6px 4px;text-align:left;font-size:10px">内容</th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table></div>
@@ -7489,7 +7487,7 @@ async function saveInvoiceConfirm(){
     unit_price: Number(document.getElementById(`inv-confirm-uprice-${i}`)?.value)||0,
     qty: Number(document.getElementById(`inv-confirm-qty-${i}`)?.value)||1,
     amount: Number(document.getElementById(`inv-confirm-amount-${i}`)?.value)||0,
-    payment_method: document.getElementById(`inv-confirm-payment-${i}`)?.value||'後請求',
+    payment_method: e.payment_method || '後請求',
     sort_order: i
   }));
 
