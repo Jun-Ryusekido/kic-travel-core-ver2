@@ -1235,7 +1235,10 @@ input[type=number]{-moz-appearance:textfield}
           <thead></thead>
           <tbody id="bd-cost-tbody"></tbody>
         </table></div>
-        <button class="btn" id="bd-cost-add-btn" style="font-size:10px;margin-top:4px" onclick="addCostRow()">＋ 行追加</button>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:4px">
+          <button class="btn" id="bd-cost-add-btn" style="font-size:10px" onclick="addCostRow()">＋ 行追加</button>
+          <button class="btn" id="bd-cost-ocr-btn" style="font-size:10px;background:#F0F6FF;border-color:#7CB3E8;color:#004A9F" onclick="openCostOcrModal()">🤖 AI読み取り</button>
+        </div>
         <div class="li-total">仕入合計: <span id="bd-cost-total">¥0</span></div>
       </div>
     </div>
@@ -7405,6 +7408,151 @@ async function extractInvoiceForBooking(event, mode){
     statusEl.textContent = '読み取り失敗: '+e.message; statusEl.style.color = 'var(--red)';
   }
   event.target.value = '';
+}
+
+// 仕入明細セクションのAI読み取り（booking_costs に直接追加）
+function openCostOcrModal(){
+  if(bdLocked){ alert('ロック中は追加できません'); return; }
+  if(!currentDetailId){ alert('予約詳細を開いてください'); return; }
+  const b = findBookingById(currentDetailId)||{};
+  const modal = document.createElement('div');
+  modal.id = 'cost-ocr-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:300;display:flex;align-items:center;justify-content:center;padding:20px';
+  modal.innerHTML = `
+    <div style="background:var(--card,#fff);border-radius:12px;padding:20px;width:100%;max-width:600px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div style="font-size:13px;font-weight:700">仕入明細 AI読み取り（${escHtml(b.ref_no||b.tour_name||'')}）</div>
+        <button class="btn" onclick="document.getElementById('cost-ocr-modal').remove()">✕</button>
+      </div>
+      <div style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn" style="font-size:11px" onclick="document.getElementById('cost-ocr-text-area').style.display=''">📧 テキスト</button>
+        <label class="btn" style="font-size:11px;cursor:pointer">📎 PDF<input type="file" accept=".pdf" style="display:none" onchange="extractCostFromFile(event,'pdf')"></label>
+        <label class="btn" style="font-size:11px;cursor:pointer">🖼 画像<input type="file" accept="image/*" style="display:none" onchange="extractCostFromFile(event,'image')"></label>
+        <label class="btn" style="font-size:11px;cursor:pointer">📷 カメラ<input type="file" accept="image/*" capture="environment" style="display:none" onchange="extractCostFromFile(event,'image')"></label>
+        <span id="cost-ocr-file-status" style="font-size:11px;color:var(--text3)"></span>
+      </div>
+      <div id="cost-ocr-text-area" style="display:none">
+        <textarea id="cost-ocr-text" rows="5" style="width:100%;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:11px;font-family:inherit;resize:vertical" placeholder="請求書の内容を貼り付け..."></textarea>
+        <div style="margin-top:6px;display:flex;gap:6px;align-items:center">
+          <button class="btn btn-p" style="font-size:11px" onclick="extractCostFromText()">🤖 AIで読み取り</button>
+          <span id="cost-ocr-text-status" style="font-size:11px;color:var(--text3)"></span>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+async function extractCostFromText(){
+  const text = document.getElementById('cost-ocr-text').value.trim();
+  if(!text){ alert('テキストを入力してください'); return; }
+  const statusEl = document.getElementById('cost-ocr-text-status');
+  statusEl.textContent = '読み取り中...'; statusEl.style.color = 'var(--text3)';
+  try{
+    const expenses = await _callInvoiceApi({ invoiceText: text });
+    statusEl.textContent = '✓ '+expenses.length+'件読み取り完了';
+    statusEl.style.color = 'var(--green)';
+    document.getElementById('cost-ocr-modal')?.remove();
+    showCostConfirmDialog(expenses);
+  }catch(e){
+    statusEl.textContent = '読み取り失敗: '+e.message; statusEl.style.color = 'var(--red)';
+  }
+}
+
+async function extractCostFromFile(event, mode){
+  const file = event.target.files[0];
+  if(!file) return;
+  const statusEl = document.getElementById('cost-ocr-file-status');
+  statusEl.textContent = '読み取り中...'; statusEl.style.color = 'var(--text3)';
+  try{
+    const base64 = await new Promise((resolve,reject)=>{
+      const r = new FileReader(); r.onload = ()=>resolve(r.result.split(',')[1]); r.onerror = reject; r.readAsDataURL(file);
+    });
+    const bodyData = mode==='pdf' ? { invoicePdfBase64: base64 } : { invoiceImageBase64: base64, invoiceImageMediaType: file.type||'image/jpeg' };
+    const expenses = await _callInvoiceApi(bodyData);
+    statusEl.textContent = '✓ '+expenses.length+'件読み取り完了';
+    statusEl.style.color = 'var(--green)';
+    document.getElementById('cost-ocr-modal')?.remove();
+    showCostConfirmDialog(expenses);
+  }catch(e){
+    statusEl.textContent = '読み取り失敗: '+e.message; statusEl.style.color = 'var(--red)';
+  }
+  event.target.value = '';
+}
+
+function showCostConfirmDialog(expenses){
+  const b = findBookingById(currentDetailId)||{};
+  const modal = document.createElement('div');
+  modal.id = 'cost-confirm-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:300;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto';
+  const rows = expenses.map((e,i)=>{
+    const itemName = escAttr(e.supplier_name||e.content||'');
+    const amount = e.amount||0;
+    const payDate = escAttr(e.expense_date||'');
+    const memo = escAttr(e.supplier_name ? (e.content||'') : '');
+    return `<tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:4px 3px;text-align:center"><input type="checkbox" id="cost-chk-${i}" checked></td>
+      <td style="padding:4px 3px"><input type="text" id="cost-item-${i}" value="${itemName}" placeholder="仕入先" style="font-size:10px;width:100%;box-sizing:border-box"></td>
+      <td style="padding:4px 3px"><input type="number" id="cost-amount-${i}" value="${amount}" style="font-size:10px;width:100%;text-align:right;box-sizing:border-box"></td>
+      <td style="padding:4px 3px"><input type="date" id="cost-date-${i}" value="${payDate}" style="font-size:10px;width:100%;box-sizing:border-box"></td>
+      <td style="padding:4px 3px"><input type="text" id="cost-memo-${i}" value="${memo}" placeholder="備考" style="font-size:10px;width:100%;box-sizing:border-box"></td>
+    </tr>`;
+  }).join('');
+  modal.innerHTML = `
+    <div style="background:var(--card,#fff);border-radius:12px;padding:20px;width:100%;max-width:720px;margin-top:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div style="font-size:13px;font-weight:700">仕入明細確認（${escHtml(b.ref_no||b.tour_name||'')}）</div>
+        <button class="btn" onclick="document.getElementById('cost-confirm-modal').remove()">✕</button>
+      </div>
+      <div class="tbl-wrap"><table style="width:100%;border-collapse:collapse;font-size:11px;table-layout:fixed">
+        <colgroup><col style="width:24px"><col style="width:24%"><col style="width:13%"><col style="width:13%"><col></colgroup>
+        <thead><tr style="background:var(--bg)">
+          <th style="padding:6px 4px"></th>
+          <th style="padding:6px 4px;text-align:left">仕入先</th>
+          <th style="padding:6px 4px;text-align:right">仕入額</th>
+          <th style="padding:6px 4px;text-align:center">出金日</th>
+          <th style="padding:6px 4px;text-align:left">備考</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+      <div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="btn btn-p" onclick="saveCostFromOcr(${expenses.length})">💾 仕入明細に追加</button>
+        <button class="btn" onclick="document.getElementById('cost-confirm-modal').remove()">キャンセル</button>
+        <span id="cost-confirm-status" style="font-size:11px;color:var(--text3)"></span>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+async function saveCostFromOcr(count){
+  if(!currentDetailId){ alert('予約が特定できません'); return; }
+  const statusEl = document.getElementById('cost-confirm-status');
+  statusEl.textContent = '保存中...'; statusEl.style.color = 'var(--text3)';
+  const rows = [];
+  for(let i=0;i<count;i++){
+    if(!document.getElementById(`cost-chk-${i}`)?.checked) continue;
+    const item_name = (document.getElementById(`cost-item-${i}`)?.value||'').trim();
+    const amount = Number(document.getElementById(`cost-amount-${i}`)?.value)||0;
+    const payment_date = sanitizeDateField(document.getElementById(`cost-date-${i}`)?.value);
+    const memo = (document.getElementById(`cost-memo-${i}`)?.value||'').trim();
+    if(!item_name && !amount) continue;
+    rows.push({ booking_id: currentDetailId, item_name, amount, payment_date, memo });
+  }
+  if(!rows.length){ alert('追加する行がありません'); return; }
+  const {error} = await sb.from('booking_costs').insert(rows);
+  if(error){ alert('保存エラー:\n'+error.message); statusEl.textContent = '保存エラー: '+error.message; statusEl.style.color = 'var(--red)'; return; }
+  for(const it of rows){
+    if(it.item_name) await registerNewSupplier(it.item_name);
+    bdCostItems.push({item_name: it.item_name, amount: it.amount, payment_date: it.payment_date, memo: it.memo});
+  }
+  const newGrossCost = bdCostItems.reduce((s,it)=>s+Number(it.amount||0),0);
+  await sb.from('bookings').update({gross_cost: newGrossCost, updated_at: new Date().toISOString()}).eq('id', currentDetailId);
+  const bk = findBookingById(currentDetailId);
+  if(bk) bk.gross_cost = newGrossCost;
+  renderCostTable();
+  updateDetailGrossPreview();
+  statusEl.textContent = `✓ ${rows.length}件を仕入明細に追加しました`;
+  statusEl.style.color = 'var(--green)';
+  setTimeout(()=>{ document.getElementById('cost-confirm-modal')?.remove(); }, 2000);
 }
 
 async function showInvoiceConfirmDialog(expenses, presetBookingId){
