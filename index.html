@@ -2011,7 +2011,15 @@ function renderDbArrivalAlert(){
     return;
   }
 
-  el.innerHTML = buckets.filter(b => b.items.length > 0).map(b => {
+  el.innerHTML = buckets.map(b => {
+    const badge = `<div style="display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:20px;font-size:11px;font-weight:700;background:${b.bg};color:${b.fg};border:1.5px solid ${b.border};margin-bottom:8px">
+        ${b.label} <span style="background:rgba(0,0,0,.09);padding:1px 7px;border-radius:10px">${b.items.length}件</span>
+      </div>`;
+    if(b.items.length === 0){
+      return `<div style="margin-bottom:14px">${badge}
+        <div style="font-size:11px;color:var(--text3);padding:2px 0 0 4px">該当する予約はありません</div>
+      </div>`;
+    }
     const rows = b.items.map(bk => {
       const d = inDays(bk.in_date);
       return `<tr onclick="openBookingDetail('${bk.id}')" style="cursor:pointer" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''">
@@ -2022,10 +2030,7 @@ function renderDbArrivalAlert(){
         <td style="padding:5px 8px;text-align:center;font-weight:700;color:${b.fg}">${d}日</td>
       </tr>`;
     }).join('');
-    return `<div style="margin-bottom:14px">
-      <div style="display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:20px;font-size:11px;font-weight:700;background:${b.bg};color:${b.fg};border:1.5px solid ${b.border};margin-bottom:8px">
-        ${b.label} <span style="background:rgba(0,0,0,.09);padding:1px 7px;border-radius:10px">${b.items.length}件</span>
-      </div>
+    return `<div style="margin-bottom:14px">${badge}
       <div class="tbl-wrap"><table style="width:100%;border-collapse:collapse;font-size:12px">
         <thead><tr style="background:var(--bg)">
           <th style="padding:4px 8px;text-align:left;white-space:nowrap;width:11%">REF#</th>
