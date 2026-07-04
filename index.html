@@ -6784,7 +6784,10 @@ function filterGuideSettlementsListByStatus(){
     const b = bookingByRef[s.booking_ref];
     const items = (s.items||[]).filter(it=>it.status!=='rejected');
     const localTotal = items.reduce((sum,it)=>sum+Number(it.amount||0),0);
-    const advanceTotal = Number(s.advance_payment||0)+Number(s.additional_advance_payment||0);
+    const guideList = (Array.isArray(s.guide_names) && s.guide_names.length>0)
+      ? s.guide_names
+      : [{advance_payment: s.advance_payment||0, additional_advance_payment: s.additional_advance_payment||0}];
+    const advanceTotal = guideList.reduce((sum,g)=>sum+Number(g.advance_payment||0)+Number(g.additional_advance_payment||0),0);
     const statusLabel = s.status==='closed' ? '締め済' : '受付中';
     return `<tr>
       <td class="lnk" onclick="${b?`openBookingDetail('${b.id}')`:''}">${escHtml(s.booking_ref||'')}</td>
