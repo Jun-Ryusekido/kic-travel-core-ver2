@@ -70,6 +70,7 @@ table{width:100%;border-collapse:collapse;font-size:12px}
 .iv-table td:nth-child(8), .iv-table td:nth-child(9){overflow:visible;white-space:normal}
 .bl-table{table-layout:fixed}
 .bl-table th, .bl-table td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#pg-booking-list .bl-table, #pg-dashboard .tbl-wrap .bl-table{min-width:720px}
 th{font-size:10px;color:var(--text3);font-weight:600;padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);white-space:nowrap}
 td{padding:8px 8px;border-bottom:1px solid var(--border);vertical-align:middle}
 tr:last-child td{border:none}
@@ -1868,7 +1869,7 @@ const LIST_PAGE_SIZE = 100;
 const listState = { db:{page:1, sortField:null, sortDir:1}, bl:{page:1, sortField:null, sortDir:1} };
 
 const LIST_COLUMNS = [
-  ['ref_no','REF#',true,'5%'], ['agent_name','Agent',true,'20%'], ['tour_name','Tour',true,'15%'],
+  ['ref_no','REF#',true,'62px'], ['agent_name','Agent',true,'20%'], ['tour_name','Tour',true,'15%'],
   ['in_date','In',true,'9%'], ['out_date','Out',true,'9%'], ['pax','Pax',true,'5%'],
   ['gross_sales','売上',true,'8%'], ['gross_cost','原価',true,'8%'], ['gross','GROSS',true,'8%'], ['rate','率',true,'6%'], ['status','Status',true,'7%']
 ];
