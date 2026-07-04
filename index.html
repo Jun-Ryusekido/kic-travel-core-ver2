@@ -322,6 +322,39 @@ input[type=number]{-moz-appearance:textfield}
   /* PC用のカメラセクションのdashed枠をスマホでは消す */
   #pt-card-upload-section { border-top: 1px solid var(--border) }
 }
+/* 請求書読み取り確認モーダル：スマホはカード形式（縦積み） */
+@media (max-width: 599px) {
+  #invoice-confirm-modal table { table-layout: auto !important; min-width: 0 !important; }
+  #invoice-confirm-modal colgroup { display: none; }
+  #invoice-confirm-modal thead { display: none; }
+  #invoice-confirm-modal tr {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    border: 1px solid var(--border) !important;
+    border-radius: 8px;
+    padding: 8px 6px;
+    margin-bottom: 8px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border) !important;
+  }
+  #invoice-confirm-modal td { display: block; padding: 0; border: none; }
+  #invoice-confirm-modal td[data-col="ref"]     { grid-column: 1 / -1; padding-bottom: 4px; }
+  #invoice-confirm-modal td[data-col="uprice"]  { grid-column: 1; }
+  #invoice-confirm-modal td[data-col="qty"]     { grid-column: 2; text-align: center; }
+  #invoice-confirm-modal td[data-col="amount"]  { grid-column: 3; text-align: right; }
+  #invoice-confirm-modal td[data-col="content"] { grid-column: 1 / -1; padding-top: 4px; border-top: 1px solid var(--border); margin-top: 4px; }
+  #invoice-confirm-modal td[data-col="hidden"]  { display: none !important; }
+  #invoice-confirm-modal td[data-col="uprice"]::before,
+  #invoice-confirm-modal td[data-col="qty"]::before,
+  #invoice-confirm-modal td[data-col="amount"]::before,
+  #invoice-confirm-modal td[data-col="content"]::before {
+    display: block; font-size: 9px; color: var(--text3); margin-bottom: 2px;
+  }
+  #invoice-confirm-modal td[data-col="uprice"]::before  { content: "単価"; }
+  #invoice-confirm-modal td[data-col="qty"]::before     { content: "数量"; }
+  #invoice-confirm-modal td[data-col="amount"]::before  { content: "金額"; }
+  #invoice-confirm-modal td[data-col="content"]::before { content: "内容"; }
+}
 </style>
 </head>
 <body>
@@ -7398,12 +7431,12 @@ async function showInvoiceConfirmDialog(expenses, presetBookingId){
       <div id="inv-confirm-dd-${i}" style="display:none;position:absolute;top:100%;left:0;min-width:200px;background:var(--card,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:999;max-height:180px;overflow-y:auto;margin-top:2px"></div>
     </div>${matchedBooking?`<div style="font-size:9px;color:var(--green);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">✓ ${presetBookingId?'現在の予約':'自動マッチ'}: ${escHtml(matchedBooking.ref_no||'')}</div>`:''}`;
     return `<tr style="border-bottom:1px solid var(--border)">
-      <td style="padding:4px 3px;overflow:hidden">${comboHtml}</td>
-      <td style="padding:4px 3px;text-align:right"><input type="number" id="inv-confirm-uprice-${i}" value="${e.unit_price||0}" style="font-size:10px;width:100%;min-width:0;text-align:right;box-sizing:border-box"></td>
-      <td style="padding:4px 3px;text-align:center"><input type="number" id="inv-confirm-qty-${i}" value="${e.qty||1}" style="font-size:10px;width:100%;min-width:0;text-align:center;box-sizing:border-box"></td>
-      <td style="padding:4px 3px;text-align:right;font-weight:600"><input type="number" id="inv-confirm-amount-${i}" value="${e.amount||0}" style="font-size:10px;width:100%;min-width:0;text-align:right;font-weight:600;box-sizing:border-box"></td>
-      <td style="padding:4px 3px"><input type="text" id="inv-confirm-content-${i}" value="${escAttr(e.content||'')}" style="font-size:10px;width:100%;min-width:0;box-sizing:border-box"></td>
-      <td style="display:none"><input type="hidden" id="inv-confirm-category-${i}" value="${escAttr(e.category||'ゲスト')}"><input type="hidden" id="inv-confirm-date-${i}" value="${e.expense_date||''}"></td>
+      <td data-col="ref" style="padding:4px 3px;overflow:hidden">${comboHtml}</td>
+      <td data-col="uprice" style="padding:4px 3px;text-align:right"><input type="number" id="inv-confirm-uprice-${i}" value="${e.unit_price||0}" style="font-size:10px;width:100%;min-width:0;text-align:right;box-sizing:border-box"></td>
+      <td data-col="qty" style="padding:4px 3px;text-align:center"><input type="number" id="inv-confirm-qty-${i}" value="${e.qty||1}" style="font-size:10px;width:100%;min-width:0;text-align:center;box-sizing:border-box"></td>
+      <td data-col="amount" style="padding:4px 3px;text-align:right;font-weight:600"><input type="number" id="inv-confirm-amount-${i}" value="${e.amount||0}" style="font-size:10px;width:100%;min-width:0;text-align:right;font-weight:600;box-sizing:border-box"></td>
+      <td data-col="content" style="padding:4px 3px"><input type="text" id="inv-confirm-content-${i}" value="${escAttr(e.content||'')}" style="font-size:10px;width:100%;min-width:0;box-sizing:border-box"></td>
+      <td data-col="hidden" style="display:none"><input type="hidden" id="inv-confirm-category-${i}" value="${escAttr(e.category||'ゲスト')}"><input type="hidden" id="inv-confirm-date-${i}" value="${e.expense_date||''}"></td>
     </tr>`;
   }).join('');
 
