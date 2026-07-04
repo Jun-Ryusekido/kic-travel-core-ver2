@@ -2034,8 +2034,8 @@ function renderDbArrivalAlert(){
       const d = inDays(bk.in_date);
       return `<tr onclick="openBookingDetail('${bk.id}')" style="cursor:pointer" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''">
         <td class="lnk" style="padding:5px 8px;white-space:nowrap">${escHtml(bk.ref_no||'')}</td>
-        <td style="padding:5px 8px">${escHtml(bk.tour_name||'')}</td>
         <td style="padding:5px 8px;color:var(--text3)">${escHtml(bk.agent_name||'')}</td>
+        <td style="padding:5px 8px">${escHtml(bk.tour_name||'')}</td>
         <td style="padding:5px 8px">${statusPill(bk.status)}</td>
         <td style="padding:5px 8px;white-space:nowrap">${bk.in_date||''}</td>
         <td style="padding:5px 8px;text-align:center;font-weight:700;color:${b.fg}">${d}日</td>
@@ -2047,16 +2047,16 @@ function renderDbArrivalAlert(){
   el.innerHTML = `<div class="tbl-wrap"><table style="width:100%;border-collapse:collapse;font-size:12px">
     <colgroup>
       <col style="width:8%">
-      <col style="width:22%">
-      <col style="width:28%">
-      <col style="width:11%">
+      <col style="width:30%">
+      <col style="width:20%">
+      <col style="width:10%">
       <col style="width:12%">
-      <col style="width:7%">
+      <col style="width:8%">
     </colgroup>
     <thead><tr style="background:var(--bg)">
       <th style="padding:4px 8px;text-align:left;white-space:nowrap">REF#</th>
-      <th style="padding:4px 8px;text-align:left">ツアー名</th>
       <th style="padding:4px 8px;text-align:left">Agent</th>
+      <th style="padding:4px 8px;text-align:left">ツアー名</th>
       <th style="padding:4px 8px;text-align:left">Status</th>
       <th style="padding:4px 8px;text-align:left;white-space:nowrap">到着日</th>
       <th style="padding:4px 8px;text-align:center;white-space:nowrap">残り</th>
