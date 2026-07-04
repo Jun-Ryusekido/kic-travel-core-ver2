@@ -1231,6 +1231,9 @@ input[type=number]{-moz-appearance:textfield}
       </div>
       <div>
         <h4 class="red">仕入明細</h4>
+        <div style="margin-bottom:6px">
+          <button class="btn" id="bd-cost-ocr-btn" style="font-size:10px;background:#F0F6FF;border-color:#7CB3E8;color:#004A9F" onclick="openCostOcrModal()">🤖 AI読み取り</button>
+        </div>
         <input id="bd-cost-search" placeholder="仕入先・備考で絞り込み" style="width:100%;padding:5px 8px;border-radius:6px;border:1px solid var(--border);font-size:11px;margin-bottom:4px;box-sizing:border-box" oninput="bdCostSearch=this.value;renderCostTable()">
         <div class="tbl-wrap"><table class="li-table">
           <thead></thead>
@@ -1240,9 +1243,6 @@ input[type=number]{-moz-appearance:textfield}
           <button class="btn" id="bd-cost-add-btn" style="font-size:10px" onclick="addCostRow()">＋ 行追加</button>
         </div>
         <div class="li-total">仕入合計: <span id="bd-cost-total">¥0</span></div>
-        <div style="margin-top:6px">
-          <button class="btn" id="bd-cost-ocr-btn" style="font-size:10px;background:#F0F6FF;border-color:#7CB3E8;color:#004A9F" onclick="openCostOcrModal()">🤖 AI読み取り</button>
-        </div>
       </div>
     </div>
 
