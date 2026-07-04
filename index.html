@@ -106,6 +106,7 @@ tr:hover td{background:var(--bg)}
 .s-pending{background:var(--amber-lt);color:var(--amber)}
 .s-invoiced{background:var(--blue-lt);color:var(--blue)}
 .s-paid{background:var(--green-lt);color:#3B6D11}
+.s-finalized{background:#ccf0f5;color:#0e7490}
 .green{color:var(--green)}.amber{color:var(--amber)}.red{color:var(--red)}.blue{color:var(--blue)}
 .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .form-field{display:flex;flex-direction:column;gap:4px}
@@ -512,10 +513,14 @@ input[type=number]{-moz-appearance:textfield}
               <select id="db-status" onchange="filterBookingListGeneric('db')">
                 <option value="">すべて</option>
                 <option value="open">Open</option>
-                <option value="invoiced">Invoiced</option>
                 <option value="pending">Pending</option>
+                <option value="confirmed">Confirmed</option>
+                <option value="finalized">Finalized</option>
+                <option value="invoiced">Invoiced</option>
                 <option value="paid">Paid</option>
+                <option value="settlement">精算中</option>
                 <option value="closed">Closed</option>
+                <option value="cancelled">中止</option>
               </select>
             </div>
           </div>
@@ -559,6 +564,7 @@ input[type=number]{-moz-appearance:textfield}
                     <option value="open">Open / 新規</option>
                     <option value="pending">Pending / 手配中</option>
                     <option value="confirmed">Confirmed / 催行確定</option>
+                    <option value="finalized">Finalized / ファイナル済み</option>
                     <option value="invoiced">Invoiced / 請求済</option>
                     <option value="paid">Paid / 入金済</option>
                     <option value="settlement">Settlement / 精算中</option>
@@ -636,6 +642,7 @@ input[type=number]{-moz-appearance:textfield}
                 <option value="open">Open</option>
                 <option value="pending">Pending</option>
                 <option value="confirmed">Confirmed</option>
+                <option value="finalized">Finalized</option>
                 <option value="invoiced">Invoiced</option>
                 <option value="paid">Paid</option>
                 <option value="settlement">精算中</option>
@@ -1244,6 +1251,7 @@ input[type=number]{-moz-appearance:textfield}
               <option value="open">Open / 新規</option>
               <option value="pending">Pending / 手配中</option>
               <option value="confirmed">Confirmed / 催行確定</option>
+              <option value="finalized">Finalized / ファイナル済み</option>
               <option value="invoiced">Invoiced / 請求済</option>
               <option value="paid">Paid / 入金済</option>
               <option value="settlement">Settlement / 精算中</option>
@@ -2026,6 +2034,7 @@ function renderDbArrivalAlert(){
         <td class="lnk" style="padding:5px 8px;white-space:nowrap">${escHtml(bk.ref_no||'')}</td>
         <td style="padding:5px 8px">${escHtml(bk.tour_name||'')}</td>
         <td style="padding:5px 8px;color:var(--text3)">${escHtml(bk.agent_name||'')}</td>
+        <td style="padding:5px 8px">${statusPill(bk.status)}</td>
         <td style="padding:5px 8px;white-space:nowrap">${bk.in_date||''}</td>
         <td style="padding:5px 8px;text-align:center;font-weight:700;color:${b.fg}">${d}日</td>
       </tr>`;
@@ -2036,6 +2045,7 @@ function renderDbArrivalAlert(){
           <th style="padding:4px 8px;text-align:left;white-space:nowrap;width:11%">REF#</th>
           <th style="padding:4px 8px;text-align:left">ツアー名</th>
           <th style="padding:4px 8px;text-align:left">Agent</th>
+          <th style="padding:4px 8px;text-align:left;white-space:nowrap">Status</th>
           <th style="padding:4px 8px;text-align:left;white-space:nowrap;width:11%">到着日</th>
           <th style="padding:4px 8px;text-align:center;white-space:nowrap;width:7%">残り</th>
         </tr></thead>
@@ -2152,6 +2162,7 @@ function statusPill(status){
     open:['s-open','Open'],
     pending:['s-pending','Pending'],
     confirmed:['s-paid','Confirmed'],
+    finalized:['s-finalized','Finalized'],
     invoiced:['s-invoiced','Invoiced'],
     paid:['s-paid','Paid'],
     settlement:['s-pending','精算中'],
@@ -2244,6 +2255,7 @@ function applyBdStatusColor(){
     open:       {bg:'#f0f0f0', fg:'#555555'},
     pending:    {bg:'#fff3cd', fg:'#856404'},
     confirmed:  {bg:'#d4edda', fg:'#155724'},
+    finalized:  {bg:'#ccf0f5', fg:'#0e7490'},
     invoiced:   {bg:'#cce5ff', fg:'#004085'},
     paid:       {bg:'#d1ecf1', fg:'#0c5460'},
     settlement: {bg:'#e2d9f3', fg:'#6f42c1'},
