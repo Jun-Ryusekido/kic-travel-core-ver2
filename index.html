@@ -790,6 +790,10 @@ input[type=number]{-moz-appearance:textfield}
         </div>
         <div class="card">
           <div class="card-title">ガイド精算一覧</div>
+          <div style="display:flex;gap:14px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+            <label style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer"><input type="checkbox" id="gsl-filter-open" checked onchange="filterGuideSettlementsListByStatus()"> 受付中</label>
+            <label style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer"><input type="checkbox" id="gsl-filter-closed" onchange="filterGuideSettlementsListByStatus()"> 締め済</label>
+          </div>
           <div class="tbl-wrap"><table id="gsl-table">
             <thead><tr><th>REF#</th><th>Tour</th><th>ガイド名</th><th>電話番号</th><th>状態</th><th>件数</th><th>現地費用計</th><th>仮払金合計 &nbsp;<button class="btn" style="font-size:10px" onclick="window.open('/guide_settlement_jp.pdf','_blank')">📄 精算方法 JP</button> <button class="btn" style="font-size:10px" onclick="window.open('/guide_settlement_en.pdf','_blank')">📄 EN</button></th><th></th></tr></thead>
             <tbody id="gsl-tbody"><tr><td colspan="9" class="empty">読み込み中...</td></tr></tbody>
@@ -6755,8 +6759,28 @@ Object.keys(itemsBySettlement).forEach(k=>{ itemsBySettlement[k].sort((a,b)=>{ c
   data.forEach(b=>{ bookingByRef[b.ref_no]=b; });
 
   guideSettlementsListCache = settlements.map(s=>({...s, items: itemsBySettlement[s.id]||[]}));
+  filterGuideSettlementsListByStatus();
+}
 
-  tbody.innerHTML = guideSettlementsListCache.map(s=>{
+function filterGuideSettlementsListByStatus(){
+  const tbody = document.getElementById('gsl-tbody');
+  if(!tbody) return;
+  const showOpen   = document.getElementById('gsl-filter-open')?.checked ?? true;
+  const showClosed = document.getElementById('gsl-filter-closed')?.checked ?? false;
+
+  const bookingByRef = {};
+  allBookingsCache.forEach(b=>{ bookingByRef[b.ref_no]=b; });
+
+  const filtered = guideSettlementsListCache.filter(s=>
+    s.status==='closed' ? showClosed : showOpen
+  );
+
+  if(filtered.length===0){
+    tbody.innerHTML = '<tr><td colspan="9" class="empty">該当する精算リンクがありません</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(s=>{
     const b = bookingByRef[s.booking_ref];
     const items = (s.items||[]).filter(it=>it.status!=='rejected');
     const localTotal = items.reduce((sum,it)=>sum+Number(it.amount||0),0);
