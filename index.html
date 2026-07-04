@@ -7739,57 +7739,63 @@ async function saveInvoiceConfirm(){
 
   statusEl.textContent = '保存中...'; statusEl.style.color = 'var(--text3)';
 
-  // local_expenses に保存（仮払い一覧表）
-  const leRows = validRows.map(r=>({
-    booking_id: r.booking_id, expense_date: r.expense_date, content: r.content,
-    category: r.category, unit_price: r.unit_price, qty: r.qty,
-    amount: r.amount, payment_method: r.payment_method, sort_order: r.sort_order
-  }));
-  const {error} = await sb.from('local_expenses').insert(leRows);
-  if(error){
-    alert('保存エラー:\n'+error.message);
-    statusEl.textContent = '保存エラー: '+error.message;
-    statusEl.style.color = 'var(--red)';
-    return;
-  }
-
-  // booking_costs にも保存（仕入明細）
-  const costRows = validRows.map(r=>({
-    booking_id: r.booking_id,
-    item_name: r._supplier || r._content || '',
-    amount: r.amount,
-    payment_date: r.expense_date,
-    memo: r._supplier ? r._content : ''
-  })).filter(r=>r.item_name||r.amount);
-  if(costRows.length){
-    const {error: ce} = await sb.from('booking_costs').insert(costRows);
-    if(ce) console.error('仕入明細 save error:', ce.message);
-  }
-
   const savedIds = new Set(validRows.map(r=>r.booking_id).filter(Boolean));
+
+  if(presetBookingId){
+    // 仮払い一覧表セクション（openInvoiceImportForBooking）からの呼び出し
+    // → local_expenses（仮払い一覧表）に保存
+    const leRows = validRows.map(r=>({
+      booking_id: r.booking_id, expense_date: r.expense_date, content: r.content,
+      category: r.category, unit_price: r.unit_price, qty: r.qty,
+      amount: r.amount, payment_method: r.payment_method, sort_order: r.sort_order
+    }));
+    const {error} = await sb.from('local_expenses').insert(leRows);
+    if(error){
+      alert('保存エラー:\n'+error.message);
+      statusEl.textContent = '保存エラー: '+error.message; statusEl.style.color = 'var(--red)';
+      return;
+    }
+    if(currentDetailId && savedIds.has(currentDetailId)){
+      const {data} = await sb.from('local_expenses').select('*').eq('booking_id',currentDetailId).order('sort_order',{ascending:true});
+      bdLocalExpenses = data||[];
+      renderLocalExpenses();
+    }
+  } else {
+    // スタンドアローン「請求書読み取り」ページからの呼び出し
+    // → booking_costs（仕入明細）にのみ保存
+    const costRows = validRows.map(r=>({
+      booking_id: r.booking_id,
+      item_name: r._supplier || r._content || '',
+      amount: r.amount,
+      payment_date: r.expense_date,
+      memo: r._supplier ? r._content : ''
+    })).filter(r=>r.item_name||r.amount);
+    if(!costRows.length){
+      statusEl.textContent = '保存できる行がありません'; statusEl.style.color = 'var(--red)'; return;
+    }
+    const {error} = await sb.from('booking_costs').insert(costRows);
+    if(error){
+      alert('保存エラー:\n'+error.message);
+      statusEl.textContent = '保存エラー: '+error.message; statusEl.style.color = 'var(--red)';
+      return;
+    }
+    if(currentDetailId && savedIds.has(currentDetailId)){
+      const {data: costData} = await sb.from('booking_costs').select('*').eq('booking_id',currentDetailId).order('created_at');
+      bdCostItems = (costData||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, memo:r.memo}));
+      renderCostTable();
+      updateDetailGrossPreview();
+      const newGross = bdCostItems.reduce((s,it)=>s+Number(it.amount||0),0);
+      await sb.from('bookings').update({gross_cost:newGross, updated_at:new Date().toISOString()}).eq('id',currentDetailId);
+      const bk=findBookingById(currentDetailId); if(bk) bk.gross_cost=newGross;
+    }
+  }
+
   const savedRefs = [...savedIds].map(id=>{
     const b=(allBookingsCache||[]).find(b=>b.id===id);
     return b?(b.ref_no||b.tour_name||'(REF#なし)'):'(不明)';
   }).join(', ');
   statusEl.textContent = `✓ ${validRows.length}件を保存しました（${savedRefs}）`;
   statusEl.style.color = 'var(--green)';
-
-  // 保存先の予約が現在開いている場合、仮払い一覧表・仕入明細を両方再読み込み
-  if(currentDetailId && savedIds.has(currentDetailId)){
-    const [{data: leData}, {data: costData}] = await Promise.all([
-      sb.from('local_expenses').select('*').eq('booking_id',currentDetailId).order('sort_order',{ascending:true}),
-      sb.from('booking_costs').select('*').eq('booking_id',currentDetailId).order('created_at')
-    ]);
-    bdLocalExpenses = leData||[];
-    renderLocalExpenses();
-    bdCostItems = (costData||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, memo:r.memo}));
-    renderCostTable();
-    updateDetailGrossPreview();
-    const newGross = bdCostItems.reduce((s,it)=>s+Number(it.amount||0),0);
-    await sb.from('bookings').update({gross_cost:newGross, updated_at:new Date().toISOString()}).eq('id',currentDetailId);
-    const bk=findBookingById(currentDetailId); if(bk) bk.gross_cost=newGross;
-  }
-
   setTimeout(()=>{ document.getElementById('invoice-confirm-modal')?.remove(); }, 2500);
 }
 
