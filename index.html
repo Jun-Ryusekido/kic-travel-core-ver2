@@ -2019,14 +2019,16 @@ function renderDbArrivalAlert(){
     return;
   }
 
-  el.innerHTML = buckets.map(b => {
-    const badge = `<div style="display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:20px;font-size:11px;font-weight:700;background:${b.bg};color:${b.fg};border:1.5px solid ${b.border};margin-bottom:8px">
-        ${b.label} <span style="background:rgba(0,0,0,.09);padding:1px 7px;border-radius:10px">${b.items.length}件</span>
-      </div>`;
+  const tbodyRows = buckets.map(b => {
+    const sectionHd = `<tr>
+      <td colspan="6" style="padding:6px 8px 4px;background:${b.bg};border-top:2px solid ${b.border}">
+        <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:${b.fg}">
+          ${b.label} <span style="background:rgba(0,0,0,.09);padding:1px 7px;border-radius:10px">${b.items.length}件</span>
+        </span>
+      </td>
+    </tr>`;
     if(b.items.length === 0){
-      return `<div style="margin-bottom:14px">${badge}
-        <div style="font-size:11px;color:var(--text3);padding:2px 0 0 4px">該当する予約はありません</div>
-      </div>`;
+      return sectionHd + `<tr><td colspan="6" style="padding:4px 8px 8px;font-size:11px;color:var(--text3)">該当する予約はありません</td></tr>`;
     }
     const rows = b.items.map(bk => {
       const d = inDays(bk.in_date);
@@ -2039,20 +2041,28 @@ function renderDbArrivalAlert(){
         <td style="padding:5px 8px;text-align:center;font-weight:700;color:${b.fg}">${d}日</td>
       </tr>`;
     }).join('');
-    return `<div style="margin-bottom:14px">${badge}
-      <div class="tbl-wrap"><table style="width:100%;border-collapse:collapse;font-size:12px">
-        <thead><tr style="background:var(--bg)">
-          <th style="padding:4px 8px;text-align:left;white-space:nowrap;width:11%">REF#</th>
-          <th style="padding:4px 8px;text-align:left">ツアー名</th>
-          <th style="padding:4px 8px;text-align:left">Agent</th>
-          <th style="padding:4px 8px;text-align:left;white-space:nowrap">Status</th>
-          <th style="padding:4px 8px;text-align:left;white-space:nowrap;width:11%">到着日</th>
-          <th style="padding:4px 8px;text-align:center;white-space:nowrap;width:7%">残り</th>
-        </tr></thead>
-        <tbody>${rows}</tbody>
-      </table></div>
-    </div>`;
+    return sectionHd + rows;
   }).join('');
+
+  el.innerHTML = `<div class="tbl-wrap"><table style="width:100%;border-collapse:collapse;font-size:12px">
+    <colgroup>
+      <col style="width:95px">
+      <col>
+      <col style="width:110px">
+      <col style="width:88px">
+      <col style="width:88px">
+      <col style="width:46px">
+    </colgroup>
+    <thead><tr style="background:var(--bg)">
+      <th style="padding:4px 8px;text-align:left;white-space:nowrap">REF#</th>
+      <th style="padding:4px 8px;text-align:left">ツアー名</th>
+      <th style="padding:4px 8px;text-align:left">Agent</th>
+      <th style="padding:4px 8px;text-align:left">Status</th>
+      <th style="padding:4px 8px;text-align:left;white-space:nowrap">到着日</th>
+      <th style="padding:4px 8px;text-align:center;white-space:nowrap">残り</th>
+    </tr></thead>
+    <tbody>${tbodyRows}</tbody>
+  </table></div>`;
 }
 
 // 全角英数記号を半角に変換（検索用）
