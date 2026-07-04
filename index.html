@@ -70,7 +70,31 @@ table{width:100%;border-collapse:collapse;font-size:12px}
 .iv-table td:nth-child(8), .iv-table td:nth-child(9){overflow:visible;white-space:normal}
 .bl-table{table-layout:fixed}
 .bl-table th, .bl-table td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#pg-booking-list .bl-table, #pg-dashboard .tbl-wrap .bl-table{min-width:720px}
+@media(max-width:599px){
+  #pg-booking-list .bl-table,#pg-dashboard .tbl-wrap .bl-table{table-layout:auto;min-width:0;width:100%}
+  #pg-booking-list .bl-table th:nth-child(2),#pg-booking-list .bl-table td:nth-child(2),
+  #pg-dashboard .bl-table th:nth-child(2),#pg-dashboard .bl-table td:nth-child(2),
+  #pg-booking-list .bl-table th:nth-child(5),#pg-booking-list .bl-table td:nth-child(5),
+  #pg-dashboard .bl-table th:nth-child(5),#pg-dashboard .bl-table td:nth-child(5),
+  #pg-booking-list .bl-table th:nth-child(6),#pg-booking-list .bl-table td:nth-child(6),
+  #pg-dashboard .bl-table th:nth-child(6),#pg-dashboard .bl-table td:nth-child(6),
+  #pg-booking-list .bl-table th:nth-child(7),#pg-booking-list .bl-table td:nth-child(7),
+  #pg-dashboard .bl-table th:nth-child(7),#pg-dashboard .bl-table td:nth-child(7),
+  #pg-booking-list .bl-table th:nth-child(8),#pg-booking-list .bl-table td:nth-child(8),
+  #pg-dashboard .bl-table th:nth-child(8),#pg-dashboard .bl-table td:nth-child(8),
+  #pg-booking-list .bl-table th:nth-child(9),#pg-booking-list .bl-table td:nth-child(9),
+  #pg-dashboard .bl-table th:nth-child(9),#pg-dashboard .bl-table td:nth-child(9),
+  #pg-booking-list .bl-table th:nth-child(10),#pg-booking-list .bl-table td:nth-child(10),
+  #pg-dashboard .bl-table th:nth-child(10),#pg-dashboard .bl-table td:nth-child(10){display:none}
+  #pg-booking-list .bl-table th:nth-child(1),#pg-booking-list .bl-table td:nth-child(1),
+  #pg-dashboard .bl-table th:nth-child(1),#pg-dashboard .bl-table td:nth-child(1){width:62px}
+  #pg-booking-list .bl-table th:nth-child(4),#pg-booking-list .bl-table td:nth-child(4),
+  #pg-dashboard .bl-table th:nth-child(4),#pg-dashboard .bl-table td:nth-child(4){width:68px}
+  #pg-booking-list .bl-table th:nth-child(11),#pg-booking-list .bl-table td:nth-child(11),
+  #pg-dashboard .bl-table th:nth-child(11),#pg-dashboard .bl-table td:nth-child(11){width:60px}
+  #pg-booking-list .bl-table th:nth-child(12),#pg-booking-list .bl-table td:nth-child(12),
+  #pg-dashboard .bl-table th:nth-child(12),#pg-dashboard .bl-table td:nth-child(12){width:26px}
+}
 th{font-size:10px;color:var(--text3);font-weight:600;padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);white-space:nowrap}
 td{padding:8px 8px;border-bottom:1px solid var(--border);vertical-align:middle}
 tr:last-child td{border:none}
@@ -7489,7 +7513,7 @@ function showCostConfirmDialog(expenses){
   const rows = expenses.map((e,i)=>{
     const itemName = escAttr(e.supplier_name||e.content||'');
     const amount = e.amount||0;
-    const payDate = escAttr(e.expense_date||'');
+    const payDate = '';
     const memo = escAttr(e.supplier_name ? (e.content||'') : '');
     return `<tr style="border-bottom:1px solid var(--border)">
       <td style="padding:4px 3px;text-align:center"><input type="checkbox" id="cost-chk-${i}" checked></td>
