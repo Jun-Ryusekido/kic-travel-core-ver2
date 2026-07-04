@@ -329,31 +329,34 @@ input[type=number]{-moz-appearance:textfield}
   #invoice-confirm-modal thead { display: none; }
   #invoice-confirm-modal tr {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    width: 100%;
+    grid-template-columns: 1fr 50px 35px 62px;
     border: 1px solid var(--border) !important;
     border-radius: 8px;
     padding: 8px 6px;
     margin-bottom: 8px;
     background: var(--bg);
-    border-bottom: 1px solid var(--border) !important;
   }
   #invoice-confirm-modal td { display: block; padding: 0; border: none; }
-  #invoice-confirm-modal td[data-col="ref"]     { grid-column: 1 / -1; padding-bottom: 4px; }
-  #invoice-confirm-modal td[data-col="uprice"]  { grid-column: 1; }
-  #invoice-confirm-modal td[data-col="qty"]     { grid-column: 2; text-align: center; }
-  #invoice-confirm-modal td[data-col="amount"]  { grid-column: 3; text-align: right; }
-  #invoice-confirm-modal td[data-col="content"] { grid-column: 1 / -1; padding-top: 4px; border-top: 1px solid var(--border); margin-top: 4px; }
-  #invoice-confirm-modal td[data-col="hidden"]  { display: none !important; }
+  #invoice-confirm-modal td[data-col="ref"]      { grid-column: 1; padding-bottom: 0; }
+  #invoice-confirm-modal td[data-col="uprice"]   { grid-column: 2; text-align: right; }
+  #invoice-confirm-modal td[data-col="qty"]      { grid-column: 3; text-align: center; }
+  #invoice-confirm-modal td[data-col="amount"]   { grid-column: 4; text-align: right; }
+  #invoice-confirm-modal td[data-col="supplier"] { grid-column: 1 / -1; padding-top: 4px; border-top: 1px solid var(--border); margin-top: 4px; }
+  #invoice-confirm-modal td[data-col="content"]  { grid-column: 1 / -1; padding-top: 4px; border-top: 1px solid var(--border); margin-top: 4px; }
+  #invoice-confirm-modal td[data-col="hidden"]   { display: none !important; }
   #invoice-confirm-modal td[data-col="uprice"]::before,
   #invoice-confirm-modal td[data-col="qty"]::before,
   #invoice-confirm-modal td[data-col="amount"]::before,
+  #invoice-confirm-modal td[data-col="supplier"]::before,
   #invoice-confirm-modal td[data-col="content"]::before {
     display: block; font-size: 9px; color: var(--text3); margin-bottom: 2px;
   }
-  #invoice-confirm-modal td[data-col="uprice"]::before  { content: "単価"; }
-  #invoice-confirm-modal td[data-col="qty"]::before     { content: "数量"; }
-  #invoice-confirm-modal td[data-col="amount"]::before  { content: "金額"; }
-  #invoice-confirm-modal td[data-col="content"]::before { content: "内容"; }
+  #invoice-confirm-modal td[data-col="uprice"]::before   { content: "単価"; }
+  #invoice-confirm-modal td[data-col="qty"]::before      { content: "数量"; }
+  #invoice-confirm-modal td[data-col="amount"]::before   { content: "金額"; }
+  #invoice-confirm-modal td[data-col="supplier"]::before { content: "支払先"; }
+  #invoice-confirm-modal td[data-col="content"]::before  { content: "内容"; }
 }
 </style>
 </head>
@@ -2097,7 +2100,7 @@ let originalCostsCount = 0;
 let bdLocalExpenses = [];
 const LOCAL_EXPENSE_CATEGORIES = ['D（ドライバー）','ゲスト','ゲスト・TG','その他'];
 const LOCAL_EXPENSE_PAYMENT_METHODS = ['現地払い','前振込み','後請求','全旅クーポン'];
-let bdLocked = false; let suppliersCache = []; let busCompaniesCache = []; let restaurantPartnersCache = [];
+let bdLocked = false; let suppliersCache = []; let busCompaniesCache = []; let restaurantPartnersCache = []; let allPartnersCache = [];
 let arrangementsCache = [];
 let currentArrangementId = null;
 let arrDays = [];
@@ -2525,6 +2528,27 @@ async function loadRestaurantPartnersCache(){
     .order('company_name');
   restaurantPartnersCache = data||[];
 }
+async function loadAllPartnersCache(){
+  if(allPartnersCache.length>0) return;
+  const {data} = await sb.from('business_partners')
+    .select('company_name')
+    .or('is_deleted.is.null,is_deleted.eq.false')
+    .order('company_name');
+  allPartnersCache = data||[];
+}
+async function filterInvSupplierDD(i){
+  await loadAllPartnersCache();
+  const inputEl = document.getElementById('inv-confirm-supplier-'+i);
+  const dd = document.getElementById('inv-supplier-dd-'+i);
+  if(!inputEl||!dd) return;
+  const q = inputEl.value.trim().toLowerCase();
+  const matches = (q ? allPartnersCache.filter(p=>p.company_name.toLowerCase().includes(q)) : allPartnersCache).slice(0,12);
+  if(!matches.length){ dd.style.display='none'; return; }
+  dd.innerHTML = matches.map(p=>`<div onmousedown="selectInvSupplier(${i},${JSON.stringify(p.company_name)});return false" style="padding:5px 8px;font-size:10px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''">${escHtml(p.company_name)}</div>`).join('');
+  dd.style.display = 'block';
+}
+function hideInvSupplierDD(i){ const dd=document.getElementById('inv-supplier-dd-'+i); if(dd) dd.style.display='none'; }
+function selectInvSupplier(i, name){ const el=document.getElementById('inv-confirm-supplier-'+i); if(el){el.value=name;} hideInvSupplierDD(i); }
 async function showRestaurantSuggest(inputEl, idx){
   hideRestaurantSuggest();
   await loadRestaurantPartnersCache();
@@ -7402,7 +7426,8 @@ async function showInvoiceConfirmDialog(expenses, presetBookingId){
     if(presetBookingId){
       matchedBooking = sortedBookings.find(b=>b.id===presetBookingId);
     } else {
-      const eAllText = [e.ref_no, e.content].map(v=>norm(v)).join(' ');
+      const eAllText = [e.ref_no, e.content, e.supplier_name].map(v=>norm(v)).join(' ');
+      // Stage1: ref_noの先頭数値が一致
       matchedBooking = sortedBookings.find(b=>{
         if(e.ref_no){
           const bNum = firstNum(b.ref_no);
@@ -7415,6 +7440,21 @@ async function showInvoiceConfirmDialog(expenses, presetBookingId){
         const bTour = norm(b.tour_name);
         return bTour.length>=5 && /\d/.test(bTour) && eAllText.includes(bTour);
       });
+      // Stage2.5: "852_KK"形式の短縮ツアーコードをtour_nameにマッチ
+      if(!matchedBooking){
+        const shortCodePat = /\b(\d{3,5})_([A-Za-z]{2,4})\b/g;
+        const codes = [...eAllText.matchAll(shortCodePat)];
+        if(codes.length){
+          matchedBooking = sortedBookings.find(b=>{
+            const tNorm = norm(b.tour_name);
+            return codes.some(m=>{
+              const tm = tNorm.match(/(\d{3,5})_([A-Z]{2,4})/);
+              if(!tm) return false;
+              return String(+tm[1])===String(+m[1]) && tm[2]===m[2].toUpperCase();
+            });
+          });
+        }
+      }
     }
     expenses[i]._bookingId = matchedBooking ? matchedBooking.id : null;
     const inputVal = matchedBooking ? escHtml(matchedBooking.ref_no||'(REF#なし)') : '';
@@ -7430,11 +7470,13 @@ async function showInvoiceConfirmDialog(expenses, presetBookingId){
       <input type="hidden" id="inv-confirm-booking-${i}" value="${hiddenVal}">
       <div id="inv-confirm-dd-${i}" style="display:none;position:absolute;top:100%;left:0;min-width:200px;background:var(--card,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:999;max-height:180px;overflow-y:auto;margin-top:2px"></div>
     </div>${matchedBooking?`<div style="font-size:9px;color:var(--green);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">✓ ${presetBookingId?'現在の予約':'自動マッチ'}: ${escHtml(matchedBooking.ref_no||'')}</div>`:''}`;
+    const supplierDd = `<div id="inv-supplier-dd-${i}" style="display:none;position:absolute;top:100%;left:0;min-width:180px;background:var(--card,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:999;max-height:150px;overflow-y:auto;margin-top:2px"></div>`;
     return `<tr style="border-bottom:1px solid var(--border)">
       <td data-col="ref" style="padding:4px 3px;overflow:hidden">${comboHtml}</td>
       <td data-col="uprice" style="padding:4px 3px;text-align:right"><input type="number" id="inv-confirm-uprice-${i}" value="${e.unit_price||0}" style="font-size:10px;width:100%;min-width:0;text-align:right;box-sizing:border-box"></td>
       <td data-col="qty" style="padding:4px 3px;text-align:center"><input type="number" id="inv-confirm-qty-${i}" value="${e.qty||1}" style="font-size:10px;width:100%;min-width:0;text-align:center;box-sizing:border-box"></td>
       <td data-col="amount" style="padding:4px 3px;text-align:right;font-weight:600"><input type="number" id="inv-confirm-amount-${i}" value="${e.amount||0}" style="font-size:10px;width:100%;min-width:0;text-align:right;font-weight:600;box-sizing:border-box"></td>
+      <td data-col="supplier" style="padding:4px 3px"><div style="position:relative"><input type="text" id="inv-confirm-supplier-${i}" value="${escAttr(e.supplier_name||'')}" placeholder="支払先" autocomplete="off" oninput="filterInvSupplierDD(${i})" onfocus="filterInvSupplierDD(${i})" onblur="setTimeout(()=>hideInvSupplierDD(${i}),200)" style="font-size:10px;width:100%;min-width:0;box-sizing:border-box">${supplierDd}</div></td>
       <td data-col="content" style="padding:4px 3px"><input type="text" id="inv-confirm-content-${i}" value="${escAttr(e.content||'')}" style="font-size:10px;width:100%;min-width:0;box-sizing:border-box"></td>
       <td data-col="hidden" style="display:none"><input type="hidden" id="inv-confirm-category-${i}" value="${escAttr(e.category||'ゲスト')}"><input type="hidden" id="inv-confirm-date-${i}" value="${e.expense_date||''}"></td>
     </tr>`;
@@ -7450,13 +7492,14 @@ async function showInvoiceConfirmDialog(expenses, presetBookingId){
         <button class="btn" onclick="document.getElementById('invoice-confirm-modal').remove()">✕ 閉じる</button>
       </div>
       <div style="font-size:11px;color:var(--text3);margin-bottom:8px">ツアーREF#を選択してから「保存」してください。REF#未選択の行は保存されません。</div>
-      <div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table style="width:100%;border-collapse:collapse;font-size:11px;table-layout:fixed;min-width:300px">
-        <colgroup><col style="width:18%"><col style="width:10%"><col style="width:8%"><col style="width:12%"><col></colgroup>
+      <div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table style="width:100%;border-collapse:collapse;font-size:11px;table-layout:fixed;min-width:360px">
+        <colgroup><col style="width:16%"><col style="width:9%"><col style="width:7%"><col style="width:11%"><col style="width:14%"><col></colgroup>
         <thead><tr style="background:var(--bg)">
           <th style="padding:6px 4px;text-align:left;font-size:10px">REF# ★</th>
           <th style="padding:6px 4px;text-align:right;font-size:10px">単価</th>
           <th style="padding:6px 4px;text-align:center;font-size:10px">数量</th>
           <th style="padding:6px 4px;text-align:right;font-size:10px">金額</th>
+          <th style="padding:6px 4px;text-align:left;font-size:10px">支払先</th>
           <th style="padding:6px 4px;text-align:left;font-size:10px">内容</th>
         </tr></thead>
         <tbody>${rows}</tbody>
@@ -7515,7 +7558,7 @@ async function saveInvoiceConfirm(){
   const allRows = expenses.map((e,i)=>({
     booking_id: document.getElementById(`inv-confirm-booking-${i}`)?.value || null,
     expense_date: sanitizeDateField(document.getElementById(`inv-confirm-date-${i}`)?.value),
-    content: document.getElementById(`inv-confirm-content-${i}`)?.value || '',
+    content: (()=>{ const s=(document.getElementById(`inv-confirm-supplier-${i}`)?.value||'').trim(); const c=(document.getElementById(`inv-confirm-content-${i}`)?.value||'').trim(); return s?(c?s+': '+c:s):c; })(),
     category: document.getElementById(`inv-confirm-category-${i}`)?.value || 'ゲスト',
     unit_price: Number(document.getElementById(`inv-confirm-uprice-${i}`)?.value)||0,
     qty: Number(document.getElementById(`inv-confirm-qty-${i}`)?.value)||1,
