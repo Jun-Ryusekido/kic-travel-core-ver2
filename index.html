@@ -1480,9 +1480,10 @@ input[type=number]{-moz-appearance:textfield}
       <button class="btn" style="font-size:10px" onclick="printLocalExpenses()">🖨 印刷</button>
     </div>
     <div id="local-expenses-print-area">
-    <div class="tbl-wrap"><table class="li-table" style="min-width:700px">
+    <div class="tbl-wrap"><table class="li-table" style="min-width:800px">
       <thead><tr>
         <th style="width:100px">日付</th>
+        <th style="width:90px">費用種類</th>
         <th>内容</th>
         <th style="width:110px">区分</th>
         <th style="width:80px">単価</th>
@@ -2164,6 +2165,7 @@ let originalCostsCount = 0;
 let bdLocalExpenses = [];
 const LOCAL_EXPENSE_CATEGORIES = ['D（ドライバー）','ゲスト','ゲスト・TG','その他'];
 const LOCAL_EXPENSE_PAYMENT_METHODS = ['現地払い','前振込み','後請求','全旅クーポン'];
+const LOCAL_EXPENSE_TYPES = ['食事','食事/TIP','交通費','入場料','ホテル','駐車料','TIP','雑費','その他'];
 let bdLocked = false; let suppliersCache = []; let busCompaniesCache = []; let restaurantPartnersCache = []; let allPartnersCache = [];
 let arrangementsCache = [];
 let currentArrangementId = null;
@@ -2895,11 +2897,15 @@ function renderLocalExpenses(){
   if(!tbody) return;
   const total = bdLocalExpenses.reduce((s,it)=>s+Number(it.amount||0),0);
   if(bdLocalExpenses.length===0){
-    tbody.innerHTML='<tr><td colspan="8" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
+    tbody.innerHTML='<tr><td colspan="9" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
   }else{
     tbody.innerHTML = bdLocalExpenses.map((it,i)=>`
       <tr>
         <td><input type="date" min="1900-01-01" max="9999-12-31" value="${_safeDate(it.expense_date)}" onchange="bdLocalExpenses[${i}].expense_date=this.value" style="width:100%"></td>
+        <td><select onchange="bdLocalExpenses[${i}].expense_type=this.value" style="width:100%">
+          <option value=""></option>
+          ${LOCAL_EXPENSE_TYPES.map(t=>`<option value="${t}" ${it.expense_type===t?'selected':''}>${t}</option>`).join('')}
+        </select></td>
         <td><input value="${(it.content||'').replace(/"/g,'&quot;')}" onchange="bdLocalExpenses[${i}].content=this.value" style="width:100%"></td>
         <td><select onchange="bdLocalExpenses[${i}].category=this.value" style="width:100%">
           ${LOCAL_EXPENSE_CATEGORIES.map(c=>`<option value="${c}" ${it.category===c?'selected':''}>${c}</option>`).join('')}
@@ -2925,7 +2931,7 @@ function localExpenseCalc(i, el){
 }
 
 function addLocalExpenseRow(){
-  bdLocalExpenses.push({expense_date:'', content:'', category:'ゲスト', unit_price:0, qty:1, amount:0, payment_method:'現地払い'});
+  bdLocalExpenses.push({expense_date:'', expense_type:'', content:'', category:'ゲスト', unit_price:0, qty:1, amount:0, payment_method:'現地払い'});
   renderLocalExpenses();
 }
 
@@ -2938,6 +2944,7 @@ async function saveLocalExpenses(){
   const rows = bdLocalExpenses.filter(it=>it.content||Number(it.amount)).map((it,i)=>({
     booking_id: currentDetailId,
     expense_date: sanitizeDateField(it.expense_date),
+    expense_type: it.expense_type||'',
     content: it.content||'',
     category: it.category||'',
     unit_price: Number(it.unit_price)||0,
@@ -3053,7 +3060,7 @@ async function openBookingDetail(id){
   // 現地費用明細を読み込み
   const {data: localRows} = await sb.from('local_expenses').select('*').eq('booking_id', id).order('sort_order');
   bdLocalExpenses = (localRows||[]).map(r=>({
-    expense_date: r.expense_date||'', content: r.content||'', category: r.category||'',
+    expense_date: r.expense_date||'', expense_type: r.expense_type||'', content: r.content||'', category: r.category||'',
     unit_price: r.unit_price||0, qty: r.qty||1, amount: r.amount||0, payment_method: r.payment_method||''
   }));
   renderLocalExpenses();
@@ -4146,47 +4153,76 @@ win.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><style>@pag
 }function printLocalExpenses(){
   const b = findBookingById(currentDetailId);
   if(!b) return;
-  const total = bdLocalExpenses.reduce((s,it)=>s+Number(it.amount||0),0);
-  const rows = bdLocalExpenses.map((it,i)=>`
-    <tr>
-      <td style="border:1px solid #999;padding:4px">${it.expense_date||''}</td>
-      <td style="border:1px solid #999;padding:4px">${escHtml(it.content||'')}</td>
-      <td style="border:1px solid #999;padding:4px">${escHtml(it.category||'')}</td>
-      <td style="border:1px solid #999;padding:4px;text-align:right">${Number(it.unit_price||0).toLocaleString()}</td>
-      <td style="border:1px solid #999;padding:4px;text-align:right">${it.qty||1}</td>
-      <td style="border:1px solid #999;padding:4px;text-align:right;font-weight:600">${yen(it.amount||0)}</td>
-      <td style="border:1px solid #999;padding:4px">${escHtml(it.payment_method||'')}</td>
-    </tr>`).join('');
 
-  const html = `
-    <div style="background:#fff;padding:14px;font-size:11px;color:#222">
-      <div style="text-align:center;font-size:16px;font-weight:700;color:var(--blue);margin-bottom:10px">仮払い一覧表</div>
-      <div style="margin-bottom:10px">
-        <strong>${escHtml(b.ref_no)}</strong> ${escHtml(b.tour_name||'')}　
-        ${b.in_date||''} ～ ${b.out_date||''}　${Number(b.pax||0)}名
+  const guideNames = guideSettlementsCache.flatMap(s=>{
+    if(Array.isArray(s.guide_names)&&s.guide_names.length>0) return s.guide_names.map(g=>g.name).filter(Boolean);
+    return [];
+  });
+  const guideStr = [...new Set(guideNames)].join(' / ');
+
+  const totalAmount = bdLocalExpenses.reduce((s,it)=>s+Number(it.amount||0),0);
+  const totalLocal  = bdLocalExpenses.reduce((s,it)=>s+(it.payment_method==='現地払い'?Number(it.amount||0):0),0);
+
+  const tdB = 'style="border:1px solid #bbb;padding:3px 5px;vertical-align:top"';
+  const tdR = 'style="border:1px solid #bbb;padding:3px 5px;text-align:right;vertical-align:top"';
+  let prevDate='';
+  const rows = bdLocalExpenses.map(it=>{
+    const showDate = it.expense_date!==prevDate;
+    prevDate = it.expense_date;
+    const localAmt = it.payment_method==='現地払い' ? Number(it.amount||0) : 0;
+    return `<tr>
+      <td ${tdB}>${showDate?(it.expense_date||''):''}</td>
+      <td ${tdB}>${escHtml(it.expense_type||'')}</td>
+      <td ${tdB}>${escHtml(it.content||'')}</td>
+      <td ${tdB}>${escHtml(it.category||'')}</td>
+      <td ${tdR}>${Number(it.unit_price||0).toLocaleString('ja-JP')}</td>
+      <td ${tdR}>${it.qty||1}</td>
+      <td ${tdR}>${Number(it.amount||0).toLocaleString('ja-JP')}</td>
+      <td ${tdB}>${escHtml(it.payment_method||'')}</td>
+      <td ${tdR}>${localAmt>0?localAmt.toLocaleString('ja-JP'):''}</td>
+    </tr>`;
+  }).join('');
+
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit'})+' '+now.toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'});
+
+  const thStyle = 'style="border:1px solid #999;padding:4px 5px;background:#dce4f0;font-weight:700;white-space:nowrap"';
+  const html = `<div style="font-family:'Meiryo','Noto Sans JP',sans-serif;font-size:9.5pt;color:#000">
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:6px">
+      <div>
+        <div style="font-size:15pt;font-weight:700;letter-spacing:0.05em">精算表</div>
+        <div style="font-size:9pt;margin-top:2px">${escHtml(b.ref_no||'')}　${escHtml(b.tour_name||'')}</div>
       </div>
-      <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:10px">
-        <thead><tr style="background:#f5f7fa">
-          <th style="border:1px solid #999;padding:5px;width:90px">日付</th>
-          <th style="border:1px solid #999;padding:5px">内容</th>
-          <th style="border:1px solid #999;padding:5px;width:100px">区分</th>
-          <th style="border:1px solid #999;padding:5px;width:70px">単価</th>
-          <th style="border:1px solid #999;padding:5px;width:40px">数量</th>
-          <th style="border:1px solid #999;padding:5px;width:80px">金額</th>
-          <th style="border:1px solid #999;padding:5px;width:90px">支払方法</th>
-        </tr></thead>
-        <tbody>${rows}</tbody>
-        <tfoot><tr style="font-weight:700;background:#EEF3FA">
-          <td colspan="5" style="border:1px solid #999;padding:6px;text-align:right">合計</td>
-          <td style="border:1px solid #999;padding:6px;text-align:right;color:var(--blue)">${yen(total)}</td>
-          <td style="border:1px solid #999;padding:6px"></td>
-        </tr></tfoot>
-      </table>
-      <div style="text-align:right;font-weight:700;color:var(--blue)">KIC TRAVEL</div>
-    </div>`;
+      <div style="font-size:9pt;text-align:right;line-height:1.6">
+        ${guideStr?`<div>ガイド：${escHtml(guideStr)}</div>`:''}
+        <div>${Number(b.pax||0)}名　${b.in_date||''}${b.out_date?' ～ '+b.out_date:''}</div>
+        <div>出力：${dateStr}</div>
+      </div>
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:9pt">
+      <thead><tr>
+        <th ${thStyle} style="border:1px solid #999;padding:4px 5px;background:#dce4f0;font-weight:700;width:72px">日付</th>
+        <th ${thStyle} style="border:1px solid #999;padding:4px 5px;background:#dce4f0;font-weight:700;width:68px">費用種類</th>
+        <th ${thStyle} style="border:1px solid #999;padding:4px 5px;background:#dce4f0;font-weight:700">内容</th>
+        <th ${thStyle} style="border:1px solid #999;padding:4px 5px;background:#dce4f0;font-weight:700;width:76px">区分</th>
+        <th ${thStyle} style="border:1px solid #999;padding:4px 5px;background:#dce4f0;font-weight:700;width:60px;text-align:right">単価</th>
+        <th ${thStyle} style="border:1px solid #999;padding:4px 5px;background:#dce4f0;font-weight:700;width:34px;text-align:right">数量</th>
+        <th ${thStyle} style="border:1px solid #999;padding:4px 5px;background:#dce4f0;font-weight:700;width:72px;text-align:right">金額</th>
+        <th ${thStyle} style="border:1px solid #999;padding:4px 5px;background:#dce4f0;font-weight:700;width:66px">支払い方法</th>
+        <th ${thStyle} style="border:1px solid #999;padding:4px 5px;background:#dce4f0;font-weight:700;width:72px;text-align:right">現地払い額</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot><tr style="font-weight:700;background:#dce4f0">
+        <td colspan="6" style="border:1px solid #999;padding:4px 5px;text-align:right">合計</td>
+        <td style="border:1px solid #999;padding:4px 5px;text-align:right">${totalAmount.toLocaleString('ja-JP')}</td>
+        <td style="border:1px solid #999;padding:4px 5px"></td>
+        <td style="border:1px solid #999;padding:4px 5px;text-align:right">${totalLocal>0?totalLocal.toLocaleString('ja-JP'):''}</td>
+      </tr></tfoot>
+    </table>
+  </div>`;
 
-  const win = window.open('','_blank','width=800,height=600');
-  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><style>@page{size:A4;margin:15mm}body{margin:0}</style></head><body>${html}<script>window.onload=()=>{window.print();window.close()}<\/script></body></html>`);
+  const win = window.open('','_blank','width=1100,height=700');
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><style>@page{size:A4 landscape;margin:10mm}body{margin:0;padding:8mm}table{page-break-inside:auto}tr{page-break-inside:avoid}</style></head><body>${html}<script>window.onload=()=>{window.print();window.close()}<\/script></body></html>`);
   win.document.close();
 }
 
