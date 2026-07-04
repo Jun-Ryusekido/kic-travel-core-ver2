@@ -338,12 +338,12 @@ input[type=number]{-moz-appearance:textfield}
     background: var(--bg);
   }
   #invoice-confirm-modal td { display: block; padding: 0; border: none; }
-  #invoice-confirm-modal td[data-col="ref"]      { grid-column: 1; padding-bottom: 0; }
-  #invoice-confirm-modal td[data-col="uprice"]   { grid-column: 2; text-align: right; }
-  #invoice-confirm-modal td[data-col="qty"]      { grid-column: 3; text-align: center; }
-  #invoice-confirm-modal td[data-col="amount"]   { grid-column: 4; text-align: right; }
-  #invoice-confirm-modal td[data-col="supplier"] { grid-column: 1 / -1; padding-top: 4px; border-top: 1px solid var(--border); margin-top: 4px; }
-  #invoice-confirm-modal td[data-col="content"]  { grid-column: 1 / -1; padding-top: 4px; border-top: 1px solid var(--border); margin-top: 4px; }
+  #invoice-confirm-modal td[data-col="ref"]      { grid-column: 1; grid-row: 1; padding-bottom: 0; }
+  #invoice-confirm-modal td[data-col="uprice"]   { grid-column: 2; grid-row: 1; text-align: right; }
+  #invoice-confirm-modal td[data-col="qty"]      { grid-column: 3; grid-row: 1; text-align: center; }
+  #invoice-confirm-modal td[data-col="amount"]   { grid-column: 4; grid-row: 1; text-align: right; }
+  #invoice-confirm-modal td[data-col="supplier"] { grid-column: 1 / -1; grid-row: 2; padding-top: 4px; border-top: 1px solid var(--border); margin-top: 4px; }
+  #invoice-confirm-modal td[data-col="content"]  { grid-column: 1 / -1; grid-row: 3; padding-top: 4px; border-top: 1px solid var(--border); margin-top: 4px; }
   #invoice-confirm-modal td[data-col="hidden"]   { display: none !important; }
   #invoice-confirm-modal td[data-col="uprice"]::before,
   #invoice-confirm-modal td[data-col="qty"]::before,
@@ -7640,8 +7640,8 @@ async function showInvoiceConfirmDialog(expenses, presetBookingId){
         <button class="btn" onclick="document.getElementById('invoice-confirm-modal').remove()">✕ 閉じる</button>
       </div>
       <div style="font-size:11px;color:var(--text3);margin-bottom:8px">ツアーREF#を選択してから「保存」してください。REF#未選択の行は保存されません。</div>
-      <div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table style="width:100%;border-collapse:collapse;font-size:11px;table-layout:fixed;min-width:360px">
-        <colgroup><col style="width:16%"><col style="width:9%"><col style="width:7%"><col style="width:11%"><col style="width:14%"><col></colgroup>
+      <div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table style="width:100%;border-collapse:collapse;font-size:11px;table-layout:fixed;min-width:540px">
+        <colgroup><col><col style="width:70px"><col style="width:50px"><col style="width:72px"><col style="width:110px"><col style="width:130px"></colgroup>
         <thead><tr style="background:var(--bg)">
           <th style="padding:6px 4px;text-align:left;font-size:10px">REF# ★</th>
           <th style="padding:6px 4px;text-align:right;font-size:10px">単価</th>
@@ -7703,33 +7703,49 @@ async function saveInvoiceConfirm(){
   const statusEl = document.getElementById('invoice-confirm-status');
   statusEl.textContent = ''; statusEl.style.color = 'var(--text3)';
 
-  const allRows = expenses.map((e,i)=>({
-    booking_id: document.getElementById(`inv-confirm-booking-${i}`)?.value || null,
-    expense_date: sanitizeDateField(document.getElementById(`inv-confirm-date-${i}`)?.value),
-    content: (()=>{ const s=(document.getElementById(`inv-confirm-supplier-${i}`)?.value||'').trim(); const c=(document.getElementById(`inv-confirm-content-${i}`)?.value||'').trim(); return s?(c?s+': '+c:s):c; })(),
-    category: document.getElementById(`inv-confirm-category-${i}`)?.value || 'ゲスト',
-    unit_price: Number(document.getElementById(`inv-confirm-uprice-${i}`)?.value)||0,
-    qty: Number(document.getElementById(`inv-confirm-qty-${i}`)?.value)||1,
-    amount: Number(document.getElementById(`inv-confirm-amount-${i}`)?.value)||0,
-    payment_method: e.payment_method || '後請求',
-    sort_order: i
-  }));
+  const allRows = expenses.map((e,i)=>{
+    const booking_id = document.getElementById(`inv-confirm-booking-${i}`)?.value || null;
+    const expense_date = sanitizeDateField(document.getElementById(`inv-confirm-date-${i}`)?.value);
+    const supplier = (document.getElementById(`inv-confirm-supplier-${i}`)?.value||'').trim();
+    const contentVal = (document.getElementById(`inv-confirm-content-${i}`)?.value||'').trim();
+    const amount = Number(document.getElementById(`inv-confirm-amount-${i}`)?.value)||0;
+    return {
+      booking_id,
+      expense_date,
+      content: supplier ? (contentVal ? supplier+': '+contentVal : supplier) : contentVal,
+      category: document.getElementById(`inv-confirm-category-${i}`)?.value || 'ゲスト',
+      unit_price: Number(document.getElementById(`inv-confirm-uprice-${i}`)?.value)||0,
+      qty: Number(document.getElementById(`inv-confirm-qty-${i}`)?.value)||1,
+      amount,
+      payment_method: e.payment_method || '後請求',
+      sort_order: i,
+      _supplier: supplier,
+      _content: contentVal
+    };
+  });
 
-  const rows = allRows.filter(r=>r.booking_id && (r.content||r.amount));
+  const validRows = allRows.filter(r=>r.booking_id && (r.content||r.amount));
   const unmatched = allRows.filter(r=>!r.booking_id && (r.content||r.amount));
 
-  if(!rows.length){
+  if(!validRows.length){
     alert('⚠ ツアーREF#が1件も選択されていません。\n一番左の「ツアーREF#」欄から予約を選択してから保存してください。');
     statusEl.textContent = '⚠ REF#未選択のため保存できません';
     statusEl.style.color = 'var(--red)';
     return;
   }
   if(unmatched.length>0){
-    if(!confirm(`${unmatched.length}行はツアーREF#が未選択のため保存されません。\n残り${rows.length}行を保存しますか？`)) return;
+    if(!confirm(`${unmatched.length}行はツアーREF#が未選択のため保存されません。\n残り${validRows.length}行を保存しますか？`)) return;
   }
 
   statusEl.textContent = '保存中...'; statusEl.style.color = 'var(--text3)';
-  const {error} = await sb.from('local_expenses').insert(rows);
+
+  // local_expenses に保存（仮払い一覧表）
+  const leRows = validRows.map(r=>({
+    booking_id: r.booking_id, expense_date: r.expense_date, content: r.content,
+    category: r.category, unit_price: r.unit_price, qty: r.qty,
+    amount: r.amount, payment_method: r.payment_method, sort_order: r.sort_order
+  }));
+  const {error} = await sb.from('local_expenses').insert(leRows);
   if(error){
     alert('保存エラー:\n'+error.message);
     statusEl.textContent = '保存エラー: '+error.message;
@@ -7737,19 +7753,41 @@ async function saveInvoiceConfirm(){
     return;
   }
 
-  const savedIds = new Set(rows.map(r=>r.booking_id).filter(Boolean));
+  // booking_costs にも保存（仕入明細）
+  const costRows = validRows.map(r=>({
+    booking_id: r.booking_id,
+    item_name: r._supplier || r._content || '',
+    amount: r.amount,
+    payment_date: r.expense_date,
+    memo: r._supplier ? r._content : ''
+  })).filter(r=>r.item_name||r.amount);
+  if(costRows.length){
+    const {error: ce} = await sb.from('booking_costs').insert(costRows);
+    if(ce) console.error('仕入明細 save error:', ce.message);
+  }
+
+  const savedIds = new Set(validRows.map(r=>r.booking_id).filter(Boolean));
   const savedRefs = [...savedIds].map(id=>{
     const b=(allBookingsCache||[]).find(b=>b.id===id);
     return b?(b.ref_no||b.tour_name||'(REF#なし)'):'(不明)';
   }).join(', ');
-  statusEl.textContent = `✓ ${rows.length}件を保存しました（${savedRefs}）`;
+  statusEl.textContent = `✓ ${validRows.length}件を保存しました（${savedRefs}）`;
   statusEl.style.color = 'var(--green)';
 
-  // 保存先の予約が現在開いている予約詳細と一致する場合、仕入明細を再読み込み
+  // 保存先の予約が現在開いている場合、仮払い一覧表・仕入明細を両方再読み込み
   if(currentDetailId && savedIds.has(currentDetailId)){
-    const {data} = await sb.from('local_expenses').select('*').eq('booking_id',currentDetailId).order('sort_order',{ascending:true});
-    bdLocalExpenses = data||[];
+    const [{data: leData}, {data: costData}] = await Promise.all([
+      sb.from('local_expenses').select('*').eq('booking_id',currentDetailId).order('sort_order',{ascending:true}),
+      sb.from('booking_costs').select('*').eq('booking_id',currentDetailId).order('created_at')
+    ]);
+    bdLocalExpenses = leData||[];
     renderLocalExpenses();
+    bdCostItems = (costData||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, memo:r.memo}));
+    renderCostTable();
+    updateDetailGrossPreview();
+    const newGross = bdCostItems.reduce((s,it)=>s+Number(it.amount||0),0);
+    await sb.from('bookings').update({gross_cost:newGross, updated_at:new Date().toISOString()}).eq('id',currentDetailId);
+    const bk=findBookingById(currentDetailId); if(bk) bk.gross_cost=newGross;
   }
 
   setTimeout(()=>{ document.getElementById('invoice-confirm-modal')?.remove(); }, 2500);
