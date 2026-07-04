@@ -1866,7 +1866,7 @@ function restoreSession(){
     currentUser = s.user;
     applyLoggedInUI(currentUser);
     touchSession();
-    go(s.page || 'dashboard');
+    go('dashboard');
   }catch(e){ clearSession(); }
 }
 
