@@ -499,7 +499,7 @@ input[type=number]{-moz-appearance:textfield}
           </div>
         </div>
         <div class="card" id="db-arrival-alert-card">
-          <div class="card-title">到着日アラート <span style="font-size:10px;font-weight:400;color:var(--text3)">今後60日以内の進行中予約</span></div>
+          <div class="card-title">到着日アラート <span style="font-size:10px;font-weight:400;color:var(--text3)">今後90日以内の進行中予約</span></div>
           <div id="db-arrival-alert"><span style="font-size:12px;color:var(--text3)">読み込み中...</span></div>
         </div>
         <div class="card">
@@ -1986,14 +1986,16 @@ function renderDbArrivalAlert(){
   const active = allBookingsCache.filter(b => {
     if(!b.in_date || b.in_date < todayStr) return false;
     if(b.status === 'cancelled' || b.status === 'closed') return false;
-    return inDays(b.in_date) <= 60;
+    return inDays(b.in_date) <= 90;
   });
 
   const tiers = [
     { max:8,  minEx:null, label:'🔴 8日以内',  bg:'#fde8ea', fg:'#c0392b', border:'#f5c6cb' },
-    { max:15, minEx:8,    label:'🟠 15日以内', bg:'#fff0e6', fg:'#d35400', border:'#ffd9b3' },
-    { max:30, minEx:15,   label:'🟡 30日以内', bg:'#fffae6', fg:'#b8860b', border:'#ffe08a' },
+    { max:14, minEx:8,    label:'🟠 14日以内', bg:'#fff0e6', fg:'#d35400', border:'#ffd9b3' },
+    { max:21, minEx:14,   label:'🟡 21日以内', bg:'#fffae6', fg:'#b8860b', border:'#ffe08a' },
+    { max:30, minEx:21,   label:'🟢 30日以内', bg:'#eaf7ea', fg:'#2e7d32', border:'#c8e6c9' },
     { max:60, minEx:30,   label:'🔵 60日以内', bg:'#e8f5ff', fg:'#0a7fad', border:'#b8e4f9' },
+    { max:90, minEx:60,   label:'🟣 90日以内', bg:'#f3e8ff', fg:'#6a1b9a', border:'#dcc6f5' },
   ];
 
   const buckets = tiers.map(t => ({
@@ -2005,7 +2007,7 @@ function renderDbArrivalAlert(){
 
   const hasAny = buckets.some(b => b.items.length > 0);
   if(!hasAny){
-    el.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:4px 0">到着が60日以内に迫っている進行中の予約はありません。</div>';
+    el.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:4px 0">到着が90日以内に迫っている進行中の予約はありません。</div>';
     return;
   }
 
