@@ -70,7 +70,7 @@ table{width:100%;border-collapse:collapse;font-size:12px}
 .iv-table td:nth-child(8), .iv-table td:nth-child(9){overflow:visible;white-space:normal}
 .bl-table{table-layout:fixed}
 .bl-table th, .bl-table td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-@media(max-width:599px){
+@media(max-width:768px){
   #pg-booking-list .bl-table,#pg-dashboard .tbl-wrap .bl-table{table-layout:auto;min-width:0;width:100%}
   #pg-booking-list .bl-table th:nth-child(2),#pg-booking-list .bl-table td:nth-child(2),
   #pg-dashboard .bl-table th:nth-child(2),#pg-dashboard .bl-table td:nth-child(2),
@@ -7652,7 +7652,7 @@ async function showInvoiceConfirmDialog(expenses, presetBookingId){
       <td data-col="amount" style="padding:4px 3px;text-align:right;font-weight:600"><input type="number" id="inv-confirm-amount-${i}" value="${e.amount||0}" style="font-size:10px;padding:4px 6px;border-radius:6px;border:1px solid var(--border);width:100%;min-width:0;text-align:right;font-weight:600;box-sizing:border-box"></td>
       <td data-col="supplier" style="padding:4px 3px"><div style="position:relative"><input type="text" id="inv-confirm-supplier-${i}" value="${escAttr(e.supplier_name||'')}" placeholder="支払先" autocomplete="off" oninput="filterInvSupplierDD(${i})" onfocus="filterInvSupplierDD(${i})" onblur="setTimeout(()=>hideInvSupplierDD(${i}),200)" style="font-size:10px;width:100%;min-width:0;box-sizing:border-box">${supplierDd}</div></td>
       <td data-col="content" style="padding:4px 3px"><input type="text" id="inv-confirm-content-${i}" value="${escAttr(e.content||'')}" style="font-size:10px;width:100%;min-width:0;box-sizing:border-box"></td>
-      <td data-col="hidden" style="display:none"><input type="hidden" id="inv-confirm-category-${i}" value="${escAttr(e.category||'ゲスト')}"><input type="hidden" id="inv-confirm-date-${i}" value="${e.expense_date||''}"></td>
+      <td data-col="hidden" style="display:none"><input type="hidden" id="inv-confirm-category-${i}" value="${escAttr(e.category||'ゲスト')}"><input type="hidden" id="inv-confirm-date-${i}" value=""></td>
     </tr>`;
   }).join('');
 
