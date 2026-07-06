@@ -427,8 +427,9 @@ input[type=number]{-moz-appearance:textfield}
 </style>
 </head>
 <body>
-<div id="global-ocr-banner" style="display:none;position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:99999;background:#0B5FBF;color:#fff;padding:10px 22px;border-radius:30px;box-shadow:0 4px 16px rgba(0,0,0,.3);font-size:13px;font-weight:700;align-items:center;gap:8px;white-space:nowrap">
-  <span style="animation:ocrPulse 1s ease-in-out infinite;display:inline-block">⏳</span>
+<div id="global-ocr-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.15);z-index:99998"></div>
+<div id="global-ocr-banner" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:99999;background:#0B5FBF;color:#fff;padding:16px 28px;border-radius:16px;box-shadow:0 8px 30px rgba(0,0,0,.35);font-size:15px;font-weight:700;align-items:center;gap:10px;white-space:nowrap">
+  <span style="animation:ocrPulse 1s ease-in-out infinite;display:inline-block;font-size:20px">⏳</span>
   <span>AIが読み取り中です...</span>
 </div>
 
@@ -1750,10 +1751,14 @@ function escAttr(s){ return escHtml(s).replace(/"/g,'&quot;'); }
 function showGlobalOcrBanner(){
   const el = document.getElementById('global-ocr-banner');
   if(el) el.style.display = 'flex';
+  const overlay = document.getElementById('global-ocr-overlay');
+  if(overlay) overlay.style.display = 'flex';
 }
 function hideGlobalOcrBanner(){
   const el = document.getElementById('global-ocr-banner');
   if(el) el.style.display = 'none';
+  const overlay = document.getElementById('global-ocr-overlay');
+  if(overlay) overlay.style.display = 'none';
 }
 
 // ===== 決算年度（3月〜翌2月）ヘルパー =====
