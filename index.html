@@ -9050,7 +9050,7 @@ function _buildVoucherHtml(restaurants, tourName, guideName, guidePhone, childre
   <!-- ヘッダー -->
   <table width="100%" style="border-collapse:collapse;margin-bottom:1.5mm"><tr>
     <td style="vertical-align:middle;white-space:nowrap">
-      <img src="${logoUrl}" height="26" style="vertical-align:middle;margin-right:2mm">
+      <img src="${logoUrl}" height="42" style="vertical-align:middle;margin-right:3mm">
       <span style="font-size:11.5pt;font-weight:700;vertical-align:middle">MEAL VOUCHER</span>
     </td>
     <td style="text-align:right;vertical-align:middle;white-space:nowrap">
@@ -9062,17 +9062,23 @@ function _buildVoucherHtml(restaurants, tourName, guideName, guidePhone, childre
   <hr style="border:none;border-top:1.5px solid #333;margin:0 0 2mm 0">
 
   <!-- レストラン名 -->
-  <div style="font-size:13pt;font-weight:700;margin-bottom:1.5mm;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${eh(r.restaurant_name||'')}</div>
+  <table style="border-collapse:collapse;margin-bottom:1.5mm;width:100%"><tr>
+    <td style="font-size:9pt;font-weight:700;white-space:nowrap;padding-right:2.5mm;vertical-align:middle">レストラン</td>
+    <td style="font-size:13pt;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:middle">${eh(r.restaurant_name||'')}</td>
+  </tr></table>
 
   <!-- 食事タイプ -->
-  <div style="font-size:12pt;font-weight:700;margin-bottom:2mm">${cb('B')}B&nbsp;&nbsp;&nbsp;${cb('L')}L&nbsp;&nbsp;&nbsp;${cb('D')}D</div>
+  <table style="border-collapse:collapse;margin-bottom:2mm"><tr>
+    <td style="font-size:9pt;font-weight:700;white-space:nowrap;padding-right:2.5mm;vertical-align:middle">食事タイプ</td>
+    <td style="font-size:12pt;font-weight:700;vertical-align:middle">${cb('B')}B&nbsp;&nbsp;&nbsp;${cb('L')}L&nbsp;&nbsp;&nbsp;${cb('D')}D</td>
+  </tr></table>
 
   <!-- 有料計 / FOC / Veg -->
   <table style="border-collapse:collapse;margin-bottom:2.5mm"><tr>
     <td style="vertical-align:middle">
       <table style="border-collapse:collapse;border:1.5px solid #333"><tr>
         <td style="padding:1mm 2.5mm;font-size:17pt;font-weight:700;vertical-align:middle;line-height:1">${paidTotal}</td>
-        <td style="padding:1mm 2mm 1mm 0;font-size:8.5pt;font-weight:700;vertical-align:middle;line-height:1">有料計</td>
+        <td style="padding:1mm 2mm 1mm 0;font-size:7.5pt;font-weight:700;vertical-align:middle;line-height:1.2">お客様<br>人数</td>
       </tr></table>
     </td>
     <td style="vertical-align:middle;padding-left:5mm">
