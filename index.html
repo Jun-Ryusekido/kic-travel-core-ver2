@@ -4136,6 +4136,69 @@ async function updateGuideSettlementField(id, field, value){
   if(s) s[field]=v;
 }
 
+// 仕入明細の「仮払金」行をガイド精算の仮払金欄へ自動反映する
+async function syncAdvancePaymentsFromCosts(bookingId, refNo){
+  if(!refNo) return;
+  const {data: costs} = await sb.from('booking_costs').select('item_name, amount').eq('booking_id', bookingId).order('id');
+  const advanceRows = (costs||[]).filter(c => (c.item_name||'').includes('仮払金') && !(c.item_name||'').includes('戻し'));
+  if(advanceRows.length === 0) return;
+
+  const {data: settlements} = await sb.from('guide_settlements').select('*').eq('booking_ref', refNo);
+  if(!settlements || settlements.length === 0) return;
+
+  // 全精算レコード横断でガイドの「割り当て先」一覧を作成
+  const targets = [];
+  settlements.forEach((s, si) => {
+    const guideList = Array.isArray(s.guide_names) && s.guide_names.length>0
+      ? s.guide_names
+      : [{name: s.guide_name||'', phone: s.guide_phone||'', advance_payment: s.advance_payment||0, additional_advance_payment: s.additional_advance_payment||0, guide_fee: s.guide_fee||0}];
+    guideList.forEach((g, gi) => { targets.push({si, gi, name: (g.name||'').trim()}); });
+  });
+  if(targets.length === 0) return;
+
+  const nameMatch = (a, b) => !!a && !!b && (a===b || a.includes(b) || b.includes(a));
+  const bracketPattern = /仮払金\s*[（(]([^）)]+)[）)]/;
+  const assignedByTarget = {}; // key: `${si}-${gi}` -> [amount, amount, ...]（仕入明細内の順序）
+
+  advanceRows.forEach(row => {
+    const m = (row.item_name||'').match(bracketPattern);
+    let target = null;
+    if(m && m[1]){
+      const gName = m[1].trim();
+      target = targets.find(t => nameMatch(t.name, gName));
+    } else if(targets.length === 1){
+      target = targets[0];
+    }
+    if(!target) return;
+    const key = `${target.si}-${target.gi}`;
+    (assignedByTarget[key] = assignedByTarget[key] || []).push(Number(row.amount)||0);
+  });
+
+  const updates = [];
+  settlements.forEach((s, si) => {
+    let guideList = Array.isArray(s.guide_names) && s.guide_names.length>0
+      ? s.guide_names
+      : [{name: s.guide_name||'', phone: s.guide_phone||'', advance_payment: s.advance_payment||0, additional_advance_payment: s.additional_advance_payment||0, guide_fee: s.guide_fee||0}];
+    let changed = false;
+    guideList = guideList.map((g, gi) => {
+      const amounts = assignedByTarget[`${si}-${gi}`];
+      if(!amounts || amounts.length===0) return g;
+      changed = true;
+      return {
+        ...g,
+        advance_payment: amounts[0],
+        additional_advance_payment: amounts.length>1 ? amounts.slice(1).reduce((a,b)=>a+b,0) : 0
+      };
+    });
+    if(changed) updates.push({id: s.id, guide_names: guideList});
+  });
+
+  for(const u of updates){
+    await sb.from('guide_settlements').update({guide_names: u.guide_names}).eq('id', u.id);
+  }
+  if(updates.length > 0) await loadGuideSettlements();
+}
+
 function buildGuideSettlementPrintHtml(s, b, guideIndex){
   const guideList = (Array.isArray(s.guide_names) && s.guide_names.length>0)
     ? s.guide_names
@@ -6576,6 +6639,9 @@ async function saveBookingDetail(){
     }));
     if(salesToInsert.length) await sb.from('booking_sales').insert(salesToInsert);
     if(costToInsert.length) await sb.from('booking_costs').insert(costToInsert);
+
+    const bForSync = findBookingById(currentDetailId);
+    if(bForSync) await syncAdvancePaymentsFromCosts(currentDetailId, bForSync.ref_no);
 
     for(const it of costToInsert){
       if(it.item_name) await registerNewSupplier(it.item_name);
