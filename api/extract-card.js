@@ -3,7 +3,7 @@
     return res.status(405).json({ error: 'Method not allowed' });
   }
   try {
-    const { variants, mediaType, base64, hotelText, hotelPdfBase64, facilityText, facilityPdfBase64, busText, busPdfBase64, restaurantText, restaurantPdfBase64, invoiceText, invoicePdfBase64, invoiceImageBase64, invoiceImageMediaType } = req.body;
+    const { variants, mediaType, base64, hotelText, hotelPdfBase64, hotelImageBase64, hotelImageMediaType, facilityText, facilityPdfBase64, facilityImageBase64, facilityImageMediaType, busText, busPdfBase64, busImageBase64, busImageMediaType, restaurantText, restaurantPdfBase64, restaurantImageBase64, restaurantImageMediaType, invoiceText, invoicePdfBase64, invoiceImageBase64, invoiceImageMediaType } = req.body;
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
       return res.status(500).json({ error: 'サーバー側にAPIキーが設定されていません' });
@@ -57,6 +57,21 @@ JSONのみ返し、説明文・コードブロック記号は不要です。` }
       return res.status(200).json(data);
     }
 
+    // ホテル画像解析モード
+    if (hotelImageBase64) {
+      const data = await callClaude([
+        { type: 'image', source: { type: 'base64', media_type: hotelImageMediaType || 'image/jpeg', data: hotelImageBase64 } },
+        { type: 'text', text: `この画像からホテル予約情報を抽出してJSON配列で返してください。
+各ホテルの情報を1つのオブジェクトとして配列に含めてください。
+フィールド：ref_no(ツアー番号・予約番号・REF#等), hotel_name, check_in(YYYY-MM-DD), check_out(YYYY-MM-DD), room_type, rooms(数値), breakfast(true/false), unit_price(数値・円), confirmation_no, memo
+ref_noは文書中のツアーコード・予約番号・REF#・KICから始まる番号等を探してください。見つからない場合は空文字にしてください。
+金額が不明な場合は0、部屋数不明は1としてください。
+statusは「手配OK」または「問い合わせ中」のいずれかを入れてください。予約確定・確認番号あり・手配完了等の表現があれば「手配OK」、見積もり・問い合わせ・検討中等であれば「問い合わせ中」としてください。
+JSONのみ返し、説明文・コードブロック記号は不要です。` }
+      ], 2000);
+      return res.status(200).json(data);
+    }
+
     // 観光施設テキスト解析モード
     if (facilityText) {
       const data = await callClaude([{
@@ -78,6 +93,20 @@ ${facilityText}`
       const data = await callClaude([
         { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: facilityPdfBase64 } },
         { type: 'text', text: `このPDFから観光施設・バス駐車場等の手配情報を抽出してJSON配列で返してください。
+各施設・駐車場等の情報を1つのオブジェクトとして配列に含めてください。
+フィールド：facility_name(施設名・駐車場名等), date(YYYY-MM-DD), pax(人数・数値), amount(金額・数値・円), status, confirmation_no(確認番号), memo(備考)
+statusは「手配OK」または「問い合わせ中」のいずれかを入れてください。予約確定・確認番号あり・手配完了等の表現があれば「手配OK」、見積もり・問い合わせ・検討中等であれば「問い合わせ中」としてください。
+金額が不明な場合は0、人数不明は0としてください。
+JSONのみ返し、説明文・コードブロック記号は不要です。` }
+      ], 2000);
+      return res.status(200).json(data);
+    }
+
+    // 観光施設画像解析モード
+    if (facilityImageBase64) {
+      const data = await callClaude([
+        { type: 'image', source: { type: 'base64', media_type: facilityImageMediaType || 'image/jpeg', data: facilityImageBase64 } },
+        { type: 'text', text: `この画像から観光施設・バス駐車場等の手配情報を抽出してJSON配列で返してください。
 各施設・駐車場等の情報を1つのオブジェクトとして配列に含めてください。
 フィールド：facility_name(施設名・駐車場名等), date(YYYY-MM-DD), pax(人数・数値), amount(金額・数値・円), status, confirmation_no(確認番号), memo(備考)
 statusは「手配OK」または「問い合わせ中」のいずれかを入れてください。予約確定・確認番号あり・手配完了等の表現があれば「手配OK」、見積もり・問い合わせ・検討中等であれば「問い合わせ中」としてください。
@@ -117,6 +146,20 @@ JSONのみ返し、説明文・コードブロック記号は不要です。` }
       return res.status(200).json(data);
     }
 
+    // レストラン画像解析モード
+    if (restaurantImageBase64) {
+      const data = await callClaude([
+        { type: 'image', source: { type: 'base64', media_type: restaurantImageMediaType || 'image/jpeg', data: restaurantImageBase64 } },
+        { type: 'text', text: `この画像からレストラン手配情報を抽出してJSON配列で返してください。
+各レストランを1つのオブジェクトとして配列に含めてください。
+フィールド：restaurant_name(店名), meal_type(食事種別：「朝食」「昼食」「夕食」のいずれか), date(日付・YYYY-MM-DD), pax(人数・数値), amount(金額・数値・円), status, confirmation_no(確認番号), memo(備考)
+statusは「手配OK」または「問い合わせ中」のいずれかを入れてください。予約確定・確認番号あり・手配完了等の表現があれば「手配OK」、見積もり・問い合わせ・検討中等であれば「問い合わせ中」としてください。
+金額が不明な場合は0、人数不明は0としてください。日付が不明な場合は空文字にしてください。
+JSONのみ返し、説明文・コードブロック記号は不要です。` }
+      ], 2000);
+      return res.status(200).json(data);
+    }
+
     // バステキスト解析モード
     if (busText) {
       const data = await callClaude([{
@@ -138,6 +181,20 @@ ${busText}`
       const data = await callClaude([
         { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: busPdfBase64 } },
         { type: 'text', text: `このPDFからバス手配情報を抽出してJSON配列で返してください。
+各バス手配を1つのオブジェクトとして配列に含めてください。
+フィールド：bus_company(バス会社名), bus_type(バスタイプ・車種等), buses(台数・数値), start_date(開始日・YYYY-MM-DD), end_date(終了日・YYYY-MM-DD), amount(金額・数値・円), status, confirmation_no(確認番号), memo(備考)
+statusは「手配OK」または「問い合わせ中」のいずれかを入れてください。予約確定・確認番号あり・手配完了等の表現があれば「手配OK」、見積もり・問い合わせ・検討中等であれば「問い合わせ中」としてください。
+金額が不明な場合は0、台数不明は1としてください。日付が不明な場合は空文字にしてください。
+JSONのみ返し、説明文・コードブロック記号は不要です。` }
+      ], 2000);
+      return res.status(200).json(data);
+    }
+
+    // バス画像解析モード
+    if (busImageBase64) {
+      const data = await callClaude([
+        { type: 'image', source: { type: 'base64', media_type: busImageMediaType || 'image/jpeg', data: busImageBase64 } },
+        { type: 'text', text: `この画像からバス手配情報を抽出してJSON配列で返してください。
 各バス手配を1つのオブジェクトとして配列に含めてください。
 フィールド：bus_company(バス会社名), bus_type(バスタイプ・車種等), buses(台数・数値), start_date(開始日・YYYY-MM-DD), end_date(終了日・YYYY-MM-DD), amount(金額・数値・円), status, confirmation_no(確認番号), memo(備考)
 statusは「手配OK」または「問い合わせ中」のいずれかを入れてください。予約確定・確認番号あり・手配完了等の表現があれば「手配OK」、見積もり・問い合わせ・検討中等であれば「問い合わせ中」としてください。

@@ -945,6 +945,8 @@ input[type=number]{-moz-appearance:textfield}
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             <button class="btn" style="font-size:11px" onclick="toggleHmOcrArea()">📧 テキストから読み取り</button>
             <label class="btn" style="font-size:11px;cursor:pointer">📎 Excel/PDFから読み取り<input type="file" accept=".xlsx,.xls,.pdf" style="display:none" onchange="extractHotelFromFileHm(event)"></label>
+            <label class="btn" style="font-size:11px;cursor:pointer">🖼 画像から読み取り<input type="file" accept="image/*" style="display:none" onchange="extractHotelFromFileHm(event,'image')"></label>
+            <label class="btn" style="font-size:11px;cursor:pointer">📷 カメラで撮影<input type="file" accept="image/*" capture="environment" style="display:none" onchange="extractHotelFromFileHm(event,'image')"></label>
             <span id="hm-file-status" style="font-size:11px;color:var(--text3)"></span>
           </div>
           <div id="hm-ocr-area" style="display:none;margin-top:8px">
@@ -1357,6 +1359,8 @@ input[type=number]{-moz-appearance:textfield}
         📎 Excel/PDFから読み取り
         <input type="file" accept=".xlsx,.xls,.pdf" style="display:none" onchange="extractHotelFromFile(event)">
       </label>
+      <label class="btn" style="font-size:10px;margin-top:6px;cursor:pointer">🖼 画像から読み取り<input type="file" accept="image/*" style="display:none" onchange="extractHotelFromFile(event,'image')"></label>
+      <label class="btn" style="font-size:10px;margin-top:6px;cursor:pointer">📷 カメラで撮影<input type="file" accept="image/*" capture="environment" style="display:none" onchange="extractHotelFromFile(event,'image')"></label>
       <span id="hotel-file-status" style="font-size:11px;color:var(--text3);margin-left:8px"></span>
     </div>
 
@@ -1389,6 +1393,8 @@ input[type=number]{-moz-appearance:textfield}
       </div>
       <button class="btn" style="font-size:10px;margin-top:6px" onclick="toggleBusOcrArea()">📧 メール/テキストから読み取り</button>
       <label class="btn" style="font-size:10px;margin-top:6px;cursor:pointer">📎 Excel/PDFから読み取り<input type="file" accept=".xlsx,.xls,.pdf" style="display:none" onchange="extractBusFromFile(event)"></label>
+      <label class="btn" style="font-size:10px;margin-top:6px;cursor:pointer">🖼 画像から読み取り<input type="file" accept="image/*" style="display:none" onchange="extractBusFromFile(event,'image')"></label>
+      <label class="btn" style="font-size:10px;margin-top:6px;cursor:pointer">📷 カメラで撮影<input type="file" accept="image/*" capture="environment" style="display:none" onchange="extractBusFromFile(event,'image')"></label>
       <span id="bus-file-status" style="font-size:11px;color:var(--text3);margin-left:8px"></span>
     </div>
 
@@ -1421,6 +1427,8 @@ input[type=number]{-moz-appearance:textfield}
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px">
         <button class="btn" style="font-size:10px" onclick="toggleRestOcrArea()">📧 メール/テキストから読み取り</button>
         <label class="btn" style="font-size:10px;cursor:pointer">📎 Excel/PDFから読み取り<input type="file" accept=".xlsx,.xls,.pdf" style="display:none" onchange="extractRestaurantFromFile(event)"></label>
+        <label class="btn" style="font-size:10px;cursor:pointer">🖼 画像から読み取り<input type="file" accept="image/*" style="display:none" onchange="extractRestaurantFromFile(event,'image')"></label>
+        <label class="btn" style="font-size:10px;cursor:pointer">📷 カメラで撮影<input type="file" accept="image/*" capture="environment" style="display:none" onchange="extractRestaurantFromFile(event,'image')"></label>
         <button class="btn" style="font-size:10px;background:#F0F6FF;border-color:#7CB3E8;color:#004A9F" onclick="openVoucherModal()">🎫 バウチャー発行</button>
         <span id="rest-file-status" style="font-size:11px;color:var(--text3)"></span>
       </div>
@@ -1453,6 +1461,8 @@ input[type=number]{-moz-appearance:textfield}
       </div>
       <button class="btn" style="font-size:10px;margin-top:6px" onclick="toggleFacOcrArea()">📧 メール/テキストから読み取り</button>
       <label class="btn" style="font-size:10px;margin-top:6px;cursor:pointer">📎 Excel/PDFから読み取り<input type="file" accept=".xlsx,.xls,.pdf" style="display:none" onchange="extractFacilityFromFile(event)"></label>
+      <label class="btn" style="font-size:10px;margin-top:6px;cursor:pointer">🖼 画像から読み取り<input type="file" accept="image/*" style="display:none" onchange="extractFacilityFromFile(event,'image')"></label>
+      <label class="btn" style="font-size:10px;margin-top:6px;cursor:pointer">📷 カメラで撮影<input type="file" accept="image/*" capture="environment" style="display:none" onchange="extractFacilityFromFile(event,'image')"></label>
       <span id="fac-file-status" style="font-size:11px;color:var(--text3);margin-left:8px"></span>
     </div>
 
@@ -5651,14 +5661,15 @@ async function extractBusFromText(){
   }
 }
 
-async function extractBusFromFile(event){
+async function extractBusFromFile(event, mode){
   const file=event.target.files[0];
   if(!file) return;
   const statusEl=document.getElementById('bus-file-status');
   statusEl.textContent='読み取り中...'; statusEl.style.color='var(--text3)';
   try{
-    const isPdf=file.name.toLowerCase().endsWith('.pdf');
-    const isExcel=file.name.toLowerCase().match(/\.(xlsx|xls)$/);
+    const isPdf = mode==='image' ? false : file.name.toLowerCase().endsWith('.pdf');
+    const isExcel = mode==='image' ? false : file.name.toLowerCase().match(/\.(xlsx|xls)$/);
+    const isImage = mode==='image';
     let body;
     if(isPdf){
       const base64=await new Promise((resolve,reject)=>{
@@ -5674,6 +5685,14 @@ async function extractBusFromFile(event){
       const wb=XLSX.read(ab,{type:'array'});
       const sheets=wb.SheetNames.map(n=>`[シート: ${n}]\n${XLSX.utils.sheet_to_csv(wb.Sheets[n])}`).join('\n\n');
       body={busText:sheets};
+    }else if(isImage){
+      const base64=await new Promise((resolve,reject)=>{
+        const r=new FileReader();
+        r.onload=()=>resolve(r.result.split(',')[1]);
+        r.onerror=reject;
+        r.readAsDataURL(file);
+      });
+      body={busImageBase64:base64, busImageMediaType:file.type||'image/jpeg'};
     }else{
       throw new Error('対応していないファイル形式です');
     }
@@ -5833,14 +5852,15 @@ async function extractRestaurantFromText(){
   }
 }
 
-async function extractRestaurantFromFile(event){
+async function extractRestaurantFromFile(event, mode){
   const file=event.target.files[0];
   if(!file) return;
   const statusEl=document.getElementById('rest-file-status');
   statusEl.textContent='読み取り中...'; statusEl.style.color='var(--text3)';
   try{
-    const isPdf=file.name.toLowerCase().endsWith('.pdf');
-    const isExcel=file.name.toLowerCase().match(/\.(xlsx|xls)$/);
+    const isPdf = mode==='image' ? false : file.name.toLowerCase().endsWith('.pdf');
+    const isExcel = mode==='image' ? false : file.name.toLowerCase().match(/\.(xlsx|xls)$/);
+    const isImage = mode==='image';
     let body;
     if(isPdf){
       const base64=await new Promise((resolve,reject)=>{
@@ -5856,6 +5876,14 @@ async function extractRestaurantFromFile(event){
       const wb=XLSX.read(ab,{type:'array'});
       const sheets=wb.SheetNames.map(n=>`[シート: ${n}]\n${XLSX.utils.sheet_to_csv(wb.Sheets[n])}`).join('\n\n');
       body={restaurantText:sheets};
+    }else if(isImage){
+      const base64=await new Promise((resolve,reject)=>{
+        const r=new FileReader();
+        r.onload=()=>resolve(r.result.split(',')[1]);
+        r.onerror=reject;
+        r.readAsDataURL(file);
+      });
+      body={restaurantImageBase64:base64, restaurantImageMediaType:file.type||'image/jpeg'};
     }else{
       throw new Error('対応していないファイル形式です');
     }
@@ -6008,14 +6036,15 @@ async function extractFacilityFromText(){
   }
 }
 
-async function extractFacilityFromFile(event){
+async function extractFacilityFromFile(event, mode){
   const file=event.target.files[0];
   if(!file) return;
   const statusEl=document.getElementById('fac-file-status');
   statusEl.textContent='読み取り中...'; statusEl.style.color='var(--text3)';
   try{
-    const isPdf=file.name.toLowerCase().endsWith('.pdf');
-    const isExcel=file.name.toLowerCase().match(/\.(xlsx|xls)$/);
+    const isPdf = mode==='image' ? false : file.name.toLowerCase().endsWith('.pdf');
+    const isExcel = mode==='image' ? false : file.name.toLowerCase().match(/\.(xlsx|xls)$/);
+    const isImage = mode==='image';
     let body;
     if(isPdf){
       const base64=await new Promise((resolve,reject)=>{
@@ -6031,6 +6060,14 @@ async function extractFacilityFromFile(event){
       const wb=XLSX.read(ab,{type:'array'});
       const sheets=wb.SheetNames.map(n=>`[シート: ${n}]\n${XLSX.utils.sheet_to_csv(wb.Sheets[n])}`).join('\n\n');
       body={facilityText:sheets};
+    }else if(isImage){
+      const base64=await new Promise((resolve,reject)=>{
+        const r=new FileReader();
+        r.onload=()=>resolve(r.result.split(',')[1]);
+        r.onerror=reject;
+        r.readAsDataURL(file);
+      });
+      body={facilityImageBase64:base64, facilityImageMediaType:file.type||'image/jpeg'};
     }else{
       throw new Error('対応していないファイル形式です');
     }
@@ -6176,18 +6213,50 @@ async function saveBulletTrainItems(){
   if(rows.length) await sb.from('bullet_train_arrangements').insert(rows);
 }
 
-async function extractHotelFromFile(event){
+async function extractHotelFromFile(event, mode){
   const file = event.target.files[0];
   if(!file) return;
   const statusEl = document.getElementById('hotel-file-status');
   statusEl.textContent = '読み取り中...';
   statusEl.style.color = 'var(--text3)';
   try{
-    const isPdf = file.name.toLowerCase().endsWith('.pdf');
-    const isExcel = file.name.toLowerCase().match(/\.(xlsx|xls)$/);
+    const isPdf = mode==='image' ? false : file.name.toLowerCase().endsWith('.pdf');
+    const isExcel = mode==='image' ? false : file.name.toLowerCase().match(/\.(xlsx|xls)$/);
+    const isImage = mode==='image';
     let hotelText = '';
 
-    if(isPdf){
+    if(isImage){
+      // 画像をBase64に変換してAPIに送信
+      const base64 = await new Promise((resolve,reject)=>{
+        const r = new FileReader();
+        r.onload = ()=>resolve(r.result.split(',')[1]);
+        r.onerror = reject;
+        r.readAsDataURL(file);
+      });
+      const response = await fetch('/api/extract-card', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ hotelImageBase64: base64, hotelImageMediaType: file.type||'image/jpeg' })
+      });
+      if(!response.ok){ const e = await response.json(); throw new Error(e.error||'サーバーエラー'); }
+      const data = await response.json();
+      const textBlock = data.content.find(b=>b.type==='text');
+      const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
+      const parsed = JSON.parse(cleaned);
+      const hotels = Array.isArray(parsed) ? parsed : [parsed];
+      hotels.forEach(h=>{
+        const nights = calcHotelNights(h.check_in||'', h.check_out||'');
+        bdHotelItems.push({
+          hotel_name: h.hotel_name||'', check_in: h.check_in||'', check_out: h.check_out||'',
+          room_type: h.room_type||'', rooms: Number(h.rooms)||1, breakfast: !!h.breakfast,
+          unit_price: Number(h.unit_price)||0, amount: Number(h.unit_price||0)*Number(h.rooms||1)*nights,
+          confirmation_no: h.confirmation_no||'', memo: h.memo||''
+        });
+      });
+      renderHotelTable();
+      statusEl.textContent = '✓ '+hotels.length+'件を読み取りました';
+      statusEl.style.color = 'var(--green)';
+    } else if(isPdf){
       // PDFをBase64に変換してAPIに送信
       const base64 = await new Promise((resolve,reject)=>{
         const r = new FileReader();
@@ -7458,16 +7527,25 @@ async function saveHotelConfirm(hotels){
   setTimeout(()=>{ document.getElementById('hotel-confirm-modal')?.remove(); }, 1500);
   await loadHotelManagement();
 }
-async function extractHotelFromFileHm(event){
+async function extractHotelFromFileHm(event, mode){
   const file = event.target.files[0];
   if(!file) return;
   const statusEl = document.getElementById('hm-file-status');
   statusEl.textContent = '読み取り中...';
   statusEl.style.color = 'var(--text3)';
   try{
-    const isPdf = file.name.toLowerCase().endsWith('.pdf');
+    const isPdf = mode==='image' ? false : file.name.toLowerCase().endsWith('.pdf');
+    const isImage = mode==='image';
     let bodyData;
-    if(isPdf){
+    if(isImage){
+      const base64 = await new Promise((resolve,reject)=>{
+        const r = new FileReader();
+        r.onload = ()=>resolve(r.result.split(',')[1]);
+        r.onerror = reject;
+        r.readAsDataURL(file);
+      });
+      bodyData = { hotelImageBase64: base64, hotelImageMediaType: file.type||'image/jpeg' };
+    }else if(isPdf){
       const base64 = await new Promise((resolve,reject)=>{
         const r = new FileReader();
         r.onload = ()=>resolve(r.result.split(',')[1]);
