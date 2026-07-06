@@ -503,7 +503,7 @@ input[type=number]{-moz-appearance:textfield}
           <div class="card-title">到着日アラート <span style="font-size:10px;font-weight:400;color:var(--text3)">今後90日以内の進行中予約</span></div>
           <div id="db-arrival-alert"><span style="font-size:12px;color:var(--text3)">読み込み中...</span></div>
         </div>
-        <div class="card">
+        <div class="card" style="position:sticky;top:50px;z-index:10;margin-bottom:0;border-radius:12px 12px 0 0">
           <div class="card-title">検索・絞り込み</div>
           <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr 1fr">
             <div class="form-field"><label>検索（REF# / Agent / Tour）</label><input id="db-search" placeholder="例: Kesari, #1374, Kyoto" oninput="filterBookingListGeneric('db')"></div>
@@ -529,7 +529,7 @@ input[type=number]{-moz-appearance:textfield}
             <button class="btn" onclick="resetBookingFilter('db')">条件クリア</button>
           </div>
         </div>
-        <div class="card">
+        <div class="card" style="border-top:none;border-radius:0 0 12px 12px;padding-top:0;margin-bottom:14px">
           <div class="card-title">予約一覧</div>
           <div class="tbl-wrap"><table class="bl-table">
             <thead id="db-thead"></thead>
@@ -630,7 +630,7 @@ input[type=number]{-moz-appearance:textfield}
             <tbody id="gr-tbody"><tr><td colspan="8" class="empty">読み込み中...</td></tr></tbody>
           </table></div>
         </div>
-        <div class="card">
+        <div class="card" style="position:sticky;top:50px;z-index:10;margin-bottom:0;border-radius:12px 12px 0 0">
           <div class="card-title">検索・絞り込み</div>
           <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr 1fr">
             <div class="form-field"><label>検索（REF# / Agent / Tour）</label><input id="bl-search" placeholder="例: Kesari, #1374, Kyoto" oninput="filterBookingListGeneric('bl')"></div>
@@ -656,7 +656,7 @@ input[type=number]{-moz-appearance:textfield}
             <button class="btn" onclick="resetBookingFilter('bl')">条件クリア</button>
           </div>
         </div>
-        <div class="card">
+        <div class="card" style="border-top:none;border-radius:0 0 12px 12px;padding-top:0;margin-bottom:14px">
           <div class="card-title">Booking List</div>
           <div class="tbl-wrap"><table class="bl-table">
             <thead id="bl-thead"></thead>
