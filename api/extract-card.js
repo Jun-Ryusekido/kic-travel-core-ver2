@@ -23,7 +23,17 @@
           messages: [{ role: 'user', content }]
         })
       });
-      return r.json();
+      const rawText = await r.text();
+      let data;
+      try{
+        data = JSON.parse(rawText);
+      }catch(_){
+        throw new Error(`Anthropic APIからの応答を解析できませんでした（HTTP ${r.status}）: ${rawText.slice(0,200)}`);
+      }
+      if(!r.ok){
+        throw new Error(data?.error?.message || `Anthropic APIエラー（HTTP ${r.status}）`);
+      }
+      return data;
     };
 
     // ホテルテキスト解析モード
