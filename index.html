@@ -427,6 +427,10 @@ input[type=number]{-moz-appearance:textfield}
 </style>
 </head>
 <body>
+<div id="global-ocr-banner" style="display:none;position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:99999;background:#0B5FBF;color:#fff;padding:10px 22px;border-radius:30px;box-shadow:0 4px 16px rgba(0,0,0,.3);font-size:13px;font-weight:700;align-items:center;gap:8px;white-space:nowrap">
+  <span style="animation:ocrPulse 1s ease-in-out infinite;display:inline-block">⏳</span>
+  <span>AIが読み取り中です...</span>
+</div>
 
 <!-- ===== LOGIN ===== -->
 <div id="screen-login">
@@ -1743,6 +1747,14 @@ function clearSession(){
 function yen(n){ return '¥' + Number(n||0).toLocaleString('ja-JP'); }
 function escHtml(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function escAttr(s){ return escHtml(s).replace(/"/g,'&quot;'); }
+function showGlobalOcrBanner(){
+  const el = document.getElementById('global-ocr-banner');
+  if(el) el.style.display = 'flex';
+}
+function hideGlobalOcrBanner(){
+  const el = document.getElementById('global-ocr-banner');
+  if(el) el.style.display = 'none';
+}
 
 // ===== 決算年度（3月〜翌2月）ヘルパー =====
 function fiscalYearOf(dateStr){
@@ -2748,6 +2760,7 @@ async function extractBankbookFromFile(event){
   const statusEl = document.getElementById('bankbook-file-status');
   statusEl.textContent = '⏳ 読み取り中...';
   statusEl.classList.add('ocr-loading');
+  showGlobalOcrBanner();
   statusEl.style.color = '';
   document.getElementById('bankbook-results').innerHTML = '';
   try{
@@ -2772,10 +2785,12 @@ async function extractBankbookFromFile(event){
     renderBankbookResults();
     statusEl.textContent = `✓ ${bankbookExtracted.length}件を読み取りました`;
     statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
     statusEl.style.color = 'var(--green)';
   } catch(e) {
     statusEl.textContent = '読み取り失敗: ' + e.message;
     statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
     statusEl.style.color = 'var(--red)';
   }
   event.target.value = '';
@@ -2822,6 +2837,7 @@ async function extractDashboardBankbook(event){
   const statusEl = document.getElementById('db-bankbook-file-status');
   statusEl.textContent = '⏳ 読み取り中...';
   statusEl.classList.add('ocr-loading');
+  showGlobalOcrBanner();
   statusEl.style.color = '';
   document.getElementById('db-bankbook-results').innerHTML = '';
   try{
@@ -2847,10 +2863,12 @@ async function extractDashboardBankbook(event){
     renderDashboardBankbookResults();
     statusEl.textContent = `✓ ${dbBankbookExtracted.length}件を読み取りました`;
     statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
     statusEl.style.color = 'var(--green)';
   } catch(e) {
     statusEl.textContent = '読み取り失敗: ' + e.message;
     statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
     statusEl.style.color = 'var(--red)';
   }
   event.target.value = '';
@@ -5658,6 +5676,7 @@ async function extractBusFromText(){
   if(!text.trim()){ alert('テキストを入力してください'); return; }
   const statusEl=document.getElementById('bus-ocr-status');
   statusEl.textContent='⏳ 読み取り中...'; statusEl.classList.add('ocr-loading'); statusEl.style.color='';
+  showGlobalOcrBanner();
   try{
     const resp=await fetch('/api/extract-card',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({busText:text.trim()})});
     if(!resp.ok){const e=await resp.json();throw new Error(e.error||'サーバーエラー');}
@@ -5668,12 +5687,14 @@ async function extractBusFromText(){
     const buses=Array.isArray(parsed)?parsed:[parsed];
     statusEl.textContent=`✓ ${buses.length}件を読み取りました。内容を確認してください。`;
     statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
     statusEl.style.color='var(--green)';
     showBusConfirmDialog(buses);
     document.getElementById('bus-ocr-text').value='';
   }catch(e){
     statusEl.textContent='読み取り失敗: '+e.message;
     statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
     statusEl.style.color='var(--red)';
   }
 }
@@ -5683,6 +5704,7 @@ async function extractBusFromFile(event, mode){
   if(!file) return;
   const statusEl=document.getElementById('bus-file-status');
   statusEl.textContent='⏳ 読み取り中...'; statusEl.classList.add('ocr-loading'); statusEl.style.color='';
+  showGlobalOcrBanner();
   try{
     const isPdf = mode==='image' ? false : file.name.toLowerCase().endsWith('.pdf');
     const isExcel = mode==='image' ? false : file.name.toLowerCase().match(/\.(xlsx|xls)$/);
@@ -5723,10 +5745,12 @@ async function extractBusFromFile(event, mode){
     showBusConfirmDialog(buses);
     statusEl.textContent=`✓ ${buses.length}件を読み取りました`;
     statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
     statusEl.style.color='var(--green)';
   }catch(e){
     statusEl.textContent='読み取り失敗: '+e.message;
     statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
     statusEl.style.color='var(--red)';
   }
   event.target.value='';
@@ -5853,6 +5877,7 @@ async function extractRestaurantFromText(){
   if(!text.trim()){ alert('テキストを入力してください'); return; }
   const statusEl=document.getElementById('rest-ocr-status');
   statusEl.textContent='⏳ 読み取り中...'; statusEl.classList.add('ocr-loading'); statusEl.style.color='';
+  showGlobalOcrBanner();
   try{
     const resp=await fetch('/api/extract-card',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurantText:text.trim()})});
     if(!resp.ok){const e=await resp.json();throw new Error(e.error||'サーバーエラー');}
@@ -5863,12 +5888,14 @@ async function extractRestaurantFromText(){
     const restaurants=Array.isArray(parsed)?parsed:[parsed];
     statusEl.textContent=`✓ ${restaurants.length}件を読み取りました。内容を確認してください。`;
     statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
     statusEl.style.color='var(--green)';
     showRestaurantConfirmDialog(restaurants);
     document.getElementById('rest-ocr-text').value='';
   }catch(e){
     statusEl.textContent='読み取り失敗: '+e.message;
     statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
     statusEl.style.color='var(--red)';
   }
 }
@@ -5878,6 +5905,7 @@ async function extractRestaurantFromFile(event, mode){
   if(!file) return;
   const statusEl=document.getElementById('rest-file-status');
   statusEl.textContent='⏳ 読み取り中...'; statusEl.classList.add('ocr-loading'); statusEl.style.color='';
+  showGlobalOcrBanner();
   try{
     const isPdf = mode==='image' ? false : file.name.toLowerCase().endsWith('.pdf');
     const isExcel = mode==='image' ? false : file.name.toLowerCase().match(/\.(xlsx|xls)$/);
@@ -5918,10 +5946,12 @@ async function extractRestaurantFromFile(event, mode){
     showRestaurantConfirmDialog(restaurants);
     statusEl.textContent=`✓ ${restaurants.length}件を読み取りました`;
     statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
     statusEl.style.color='var(--green)';
   }catch(e){
     statusEl.textContent='読み取り失敗: '+e.message;
     statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
     statusEl.style.color='var(--red)';
   }
   event.target.value='';
@@ -6041,6 +6071,7 @@ async function extractFacilityFromText(){
   if(!text.trim()){ alert('テキストを入力してください'); return; }
   const statusEl=document.getElementById('fac-ocr-status');
   statusEl.textContent='⏳ 読み取り中...'; statusEl.classList.add('ocr-loading'); statusEl.style.color='';
+  showGlobalOcrBanner();
   try{
     const resp=await fetch('/api/extract-card',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({facilityText:text.trim()})});
     if(!resp.ok){const e=await resp.json();throw new Error(e.error||'サーバーエラー');}
@@ -6051,12 +6082,14 @@ async function extractFacilityFromText(){
     const facilities=Array.isArray(parsed)?parsed:[parsed];
     statusEl.textContent=`✓ ${facilities.length}件を読み取りました。内容を確認してください。`;
     statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
     statusEl.style.color='var(--green)';
     showFacilityConfirmDialog(facilities);
     document.getElementById('fac-ocr-text').value='';
   }catch(e){
     statusEl.textContent='読み取り失敗: '+e.message;
     statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
     statusEl.style.color='var(--red)';
   }
 }
@@ -6066,6 +6099,7 @@ async function extractFacilityFromFile(event, mode){
   if(!file) return;
   const statusEl=document.getElementById('fac-file-status');
   statusEl.textContent='⏳ 読み取り中...'; statusEl.classList.add('ocr-loading'); statusEl.style.color='';
+  showGlobalOcrBanner();
   try{
     const isPdf = mode==='image' ? false : file.name.toLowerCase().endsWith('.pdf');
     const isExcel = mode==='image' ? false : file.name.toLowerCase().match(/\.(xlsx|xls)$/);
@@ -6106,10 +6140,12 @@ async function extractFacilityFromFile(event, mode){
     showFacilityConfirmDialog(facilities);
     statusEl.textContent=`✓ ${facilities.length}件を読み取りました`;
     statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
     statusEl.style.color='var(--green)';
   }catch(e){
     statusEl.textContent='読み取り失敗: '+e.message;
     statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
     statusEl.style.color='var(--red)';
   }
   event.target.value='';
@@ -6246,6 +6282,7 @@ async function extractHotelFromFile(event, mode){
   const statusEl = document.getElementById('hotel-file-status');
   statusEl.textContent = '⏳ 読み取り中...';
   statusEl.classList.add('ocr-loading');
+  showGlobalOcrBanner();
   statusEl.style.color = '';
   try{
     const isPdf = mode==='image' ? false : file.name.toLowerCase().endsWith('.pdf');
@@ -6284,6 +6321,7 @@ async function extractHotelFromFile(event, mode){
       renderHotelTable();
       statusEl.textContent = '✓ '+hotels.length+'件を読み取りました';
       statusEl.classList.remove('ocr-loading');
+      hideGlobalOcrBanner();
       statusEl.style.color = 'var(--green)';
     } else if(isPdf){
       // PDFをBase64に変換してAPIに送信
@@ -6316,6 +6354,7 @@ async function extractHotelFromFile(event, mode){
       renderHotelTable();
       statusEl.textContent = '✓ '+hotels.length+'件を読み取りました';
       statusEl.classList.remove('ocr-loading');
+      hideGlobalOcrBanner();
       statusEl.style.color = 'var(--green)';
     } else if(isExcel){
       // ExcelをSheetJSで読み込みテキスト化
@@ -6349,11 +6388,13 @@ async function extractHotelFromFile(event, mode){
       renderHotelTable();
       statusEl.textContent = '✓ '+hotels.length+'件を読み取りました';
       statusEl.classList.remove('ocr-loading');
+      hideGlobalOcrBanner();
       statusEl.style.color = 'var(--green)';
     }
   }catch(e){
     statusEl.textContent = '読み取り失敗: '+e.message;
     statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
     statusEl.style.color = 'var(--red)';
   }
   event.target.value = '';
@@ -6364,6 +6405,7 @@ async function extractHotelFromText(){
   const statusEl = document.getElementById('hotel-ocr-status');
   statusEl.textContent = '⏳ 読み取り中...';
   statusEl.classList.add('ocr-loading');
+  showGlobalOcrBanner();
   statusEl.style.color = '';
   try{
     const response = await fetch('/api/extract-card', {
@@ -6390,11 +6432,13 @@ async function extractHotelFromText(){
     renderHotelTable();
     statusEl.textContent = '✓ '+hotels.length+'件を読み取りました';
     statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
     statusEl.style.color = 'var(--green)';
     document.getElementById('hotel-ocr-text').value = '';
   }catch(e){
     statusEl.textContent = '読み取り失敗: '+e.message;
     statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
     statusEl.style.color = 'var(--red)';
   }
 }
@@ -7334,6 +7378,7 @@ async function extractHotelFromTextHm(){
   const statusEl = document.getElementById('hm-ocr-status');
   statusEl.textContent = '⏳ 読み取り中...';
   statusEl.classList.add('ocr-loading');
+  showGlobalOcrBanner();
   statusEl.style.color = '';
   try{
     const response = await fetch('/api/extract-card', {
@@ -7349,11 +7394,13 @@ async function extractHotelFromTextHm(){
     const hotels = Array.isArray(parsed) ? parsed : [parsed];
     statusEl.textContent = '✓ '+hotels.length+'件を読み取りました。内容を確認してください。';
     statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
     statusEl.style.color = 'var(--green)';
     showHotelConfirmDialog(hotels);
   }catch(e){
     statusEl.textContent = '読み取り失敗: '+e.message;
     statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
     statusEl.style.color = 'var(--red)';
   }
 }
@@ -7372,6 +7419,7 @@ async function extractHotelFromFileHmParsed(bodyData, statusEl){
   const hotels = Array.isArray(parsed) ? parsed : [parsed];
   statusEl.textContent = '✓ '+hotels.length+'件を読み取りました。内容を確認してください。';
   statusEl.classList.remove('ocr-loading');
+  hideGlobalOcrBanner();
   statusEl.style.color = 'var(--green)';
   showHotelConfirmDialog(hotels);
 }
@@ -7572,6 +7620,7 @@ async function extractHotelFromFileHm(event, mode){
   const statusEl = document.getElementById('hm-file-status');
   statusEl.textContent = '⏳ 読み取り中...';
   statusEl.classList.add('ocr-loading');
+  showGlobalOcrBanner();
   statusEl.style.color = '';
   try{
     const isPdf = mode==='image' ? false : file.name.toLowerCase().endsWith('.pdf');
@@ -7607,6 +7656,7 @@ async function extractHotelFromFileHm(event, mode){
   }catch(e){
     statusEl.textContent = '読み取り失敗: '+e.message;
     statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
     statusEl.style.color = 'var(--red)';
   }
   event.target.value = '';
@@ -7629,6 +7679,7 @@ async function extractInvoiceFromText(){
   const statusEl = document.getElementById('inv-ocr-status');
   statusEl.textContent = '⏳ 読み取り中...';
   statusEl.classList.add('ocr-loading');
+  showGlobalOcrBanner();
   statusEl.style.color = '';
   try{
     const response = await fetch('/api/extract-card', {
@@ -7644,11 +7695,13 @@ async function extractInvoiceFromText(){
     const expenses = Array.isArray(parsed) ? parsed : [parsed];
     statusEl.textContent = '✓ '+expenses.length+'件を読み取りました。内容を確認してください。';
     statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
     statusEl.style.color = 'var(--green)';
     showInvoiceConfirmDialog(expenses);
   }catch(e){
     statusEl.textContent = '読み取り失敗: '+e.message;
     statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
     statusEl.style.color = 'var(--red)';
   }
 }
@@ -7659,6 +7712,7 @@ async function extractInvoiceFromFile(event, mode){
   const statusEl = document.getElementById('inv-file-status');
   statusEl.textContent = '⏳ 読み取り中...';
   statusEl.classList.add('ocr-loading');
+  showGlobalOcrBanner();
   statusEl.style.color = '';
   try{
     const base64 = await new Promise((resolve,reject)=>{
@@ -7686,11 +7740,13 @@ async function extractInvoiceFromFile(event, mode){
     const expenses = Array.isArray(parsed) ? parsed : [parsed];
     statusEl.textContent = '✓ '+expenses.length+'件を読み取りました。内容を確認してください。';
     statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
     statusEl.style.color = 'var(--green)';
     showInvoiceConfirmDialog(expenses);
   }catch(e){
     statusEl.textContent = '読み取り失敗: '+e.message;
     statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
     statusEl.style.color = 'var(--red)';
   }
   event.target.value = '';
@@ -7745,15 +7801,18 @@ async function extractInvoiceTextForBooking(){
   if(!text){ alert('テキストを入力してください'); return; }
   const statusEl = document.getElementById('inv-bk-text-status');
   statusEl.textContent = '⏳ 読み取り中...'; statusEl.classList.add('ocr-loading'); statusEl.style.color = '';
+  showGlobalOcrBanner();
   try{
     const expenses = await _callInvoiceApi({ invoiceText: text });
     statusEl.textContent = '✓ '+expenses.length+'件読み取り完了';
     statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
     statusEl.style.color = 'var(--green)';
     document.getElementById('inv-booking-modal')?.remove();
     showInvoiceConfirmDialog(expenses, currentDetailId);
   }catch(e){
     statusEl.textContent = '読み取り失敗: '+e.message; statusEl.classList.remove('ocr-loading'); statusEl.style.color = 'var(--red)';
+    hideGlobalOcrBanner();
   }
 }
 
@@ -7762,6 +7821,7 @@ async function extractInvoiceForBooking(event, mode){
   if(!file) return;
   const statusEl = document.getElementById('inv-bk-file-status');
   statusEl.textContent = '⏳ 読み取り中...'; statusEl.classList.add('ocr-loading'); statusEl.style.color = '';
+  showGlobalOcrBanner();
   try{
     const base64 = await new Promise((resolve,reject)=>{
       const r = new FileReader(); r.onload = ()=>resolve(r.result.split(',')[1]); r.onerror = reject; r.readAsDataURL(file);
@@ -7770,11 +7830,13 @@ async function extractInvoiceForBooking(event, mode){
     const expenses = await _callInvoiceApi(bodyData);
     statusEl.textContent = '✓ '+expenses.length+'件読み取り完了';
     statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
     statusEl.style.color = 'var(--green)';
     document.getElementById('inv-booking-modal')?.remove();
     showInvoiceConfirmDialog(expenses, currentDetailId);
   }catch(e){
     statusEl.textContent = '読み取り失敗: '+e.message; statusEl.classList.remove('ocr-loading'); statusEl.style.color = 'var(--red)';
+    hideGlobalOcrBanner();
   }
   event.target.value = '';
 }
@@ -7816,15 +7878,18 @@ async function extractCostFromText(){
   if(!text){ alert('テキストを入力してください'); return; }
   const statusEl = document.getElementById('cost-ocr-text-status');
   statusEl.textContent = '⏳ 読み取り中...'; statusEl.classList.add('ocr-loading'); statusEl.style.color = '';
+  showGlobalOcrBanner();
   try{
     const expenses = await _callInvoiceApi({ invoiceText: text });
     statusEl.textContent = '✓ '+expenses.length+'件読み取り完了';
     statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
     statusEl.style.color = 'var(--green)';
     document.getElementById('cost-ocr-modal')?.remove();
     showCostConfirmDialog(expenses);
   }catch(e){
     statusEl.textContent = '読み取り失敗: '+e.message; statusEl.classList.remove('ocr-loading'); statusEl.style.color = 'var(--red)';
+    hideGlobalOcrBanner();
   }
 }
 
@@ -7833,6 +7898,7 @@ async function extractCostFromFile(event, mode){
   if(!file) return;
   const statusEl = document.getElementById('cost-ocr-file-status');
   statusEl.textContent = '⏳ 読み取り中...'; statusEl.classList.add('ocr-loading'); statusEl.style.color = '';
+  showGlobalOcrBanner();
   try{
     const base64 = await new Promise((resolve,reject)=>{
       const r = new FileReader(); r.onload = ()=>resolve(r.result.split(',')[1]); r.onerror = reject; r.readAsDataURL(file);
@@ -7841,11 +7907,13 @@ async function extractCostFromFile(event, mode){
     const expenses = await _callInvoiceApi(bodyData);
     statusEl.textContent = '✓ '+expenses.length+'件読み取り完了';
     statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
     statusEl.style.color = 'var(--green)';
     document.getElementById('cost-ocr-modal')?.remove();
     showCostConfirmDialog(expenses);
   }catch(e){
     statusEl.textContent = '読み取り失敗: '+e.message; statusEl.classList.remove('ocr-loading'); statusEl.style.color = 'var(--red)';
+    hideGlobalOcrBanner();
   }
   event.target.value = '';
 }
@@ -9314,6 +9382,7 @@ async function handleCardUpload(event){
   const statusEl = document.getElementById('pt-card-status');
   statusEl.textContent = '⏳ 読み取り中...';
   statusEl.classList.add('ocr-loading');
+  showGlobalOcrBanner();
 
   try{
     const {data: freshPartners} = await sb.from('business_partners').select('*').order('company_name');
@@ -9454,6 +9523,7 @@ const rotateImage = (b64, mt, deg) => new Promise((resolve)=>{
           _mif('pt-address-en',    parsed.address_en || '');
           statusEl.textContent = '✓ 既存の取引先にマージしました。内容を確認して保存してください。';
           statusEl.classList.remove('ocr-loading');
+          hideGlobalOcrBanner();
           statusEl.style.color = 'var(--green)';
           event.target.value = '';
           return;
@@ -9482,6 +9552,7 @@ const rotateImage = (b64, mt, deg) => new Promise((resolve)=>{
       ? '✓ 読み取り完了。英語面がある場合は続けて2枚目も読み取れます。'
       : '✓ 2枚目をマージしました。内容を確認して保存してください。';
     statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
     statusEl.style.color = 'var(--green)';
     // マージ後はフォームの先頭（会社名）がスクロールで隠れないようスクロールリセット
     if (!wasEmpty) {
@@ -9491,6 +9562,7 @@ const rotateImage = (b64, mt, deg) => new Promise((resolve)=>{
     }catch(e){
     statusEl.textContent = '読み取りに失敗しました: '+(e.message||e)+' 手動で入力してください。';
     statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
     statusEl.style.color = 'var(--red)';
     console.error(e);
   }
@@ -9504,6 +9576,7 @@ async function handleMultiLocationUpload(event){
   const statusEl = document.getElementById('pt-multi-status');
   statusEl.textContent = '⏳ 読み取り中...';
   statusEl.classList.add('ocr-loading');
+  showGlobalOcrBanner();
   statusEl.style.color = '';
 
   const compressImage = f => new Promise((resolve, reject) => {
@@ -9541,10 +9614,12 @@ async function handleMultiLocationUpload(event){
     document.getElementById('pt-multi-result-section').style.display = '';
     statusEl.textContent = '✓ 読み取り完了';
     statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
     statusEl.style.color = 'var(--green)';
   } catch(e) {
     statusEl.textContent = '読み取り失敗: ' + e.message;
     statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
     statusEl.style.color = 'var(--red)';
   }
 }
@@ -9589,6 +9664,7 @@ async function handleMultiLocBatchUpload(event){
   const statusEl = document.getElementById('mlbd-status');
   statusEl.textContent = '⏳ 読み取り中...';
   statusEl.classList.add('ocr-loading');
+  showGlobalOcrBanner();
   statusEl.style.color = '';
 
   const compressImage = f => new Promise((resolve, reject) => {
@@ -9625,11 +9701,13 @@ async function handleMultiLocBatchUpload(event){
     if(!Array.isArray(locations) || locations.length === 0){
       statusEl.textContent = '拠点情報を読み取れませんでした。画像を確認してください。';
       statusEl.classList.remove('ocr-loading');
+      hideGlobalOcrBanner();
       statusEl.style.color = 'var(--red)';
       return;
     }
     statusEl.textContent = `✓ ${locations.length}件を検出しました。1件ずつ確認して登録します。`;
     statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
     statusEl.style.color = 'var(--green)';
     closeMultiLocBatchDialog();
     try{
@@ -9640,6 +9718,7 @@ async function handleMultiLocBatchUpload(event){
   }catch(e){
     statusEl.textContent = '読み取り失敗: ' + e.message;
     statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
     statusEl.style.color = 'var(--red)';
   }
 }
