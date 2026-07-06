@@ -252,7 +252,8 @@ async function handleReceiptImages(input){
         throw new Error(msg);
       }
       const data = await response.json();
-      const text = data.text||'';
+      if(data.error){ throw new Error(data.error); }
+      const text = data.text || '';
       const clean = text.replace(/```json|```/g,'').trim();
       const parsed = JSON.parse(clean);
       pendingReceipts = pendingReceipts.concat(parsed);
@@ -293,6 +294,7 @@ async function handleReceiptImage(input){
       throw new Error(msg);
     }
     const data = await response.json();
+    if(data.error){ throw new Error(data.error); }
     const text = data.text || '';
     const clean = text.replace(/```json|```/g,'').trim();
     pendingReceipts = JSON.parse(clean);

@@ -24,7 +24,14 @@ export default async function handler(req) {
       })
     });
     const data = await response.json();
+    if(!response.ok){
+      const errMsg = data?.error?.message || 'Anthropic APIエラー';
+      return new Response(JSON.stringify({error: errMsg}), {status: 502, headers:{'Content-Type':'application/json'}});
+    }
     const text = data.content?.[0]?.text || '';
+    if(!text){
+      return new Response(JSON.stringify({error: 'AIからの応答が空でした。もう一度お試しください。'}), {status: 502, headers:{'Content-Type':'application/json'}});
+    }
     return new Response(JSON.stringify({text}),{headers:{'Content-Type':'application/json'}});
   }catch(e){
     return new Response(JSON.stringify({error:e.message}),{status:500,headers:{'Content-Type':'application/json'}});
