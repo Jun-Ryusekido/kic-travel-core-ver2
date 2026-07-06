@@ -7580,6 +7580,7 @@ async function showHotelConfirmDialog(hotels){
       <div id="hm-confirm-dd-${i}" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--card,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:999;max-height:180px;overflow-y:auto;margin-top:2px"></div>
     </div>`;
     return `<tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:6px 8px;min-width:180px">${comboHtml}${matchedBooking?`<div style="font-size:9px;color:var(--green)">✓ 自動マッチ: ${escHtml(matchedBooking.ref_no||'')}</div>`:''}</td>
       <td style="padding:6px 8px">${escHtml(h.hotel_name||'')}</td>
       <td style="padding:6px 8px">${h.check_in||''}</td>
       <td style="padding:6px 8px">${h.check_out||''}</td>
@@ -7589,7 +7590,6 @@ async function showHotelConfirmDialog(hotels){
       <td style="padding:6px 8px;text-align:right">${yen(amount)}</td>
       <td style="padding:6px 8px">${escHtml(h.confirmation_no||'')}</td>
       <td style="padding:6px 8px"><select id="hm-confirm-status-${i}" style="font-size:10px;padding:3px"><option value="回答待ち">回答待ち</option><option value="手配OK">手配OK</option></select></td>
-      <td style="padding:6px 8px;min-width:220px">${comboHtml}${matchedBooking?`<div style="font-size:9px;color:var(--green)">✓ 自動マッチ: ${escHtml(matchedBooking.ref_no||'')}</div>`:''}</td>
     </tr>`;
   }).join('');
 
@@ -7605,6 +7605,7 @@ async function showHotelConfirmDialog(hotels){
       <div style="font-size:11px;color:var(--text3);margin-bottom:10px">各行のツアーREF#を確認・修正してから「保存」してください。</div>
       <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">
         <thead><tr style="background:var(--bg)">
+          <th style="padding:6px 8px;min-width:180px">ツアーREF# ★</th>
           <th style="padding:6px 8px;text-align:left">ホテル名</th>
           <th style="padding:6px 8px">チェックイン</th>
           <th style="padding:6px 8px">チェックアウト</th>
@@ -7614,7 +7615,6 @@ async function showHotelConfirmDialog(hotels){
           <th style="padding:6px 8px">金額</th>
           <th style="padding:6px 8px">確認番号</th>
           <th style="padding:6px 8px">ステータス</th>
-          <th style="padding:6px 8px">ツアーREF#</th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table></div>
