@@ -2820,6 +2820,7 @@ async function extractDashboardBankbook(event){
     const cleaned = (data.text||'').replace(/```json|```/g,'').trim();
     const parsed = JSON.parse(cleaned);
     dbBankbookExtracted = Array.isArray(parsed) ? parsed : [parsed];
+    allBookingsCache = await fetchAllBookings();
     renderDashboardBankbookResults();
     statusEl.textContent = `✓ ${dbBankbookExtracted.length}件を読み取りました`;
     statusEl.style.color = 'var(--green)';
@@ -2833,9 +2834,67 @@ async function extractDashboardBankbook(event){
 function renderDashboardBankbookResults(){
   const el = document.getElementById('db-bankbook-results');
   if(!el || dbBankbookExtracted.length === 0){ if(el) el.innerHTML = ''; return; }
-  const bookingOptions = [...allBookingsCache]
-    .map(b=>`<option value="${b.id}">${b.ref_no||'—'} | ${(b.tour_name||'').replace(/"/g,'&quot;')} (${(b.agent_name||'').replace(/"/g,'&quot;')})</option>`)
-    .join('');
+
+  const _numOf = ref => { const n=parseInt((ref||'').replace(/^#/,''),10); return isNaN(n)?Infinity:n; };
+  const sortedBookings = [...allBookingsCache]
+    .filter(b => b.ref_no || b.agent_name || b.tour_name)
+    .sort((a,b) => _numOf(a.ref_no) - _numOf(b.ref_no));
+  window._dbBbConfirmBookings = sortedBookings;
+
+  const firstNum = s => { const m=(s||'').match(/(\d+)/); return m?m[1]:''; };
+  const norm = s => (s||'').trim().toUpperCase();
+
+  const rows = dbBankbookExtracted.map((p,k)=>{
+    const pAllText = norm(p.bank);
+    // Stage1: bank文字列の先頭数値がREF#と一致 / tour_nameとの直接・部分一致
+    let matchedBooking = sortedBookings.find(b=>{
+      const bNum = firstNum(b.ref_no);
+      const pNum = firstNum(p.bank);
+      if(bNum && pNum && bNum===pNum) return true;
+      const tNorm = norm(b.tour_name);
+      if(tNorm.length>=5 && /\d/.test(tNorm) && pAllText.includes(tNorm)) return true;
+      return false;
+    });
+    // Stage2: "852_KK"形式の短縮ツアーコードをtour_nameにマッチ
+    if(!matchedBooking){
+      const shortCodePat = /\b(\d{3,5})_([A-Za-z]{2,4})\b/g;
+      const codes = [...pAllText.matchAll(shortCodePat)];
+      if(codes.length){
+        matchedBooking = sortedBookings.find(b=>{
+          const tNorm = norm(b.tour_name);
+          const tm = tNorm.match(/(\d{3,5})_([A-Z]{2,4})/);
+          if(!tm) return false;
+          return codes.some(m=>String(+tm[1])===String(+m[1]) && tm[2]===m[2].toUpperCase());
+        });
+      }
+    }
+    dbBankbookExtracted[k]._bookingId = matchedBooking ? matchedBooking.id : null;
+    const inputVal = matchedBooking ? escAttr(matchedBooking.ref_no||'(REF#なし)') : '';
+    const hiddenVal = matchedBooking ? String(matchedBooking.id) : '';
+    const comboHtml = `<div style="position:relative">
+      <input type="text" id="db-bb-input-${k}" value="${inputVal}"
+             placeholder="REF#・ツアー名で検索…"
+             autocomplete="off"
+             oninput="filterDbBbDD(${k})"
+             onfocus="showDbBbDD(${k})"
+             onblur="setTimeout(()=>hideDbBbDD(${k}),200)"
+             style="font-size:11px;padding:5px 6px;border-radius:6px;border:1px solid var(--border);width:100%;min-width:180px;box-sizing:border-box">
+      <input type="hidden" id="db-bb-booking-${k}" value="${hiddenVal}">
+      <div id="db-bb-dd-${k}" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--card,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:999;max-height:180px;overflow-y:auto;margin-top:2px"></div>
+    </div>${matchedBooking?`<div style="font-size:10px;color:var(--green);margin-top:2px">✓ 自動マッチ: ${escHtml(matchedBooking.ref_no||'')}</div>`:''}`;
+    return `
+    <tr id="db-bankbook-entry-${k}" style="border-bottom:1px solid var(--border)">
+      <td style="padding:6px 8px;white-space:nowrap">${p.date||'—'}</td>
+      <td style="padding:6px 8px;text-align:right;white-space:nowrap"><strong>${yen(p.amount||0)}</strong></td>
+      <td style="padding:6px 8px">${(p.bank||'—').replace(/</g,'&lt;')}</td>
+      <td style="padding:6px 8px;min-width:200px">${comboHtml}</td>
+      <td style="padding:6px 8px;white-space:nowrap">
+        <button class="btn btn-p" id="db-bb-btn-${k}" style="font-size:11px" onclick="applyDashboardBankbookEntry(${k})">反映</button>
+        <span id="db-bb-status-${k}" style="font-size:11px;color:var(--text3);margin-left:4px"></span>
+      </td>
+    </tr>`;
+  }).join('');
+
   el.innerHTML = `<div style="font-size:12px;font-weight:600;margin-bottom:8px">${dbBankbookExtracted.length}件の入金データを読み取りました</div>
     <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
     <thead><tr style="border-bottom:2px solid var(--border);background:var(--bg2)">
@@ -2845,34 +2904,61 @@ function renderDashboardBankbookResults(){
       <th style="padding:5px 8px">振り分け先ツアー</th>
       <th style="padding:5px 8px;white-space:nowrap">操作</th>
     </tr></thead>
-    <tbody>
-    ${dbBankbookExtracted.map((p,k)=>`
-    <tr id="db-bankbook-entry-${k}" style="border-bottom:1px solid var(--border)">
-      <td style="padding:6px 8px;white-space:nowrap">${p.date||'—'}</td>
-      <td style="padding:6px 8px;text-align:right;white-space:nowrap"><strong>${yen(p.amount||0)}</strong></td>
-      <td style="padding:6px 8px">${(p.bank||'—').replace(/</g,'&lt;')}</td>
-      <td style="padding:6px 8px">
-        <select id="db-bb-sel-${k}" style="width:100%;min-width:200px;font-size:11px;border:1px solid var(--border);border-radius:4px;padding:3px 4px">
-          <option value="">— ツアーを選択 —</option>
-          ${bookingOptions}
-        </select>
-      </td>
-      <td style="padding:6px 8px;white-space:nowrap">
-        <button class="btn btn-p" id="db-bb-btn-${k}" style="font-size:11px" onclick="applyDashboardBankbookEntry(${k})">反映</button>
-        <span id="db-bb-status-${k}" style="font-size:11px;color:var(--text3);margin-left:4px"></span>
-      </td>
-    </tr>`).join('')}
-    </tbody></table></div>`;
+    <tbody>${rows}</tbody></table></div>`;
+}
+
+function filterDbBbDD(k){
+  const q = document.getElementById('db-bb-input-'+k)?.value||'';
+  if(!q.trim()) document.getElementById('db-bb-booking-'+k).value='';
+  renderDbBbDD(k, q);
+}
+function showDbBbDD(k){
+  renderDbBbDD(k, document.getElementById('db-bb-input-'+k)?.value||'');
+}
+function hideDbBbDD(k){
+  const dd=document.getElementById('db-bb-dd-'+k); if(dd) dd.style.display='none';
+}
+function renderDbBbDD(k, q){
+  const dd=document.getElementById('db-bb-dd-'+k); if(!dd) return;
+  const books=window._dbBbConfirmBookings||[];
+  const lq=q.replace(/^#/,'').toLowerCase();
+  const filtered=lq
+    ? books.filter(b=>{
+        const ref=(b.ref_no||'').replace(/^#/,'').toLowerCase();
+        const tour=(b.tour_name||'').toLowerCase();
+        const agent=(b.agent_name||'').toLowerCase();
+        return ref.includes(lq)||tour.includes(lq)||agent.includes(lq);
+      })
+    : books.slice(0,50);
+  if(!filtered.length){
+    dd.innerHTML='<div style="padding:6px 8px;font-size:11px;color:var(--text3)">該当なし</div>';
+  } else {
+    dd.innerHTML=filtered.slice(0,100).map(b=>{
+      const ref=escHtml(b.ref_no||'(REF#なし)');
+      const agent=escHtml(b.agent_name||'');
+      const tour=escHtml(b.tour_name||'');
+      return '<div data-id="'+b.id+'" data-ref="'+ref+'" onmousedown="selectDbBbItem('+k+',this.dataset.id,this.dataset.ref)" style="padding:6px 8px;font-size:11px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background=\'var(--bg)\'" onmouseout="this.style.background=\'\'"><b>'+ref+'</b>'+(agent?' <span style="color:var(--text3)">'+agent+'</span>':'')+(tour?' <span style="font-size:10px;color:var(--text2)">'+tour+'</span>':'')+'</div>';
+    }).join('');
+  }
+  dd.style.display='block';
+}
+function selectDbBbItem(k, bookingId, ref){
+  const input=document.getElementById('db-bb-input-'+k);
+  const hidden=document.getElementById('db-bb-booking-'+k);
+  const dd=document.getElementById('db-bb-dd-'+k);
+  if(input) input.value=ref;
+  if(hidden) hidden.value=bookingId;
+  if(dd) dd.style.display='none';
 }
 
 async function applyDashboardBankbookEntry(k){
   const p = dbBankbookExtracted[k];
   if(!p) return;
-  const sel = document.getElementById('db-bb-sel-'+k);
+  const hidden = document.getElementById('db-bb-booking-'+k);
   const statusEl = document.getElementById('db-bb-status-'+k);
   const btn = document.getElementById('db-bb-btn-'+k);
-  if(!sel || !sel.value){ alert('ツアーを選択してください'); return; }
-  const bookingId = Number(sel.value);
+  if(!hidden || !hidden.value){ alert('ツアーを選択してください'); return; }
+  const bookingId = Number(hidden.value);
   const booking = allBookingsCache.find(b=>b.id===bookingId);
   const refNo = booking ? (booking.ref_no||`ID:${bookingId}`) : `ID:${bookingId}`;
   let dateStr = p.date||'日付不明';
@@ -2899,7 +2985,9 @@ async function applyDashboardBankbookEntry(k){
     if(updErr) throw updErr;
     statusEl.textContent = '✓ 反映済み';
     statusEl.style.color = 'var(--green)';
-    sel.disabled = true;
+    const inputEl = document.getElementById('db-bb-input-'+k);
+    if(inputEl) inputEl.disabled = true;
+    if(btn) btn.disabled = true;
     const rowEl = document.getElementById('db-bankbook-entry-'+k);
     if(rowEl) rowEl.style.opacity = '0.5';
   } catch(e) {
