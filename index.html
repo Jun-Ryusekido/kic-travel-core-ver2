@@ -7579,18 +7579,24 @@ async function showHotelConfirmDialog(hotels){
       <input type="hidden" id="hm-confirm-booking-${i}" value="${hiddenVal}">
       <div id="hm-confirm-dd-${i}" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--card,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:999;max-height:180px;overflow-y:auto;margin-top:2px"></div>
     </div>`;
-    return `<tr style="border-bottom:1px solid var(--border)">
-      <td style="padding:6px 8px;min-width:180px">${comboHtml}${matchedBooking?`<div style="font-size:9px;color:var(--green)">✓ 自動マッチ: ${escHtml(matchedBooking.ref_no||'')}</div>`:''}</td>
-      <td style="padding:6px 8px">${escHtml(h.hotel_name||'')}</td>
-      <td style="padding:6px 8px">${h.check_in||''}</td>
-      <td style="padding:6px 8px">${h.check_out||''}</td>
-      <td style="padding:6px 8px">${escHtml(h.room_type||'')}</td>
-      <td style="padding:6px 8px;text-align:center">${h.rooms||1}</td>
-      <td style="padding:6px 8px;text-align:center">${nights}</td>
-      <td style="padding:6px 8px;text-align:right">${yen(amount)}</td>
-      <td style="padding:6px 8px">${escHtml(h.confirmation_no||'')}</td>
-      <td style="padding:6px 8px"><select id="hm-confirm-status-${i}" style="font-size:10px;padding:3px"><option value="回答待ち">回答待ち</option><option value="手配OK">手配OK</option></select></td>
-    </tr>`;
+    return `<div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px">
+      <div style="margin-bottom:8px">${comboHtml}${matchedBooking?`<div style="font-size:9px;color:var(--green);margin-top:2px">✓ 自動マッチ: ${escHtml(matchedBooking.ref_no||'')}</div>`:''}</div>
+      <div style="font-weight:700;font-size:12px;margin-bottom:6px">${escHtml(h.hotel_name||'')}</div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--text2);margin-bottom:6px">
+        <span>IN: ${h.check_in||''}</span>
+        <span>OUT: ${h.check_out||''}</span>
+      </div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--text2);margin-bottom:6px">
+        <span>部屋: ${escHtml(h.room_type||'')}</span>
+        <span>${h.rooms||1}室</span>
+        <span>${nights}泊</span>
+      </div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:11px">
+        <span style="font-weight:600">${yen(amount)}</span>
+        <span style="color:var(--text3)">確認番号: ${escHtml(h.confirmation_no||'')}</span>
+        <span>ステータス: <select id="hm-confirm-status-${i}" style="font-size:10px;padding:3px"><option value="回答待ち">回答待ち</option><option value="手配OK">手配OK</option></select></span>
+      </div>
+    </div>`;
   }).join('');
 
   const modal = document.createElement('div');
@@ -7603,21 +7609,7 @@ async function showHotelConfirmDialog(hotels){
         <button class="btn" onclick="document.getElementById('hotel-confirm-modal').remove()">✕ 閉じる</button>
       </div>
       <div style="font-size:11px;color:var(--text3);margin-bottom:10px">各行のツアーREF#を確認・修正してから「保存」してください。</div>
-      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">
-        <thead><tr style="background:var(--bg)">
-          <th style="padding:6px 8px;min-width:180px">ツアーREF# ★</th>
-          <th style="padding:6px 8px;text-align:left">ホテル名</th>
-          <th style="padding:6px 8px">チェックイン</th>
-          <th style="padding:6px 8px">チェックアウト</th>
-          <th style="padding:6px 8px">部屋タイプ</th>
-          <th style="padding:6px 8px">部屋数</th>
-          <th style="padding:6px 8px">泊数</th>
-          <th style="padding:6px 8px">金額</th>
-          <th style="padding:6px 8px">確認番号</th>
-          <th style="padding:6px 8px">ステータス</th>
-        </tr></thead>
-        <tbody>${rows}</tbody>
-      </table></div>
+      <div>${rows}</div>
       <div style="margin-top:12px;display:flex;gap:8px">
         <button class="btn btn-p" onclick="saveHotelConfirmNew()">💾 保存</button>
         <button class="btn" onclick="document.getElementById('hotel-confirm-modal').remove()">キャンセル</button>
