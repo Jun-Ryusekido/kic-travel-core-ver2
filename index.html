@@ -7770,8 +7770,8 @@ function saveHotelConfirmNew(){
 async function saveHotelConfirm(hotels){
   const statusEl = document.getElementById('hotel-confirm-status');
   statusEl.textContent = '保存中...';
-  let savedCount = 0;
-  const rows = hotels.map((h,i)=>{
+
+  const allRows = hotels.map((h,i)=>{
     const sel = document.getElementById(`hm-confirm-booking-${i}`);
     const bookingId = (sel ? sel.value : null) || h._bookingId || null;
     const nights = calcHotelNights(h.check_in||'', h.check_out||'');
@@ -7792,13 +7792,29 @@ async function saveHotelConfirm(hotels){
       status_updated_at: new Date().toISOString()
     };
   });
-  const {error} = await sb.from('booking_hotels').insert(rows);
+
+  const validRows = allRows.filter(r=>r.booking_id && (r.hotel_name||r.amount));
+  const unmatched = allRows.filter(r=>!r.booking_id && (r.hotel_name||r.amount));
+
+  if(!validRows.length){
+    alert('⚠ ツアーREF#が1件も選択されていません。\n一番左の「ツアーREF#」欄から予約を選択してから保存してください。');
+    statusEl.textContent = '⚠ REF#未選択のため保存できません';
+    statusEl.style.color = 'var(--red)';
+    return;
+  }
+  if(unmatched.length>0){
+    if(!confirm(`${unmatched.length}行はツアーREF#が未選択のため保存されません。\n残り${validRows.length}行を保存しますか？`)) return;
+  }
+
+  statusEl.textContent = '保存中...'; statusEl.style.color = 'var(--text3)';
+
+  const {error} = await sb.from('booking_hotels').insert(validRows);
   if(error){
     statusEl.textContent = '保存エラー: ' + error.message;
     statusEl.style.color = 'var(--red)';
     return;
   }
-  savedCount = rows.length;
+  const savedCount = validRows.length;
   statusEl.textContent = `✓ ${savedCount}件を保存しました`;
   statusEl.style.color = 'var(--green)';
   setTimeout(()=>{ document.getElementById('hotel-confirm-modal')?.remove(); }, 1500);
