@@ -9276,21 +9276,21 @@ function _buildVoucherHtml(restaurants, tourName, guideName, guidePhone, childre
     const guideText  = [eh(guideName), eh(guidePhone)].filter(Boolean).join('&ensp;');
     const payText    = eh(r.payment_method||'請求書払い');
 
-    return `<div style="padding:0.5mm 3mm 3mm 3mm;box-sizing:border-box;height:143.5mm;overflow:hidden;font-family:Arial,'Helvetica Neue',Helvetica,sans-serif">
+    return `<div style="padding:0.5mm 3mm 3mm 3mm;box-sizing:border-box;height:148.4mm;overflow:hidden;font-family:Arial,'Helvetica Neue',Helvetica,sans-serif">
 
   <!-- ヘッダー -->
   <table width="100%" style="border-collapse:collapse;margin-bottom:1.5mm"><tr>
     <td style="vertical-align:middle;white-space:nowrap">
-      <img src="${logoUrl}" height="25" style="vertical-align:middle;margin-right:1.2mm">
-      <span style="font-size:9.5pt;font-weight:700;vertical-align:middle">MEAL VOUCHER</span>
+      <img src="${logoUrl}" height="25" style="vertical-align:middle;margin-right:1.5mm">
+      <span style="font-size:9.8pt;font-weight:700;vertical-align:middle">MEAL VOUCHER</span>
     </td>
     <td style="text-align:right;vertical-align:middle;white-space:nowrap">
-      <span style="border:1.5px solid #333;padding:0.3mm 0.6mm;font-size:6.8pt;font-weight:700;display:inline-block">${eh(tourName)}</span>&ensp;
-      <span style="border:1.5px solid #333;padding:0.3mm 0.6mm;font-size:6.8pt;display:inline-block">${dateDisp}</span>&ensp;
-      <span style="border:1.5px solid ${ctrlColor};padding:0.3mm 0.6mm;font-size:6.8pt;font-weight:700;color:${ctrlColor};display:inline-block">${ctrlLabel}</span>
+      <span style="border:1.5px solid #333;border-radius:1mm;padding:0.4mm 0.8mm;font-size:7pt;font-weight:700;display:inline-block">${eh(tourName)}</span>&ensp;
+      <span style="border:1.5px solid #333;border-radius:1mm;padding:0.4mm 0.8mm;font-size:7pt;display:inline-block">${dateDisp}</span>&ensp;
+      <span style="border:1.5px solid ${ctrlColor};border-radius:1mm;padding:0.4mm 0.8mm;font-size:7pt;font-weight:700;color:${ctrlColor};display:inline-block">${ctrlLabel}</span>
     </td>
   </tr></table>
-  <hr style="border:none;border-top:1.5px solid #333;margin:0 0 9mm 0">
+  <hr style="border:none;border-top:1.5px solid #1a1a1a;margin:0 0 9mm 0">
 
   <!-- レストラン名 -->
   <table style="border-collapse:collapse;margin-bottom:1.5mm;width:100%"><tr>
@@ -9361,7 +9361,7 @@ function _buildVoucherHtml(restaurants, tourName, guideName, guidePhone, childre
 
   <!-- 備考 -->
   <div style="font-size:8pt;font-weight:700;margin-bottom:0.5mm">備考</div>
-  <div style="border:1.5px solid #333;height:13mm;padding:1mm;font-size:9pt;box-sizing:border-box">${memoText}</div>
+  <div style="border:1.5px solid #333;height:30mm;padding:1mm;font-size:9pt;box-sizing:border-box">${memoText}</div>
 
 </div>`;
   }
@@ -9373,14 +9373,14 @@ function _buildVoucherHtml(restaurants, tourName, guideName, guidePhone, childre
   const pageHtml = pages.map((pg, pi)=>{
     const r1 = pg[0];
     const r2 = pg[1]||null;
-    return `${pi>0?'<div style="page-break-before:always"></div>':''}<table style="width:200mm;border-collapse:collapse;table-layout:fixed"><tbody>
+    return `${pi>0?'<div style="page-break-before:always"></div>':''}<table style="width:210mm;border-collapse:collapse;table-layout:fixed"><tbody>
 <tr>
-  <td style="width:100mm;height:143.5mm;border-right:1.5px dashed #999;border-bottom:1.5px dashed #999;vertical-align:top;padding:0">${buildCell(r1,true)}</td>
-  <td style="width:100mm;height:143.5mm;border-bottom:1.5px dashed #999;vertical-align:top;padding:0">${buildCell(r1,false)}</td>
+  <td style="width:105mm;height:148.4mm;border-right:1px dashed #999;border-bottom:1px dashed #999;vertical-align:top;padding:0">${buildCell(r1,true)}</td>
+  <td style="width:105mm;height:148.4mm;border-bottom:1px dashed #999;vertical-align:top;padding:0">${buildCell(r1,false)}</td>
 </tr>
 <tr>
-  <td style="width:100mm;height:143.5mm;border-right:1.5px dashed #999;vertical-align:top;padding:0">${r2?buildCell(r2,true):''}</td>
-  <td style="width:100mm;height:143.5mm;vertical-align:top;padding:0">${r2?buildCell(r2,false):''}</td>
+  <td style="width:105mm;height:148.4mm;border-right:1px dashed #999;vertical-align:top;padding:0">${r2?buildCell(r2,true):''}</td>
+  <td style="width:105mm;height:148.4mm;vertical-align:top;padding:0">${r2?buildCell(r2,false):''}</td>
 </tr>
 </tbody></table>`;
   }).join('\n');
@@ -9394,7 +9394,7 @@ function _buildVoucherHtml(restaurants, tourName, guideName, guidePhone, childre
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#fff;font-family:Arial,'Helvetica Neue',Helvetica,sans-serif}
 @media screen{body{padding:8mm;background:#e8e8e8}.voucher-wrap{background:#fff;display:inline-block;box-shadow:0 2px 10px rgba(0,0,0,.2)}}
-@media print{@page{size:A4;margin:5mm}body{padding:0;background:#fff}.no-print{display:none!important}}
+@media print{@page{size:A4;margin:0}body{padding:0;background:#fff}.no-print{display:none!important}}
 </style>
 </head>
 <body>
