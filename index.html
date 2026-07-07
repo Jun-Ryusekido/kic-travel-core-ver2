@@ -8180,6 +8180,10 @@ async function showInvoiceConfirmDialog(expenses, presetBookingId){
         </tr></thead>
         <tbody>${rows}</tbody>
       </table></div>
+      <label style="display:flex;align-items:center;gap:6px;font-size:11px;margin-bottom:8px;cursor:pointer">
+        <input type="checkbox" id="inv-confirm-merge-same-ref">
+        同じツアーREF#の行をまとめて1件にする
+      </label>
       <div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <button class="btn btn-p" onclick="saveInvoiceConfirm()">💾 保存</button>
         <button class="btn" onclick="document.getElementById('invoice-confirm-modal').remove()">キャンセル</button>
@@ -8252,8 +8256,39 @@ async function saveInvoiceConfirm(){
     };
   });
 
-  const validRows = allRows.filter(r=>r.booking_id && (r.content||r.amount));
+  const validRows_raw = allRows.filter(r=>r.booking_id && (r.content||r.amount));
   const unmatched = allRows.filter(r=>!r.booking_id && (r.content||r.amount));
+
+  const mergeChecked = document.getElementById('inv-confirm-merge-same-ref')?.checked;
+  function mergeRowsByBookingId(rows){
+    const groups = {};
+    const order = [];
+    rows.forEach(r=>{
+      if(!groups[r.booking_id]){ groups[r.booking_id]=[]; order.push(r.booking_id); }
+      groups[r.booking_id].push(r);
+    });
+    return order.map(bid=>{
+      const g = groups[bid];
+      if(g.length===1) return g[0];
+      const amount = g.reduce((s,r)=>s+(r.amount||0),0);
+      const contents = g.map(r=>r.content).filter(Boolean);
+      const suppliers = [...new Set(g.map(r=>r._supplier).filter(Boolean))];
+      return {
+        booking_id: bid,
+        expense_date: g[0].expense_date,
+        content: contents.join('、'),
+        category: g[0].category,
+        unit_price: amount,
+        qty: 1,
+        amount,
+        payment_method: g[0].payment_method,
+        sort_order: g[0].sort_order,
+        _supplier: suppliers.join('・'),
+        _content: contents.join('、')
+      };
+    });
+  }
+  const validRows = mergeChecked ? mergeRowsByBookingId(validRows_raw) : validRows_raw;
 
   if(!validRows.length){
     alert('⚠ ツアーREF#が1件も選択されていません。\n一番左の「ツアーREF#」欄から予約を選択してから保存してください。');
