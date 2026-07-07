@@ -3094,7 +3094,17 @@ function addCostRow(){
   if(tbody.lastElementChild) tbody.lastElementChild.scrollIntoView({block:'nearest'});
 }
 function removeSalesRow(i){ if(bdLocked) return; if(!confirm('この行を削除しますか？')) return; bdSalesItems.splice(i,1); renderSalesTable(); }
-function removeCostRow(i){ if(bdLocked) return; if(!confirm('この行を削除しますか？')) return; bdCostItems.splice(i,1); renderCostTable(); }
+function removeCostRow(i){
+  if(bdLocked) return;
+  const it = bdCostItems[i];
+  const name = it?.item_name || '(内容未入力)';
+  const amount = Number(it?.amount)||0;
+  const memo = it?.memo ? `\n備考: ${it.memo}` : '';
+  const msg = `以下の行を削除しますか？\n\n支払先: ${name}\n金額: ¥${amount.toLocaleString()}${memo}`;
+  if(!confirm(msg)) return;
+  bdCostItems.splice(i,1);
+  renderCostTable();
+}
 
 function renderLocalExpenses(){
   if(_dateInputFocusedIn('bd-local-tbody')) return;
