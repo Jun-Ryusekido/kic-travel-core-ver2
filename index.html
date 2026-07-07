@@ -7787,6 +7787,15 @@ function toggleInvOcrArea(){
   a.style.display = a.style.display === 'none' ? '' : 'none';
 }
 
+function checkInvoiceTotalMismatch(expenses, invoiceTotal){
+  if(!invoiceTotal) return '';
+  const sum = expenses.reduce((s,e)=>s+(Number(e.amount)||0),0);
+  if(Math.abs(sum - invoiceTotal) > 1){
+    return ` ⚠ 合計金額不一致（読取合計: ¥${sum.toLocaleString()} / 請求書記載の合計: ¥${invoiceTotal.toLocaleString()}）。内容をご確認ください。`;
+  }
+  return '';
+}
+
 async function extractInvoiceFromText(){
   const text = document.getElementById('inv-ocr-text').value.trim();
   if(!text){ alert('テキストを入力してください'); return; }
@@ -7806,11 +7815,19 @@ async function extractInvoiceFromText(){
     const textBlock = data.content.find(b=>b.type==='text');
     const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
     const parsed = JSON.parse(cleaned);
-    const expenses = Array.isArray(parsed) ? parsed : [parsed];
+    let expenses, invoiceTotal = 0;
+    if(Array.isArray(parsed)){
+      expenses = parsed;
+    } else {
+      expenses = Array.isArray(parsed.items) ? parsed.items : [parsed];
+      invoiceTotal = Number(parsed.invoice_total_amount)||0;
+    }
     statusEl.textContent = '✓ '+expenses.length+'件を読み取りました。内容を確認してください。';
     statusEl.classList.remove('ocr-loading');
     hideGlobalOcrBanner();
     statusEl.style.color = 'var(--green)';
+    statusEl.textContent += checkInvoiceTotalMismatch(expenses, invoiceTotal);
+    if(checkInvoiceTotalMismatch(expenses, invoiceTotal)) statusEl.style.color = 'var(--orange, #d97706)';
     showInvoiceConfirmDialog(expenses);
   }catch(e){
     statusEl.textContent = '読み取り失敗: '+e.message;
@@ -7851,11 +7868,19 @@ async function extractInvoiceFromFile(event, mode){
     const textBlock = data.content.find(b=>b.type==='text');
     const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
     const parsed = JSON.parse(cleaned);
-    const expenses = Array.isArray(parsed) ? parsed : [parsed];
+    let expenses, invoiceTotal = 0;
+    if(Array.isArray(parsed)){
+      expenses = parsed;
+    } else {
+      expenses = Array.isArray(parsed.items) ? parsed.items : [parsed];
+      invoiceTotal = Number(parsed.invoice_total_amount)||0;
+    }
     statusEl.textContent = '✓ '+expenses.length+'件を読み取りました。内容を確認してください。';
     statusEl.classList.remove('ocr-loading');
     hideGlobalOcrBanner();
     statusEl.style.color = 'var(--green)';
+    statusEl.textContent += checkInvoiceTotalMismatch(expenses, invoiceTotal);
+    if(checkInvoiceTotalMismatch(expenses, invoiceTotal)) statusEl.style.color = 'var(--orange, #d97706)';
     showInvoiceConfirmDialog(expenses);
   }catch(e){
     statusEl.textContent = '読み取り失敗: '+e.message;
@@ -7907,7 +7932,14 @@ async function _callInvoiceApi(bodyData){
   const textBlock = data.content.find(b=>b.type==='text');
   const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
   const parsed = JSON.parse(cleaned);
-  return Array.isArray(parsed) ? parsed : [parsed];
+  let expenses, invoiceTotal = 0;
+  if(Array.isArray(parsed)){
+    expenses = parsed;
+  } else {
+    expenses = Array.isArray(parsed.items) ? parsed.items : [parsed];
+    invoiceTotal = Number(parsed.invoice_total_amount)||0;
+  }
+  return { expenses, invoiceTotal };
 }
 
 async function extractInvoiceTextForBooking(){
@@ -7917,11 +7949,13 @@ async function extractInvoiceTextForBooking(){
   statusEl.textContent = '⏳ 読み取り中...'; statusEl.classList.add('ocr-loading'); statusEl.style.color = '';
   showGlobalOcrBanner();
   try{
-    const expenses = await _callInvoiceApi({ invoiceText: text });
+    const {expenses, invoiceTotal} = await _callInvoiceApi({ invoiceText: text });
     statusEl.textContent = '✓ '+expenses.length+'件読み取り完了';
     statusEl.classList.remove('ocr-loading');
     hideGlobalOcrBanner();
     statusEl.style.color = 'var(--green)';
+    statusEl.textContent += checkInvoiceTotalMismatch(expenses, invoiceTotal);
+    if(checkInvoiceTotalMismatch(expenses, invoiceTotal)) statusEl.style.color = 'var(--orange, #d97706)';
     document.getElementById('inv-booking-modal')?.remove();
     showInvoiceConfirmDialog(expenses, currentDetailId);
   }catch(e){
@@ -7941,11 +7975,13 @@ async function extractInvoiceForBooking(event, mode){
       const r = new FileReader(); r.onload = ()=>resolve(r.result.split(',')[1]); r.onerror = reject; r.readAsDataURL(file);
     });
     const bodyData = mode==='pdf' ? { invoicePdfBase64: base64 } : { invoiceImageBase64: base64, invoiceImageMediaType: file.type||'image/jpeg' };
-    const expenses = await _callInvoiceApi(bodyData);
+    const {expenses, invoiceTotal} = await _callInvoiceApi(bodyData);
     statusEl.textContent = '✓ '+expenses.length+'件読み取り完了';
     statusEl.classList.remove('ocr-loading');
     hideGlobalOcrBanner();
     statusEl.style.color = 'var(--green)';
+    statusEl.textContent += checkInvoiceTotalMismatch(expenses, invoiceTotal);
+    if(checkInvoiceTotalMismatch(expenses, invoiceTotal)) statusEl.style.color = 'var(--orange, #d97706)';
     document.getElementById('inv-booking-modal')?.remove();
     showInvoiceConfirmDialog(expenses, currentDetailId);
   }catch(e){
@@ -7994,11 +8030,13 @@ async function extractCostFromText(){
   statusEl.textContent = '⏳ 読み取り中...'; statusEl.classList.add('ocr-loading'); statusEl.style.color = '';
   showGlobalOcrBanner();
   try{
-    const expenses = await _callInvoiceApi({ invoiceText: text });
+    const {expenses, invoiceTotal} = await _callInvoiceApi({ invoiceText: text });
     statusEl.textContent = '✓ '+expenses.length+'件読み取り完了';
     statusEl.classList.remove('ocr-loading');
     hideGlobalOcrBanner();
     statusEl.style.color = 'var(--green)';
+    statusEl.textContent += checkInvoiceTotalMismatch(expenses, invoiceTotal);
+    if(checkInvoiceTotalMismatch(expenses, invoiceTotal)) statusEl.style.color = 'var(--orange, #d97706)';
     document.getElementById('cost-ocr-modal')?.remove();
     showCostConfirmDialog(expenses);
   }catch(e){
@@ -8018,11 +8056,13 @@ async function extractCostFromFile(event, mode){
       const r = new FileReader(); r.onload = ()=>resolve(r.result.split(',')[1]); r.onerror = reject; r.readAsDataURL(file);
     });
     const bodyData = mode==='pdf' ? { invoicePdfBase64: base64 } : { invoiceImageBase64: base64, invoiceImageMediaType: file.type||'image/jpeg' };
-    const expenses = await _callInvoiceApi(bodyData);
+    const {expenses, invoiceTotal} = await _callInvoiceApi(bodyData);
     statusEl.textContent = '✓ '+expenses.length+'件読み取り完了';
     statusEl.classList.remove('ocr-loading');
     hideGlobalOcrBanner();
     statusEl.style.color = 'var(--green)';
+    statusEl.textContent += checkInvoiceTotalMismatch(expenses, invoiceTotal);
+    if(checkInvoiceTotalMismatch(expenses, invoiceTotal)) statusEl.style.color = 'var(--orange, #d97706)';
     document.getElementById('cost-ocr-modal')?.remove();
     showCostConfirmDialog(expenses);
   }catch(e){
