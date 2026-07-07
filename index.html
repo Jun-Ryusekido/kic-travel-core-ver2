@@ -1752,6 +1752,19 @@ function clearSession(){
 function yen(n){ return '¥' + Number(n||0).toLocaleString('ja-JP'); }
 function escHtml(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function escAttr(s){ return escHtml(s).replace(/"/g,'&quot;'); }
+function _positionDropdownNearInput(input, dd){
+  if(!input || !dd) return;
+  const rect = input.getBoundingClientRect();
+  dd.style.top = (rect.bottom + 2) + 'px';
+  dd.style.left = rect.left + 'px';
+  dd.style.width = rect.width + 'px';
+}
+function _hideAllSearchDropdownsOnScroll(){
+  document.querySelectorAll('[id^="hm-confirm-dd-"], [id^="inv-confirm-dd-"], [id^="inv-supplier-dd-"]').forEach(dd=>{
+    if(dd.style.display !== 'none') dd.style.display = 'none';
+  });
+}
+window.addEventListener('scroll', _hideAllSearchDropdownsOnScroll, true);
 function showGlobalOcrBanner(){
   const el = document.getElementById('global-ocr-banner');
   if(el) el.style.display = 'flex';
@@ -2702,6 +2715,7 @@ async function filterInvSupplierDD(i){
   const matches = (q ? allPartnersCache.filter(p=>p.company_name.toLowerCase().includes(q)) : allPartnersCache).slice(0,12);
   if(!matches.length){ dd.style.display='none'; return; }
   dd.innerHTML = matches.map(p=>`<div onmousedown="selectInvSupplier(${i},${JSON.stringify(p.company_name)});return false" ontouchstart="event.preventDefault()" style="padding:10px 12px;font-size:12px;min-height:20px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''">${escHtml(p.company_name)}</div>`).join('');
+  _positionDropdownNearInput(inputEl, dd);
   dd.style.display = 'block';
 }
 function hideInvSupplierDD(i){ const dd=document.getElementById('inv-supplier-dd-'+i); if(dd) dd.style.display='none'; }
@@ -7577,7 +7591,7 @@ async function showHotelConfirmDialog(hotels){
              onblur="setTimeout(()=>hideHmConfirmDD(${i}),200)"
              style="font-size:10px;padding:4px 6px;border-radius:6px;border:1px solid var(--border);width:100%;box-sizing:border-box">
       <input type="hidden" id="hm-confirm-booking-${i}" value="${hiddenVal}">
-      <div id="hm-confirm-dd-${i}" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--card,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:999;max-height:180px;overflow-y:auto;margin-top:2px"></div>
+      <div id="hm-confirm-dd-${i}" style="display:none;position:fixed;top:0;left:0;background:var(--card,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:99999;max-height:180px;overflow-y:auto"></div>
     </div>`;
     return `<div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px">
       <div style="margin-bottom:8px">${comboHtml}${matchedBooking?`<div style="font-size:9px;color:var(--green);margin-top:2px">✓ 自動マッチ: ${escHtml(matchedBooking.ref_no||'')}</div>`:''}</div>
@@ -7651,6 +7665,7 @@ function renderHmConfirmDD(i, q){
       return '<div data-id="'+b.id+'" data-ref="'+ref+'" onmousedown="selectHmConfirmItem('+i+',this.dataset.id,this.dataset.ref)" ontouchstart="event.preventDefault()" style="padding:10px 12px;font-size:12px;min-height:20px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background=\'var(--bg)\'" onmouseout="this.style.background=\'\'"><b>'+ref+'</b>'+(agent?' <span style="color:var(--text3)">'+agent+'</span>':'')+(tour?' <span style="font-size:9px;color:var(--text2)">'+tour+'</span>':'')+'</div>';
     }).join('');
   }
+  _positionDropdownNearInput(document.getElementById('hm-confirm-input-'+i), dd);
   dd.style.display='block';
 }
 function selectHmConfirmItem(i, bookingId, ref){
@@ -8144,9 +8159,9 @@ async function showInvoiceConfirmDialog(expenses, presetBookingId){
              onblur="setTimeout(()=>hideInvConfirmDD(${i}),200)"
              style="font-size:10px;padding:4px 6px;border-radius:6px;border:1px solid var(--border);width:100%;box-sizing:border-box">
       <input type="hidden" id="inv-confirm-booking-${i}" value="${hiddenVal}">
-      <div id="inv-confirm-dd-${i}" style="display:none;position:absolute;top:100%;left:0;min-width:200px;background:var(--card,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:999;max-height:180px;overflow-y:auto;margin-top:2px"></div>
+      <div id="inv-confirm-dd-${i}" style="display:none;position:fixed;top:0;left:0;min-width:200px;background:var(--card,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:99999;max-height:180px;overflow-y:auto"></div>
     </div>`;
-    const supplierDd = `<div id="inv-supplier-dd-${i}" style="display:none;position:absolute;top:100%;left:0;min-width:180px;background:var(--card,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:999;max-height:150px;overflow-y:auto;margin-top:2px"></div>`;
+    const supplierDd = `<div id="inv-supplier-dd-${i}" style="display:none;position:fixed;top:0;left:0;min-width:180px;background:var(--card,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:99999;max-height:150px;overflow-y:auto"></div>`;
     return `<tr style="border-bottom:1px solid var(--border)">
       <td data-col="ref" style="padding:4px 3px;overflow:hidden">${comboHtml}</td>
       <td data-col="uprice" style="padding:4px 3px;text-align:right"><input type="number" id="inv-confirm-uprice-${i}" value="${e.unit_price||0}" style="font-size:10px;padding:4px 6px;border-radius:6px;border:1px solid var(--border);width:100%;min-width:0;text-align:right;box-sizing:border-box"></td>
@@ -8217,6 +8232,7 @@ function renderInvConfirmDD(i, q){
       return '<div data-id="'+b.id+'" data-ref="'+ref+'" onmousedown="selectInvConfirmItem('+i+',this.dataset.id,this.dataset.ref)" ontouchstart="event.preventDefault()" style="padding:10px 12px;font-size:12px;min-height:20px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background=\'var(--bg)\'" onmouseout="this.style.background=\'\'"><b>'+ref+'</b>'+(agent?' <span style="color:var(--text3)">'+agent+'</span>':'')+(tour?' <span style="font-size:9px;color:var(--text2)">'+tour+'</span>':'')+'</div>';
     }).join('');
   }
+  _positionDropdownNearInput(document.getElementById('inv-confirm-input-'+i), dd);
   dd.style.display='block';
 }
 function selectInvConfirmItem(i, bookingId, ref){
