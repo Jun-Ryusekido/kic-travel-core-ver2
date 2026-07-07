@@ -5807,6 +5807,7 @@ async function extractBusFromText(){
     statusEl.classList.remove('ocr-loading');
     hideGlobalOcrBanner();
     statusEl.style.color='var(--green)';
+    if(!checkBulkReadSanity(buses, 'start_date')){ statusEl.textContent='読み取りをキャンセルしました（件数・日付範囲が不自然なため）'; statusEl.classList.remove('ocr-loading'); hideGlobalOcrBanner(); statusEl.style.color='var(--text3)'; return; }
     showBusConfirmDialog(buses);
     document.getElementById('bus-ocr-text').value='';
   }catch(e){
@@ -5860,6 +5861,7 @@ async function extractBusFromFile(event, mode){
     const cleaned=(tb.text||'').replace(/```json|```/g,'').trim();
     const parsed=JSON.parse(cleaned);
     const buses=Array.isArray(parsed)?parsed:[parsed];
+    if(!checkBulkReadSanity(buses, 'start_date')){ statusEl.textContent='読み取りをキャンセルしました（件数・日付範囲が不自然なため）'; statusEl.classList.remove('ocr-loading'); hideGlobalOcrBanner(); statusEl.style.color='var(--text3)'; return; }
     showBusConfirmDialog(buses);
     statusEl.textContent=`✓ ${buses.length}件を読み取りました`;
     statusEl.classList.remove('ocr-loading');
@@ -6008,6 +6010,7 @@ async function extractRestaurantFromText(){
     statusEl.classList.remove('ocr-loading');
     hideGlobalOcrBanner();
     statusEl.style.color='var(--green)';
+    if(!checkBulkReadSanity(restaurants, 'date')){ statusEl.textContent='読み取りをキャンセルしました（件数・日付範囲が不自然なため）'; statusEl.classList.remove('ocr-loading'); hideGlobalOcrBanner(); statusEl.style.color='var(--text3)'; return; }
     showRestaurantConfirmDialog(restaurants);
     document.getElementById('rest-ocr-text').value='';
   }catch(e){
@@ -6061,6 +6064,7 @@ async function extractRestaurantFromFile(event, mode){
     const cleaned=(tb.text||'').replace(/```json|```/g,'').trim();
     const parsed=JSON.parse(cleaned);
     const restaurants=Array.isArray(parsed)?parsed:[parsed];
+    if(!checkBulkReadSanity(restaurants, 'date')){ statusEl.textContent='読み取りをキャンセルしました（件数・日付範囲が不自然なため）'; statusEl.classList.remove('ocr-loading'); hideGlobalOcrBanner(); statusEl.style.color='var(--text3)'; return; }
     showRestaurantConfirmDialog(restaurants);
     statusEl.textContent=`✓ ${restaurants.length}件を読み取りました`;
     statusEl.classList.remove('ocr-loading');
@@ -6202,6 +6206,7 @@ async function extractFacilityFromText(){
     statusEl.classList.remove('ocr-loading');
     hideGlobalOcrBanner();
     statusEl.style.color='var(--green)';
+    if(!checkBulkReadSanity(facilities, 'date')){ statusEl.textContent='読み取りをキャンセルしました（件数・日付範囲が不自然なため）'; statusEl.classList.remove('ocr-loading'); hideGlobalOcrBanner(); statusEl.style.color='var(--text3)'; return; }
     showFacilityConfirmDialog(facilities);
     document.getElementById('fac-ocr-text').value='';
   }catch(e){
@@ -6255,6 +6260,7 @@ async function extractFacilityFromFile(event, mode){
     const cleaned=(tb.text||'').replace(/```json|```/g,'').trim();
     const parsed=JSON.parse(cleaned);
     const facilities=Array.isArray(parsed)?parsed:[parsed];
+    if(!checkBulkReadSanity(facilities, 'date')){ statusEl.textContent='読み取りをキャンセルしました（件数・日付範囲が不自然なため）'; statusEl.classList.remove('ocr-loading'); hideGlobalOcrBanner(); statusEl.style.color='var(--text3)'; return; }
     showFacilityConfirmDialog(facilities);
     statusEl.textContent=`✓ ${facilities.length}件を読み取りました`;
     statusEl.classList.remove('ocr-loading');
@@ -6394,19 +6400,19 @@ async function saveBulletTrainItems(){
   if(rows.length) await sb.from('bullet_train_arrangements').insert(rows);
 }
 
-function checkHotelBulkSanity(hotels){
-  if(!hotels.length) return true;
-  if(hotels.length <= 5) return true; // 少数なら確認不要
-  const dates = hotels.map(h=>h.check_in).filter(Boolean).sort();
+function checkBulkReadSanity(items, dateField){
+  if(!items.length) return true;
+  if(items.length <= 5) return true; // 少数なら確認不要
+  const dates = items.map(it=>it[dateField]).filter(Boolean).sort();
   if(!dates.length) return true;
   const first = new Date(dates[0]);
   const last = new Date(dates[dates.length-1]);
   const spanDays = Math.round((last-first)/86400000);
-  if(spanDays <= 45) return true; // 短期間の複数泊なら通常の1旅程として許容
+  if(spanDays <= 45) return true; // 短期間の複数日程なら通常の1旅程として許容
   return confirm(
-    `読み取った件数（${hotels.length}件）が多く、チェックイン日が ${dates[0]} 〜 ${dates[dates.length-1]}（約${spanDays}日間）と広範囲にまたがっています。\n\n` +
-    `1つの予約のホテル一覧としては不自然な可能性があります。複数の予約分のデータをまとめて読み込んでいませんか？\n\n` +
-    `本当にこの予約（現在開いている予約台帳）にすべて追加しますか？`
+    `読み取った件数（${items.length}件）が多く、日付が ${dates[0]} 〜 ${dates[dates.length-1]}（約${spanDays}日間）と広範囲にまたがっています。\n\n` +
+    `1つの予約のデータとしては不自然な可能性があります。複数の予約分のデータをまとめて読み込んでいませんか？\n\n` +
+    `本当にこの予約（現在開いている予約台帳）に追加しますか？`
   );
 }
 
@@ -6443,7 +6449,7 @@ async function extractHotelFromFile(event, mode){
       const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
       const parsed = JSON.parse(cleaned);
       const hotels = Array.isArray(parsed) ? parsed : [parsed];
-      if(!checkHotelBulkSanity(hotels)){
+      if(!checkBulkReadSanity(hotels, 'check_in')){
         statusEl.textContent = '読み取りをキャンセルしました（件数・日付範囲が不自然なため）';
         statusEl.classList.remove('ocr-loading');
         hideGlobalOcrBanner();
@@ -6483,7 +6489,7 @@ async function extractHotelFromFile(event, mode){
       const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
       const parsed = JSON.parse(cleaned);
       const hotels = Array.isArray(parsed) ? parsed : [parsed];
-      if(!checkHotelBulkSanity(hotels)){
+      if(!checkBulkReadSanity(hotels, 'check_in')){
         statusEl.textContent = '読み取りをキャンセルしました（件数・日付範囲が不自然なため）';
         statusEl.classList.remove('ocr-loading');
         hideGlobalOcrBanner();
@@ -6524,7 +6530,7 @@ async function extractHotelFromFile(event, mode){
       const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
       const parsed = JSON.parse(cleaned);
       const hotels = Array.isArray(parsed) ? parsed : [parsed];
-      if(!checkHotelBulkSanity(hotels)){
+      if(!checkBulkReadSanity(hotels, 'check_in')){
         statusEl.textContent = '読み取りをキャンセルしました（件数・日付範囲が不自然なため）';
         statusEl.classList.remove('ocr-loading');
         hideGlobalOcrBanner();
@@ -6574,7 +6580,7 @@ async function extractHotelFromText(){
     const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
     const parsed = JSON.parse(cleaned);
     const hotels = Array.isArray(parsed) ? parsed : [parsed];
-    if(!checkHotelBulkSanity(hotels)){
+    if(!checkBulkReadSanity(hotels, 'check_in')){
       statusEl.textContent = '読み取りをキャンセルしました（件数・日付範囲が不自然なため）';
       statusEl.classList.remove('ocr-loading');
       hideGlobalOcrBanner();
