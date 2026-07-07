@@ -9276,7 +9276,7 @@ function _buildVoucherHtml(restaurants, tourName, guideName, guidePhone, childre
     const guideText  = [eh(guideName), eh(guidePhone)].filter(Boolean).join('&ensp;');
     const payText    = eh(r.payment_method||'請求書払い');
 
-    return `<div style="padding:3mm;box-sizing:border-box;height:143.5mm;overflow:hidden;font-family:Arial,'Helvetica Neue',Helvetica,sans-serif">
+    return `<div style="padding:0.5mm 3mm 3mm 3mm;box-sizing:border-box;height:143.5mm;overflow:hidden;font-family:Arial,'Helvetica Neue',Helvetica,sans-serif">
 
   <!-- ヘッダー -->
   <table width="100%" style="border-collapse:collapse;margin-bottom:1.5mm"><tr>
@@ -9290,7 +9290,7 @@ function _buildVoucherHtml(restaurants, tourName, guideName, guidePhone, childre
       <span style="border:1.5px solid ${ctrlColor};padding:0.5mm 2mm;font-size:7.5pt;font-weight:700;color:${ctrlColor};display:inline-block">${ctrlLabel}</span>
     </td>
   </tr></table>
-  <hr style="border:none;border-top:1.5px solid #333;margin:0 0 2mm 0">
+  <hr style="border:none;border-top:1.5px solid #333;margin:0 0 4.5mm 0">
 
   <!-- レストラン名 -->
   <table style="border-collapse:collapse;margin-bottom:1.5mm;width:100%"><tr>
