@@ -1318,6 +1318,7 @@ input[type=number]{-moz-appearance:textfield}
         <h4 class="red">仕入明細</h4>
         <div style="margin-bottom:6px">
           <button class="btn" id="bd-cost-ocr-btn" style="font-size:10px;background:#F0F6FF;border-color:#7CB3E8;color:#004A9F" onclick="openCostOcrModal()">🤖 AI読み取り</button>
+          <button class="btn" style="font-size:10px;background:var(--green-lt);border-color:var(--green);color:var(--green)" onclick="approveCheckedCostItems()">✓ 選択した行を承認</button>
         </div>
         <input id="bd-cost-search" placeholder="仕入先・備考で絞り込み" style="width:100%;padding:5px 8px;border-radius:6px;border:1px solid var(--border);font-size:11px;margin-bottom:4px;box-sizing:border-box" oninput="bdCostSearch=this.value;renderCostTable()">
         <div class="tbl-wrap"><table class="li-table">
@@ -2559,10 +2560,12 @@ function renderCostTable(){
   if(searchEl && searchEl.value !== bdCostSearch) searchEl.value = bdCostSearch;
 
   const searchHtml = `<tr>
-    ${[['item_name','仕入先','30%',''],['amount','仕入額','10%','text-align:right'],['payment_date','出金日','8%','text-align:center'],['memo','備考','','']].map(([f,l,w,a])=>{
+    <th style="width:24px"></th>
+    ${[['item_name','仕入先','28%',''],['amount','仕入額','10%','text-align:right'],['payment_date','出金日','8%','text-align:center'],['memo','備考','','']].map(([f,l,w,a])=>{
       const arrow = bdCostSortField===f ? (bdCostSortDir===1?'▲':'▼') : '';
       return `<th class="sortable" onclick="bdCostSortField=bdCostSortField==='${f}'?(bdCostSortDir*=-1,'${f}'):(bdCostSortDir=1,'${f}');renderCostTable()" style="cursor:pointer;user-select:none;${w?'width:'+w+';':''}${a}">${l}${arrow?` <span class="sort-arrow">${arrow}</span>`:''}</th>`;
     }).join('')}
+    <th style="width:60px">状態</th>
     <th style="width:40px"></th>
   </tr>`;
 
@@ -2587,20 +2590,33 @@ function renderCostTable(){
   }
 
   const rows = display.length===0
-    ? '<tr><td colspan="5" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>'
+    ? '<tr><td colspan="7" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>'
     : display.map(it=>{
       const i = it._i;
       return `<tr>
+        <td style="text-align:center">${bdLocked?'':`<input type="checkbox" class="cost-check" data-i="${i}">`}</td>
         <td><input ${dis} value="${(it.item_name||'').replace(/"/g,'&quot;')}" title="${(it.item_name||'').replace(/"/g,'&quot;')}" oninput="bdCostItems[${i}].item_name=this.value;showSupplierSuggestions(this,${i})" onblur="setTimeout(hideSupplierSuggestions,150)" onfocus="showSupplierSuggestions(this,${i})"></td>
         <td style="text-align:right"><input ${dis} type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="bdCostRowCalc(${i},this)" style="text-align:right"></td>
         <td style="text-align:center"><input ${dis} type="date" min="1900-01-01" max="9999-12-31" value="${_safeDate(it.payment_date)}" onchange="bdCostItems[${i}].payment_date=this.value" style="text-align:center"></td>
         <td><input ${dis} value="${(it.memo||'').replace(/"/g,'&quot;')}" title="${(it.memo||'').replace(/"/g,'&quot;')}" onchange="bdCostItems[${i}].memo=this.value"></td>
+        <td><span style="font-size:9px;padding:2px 6px;border-radius:8px;background:${it.status==='approved'?'var(--green-lt)':'var(--bg)'};color:${it.status==='approved'?'var(--green)':'var(--text3)'}">${it.status==='approved'?'承認済':'未承認'}</span></td>
         <td class="li-del">${bdLocked?'':`<span class="lnk" style="font-size:10px" onclick="removeCostRow(${i})">削除</span>`}</td>
       </tr>`;
     }).join('');
 
   tbody.innerHTML = searchHtml + rows;
   updateDetailGrossPreview();
+}
+
+function approveCheckedCostItems(){
+  const checks = document.querySelectorAll('.cost-check:checked');
+  if(checks.length===0){ alert('項目を選択してください'); return; }
+  if(!confirm(checks.length+'件を承認済みにしますか？（保存ボタンを押すまでは確定されません）')) return;
+  checks.forEach(c=>{
+    const i = Number(c.dataset.i);
+    if(bdCostItems[i]) bdCostItems[i].status = 'approved';
+  });
+  renderCostTable();
 }
 
 // カンマ・記号を除去して数値化
@@ -3208,7 +3224,7 @@ async function openBookingDetail(id){
   ]);
 
   bdSalesItems = (salesRows||[]).map(r=>({item_name:r.item_name, memo:r.memo||'', unit_price:r.unit_price, qty:r.qty, amount:r.amount, payment_date:r.payment_date, agent_name:r.agent_name||'', payments:r.payments||[]}));
-  bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, memo:r.memo}));
+  bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, memo:r.memo, status:r.status||'pending'}));
   originalSalesCount = bdSalesItems.length;
   originalCostsCount = bdCostItems.length;
   bankbookExtracted = [];
@@ -4628,7 +4644,7 @@ async function reflectVoucherToCost(settlementId, guideIndex){
   b.gross_cost = newGrossCost;
   await logAction('伝票内容を仕入明細に反映', b.ref_no);
   const {data: costRows} = await sb.from('booking_costs').select('*').eq('booking_id', b.id).order('created_at');
-  bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, memo:r.memo}));
+  bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, memo:r.memo, status:r.status||'pending'}));
   renderCostTable();
   alert('仕入明細に反映しました。');
 }
@@ -4661,7 +4677,7 @@ async function reflectCheckedGuideItems(settlementId){
   b.gross_cost = newGrossCost;
   await logAction('ガイド精算→仕入明細反映（選択）', b.ref_no+' / '+targets.length+'件');
   const {data: costRows} = await sb.from('booking_costs').select('*').eq('booking_id', b.id).order('created_at');
-  bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, memo:r.memo}));
+  bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, memo:r.memo, status:r.status||'pending'}));
   renderCostTable();
   await loadGuideSettlements();
 }
@@ -4737,7 +4753,7 @@ async function reflectGuideItems(settlementId){
 
   // 仕入明細・KPIを再読み込み
   const {data: costRows} = await sb.from('booking_costs').select('*').eq('booking_id', b.id).order('created_at');
-  bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, memo:r.memo}));
+  bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, memo:r.memo, status:r.status||'pending'}));
   renderCostTable();
   await loadGuideSettlements();
 }
@@ -6728,7 +6744,7 @@ async function saveBookingDetail(){
     }));
     const costToInsert = bdCostItems.filter(it=>it.item_name||Number(it.amount)).map(it=>({
       booking_id: currentDetailId, item_name: it.item_name||'', amount: Number(it.amount)||0,
-      payment_date: sanitizeDateField(it.payment_date), memo: it.memo||''
+      payment_date: sanitizeDateField(it.payment_date), memo: it.memo||'', status: it.status||'pending'
     }));
     if(salesToInsert.length) await sb.from('booking_sales').insert(salesToInsert);
     if(costToInsert.length) await sb.from('booking_costs').insert(costToInsert);
@@ -8522,7 +8538,7 @@ async function saveInvoiceConfirm(){
     }
     if(currentDetailId && savedIds.has(currentDetailId)){
       const {data: costData} = await sb.from('booking_costs').select('*').eq('booking_id',currentDetailId).order('created_at');
-      bdCostItems = (costData||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, memo:r.memo}));
+      bdCostItems = (costData||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, memo:r.memo, status:r.status||'pending'}));
       renderCostTable();
       updateDetailGrossPreview();
       const newGross = bdCostItems.reduce((s,it)=>s+Number(it.amount||0),0);
