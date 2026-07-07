@@ -8056,6 +8056,10 @@ function showCostConfirmDialog(expenses){
         <div style="font-size:13px;font-weight:700">仕入明細確認（${escHtml(b.ref_no||b.tour_name||'')}）</div>
         <button class="btn" onclick="document.getElementById('cost-confirm-modal').remove()">✕</button>
       </div>
+      <label style="display:flex;align-items:center;gap:6px;font-size:11px;margin-bottom:8px;cursor:pointer">
+        <input type="checkbox" id="cost-confirm-merge-same-supplier">
+        同じ仕入先の行をまとめて1件にする
+      </label>
       <div class="tbl-wrap"><table style="width:100%;border-collapse:collapse;font-size:11px;table-layout:fixed">
         <colgroup><col style="width:24px"><col style="width:24%"><col style="width:13%"><col style="width:13%"><col></colgroup>
         <thead><tr style="background:var(--bg)">
@@ -8080,7 +8084,7 @@ async function saveCostFromOcr(count){
   if(!currentDetailId){ alert('予約が特定できません'); return; }
   const statusEl = document.getElementById('cost-confirm-status');
   statusEl.textContent = '保存中...'; statusEl.style.color = 'var(--text3)';
-  const rows = [];
+  const rawRows = [];
   for(let i=0;i<count;i++){
     if(!document.getElementById(`cost-chk-${i}`)?.checked) continue;
     const item_name = (document.getElementById(`cost-item-${i}`)?.value||'').trim();
@@ -8088,8 +8092,30 @@ async function saveCostFromOcr(count){
     const payment_date = sanitizeDateField(document.getElementById(`cost-date-${i}`)?.value);
     const memo = (document.getElementById(`cost-memo-${i}`)?.value||'').trim();
     if(!item_name && !amount) continue;
-    rows.push({ booking_id: currentDetailId, item_name, amount, payment_date, memo });
+    rawRows.push({ booking_id: currentDetailId, item_name, amount, payment_date, memo });
   }
+
+  const mergeChecked = document.getElementById('cost-confirm-merge-same-supplier')?.checked;
+  let rows;
+  if(mergeChecked){
+    const groups = {};
+    const order = [];
+    rawRows.forEach(r=>{
+      const key = r.item_name || '(仕入先未入力)';
+      if(!groups[key]){ groups[key]=[]; order.push(key); }
+      groups[key].push(r);
+    });
+    rows = order.map(key=>{
+      const g = groups[key];
+      if(g.length===1) return g[0];
+      const amount = g.reduce((s,r)=>s+(r.amount||0),0);
+      const memo = g.map(r=>r.memo).filter(Boolean).join('、');
+      return { booking_id: currentDetailId, item_name: key, amount, payment_date: g[0].payment_date, memo };
+    });
+  } else {
+    rows = rawRows;
+  }
+
   if(!rows.length){ alert('追加する行がありません'); return; }
   const {error} = await sb.from('booking_costs').insert(rows);
   if(error){ alert('保存エラー:\n'+error.message); statusEl.textContent = '保存エラー: '+error.message; statusEl.style.color = 'var(--red)'; return; }
