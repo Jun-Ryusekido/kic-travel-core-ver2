@@ -2714,7 +2714,7 @@ async function filterInvSupplierDD(i){
   const q = inputEl.value.trim().toLowerCase();
   const matches = (q ? allPartnersCache.filter(p=>p.company_name.toLowerCase().includes(q)) : allPartnersCache).slice(0,12);
   if(!matches.length){ dd.style.display='none'; return; }
-  dd.innerHTML = matches.map(p=>`<div onmousedown="selectInvSupplier(${i},${JSON.stringify(p.company_name)});return false" ontouchstart="event.preventDefault()" style="padding:10px 12px;font-size:12px;min-height:20px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''">${escHtml(p.company_name)}</div>`).join('');
+  dd.innerHTML = matches.map(p=>`<div onmousedown="${escAttr(`selectInvSupplier(${i},${JSON.stringify(p.company_name)});return false`)}" ontouchstart="${escAttr(`event.preventDefault();selectInvSupplier(${i},${JSON.stringify(p.company_name)})`)}" style="padding:10px 12px;font-size:12px;min-height:20px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''">${escHtml(p.company_name)}</div>`).join('');
   _positionDropdownNearInput(inputEl, dd);
   dd.style.display = 'block';
 }
@@ -7662,7 +7662,7 @@ function renderHmConfirmDD(i, q){
       const ref=escHtml(b.ref_no||'(REF#なし)');
       const agent=escHtml(b.agent_name||'');
       const tour=escHtml(b.tour_name||'');
-      return '<div data-id="'+b.id+'" data-ref="'+ref+'" onmousedown="selectHmConfirmItem('+i+',this.dataset.id,this.dataset.ref)" ontouchstart="event.preventDefault()" style="padding:10px 12px;font-size:12px;min-height:20px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background=\'var(--bg)\'" onmouseout="this.style.background=\'\'"><b>'+ref+'</b>'+(agent?' <span style="color:var(--text3)">'+agent+'</span>':'')+(tour?' <span style="font-size:9px;color:var(--text2)">'+tour+'</span>':'')+'</div>';
+      return '<div data-id="'+b.id+'" data-ref="'+ref+'" onmousedown="selectHmConfirmItem('+i+',this.dataset.id,this.dataset.ref)" ontouchstart="event.preventDefault();selectHmConfirmItem('+i+',this.dataset.id,this.dataset.ref)" style="padding:10px 12px;font-size:12px;min-height:20px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background=\'var(--bg)\'" onmouseout="this.style.background=\'\'"><b>'+ref+'</b>'+(agent?' <span style="color:var(--text3)">'+agent+'</span>':'')+(tour?' <span style="font-size:9px;color:var(--text2)">'+tour+'</span>':'')+'</div>';
     }).join('');
   }
   _positionDropdownNearInput(document.getElementById('hm-confirm-input-'+i), dd);
@@ -8229,7 +8229,7 @@ function renderInvConfirmDD(i, q){
       const ref=escHtml(b.ref_no||'(REF#なし)');
       const agent=escHtml(b.agent_name||'');
       const tour=escHtml(b.tour_name||'');
-      return '<div data-id="'+b.id+'" data-ref="'+ref+'" onmousedown="selectInvConfirmItem('+i+',this.dataset.id,this.dataset.ref)" ontouchstart="event.preventDefault()" style="padding:10px 12px;font-size:12px;min-height:20px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background=\'var(--bg)\'" onmouseout="this.style.background=\'\'"><b>'+ref+'</b>'+(agent?' <span style="color:var(--text3)">'+agent+'</span>':'')+(tour?' <span style="font-size:9px;color:var(--text2)">'+tour+'</span>':'')+'</div>';
+      return '<div data-id="'+b.id+'" data-ref="'+ref+'" onmousedown="selectInvConfirmItem('+i+',this.dataset.id,this.dataset.ref)" ontouchstart="event.preventDefault();selectInvConfirmItem('+i+',this.dataset.id,this.dataset.ref)" style="padding:10px 12px;font-size:12px;min-height:20px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background=\'var(--bg)\'" onmouseout="this.style.background=\'\'"><b>'+ref+'</b>'+(agent?' <span style="color:var(--text3)">'+agent+'</span>':'')+(tour?' <span style="font-size:9px;color:var(--text2)">'+tour+'</span>':'')+'</div>';
     }).join('');
   }
   _positionDropdownNearInput(document.getElementById('inv-confirm-input-'+i), dd);
