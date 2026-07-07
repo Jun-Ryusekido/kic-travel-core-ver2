@@ -7768,7 +7768,8 @@ async function saveHotelConfirm(hotels){
       confirmation_no: h.confirmation_no||'',
       memo: h.memo||'',
       sort_order: i,
-      status: (document.getElementById(`hm-confirm-status-${i}`)?.value || '回答待ち')
+      status: (document.getElementById(`hm-confirm-status-${i}`)?.value || '回答待ち'),
+      status_updated_at: new Date().toISOString()
     };
   });
   const {error} = await sb.from('booking_hotels').insert(rows);
@@ -8609,7 +8610,7 @@ tbody.innerHTML = filtered.map(r=>{
       <td style="text-align:center">${r.breakfast?'✓':''}</td>
       <td style="text-align:right">${yen(r.unit_price||0)}</td>
       <td style="text-align:right;font-weight:600">${yen(r.amount||0)}</td>
-<td style="font-size:10px">${escHtml(r.confirmation_no||'')}<br><span onclick="toggleHmStatus('${r.id}')" style="font-size:10px;padding:2px 6px;border-radius:10px;cursor:pointer;background:${r.status==='手配OK'?'var(--green)':'#fff3cd'};color:${r.status==='手配OK'?'#fff':'#856404'}">${escHtml(r.status==='問い合わせ中'?'回答待ち':r.status||'回答待ち')}</span></td>
+<td style="font-size:10px">${escHtml(r.confirmation_no||'')}<br><span onclick="toggleHmStatus('${r.id}')" style="font-size:10px;padding:2px 6px;border-radius:10px;cursor:pointer;background:${r.status==='手配OK'?'var(--green)':'#fff3cd'};color:${r.status==='手配OK'?'#fff':'#856404'}">${escHtml(r.status==='問い合わせ中'?'回答待ち':r.status||'回答待ち')}</span>${r.status_updated_at?`<br><span style="font-size:9px;color:var(--text3)">${new Date(r.status_updated_at).toLocaleString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>`:''}</td>
     </tr>`;
   }).join('');
 }
@@ -8634,8 +8635,10 @@ async function toggleHmStatus(id){
   const row = hotelManagementCache.find(r=>r.id===id);
   if(!row) return;
   const newStatus = row.status==='手配OK'?'回答待ち':'手配OK';
-  await supabase.from('booking_hotels').update({status:newStatus}).eq('id',id);
+  const now = new Date().toISOString();
+  await sb.from('booking_hotels').update({status:newStatus, status_updated_at:now}).eq('id',id);
   row.status = newStatus;
+  row.status_updated_at = now;
   renderHmCancelAlert();
   filterHotelManagement();
 }
