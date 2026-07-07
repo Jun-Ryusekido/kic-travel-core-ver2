@@ -6394,6 +6394,22 @@ async function saveBulletTrainItems(){
   if(rows.length) await sb.from('bullet_train_arrangements').insert(rows);
 }
 
+function checkHotelBulkSanity(hotels){
+  if(!hotels.length) return true;
+  if(hotels.length <= 5) return true; // 少数なら確認不要
+  const dates = hotels.map(h=>h.check_in).filter(Boolean).sort();
+  if(!dates.length) return true;
+  const first = new Date(dates[0]);
+  const last = new Date(dates[dates.length-1]);
+  const spanDays = Math.round((last-first)/86400000);
+  if(spanDays <= 45) return true; // 短期間の複数泊なら通常の1旅程として許容
+  return confirm(
+    `読み取った件数（${hotels.length}件）が多く、チェックイン日が ${dates[0]} 〜 ${dates[dates.length-1]}（約${spanDays}日間）と広範囲にまたがっています。\n\n` +
+    `1つの予約のホテル一覧としては不自然な可能性があります。複数の予約分のデータをまとめて読み込んでいませんか？\n\n` +
+    `本当にこの予約（現在開いている予約台帳）にすべて追加しますか？`
+  );
+}
+
 async function extractHotelFromFile(event, mode){
   const file = event.target.files[0];
   if(!file) return;
@@ -6427,6 +6443,13 @@ async function extractHotelFromFile(event, mode){
       const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
       const parsed = JSON.parse(cleaned);
       const hotels = Array.isArray(parsed) ? parsed : [parsed];
+      if(!checkHotelBulkSanity(hotels)){
+        statusEl.textContent = '読み取りをキャンセルしました（件数・日付範囲が不自然なため）';
+        statusEl.classList.remove('ocr-loading');
+        hideGlobalOcrBanner();
+        statusEl.style.color = 'var(--text3)';
+        return;
+      }
       hotels.forEach(h=>{
         const nights = calcHotelNights(h.check_in||'', h.check_out||'');
         bdHotelItems.push({
@@ -6460,6 +6483,13 @@ async function extractHotelFromFile(event, mode){
       const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
       const parsed = JSON.parse(cleaned);
       const hotels = Array.isArray(parsed) ? parsed : [parsed];
+      if(!checkHotelBulkSanity(hotels)){
+        statusEl.textContent = '読み取りをキャンセルしました（件数・日付範囲が不自然なため）';
+        statusEl.classList.remove('ocr-loading');
+        hideGlobalOcrBanner();
+        statusEl.style.color = 'var(--text3)';
+        return;
+      }
       hotels.forEach(h=>{
         const nights = calcHotelNights(h.check_in||'', h.check_out||'');
         bdHotelItems.push({
@@ -6494,6 +6524,13 @@ async function extractHotelFromFile(event, mode){
       const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
       const parsed = JSON.parse(cleaned);
       const hotels = Array.isArray(parsed) ? parsed : [parsed];
+      if(!checkHotelBulkSanity(hotels)){
+        statusEl.textContent = '読み取りをキャンセルしました（件数・日付範囲が不自然なため）';
+        statusEl.classList.remove('ocr-loading');
+        hideGlobalOcrBanner();
+        statusEl.style.color = 'var(--text3)';
+        return;
+      }
       hotels.forEach(h=>{
         const nights = calcHotelNights(h.check_in||'', h.check_out||'');
         bdHotelItems.push({
@@ -6537,6 +6574,13 @@ async function extractHotelFromText(){
     const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
     const parsed = JSON.parse(cleaned);
     const hotels = Array.isArray(parsed) ? parsed : [parsed];
+    if(!checkHotelBulkSanity(hotels)){
+      statusEl.textContent = '読み取りをキャンセルしました（件数・日付範囲が不自然なため）';
+      statusEl.classList.remove('ocr-loading');
+      hideGlobalOcrBanner();
+      statusEl.style.color = 'var(--text3)';
+      return;
+    }
     hotels.forEach(h=>{
       const nights = calcHotelNights(h.check_in||'', h.check_out||'');
       const amount = Number(h.unit_price||0) * Number(h.rooms||1) * nights;
