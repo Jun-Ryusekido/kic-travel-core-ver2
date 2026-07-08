@@ -9333,147 +9333,145 @@ async function printRestaurantList(){
 }
 
 function _buildVoucherHtml(restaurants, tourName, guideName, guidePhone){
-  const logoUrl = window.location.origin + '/kic_travel_logo.jpg';
+  // meal_voucher_final_template.html（確定デザイン）のCSS/座標をそのまま使用。
+  // サンプルデータ部分のみ実データの差し込みに置き換えている。
+  const logoUrl = window.location.origin + '/kic_travel_logo_final.png';
   const eh = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  const blank = (w) => `<span style="display:inline-block;width:${w};border-bottom:1px solid #333">&nbsp;</span>`;
 
-  function buildCell(r, isKic){
-    const mealChar = {'朝食':'B','昼食':'L','夕食':'D'}[r.meal_type]||'';
-    const cb = m => mealChar===m ? '&#9745;' : '&#9744;';
-    const ctrlColor  = isKic ? '#1a5fa8' : '#222';
-    const ctrlLabel  = isKic ? 'KIC控え' : 'レストラン控え';
-    const dateDisp   = (r.date||'').replace(/-/g,'/');
-    const memoText   = eh(r.memo||'');
-    const guideText  = [eh(guideName), eh(guidePhone)].filter(Boolean).join('&ensp;');
-    const payText    = eh(r.payment_method||'請求書払い');
+  // 店名が長い場合に自動縮小するフォントサイズ計算（テンプレートのサンプル値から近似）
+  // JP: 幅80.680mm枠、基準4.685mm。EN: 同枠、基準3.644mm。
+  const fitFontSize = (text, baseMM, widthMM, perCharMM) => {
+    const len = String(text||'').length || 1;
+    const needed = widthMM / (len * perCharMM);
+    return Math.max(2.2, Math.min(baseMM, needed));
+  };
 
-    return `<div style="position:relative;width:105mm;height:148.4mm;box-sizing:border-box;overflow:hidden;font-family:Arial,'Helvetica Neue',Helvetica,sans-serif">
-
-  <!-- ヘッダー: ロゴ / MEAL VOUCHER -->
-  <img src="${logoUrl}" height="25" style="position:absolute;top:11.6mm;left:13.0mm">
-  <div style="position:absolute;top:11.6mm;left:24.5mm;font-size:9.8pt;font-weight:700;white-space:nowrap">MEAL VOUCHER</div>
-
-  <!-- ヘッダー: ツアー番号・日付ボックス -->
-  <div style="position:absolute;top:16.5mm;left:25.5mm;white-space:nowrap">
-    <span style="border:1.5px solid #333;border-radius:1mm;padding:0.4mm 0.8mm;font-size:8pt;font-weight:700;display:inline-block;margin-right:7mm">${eh(tourName)}</span>
-    <span style="border:1.5px solid #333;border-radius:1mm;padding:0.4mm 0.8mm;font-size:8pt;font-weight:700;display:inline-block">${dateDisp}</span>
-  </div>
-
-  <!-- ヘッダー: KIC控え / レストラン控えバッジ -->
-  <div style="position:absolute;top:15.0mm;right:10.5mm">
-    <span style="border:1.5px solid ${ctrlColor};border-radius:1mm;padding:0.4mm 0.8mm;font-size:7pt;font-weight:700;color:${ctrlColor};display:inline-block;white-space:nowrap">${ctrlLabel}</span>
-  </div>
-
-  <!-- ヘッダー下の区切り線 -->
-  <div style="position:absolute;top:25.6mm;left:13.0mm;width:84mm;height:0.2mm;background:#1a1a1a"></div>
-
-  <!-- レストラン名 -->
-  <table style="position:absolute;top:29.0mm;left:13.0mm;width:84mm;border-collapse:collapse"><tr>
-    <td style="font-size:9pt;white-space:nowrap;padding-right:2.5mm;vertical-align:middle">レストラン</td>
-    <td style="font-size:13pt;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:middle">${eh(r.restaurant_name||'')}</td>
-  </tr></table>
-
-  <!-- 食事タイプ -->
-  <div style="position:absolute;top:38.1mm;left:13.0mm;font-size:9pt;white-space:nowrap">食事タイプ</div>
-  <div style="position:absolute;top:35.9mm;left:37.2mm;font-size:12pt;font-weight:700;white-space:nowrap">${cb('B')}&nbsp;B&nbsp;&nbsp;&nbsp;${cb('L')}&nbsp;L&nbsp;&nbsp;&nbsp;${cb('D')}&nbsp;D</div>
-
-  <!-- 有料計 / FOC / Veg -->
-  <table style="position:absolute;top:45.2mm;left:13.0mm;width:84mm;border-collapse:collapse"><tr>
-    <td style="vertical-align:middle">
-      <div style="display:inline-block;width:12mm;height:14.4mm;border:1.5px solid #333;box-sizing:border-box;text-align:center;padding-top:1mm">
-        <div style="font-size:15pt;font-weight:700;line-height:1;margin-bottom:1mm">${blank('8mm')}</div>
-        <div style="font-size:6.5pt;line-height:1.1">お客様人数</div>
-      </div>
-    </td>
-    <td style="vertical-align:middle;padding-left:5mm">
-      <span style="font-size:17pt;font-weight:700;vertical-align:middle;line-height:1">${blank('10mm')}</span>
-      <span style="font-size:8.5pt;vertical-align:middle"> FOC</span>
-    </td>
-    <td style="vertical-align:middle;padding-left:7mm;font-size:9.5pt;line-height:1.55">
-      Veg: ${blank('12mm')}<br>Non-Veg: ${blank('12mm')}<br>Jain: ${blank('12mm')}
-    </td>
-  </tr></table>
-
-  <!-- お客様人数 -->
-  <div style="position:absolute;top:65.9mm;left:13.0mm;font-size:9pt">お客様人数</div>
-  <table style="position:absolute;top:70.4mm;left:13.0mm;width:84mm;border-collapse:collapse"><tr>
-    <td style="font-size:10.5pt;white-space:nowrap;padding-right:2mm">大人</td>
-    <td style="font-size:10.5pt;white-space:nowrap;padding-right:6mm">${blank('16mm')}</td>
-    <td style="font-size:10.5pt;white-space:nowrap;padding-right:2mm">子供</td>
-    <td style="font-size:10.5pt">${blank('16mm')}</td>
-  </tr></table>
-
-  <!-- ガイド名 -->
-  <table style="position:absolute;top:78.9mm;left:13.0mm;width:84mm;border-collapse:collapse"><tr>
-    <td style="font-size:9pt;white-space:nowrap;padding-right:2.5mm;vertical-align:top">ガイド名</td>
-    <td style="font-size:10.5pt">${guideText}</td>
-  </tr></table>
-
-  <!-- 支払方法 -->
-  <table style="position:absolute;top:85.4mm;left:13.0mm;width:84mm;border-collapse:collapse"><tr>
-    <td style="font-size:9pt;white-space:nowrap;padding-right:2.5mm;vertical-align:top">支払方法</td>
-    <td style="font-size:10.5pt">${payText}</td>
-  </tr></table>
-
-  <!-- 署名欄ラベル -->
-  <div style="position:absolute;top:93.0mm;left:13.0mm;font-size:8pt">ガイド署名</div>
-  <div style="position:absolute;top:93.0mm;left:56.5mm;font-size:8pt">レストラン署名</div>
-
-  <!-- 署名ボックス -->
-  <div style="position:absolute;top:96.4mm;left:13.0mm;width:40.5mm;height:15.3mm;border:1.5px solid #333;box-sizing:border-box"></div>
-  <div style="position:absolute;top:96.4mm;left:56.5mm;width:40.5mm;height:15.3mm;border:1.5px solid #333;box-sizing:border-box"></div>
-
-  <!-- 子供料金ポリシー -->
-  <div style="position:absolute;top:116.0mm;left:13.0mm;font-size:6.5pt;color:#555;white-space:nowrap">*Child rate policy: 50% of adult rate (3-11 yrs)</div>
-
-  <!-- 備考 -->
-  <div style="position:absolute;top:120.0mm;left:13.0mm;width:84mm;height:15.3mm;border:1.5px solid #333;padding:1mm;font-size:9pt;box-sizing:border-box"></div>
-  <div style="position:absolute;top:122.2mm;left:15.9mm;font-size:8pt">備考</div>
-  <div style="position:absolute;top:126.5mm;left:14.0mm;width:82mm;height:8.5mm;font-size:9pt;box-sizing:border-box;overflow:hidden">${memoText}</div>
-
-</div>`;
+  function mealBox(letter, checked){
+    const box = `<span style="font-size:7.157mm; position:relative; top:0.612mm; display:inline-block; line-height:1;">□</span>`;
+    const mark = checked ? `<span style="position:absolute; margin-left:-5.205mm; top:1.431mm; font-size:5.205mm; color:#000;">✓</span>` : '';
+    return `${box}${mark} <span style="position:relative; top:0.195mm;">${letter}</span>`;
   }
 
-  // 2件ずつページに分割
+  function buildBlock(r, isKic){
+    const mealChar   = {'朝食':'B','昼食':'L','夕食':'D'}[r.meal_type]||'';
+    const ctrlLabel   = isKic ? 'KIC控え' : 'レストラン控え';
+    const dateDisp    = r.date||'';
+    const timeDisp    = (r.reservation_time||'').slice(0,5);
+    const guideText   = [eh(guideName), eh(guidePhone)].filter(Boolean).join(' ');
+    const payText     = eh(r.payment_method||'請求書払い');
+    const memoText    = eh(r.memo||'');
+    const nameJp      = eh(r.restaurant_name||'');
+    const nameEn      = eh(r.restaurant_name_en||'');
+    const nameJpSize  = fitFontSize(r.restaurant_name, 4.685, 97.597, 1.05).toFixed(3);
+    const nameEnSize  = fitFontSize(r.restaurant_name_en, 3.644, 97.597, 0.62).toFixed(3);
+
+    return `<div class="block">
+      <img class="logo" src="${logoUrl}" style="left:10.410mm;">
+      <div class="title">MEAL VOUCHER</div>
+      <div class="refbox">${eh(tourName)}</div>
+      <div class="datebox">${eh(dateDisp)}</div>
+      <div class="timebox">${eh(timeDisp)}</div>
+      <div class="badge${isKic?'':' restaurant'}">${ctrlLabel}</div>
+      <div class="hline" style="left:10.410mm; width:115.815mm;"></div>
+      <div class="restaurant-label" style="left:10.410mm;">レストラン：</div>
+      <div class="restaurant-name" style="font-size:${nameJpSize}mm; left:35.135mm; width:97.597mm;">${nameJp}</div>
+      <div class="restaurant-name-en" style="font-size:${nameEnSize}mm; left:35.135mm; width:97.597mm;">${nameEn}</div>
+      <div class="mealtype-label" style="left:10.410mm;">食事タイプ：</div>
+      <div class="mealtype-value" style="left:35.135mm;">${mealBox('B',mealChar==='B')}　　${mealBox('L',mealChar==='L')}　　${mealBox('D',mealChar==='D')}</div>
+      <div class="custlabel" style="left:10.410mm;">お客様人数</div>
+      <div class="numbox" style="top:73.263mm; left:10.410mm; width:22.122mm; height:15.615mm;"></div><div class="numbox-label" style="top:68.057mm; left:10.410mm; width:22.122mm;">大人(Adult)</div><div class="numbox" style="top:73.263mm; left:40.340mm; width:22.122mm; height:15.615mm;"></div><div class="numbox-label" style="top:68.057mm; left:40.340mm; width:22.122mm;">子供(Child)</div><div class="numbox" style="top:73.263mm; left:70.270mm; width:22.122mm; height:15.615mm;"></div><div class="numbox-label" style="top:68.057mm; left:70.270mm; width:22.122mm; font-size:3.513mm;">お客様合計(Total)</div><div class="numbox" style="top:73.263mm; left:102.802mm; width:22.122mm; height:15.615mm;"></div><div class="numbox-label" style="top:68.057mm; left:102.802mm; width:22.122mm;">FOC</div><div class="symbol" style="top:77.817mm; left:33.508mm;">＋</div><div class="symbol" style="top:77.817mm; left:63.438mm;">＝</div>
+      <div class="vegline" style="top:100.199mm; left:10.410mm;">Veg <span class="uline">　　　</span>　　Non-Veg <span class="uline">　　　</span>　　Jain <span class="uline">　　　</span></div>
+      <div class="childpolicy" style="top:89.789mm; left:10.410mm;">*Child rate policy: 50% of adult rate (3-11 yrs)</div>
+      <div class="row-label" style="top:109.308mm; left:10.410mm;">ガイド</div><div class="row-label" style="top:109.308mm; left:31.231mm;">：</div>
+      <div class="row-value" style="top:109.308mm;left:36.436mm;">${guideText}</div>
+      <div class="row-label" style="top:117.767mm; left:10.410mm;">支払方法</div><div class="row-label" style="top:117.767mm; left:31.231mm;">：</div>
+      <div class="row-value" style="top:117.767mm;left:36.436mm;">${payText}</div>
+      <div class="sign-label" style="top:127.526mm;left:10.410mm;">ガイド署名</div>
+      <div class="sign-label" style="top:127.526mm;left:71.571mm;">レストラン署名</div>
+      <div class="sign-box" style="top:131.951mm;left:10.410mm;"></div>
+      <div class="sign-box" style="top:131.951mm;left:71.571mm;"></div>
+      <div class="remark-label" style="top:156.155mm; left:10.410mm;">備考</div>
+      <div class="remark-box" style="top:160.580mm; left:10.410mm; width:115.815mm; padding:2mm; box-sizing:border-box; font-size:3.4mm; overflow:hidden">${memoText}</div>
+    </div>`;
+  }
+
+  // 2件ずつページに分割（テンプレートは1ページに4ブロック=2件×控え2種）
   const pages = [];
   for(let i=0; i<restaurants.length; i+=2) pages.push(restaurants.slice(i,i+2));
 
   const pageHtml = pages.map((pg, pi)=>{
     const r1 = pg[0];
     const r2 = pg[1]||null;
-    return `${pi>0?'<div style="page-break-before:always"></div>':''}<table style="width:210mm;border-collapse:collapse;table-layout:fixed"><tbody>
-<tr>
-  <td style="width:105mm;height:148.4mm;border-right:1px dashed #999;border-bottom:1px dashed #999;vertical-align:top;padding:0">${buildCell(r1,true)}</td>
-  <td style="width:105mm;height:148.4mm;border-bottom:1px dashed #999;vertical-align:top;padding:0">${buildCell(r1,false)}</td>
-</tr>
-<tr>
-  <td style="width:105mm;height:148.4mm;border-right:1px dashed #999;vertical-align:top;padding:0">${r2?buildCell(r2,true):''}</td>
-  <td style="width:105mm;height:148.4mm;vertical-align:top;padding:0">${r2?buildCell(r2,false):''}</td>
-</tr>
-</tbody></table>`;
+    return `${pi>0?'<div style="page-break-before:always"></div>':''}<div class="page">
+  <div style="position:absolute; top:0; left:0;">${buildBlock(r1,true)}</div>
+  <div style="position:absolute; top:0; left:136.635mm;">${buildBlock(r1,false)}</div>
+  <div style="position:absolute; top:193.242mm; left:0;">${r2?buildBlock(r2,true):''}</div>
+  <div style="position:absolute; top:193.242mm; left:136.635mm;">${r2?buildBlock(r2,false):''}</div>
+  <div class="divider-v"></div>
+  <div class="divider-h"></div>
+</div>`;
   }).join('\n');
 
-  return `<!DOCTYPE html>
-<html lang="ja"><head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+  return `<!DOCTYPE html><html><head><meta charset="utf-8">
 <title>Meal Voucher — ${eh(tourName)}</title>
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{background:#fff;font-family:Arial,'Helvetica Neue',Helvetica,sans-serif}
-@media screen{body{padding:8mm;background:#e8e8e8}.voucher-wrap{background:#fff;display:inline-block;box-shadow:0 2px 10px rgba(0,0,0,.2)}}
-@media print{@page{size:A4;margin:0}body{padding:0;background:#fff}.no-print{display:none!important}}
+@page { size:A4; margin:0; }
+body { margin:0; padding:0; font-family:"Noto Sans JP","Hiragino Sans",Arial,sans-serif; }
+.page { width:273.271mm; height:386.483mm; position:relative; }
+.divider-v { position:absolute; top:0; left:136.635mm; width:0.3mm; height:386.483mm; background:#999; }
+.divider-h { position:absolute; top:193.242mm; left:0; width:273.271mm; height:0.3mm; background:#999; }
+
+.block { position:relative; width:136.635mm; height:193.242mm; box-sizing:border-box; }
+.logo { position:absolute; top:11.712mm; left:16.917mm; width:14.314mm; height:auto; }
+.title { position:absolute; top:11.191mm; left:36.827mm; font-size:4.424mm; font-weight:700; font-family:Arial,sans-serif; white-space:nowrap; }
+.refbox { position:absolute; top:20.040mm; left:34.614mm; border:0.35mm solid #000; padding:0.260mm 1.952mm; font-size:3.904mm; font-weight:700; white-space:nowrap; }
+.datebox { position:absolute; top:20.040mm; left:68.448mm; border:0.35mm solid #000; padding:0.260mm 1.952mm; font-size:3.904mm; font-weight:700; white-space:nowrap; }
+.badge { position:absolute; top:11.972mm; left:102.021mm; border:0.4mm solid #2b6cb0; padding:0.390mm 1.952mm; font-size:3.644mm; font-weight:700; color:#2b6cb0; white-space:nowrap; }
+.badge.restaurant { border-color:#333; color:#000; }
+.hline { position:absolute; top:33.313mm; left:16.917mm; width:109.308mm; border-top:0.2mm solid #000; }
+.restaurant-name { position:absolute; top:39.689mm; left:41.641mm; width:80.680mm; overflow:hidden; font-weight:700; white-space:nowrap; }
+.restaurant-name-en { position:absolute; top:46.196mm; left:41.641mm; width:80.680mm; overflow:hidden; font-weight:400; font-style:italic; color:#333; white-space:nowrap; }
+.restaurant-label { position:absolute; top:39.689mm; left:16.917mm; font-size:3.774mm; white-space:nowrap; }
+.mealtype-label { position:absolute; top:56.086mm; left:16.917mm; font-size:3.774mm; white-space:nowrap; }
+.checkbox { position:absolute; top:48.148mm; width:5.075mm; height:5.075mm; border:0.35mm solid #000; }
+.checkbox-label { position:absolute; top:47.887mm; font-size:4.424mm; font-weight:700; white-space:nowrap; }
+.foclabel { position:absolute; font-size:3.383mm; }
+.focnum { position:absolute; font-size:7.157mm; font-weight:700; }
+.vegrow { position:absolute; left:78.858mm; font-size:3.383mm; white-space:nowrap; }
+.custlabel { position:absolute; top:62.202mm; left:16.917mm; font-size:3.774mm; white-space:nowrap; }
+.row-label { position:absolute; left:16.917mm; font-size:3.774mm; white-space:nowrap; }
+.row-value { position:absolute; left:49.709mm; font-size:3.904mm; white-space:nowrap; }
+.sign-label { position:absolute; top:121.020mm; font-size:3.774mm; white-space:nowrap; }
+.sign-box { position:absolute; width:54.654mm; height:20.170mm; border:0.35mm solid #000; }
+.childpolicy { position:absolute; font-size:2.863mm; color:#c0392b; white-space:nowrap; }
+.remark-label { position:absolute; font-size:3.774mm; font-weight:400; white-space:nowrap; }
+.remark-box { position:absolute; height:20.170mm; border:0.35mm solid #000; }
+
+.timelabel { position:absolute; top:18.869mm; left:109.569mm; font-size:3.383mm; white-space:nowrap; }
+
+.badge.restaurant { left:96.556mm !important; }
+
+.timebox { position:absolute; top:20.038mm; left:102.151mm; border:0.35mm solid #000; padding:0.260mm 1.301mm; font-size:3.904mm; font-weight:700; white-space:nowrap; }
+
+.mealtype-value { position:absolute; top:54.004mm; left:41.641mm; font-size:4.685mm; font-weight:700; white-space:nowrap; }
+
+
+.vegline { position:absolute; font-size:4.424mm; white-space:nowrap; }
+.vegline .uline { display:inline-block; border-bottom:0.35mm solid #000; width:15.615mm; margin-left:1.952mm; height:3.904mm; }
+
+.numbox { position:absolute; border:0.35mm solid #000; }
+.numbox-label { position:absolute; font-size:3.774mm; text-align:center; white-space:nowrap; }
+.symbol { position:absolute; font-size:6.506mm; font-weight:700; }
+
+@media screen{ body{background:#e8e8e8;padding:8mm} .page{background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.2);margin:0 auto} }
+@media print{ .no-print{display:none!important} }
 </style>
-</head>
-<body>
+</head><body>
 <div class="no-print" style="font-family:Arial;font-size:12px;text-align:center;padding:6px 12px;background:#1a5fa8;color:#fff;margin-bottom:6mm">
   📄 印刷するには Ctrl+P（Mac: ⌘P）を押してください。「用紙サイズ: A4」「余白: 最小」でご利用ください。
 </div>
-<div class="voucher-wrap">
 ${pageHtml}
-</div>
-</body>
-</html>`;
+</body></html>`;
 }
 
 function switchHmTab(tab){
