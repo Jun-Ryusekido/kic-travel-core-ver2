@@ -9258,11 +9258,23 @@ async function printRestaurantList(){
   const tourName = b.tour_name||b.ref_no||'';
   const period = [b.in_date, b.out_date].filter(Boolean).join(' ～ ');
 
+  // 店名の全角/半角ゆれ（例: ＆ vs &）を吸収するため、NFKC正規化した名前をキーに突合する
+  const normName = s => String(s||'').normalize('NFKC').trim();
   const restNames = [...new Set(bdRestaurantItems.map(r=>r.restaurant_name).filter(Boolean))];
   let supplierByName = {};
   if(restNames.length){
-    const {data: supRows} = await sb.from('suppliers').select('name,address,phone').in('name', restNames);
-    (supRows||[]).forEach(s=>{ supplierByName[s.name] = s; });
+    // suppliersは件数が1000件超の場合があり、PostgREST側の上限(1000件/回)で
+    // 途中までしか取得できず突合漏れが起きるため、ページングして全件取得する
+    let supRows = [], from = 0;
+    const PAGE = 1000;
+    while(true){
+      const {data: page, error: supErr} = await sb.from('suppliers').select('name,address,phone').range(from, from+PAGE-1);
+      if(supErr){ console.error('suppliers取得エラー:', supErr.message); break; }
+      supRows = supRows.concat(page||[]);
+      if(!page || page.length < PAGE) break;
+      from += PAGE;
+    }
+    supRows.forEach(s=>{ supplierByName[normName(s.name)] = s; });
   }
 
   const MEAL_TYPE_EN = {'朝食':'Breakfast','昼食':'Lunch','夕食':'Dinner'};
@@ -9276,7 +9288,7 @@ async function printRestaurantList(){
   const tdS = 'style="border:1px solid #999;padding:6px 7px;vertical-align:top"';
   const bl = (jp, en) => `${jp}<div style="font-size:8pt;font-weight:400;color:#555">${en}</div>`;
   const rows = sorted.map(r=>{
-    const sup = supplierByName[r.restaurant_name||''];
+    const sup = supplierByName[normName(r.restaurant_name)];
     const mealEn = MEAL_TYPE_EN[r.meal_type||'']||'';
     return `<tr>
     <td ${tdS}>${escHtml(r.date||'')}</td>
