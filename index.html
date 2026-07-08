@@ -1447,6 +1447,7 @@ input[type=number]{-moz-appearance:textfield}
         <label class="btn" style="font-size:10px;cursor:pointer">🖼 画像から読み取り<input type="file" accept="image/*" style="display:none" onchange="extractRestaurantFromFile(event,'image')"></label>
         <label class="btn" style="font-size:10px;cursor:pointer">📷 カメラで撮影<input type="file" accept="image/*" capture="environment" style="display:none" onchange="extractRestaurantFromFile(event,'image')"></label>
         <button class="btn" style="font-size:10px;background:#F0F6FF;border-color:#7CB3E8;color:#004A9F" onclick="openVoucherModal()">🎫 バウチャー発行</button>
+        <button class="btn" style="font-size:10px" onclick="printRestaurantList()">📋 予約一覧表</button>
         <span id="rest-file-status" style="font-size:11px;color:var(--text3)"></span>
       </div>
     </div>
@@ -9233,6 +9234,57 @@ function generateMealVoucher(){
   const win = window.open('','_blank');
   if(!win){ alert('ポップアップがブロックされました。ブラウザの設定を確認してください。'); return; }
   win.document.write(html);
+  win.document.close();
+}
+
+function printRestaurantList(){
+  if(!bdRestaurantItems||bdRestaurantItems.length===0){ alert('レストランデータがありません'); return; }
+  const b = findBookingById(currentDetailId)||{};
+  const guideName = document.getElementById('arr-guide-name')?.value.trim()||'';
+  const tourName = b.tour_name||b.ref_no||'';
+  const period = [b.in_date, b.out_date].filter(Boolean).join(' ～ ');
+
+  const sorted = [...bdRestaurantItems].sort((a,c)=>{
+    if((a.date||'')!==(c.date||'')) return (a.date||'').localeCompare(c.date||'');
+    return (a.reservation_time||'').localeCompare(c.reservation_time||'');
+  });
+
+  const thS = 'style="border:1px solid #999;padding:6px 7px;background:#dce4f0;font-weight:700;white-space:nowrap"';
+  const tdS = 'style="border:1px solid #999;padding:6px 7px;vertical-align:top"';
+  const rows = sorted.map(r=>`<tr>
+    <td ${tdS}>${escHtml(r.date||'')}</td>
+    <td ${tdS}>${escHtml(r.meal_type||'')}</td>
+    <td ${tdS}>${escHtml(r.restaurant_name||'')}</td>
+    <td ${tdS}>${escHtml((r.reservation_time||'').slice(0,5))}</td>
+    <td ${tdS} style="text-align:right">${r.pax?Number(r.pax)+'名':''}</td>
+    <td ${tdS}></td>
+    <td ${tdS}>${escHtml(r.memo||'')}</td>
+  </tr>`).join('');
+
+  const html = `<div style="font-family:'Meiryo','Noto Sans JP',sans-serif;font-size:10.5pt;color:#000">
+    <div style="font-size:16pt;font-weight:700;letter-spacing:0.05em;margin-bottom:10px">レストラン予約一覧表</div>
+    <div style="font-size:10.5pt;line-height:1.9;margin-bottom:12px">
+      <div>ツアー番号：${escHtml(tourName)}</div>
+      <div>ガイド名：${escHtml(guideName)}</div>
+      <div>ツアー期間：${escHtml(period)}</div>
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:10pt">
+      <thead><tr>
+        <th ${thS} style="width:78px">日付</th>
+        <th ${thS} style="width:56px">食事種別</th>
+        <th ${thS}>店名</th>
+        <th ${thS} style="width:56px">予約時刻</th>
+        <th ${thS} style="width:50px">人数</th>
+        <th ${thS} style="width:76px">支払方法</th>
+        <th ${thS} style="width:140px">備考</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+
+  const win = window.open('','_blank','width=1100,height=700');
+  if(!win){ alert('ポップアップがブロックされました。ブラウザの設定を確認してください。'); return; }
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><style>@page{size:A4 portrait;margin:14mm}body{margin:0;padding:0}table{page-break-inside:auto}tr{page-break-inside:avoid}</style></head><body>${html}<script>window.onload=()=>{window.print();window.close()}<\/script></body></html>`);
   win.document.close();
 }
 
