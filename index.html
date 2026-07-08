@@ -9310,13 +9310,13 @@ function _buildVoucherHtml(restaurants, tourName, guideName, guidePhone){
   <div style="position:absolute;top:11.6mm;left:24.5mm;font-size:9.8pt;font-weight:700;white-space:nowrap">MEAL VOUCHER</div>
 
   <!-- ヘッダー: ツアー番号・日付ボックス -->
-  <div style="position:absolute;top:16.5mm;left:24.5mm;white-space:nowrap">
-    <span style="border:1.5px solid #333;border-radius:1mm;padding:0.4mm 0.8mm;font-size:7pt;font-weight:700;display:inline-block">${eh(tourName)}</span>&ensp;
-    <span style="border:1.5px solid #333;border-radius:1mm;padding:0.4mm 0.8mm;font-size:7pt;display:inline-block">${dateDisp}</span>
+  <div style="position:absolute;top:16.5mm;left:25.5mm;white-space:nowrap">
+    <span style="border:1.5px solid #333;border-radius:1mm;padding:0.4mm 0.8mm;font-size:8pt;font-weight:700;display:inline-block;margin-right:7mm">${eh(tourName)}</span>
+    <span style="border:1.5px solid #333;border-radius:1mm;padding:0.4mm 0.8mm;font-size:8pt;font-weight:700;display:inline-block">${dateDisp}</span>
   </div>
 
   <!-- ヘッダー: KIC控え / レストラン控えバッジ -->
-  <div style="position:absolute;top:15.0mm;right:8mm">
+  <div style="position:absolute;top:15.0mm;right:10.5mm">
     <span style="border:1.5px solid ${ctrlColor};border-radius:1mm;padding:0.4mm 0.8mm;font-size:7pt;font-weight:700;color:${ctrlColor};display:inline-block;white-space:nowrap">${ctrlLabel}</span>
   </div>
 
@@ -9331,17 +9331,15 @@ function _buildVoucherHtml(restaurants, tourName, guideName, guidePhone){
 
   <!-- 食事タイプ -->
   <div style="position:absolute;top:38.1mm;left:13.0mm;font-size:9pt;white-space:nowrap">食事タイプ</div>
-  <div style="position:absolute;top:37.0mm;left:38.2mm;font-size:12pt;font-weight:700;white-space:nowrap">${cb('B')}&nbsp;B&nbsp;&nbsp;&nbsp;${cb('L')}&nbsp;L&nbsp;&nbsp;&nbsp;${cb('D')}&nbsp;D</div>
+  <div style="position:absolute;top:35.9mm;left:37.2mm;font-size:12pt;font-weight:700;white-space:nowrap">${cb('B')}&nbsp;B&nbsp;&nbsp;&nbsp;${cb('L')}&nbsp;L&nbsp;&nbsp;&nbsp;${cb('D')}&nbsp;D</div>
 
   <!-- 有料計 / FOC / Veg -->
-  <table style="position:absolute;top:47.8mm;left:13.0mm;width:84mm;border-collapse:collapse"><tr>
+  <table style="position:absolute;top:45.2mm;left:13.0mm;width:84mm;border-collapse:collapse"><tr>
     <td style="vertical-align:middle">
-      <table style="border-collapse:collapse;border:1.5px solid #333"><tr>
-        <td style="width:15mm;height:15mm;text-align:center;vertical-align:middle;box-sizing:border-box">
-          <div style="font-size:17pt;font-weight:700;line-height:1;margin-bottom:1.5mm">${blank('9mm')}</div>
-          <div style="font-size:6.5pt;line-height:1.1">お客様人数</div>
-        </td>
-      </tr></table>
+      <div style="display:inline-block;width:12mm;height:14.4mm;border:1.5px solid #333;box-sizing:border-box;text-align:center;padding-top:1mm">
+        <div style="font-size:15pt;font-weight:700;line-height:1;margin-bottom:1mm">${blank('8mm')}</div>
+        <div style="font-size:6.5pt;line-height:1.1">お客様人数</div>
+      </div>
     </td>
     <td style="vertical-align:middle;padding-left:5mm">
       <span style="font-size:17pt;font-weight:700;vertical-align:middle;line-height:1">${blank('10mm')}</span>
@@ -9375,18 +9373,19 @@ function _buildVoucherHtml(restaurants, tourName, guideName, guidePhone){
 
   <!-- 署名欄ラベル -->
   <div style="position:absolute;top:93.0mm;left:13.0mm;font-size:8pt">ガイド署名</div>
-  <div style="position:absolute;top:93.0mm;left:55.5mm;font-size:8pt">レストラン署名</div>
+  <div style="position:absolute;top:93.0mm;left:56.5mm;font-size:8pt">レストラン署名</div>
 
   <!-- 署名ボックス -->
-  <div style="position:absolute;top:97.5mm;left:13.0mm;width:39mm;height:13mm;border:1.5px solid #333;box-sizing:border-box"></div>
-  <div style="position:absolute;top:97.5mm;left:55.5mm;width:39mm;height:13mm;border:1.5px solid #333;box-sizing:border-box"></div>
+  <div style="position:absolute;top:96.4mm;left:13.0mm;width:40.5mm;height:15.3mm;border:1.5px solid #333;box-sizing:border-box"></div>
+  <div style="position:absolute;top:96.4mm;left:56.5mm;width:40.5mm;height:15.3mm;border:1.5px solid #333;box-sizing:border-box"></div>
 
   <!-- 子供料金ポリシー -->
   <div style="position:absolute;top:116.0mm;left:13.0mm;font-size:6.5pt;color:#555;white-space:nowrap">*Child rate policy: 50% of adult rate (3-11 yrs)</div>
 
   <!-- 備考 -->
-  <div style="position:absolute;top:122.2mm;left:13.0mm;font-size:8pt">備考</div>
-  <div style="position:absolute;top:126.5mm;left:13.0mm;width:84mm;height:18mm;border:1.5px solid #333;padding:1mm;font-size:9pt;box-sizing:border-box">${memoText}</div>
+  <div style="position:absolute;top:120.0mm;left:13.0mm;width:84mm;height:15.3mm;border:1.5px solid #333;padding:1mm;font-size:9pt;box-sizing:border-box"></div>
+  <div style="position:absolute;top:122.2mm;left:15.9mm;font-size:8pt">備考</div>
+  <div style="position:absolute;top:126.5mm;left:14.0mm;width:82mm;height:8.5mm;font-size:9pt;box-sizing:border-box;overflow:hidden">${memoText}</div>
 
 </div>`;
   }

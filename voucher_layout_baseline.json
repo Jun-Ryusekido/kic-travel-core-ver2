@@ -1,0 +1,173 @@
+{
+  "source": "public/meal_voucher_sample.pdf",
+  "position_tolerance_mm": 0.6,
+  "block_origin": "ブロック1（左上=KIC控え）の左上を(0mm,0mm)とする",
+  "excluded_intentional_deviations": [
+    "お客様人数/大人/子供/FOC/Veg/Non-Veg/Jainの数値（手書き記入方式に変更済み、空欄表示が正）",
+    "子供料金ポリシー注記の文言（3-11歳一律表記に変更済み）",
+    "レストラン控え/KIC控えの左右配置（サンプル実データではKIC控えが左、レストラン控えが右）"
+  ],
+  "elements": [
+    {
+      "name": "meal_voucher_title",
+      "sample_text": "MEAL",
+      "top_mm": 11.59,
+      "left_mm": 24.52,
+      "font_weight": "bold",
+      "note": "「MEAL VOUCHER」の左上"
+    },
+    {
+      "name": "tour_code_badge",
+      "sample_text": "KIC1154_J1",
+      "top_mm": 18.41,
+      "left_mm": 26.64,
+      "font_weight": "bold",
+      "note": "ツアー番号ボックス"
+    },
+    {
+      "name": "date_badge",
+      "sample_text": "2026-12-14",
+      "top_mm": 18.41,
+      "left_mm": 52.56,
+      "font_weight": "bold",
+      "note": "日付ボックス"
+    },
+    {
+      "name": "ctrl_badge",
+      "sample_text": "KIC控え",
+      "top_mm": 16.28,
+      "left_mm": 84.17,
+      "font_weight": "bold",
+      "note": "KIC控え/レストラン控えバッジ"
+    },
+    {
+      "name": "header_rule",
+      "sample_text": null,
+      "top_mm": 25.62,
+      "left_mm": 13.01,
+      "width_mm": 83.96,
+      "thickness_mm": 0.2,
+      "font_weight": null,
+      "note": "ヘッダー下の区切り線"
+    },
+    {
+      "name": "label_restaurant",
+      "sample_text": "レストラン",
+      "top_mm": 30.53,
+      "left_mm": 13.0,
+      "font_weight": "regular",
+      "note": "「レストラン」ラベル"
+    },
+    {
+      "name": "label_meal_type",
+      "sample_text": "食事タイプ",
+      "top_mm": 38.05,
+      "left_mm": 13.0,
+      "font_weight": "regular",
+      "note": "「食事タイプ」ラベル"
+    },
+    {
+      "name": "label_customer_count_heading",
+      "sample_text": "お客様人数",
+      "top_mm": 65.92,
+      "left_mm": 13.0,
+      "font_weight": "regular",
+      "note": "「お客様人数」見出し（大人/子供行の上）"
+    },
+    {
+      "name": "label_adult",
+      "sample_text": "大人",
+      "top_mm": 70.52,
+      "left_mm": 13.0,
+      "font_weight": "regular",
+      "note": "「大人」ラベル"
+    },
+    {
+      "name": "label_child",
+      "sample_text": "子供",
+      "top_mm": 70.52,
+      "left_mm": 38.19,
+      "font_weight": "regular",
+      "note": "「子供」ラベル",
+      "skip_left_check_reason": "大人/子供間の数値欄が手書き記入方式で幅広の空欄になったため、「子供」ラベルの左位置はサンプルより右にずれるのが正しい（意図的な仕様変更）"
+    },
+    {
+      "name": "label_guide_name",
+      "sample_text": "ガイド名",
+      "top_mm": 78.91,
+      "left_mm": 13.0,
+      "font_weight": "regular",
+      "note": "「ガイド名」ラベル"
+    },
+    {
+      "name": "label_payment_method",
+      "sample_text": "支払方法",
+      "top_mm": 85.42,
+      "left_mm": 13.0,
+      "font_weight": "regular",
+      "note": "「支払方法」ラベル"
+    },
+    {
+      "name": "label_guide_signature",
+      "sample_text": "ガイド署名",
+      "top_mm": 92.96,
+      "left_mm": 13.0,
+      "font_weight": "regular",
+      "note": "「ガイド署名」ラベル"
+    },
+    {
+      "name": "label_restaurant_signature",
+      "sample_text": "レストラン署名",
+      "top_mm": 92.96,
+      "left_mm": 56.53,
+      "font_weight": "regular",
+      "note": "「レストラン署名」ラベル"
+    },
+    {
+      "name": "label_memo",
+      "sample_text": "備考",
+      "top_mm": 122.24,
+      "left_mm": 15.89,
+      "font_weight": "regular",
+      "note": "「備考」ラベル"
+    },
+    {
+      "name": "meal_type_checkbox_b",
+      "sample_text": "B",
+      "top_mm": 37.09,
+      "left_mm": 42.04,
+      "font_weight": "bold",
+      "note": "食事タイプチェックボックス「B」"
+    },
+    {
+      "name": "customer_count_box",
+      "sample_text": null,
+      "top_mm": 46.15,
+      "left_mm": 13.01,
+      "width_mm": 11.79,
+      "height_mm": 14.43,
+      "font_weight": null,
+      "note": "お客様人数ボックス（数値欄+ラベル）"
+    },
+    {
+      "name": "signature_box",
+      "sample_text": null,
+      "top_mm": 96.36,
+      "left_mm": 13.01,
+      "width_mm": 40.46,
+      "height_mm": 15.25,
+      "font_weight": null,
+      "note": "署名ボックス（ガイド署名側）"
+    },
+    {
+      "name": "memo_box",
+      "sample_text": null,
+      "top_mm": 119.95,
+      "left_mm": 13.01,
+      "width_mm": 83.96,
+      "height_mm": 15.25,
+      "font_weight": null,
+      "note": "備考ボックス"
+    }
+  ]
+}
