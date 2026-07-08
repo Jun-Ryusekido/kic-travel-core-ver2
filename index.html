@@ -467,6 +467,7 @@ input[type=number]{-moz-appearance:textfield}
     <div class="sb-item" data-pg="invoice-import" onclick="go('invoice-import')">📄 請求書読み取り<span class="sb-en">/ Invoice Import</span></div>
     <div class="sb-sec">マスタ管理 <span class="sb-en">/ Master Data</span></div>
     <div class="sb-item" data-pg="partners" onclick="go('partners')">🏢 取引先マスタ<span class="sb-en">/ Partners</span></div>
+    <div class="sb-item" data-pg="suppliers-master" onclick="go('suppliers-master')">🏪 サプライヤー住所録<span class="sb-en">/ Suppliers</span></div>
     <div class="sb-sec">分析 <span class="sb-en">/ Analytics</span></div>
     <div class="sb-item admin-only" data-pg="gross" onclick="go('gross')">📈 GROSS / 粗利</div>
     <div class="sb-item accounting-only" data-pg="payment" onclick="go('payment')">💱 入出金管理<span class="sb-en">/ Payment</span></div>
@@ -1177,6 +1178,22 @@ input[type=number]{-moz-appearance:textfield}
             <tbody id="pt-tbody"><tr><td colspan="6" class="empty">読み込み中...</td></tr></tbody>
           </table></div>
           <div id="pt-cards" class="pt-mobile-only"></div>
+        </div>
+      </div>
+
+      <!-- サプライヤー住所録（suppliersテーブル。レストラン等の店名・英語名・住所・電話番号。
+           ミールバウチャーPDF/レストラン予約一覧表の英語名・住所・電話番号の差し込み元） -->
+      <div id="pg-suppliers-master" class="page" style="display:none">
+        <div class="card" style="position:sticky;top:50px;z-index:10;margin-bottom:0;border-radius:12px 12px 0 0">
+          <div class="card-title">サプライヤー住所録<span style="font-size:11px;color:var(--text3);font-weight:400"> （ミールバウチャー等の英語名・住所・電話番号の差し込み元）</span></div>
+          <div class="form-field"><label>検索（店名）</label><input id="sup-search" placeholder="例: カフェ" oninput="filterSuppliersMaster()"></div>
+          <div style="font-size:11px;color:var(--text3);margin:6px 0 0" id="sup-count"></div>
+        </div>
+        <div class="card" style="border-top:none;border-radius:0 0 12px 12px;padding-top:0;margin-bottom:14px">
+          <div class="tbl-wrap"><table class="bl-table">
+            <thead><tr><th style="width:25%">店名</th><th style="width:25%">英語名</th><th style="width:25%">住所</th><th style="width:15%">電話番号</th><th style="width:10%"></th></tr></thead>
+            <tbody id="sup-tbody"><tr><td colspan="5" class="empty">読み込み中...</td></tr></tbody>
+          </table></div>
         </div>
       </div>
 
@@ -1963,6 +1980,7 @@ const pageNames={
   dashboard:'Dashboard','new-booking':'New Booking','booking-list':'Booking List',
   invoice:'Invoice',estimation:'見積もり','guide-settlements':'ガイド精算一覧',gross:'GROSS / 粗利管理',payment:'入出金管理',accounts:'アカウント管理',logs:'アクセスログ'
 ,hotels:'ホテル予約管理',partners:'取引先マスタ','bullet-trains':'新幹線手配','invoice-import':'請求書読み取り'
+,'suppliers-master':'サプライヤー住所録'
 };
 function go(id){
   if((id==='accounts'||id==='logs'||id==='gross') && currentUser && currentUser.role!=='admin') return;
@@ -1995,6 +2013,7 @@ function go(id){
   if(id==='bullet-trains') loadBulletTrains();
   if(id==='logs') loadLogs();
   if(id==='invoice-import') initInvoiceImportPage();
+  if(id==='suppliers-master') loadSuppliersMasterPage();
 }
 
 // ===== 全件取得（1000件制限を回避） =====
@@ -2780,10 +2799,63 @@ async function registerNewSupplier(name){
   }
 }
 
+let suppliersMasterCache = [];
+async function loadSuppliersMasterPage(){
+  const tbody = document.getElementById('sup-tbody');
+  tbody.innerHTML = '<tr><td colspan="5" class="empty">読み込み中...</td></tr>';
+  let all = [], from = 0; const PAGE = 1000;
+  while(true){
+    const {data, error} = await sb.from('suppliers').select('id,name,name_en,address,phone').order('name').range(from, from+PAGE-1);
+    if(error){ tbody.innerHTML = '<tr><td colspan="5" class="empty">読み込みエラー: '+supMasterEsc(error.message)+'</td></tr>'; return; }
+    all = all.concat(data||[]);
+    if(!data || data.length < PAGE) break;
+    from += PAGE;
+  }
+  suppliersMasterCache = all;
+  renderSuppliersMasterTable(all);
+}
+function supMasterEsc(s){
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function filterSuppliersMaster(){
+  const q = document.getElementById('sup-search').value.trim().toLowerCase();
+  const filtered = q ? suppliersMasterCache.filter(s => (s.name||'').toLowerCase().includes(q)) : suppliersMasterCache;
+  renderSuppliersMasterTable(filtered);
+}
+function renderSuppliersMasterTable(list){
+  const tbody = document.getElementById('sup-tbody');
+  document.getElementById('sup-count').textContent = list.length + '件';
+  if(list.length===0){ tbody.innerHTML = '<tr><td colspan="5" class="empty">該当するデータがありません</td></tr>'; return; }
+  const display = list.slice(0, 200);
+  tbody.innerHTML = display.map(s=>`<tr>
+    <td><input value="${supMasterEsc(s.name)}" id="sup-name-${s.id}" style="width:100%"></td>
+    <td><input value="${supMasterEsc(s.name_en||'')}" id="sup-name-en-${s.id}" style="width:100%" placeholder="English name"></td>
+    <td><input value="${supMasterEsc(s.address||'')}" id="sup-address-${s.id}" style="width:100%"></td>
+    <td><input value="${supMasterEsc(s.phone||'')}" id="sup-phone-${s.id}" style="width:100%"></td>
+    <td><button class="btn btn-p" style="font-size:10px" onclick="saveSupplierMasterRow(${s.id})">保存</button></td>
+  </tr>`).join('');
+  if(list.length>200){
+    tbody.innerHTML += `<tr><td colspan="5" class="empty">他${list.length-200}件は検索で絞り込んでください</td></tr>`;
+  }
+}
+async function saveSupplierMasterRow(id){
+  const payload = {
+    name: document.getElementById('sup-name-'+id).value.trim(),
+    name_en: document.getElementById('sup-name-en-'+id).value.trim() || null,
+    address: document.getElementById('sup-address-'+id).value.trim() || null,
+    phone: document.getElementById('sup-phone-'+id).value.trim() || null,
+  };
+  const {error} = await sb.from('suppliers').update(payload).eq('id', id);
+  if(error){ alert('保存に失敗しました: '+error.message); return; }
+  alert('保存しました');
+  const item = suppliersMasterCache.find(s=>s.id===id);
+  if(item) Object.assign(item, payload);
+}
+
 function parseNum(str){
   const n = Number(String(str).replace(/[^0-9.\-]/g,''));
   return isNaN(n) ? 0 : n;
-} 
+}
 
 function bdSalesRowCalc(i, el, field){
   if(field==='qty'){
@@ -9237,17 +9309,39 @@ function _renderVoucherEntries(){
   `).join('');
 }
 
-function generateMealVoucher(){
+async function generateMealVoucher(){
   if(!bdRestaurantItems||bdRestaurantItems.length===0){ alert('バウチャー発行するレストランがありません'); return; }
   const guideName  = document.getElementById('vc-guide-name').value.trim();
   const guidePhone = document.getElementById('vc-guide-phone').value.trim();
   const b = findBookingById(currentDetailId)||{};
   const tourName = b.tour_name||b.ref_no||'';
-  const restaurants = bdRestaurantItems.map((r,i)=>({
-    ...r,
-    payment_method: document.getElementById(`vc-r-payment-${i}`)?.value||'請求書払い',
-    memo:        document.getElementById(`vc-r-memo-${i}`)?.value||'',
-  }));
+
+  // suppliers.name_en を店名（NFKC正規化）で突合し、レストラン英語名として差し込む
+  const normName = s => String(s||'').normalize('NFKC').trim();
+  const restNames = [...new Set(bdRestaurantItems.map(r=>r.restaurant_name).filter(Boolean))];
+  let supplierByName = {};
+  if(restNames.length){
+    let supRows = [], from = 0;
+    const PAGE = 1000;
+    while(true){
+      const {data: page, error: supErr} = await sb.from('suppliers').select('name,name_en').range(from, from+PAGE-1);
+      if(supErr){ console.error('suppliers取得エラー:', supErr.message); break; }
+      supRows = supRows.concat(page||[]);
+      if(!page || page.length < PAGE) break;
+      from += PAGE;
+    }
+    supRows.forEach(s=>{ supplierByName[normName(s.name)] = s; });
+  }
+
+  const restaurants = bdRestaurantItems.map((r,i)=>{
+    const sup = supplierByName[normName(r.restaurant_name)];
+    return {
+      ...r,
+      payment_method: document.getElementById(`vc-r-payment-${i}`)?.value||'請求書払い',
+      memo:        document.getElementById(`vc-r-memo-${i}`)?.value||'',
+      restaurant_name_en: sup ? (sup.name_en||'') : '',
+    };
+  });
   const html = _buildVoucherHtml(restaurants, tourName, guideName, guidePhone);
   const win = window.open('','_blank');
   if(!win){ alert('ポップアップがブロックされました。ブラウザの設定を確認してください。'); return; }
