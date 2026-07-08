@@ -1753,6 +1753,10 @@ function clearSession(){
 function yen(n){ return '¥' + Number(n||0).toLocaleString('ja-JP'); }
 function escHtml(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function escAttr(s){ return escHtml(s).replace(/"/g,'&quot;'); }
+// 手配ステータスの色分け（手配OK=緑、問い合わせ中/回答待ち=黄、NG回答/キャンセル=赤）
+function statusBg(s){ return s==='手配OK' ? 'var(--green-lt)' : (s==='NG回答'||s==='キャンセル') ? 'var(--red-lt)' : 'var(--amber-lt)'; }
+function statusFg(s){ return s==='手配OK' ? 'var(--green)' : (s==='NG回答'||s==='キャンセル') ? 'var(--red)' : 'var(--amber)'; }
+function statusSelectStyle(s){ return `background:${statusBg(s)};color:${statusFg(s)}`; }
 function _positionDropdownNearInput(input, dd){
   if(!input || !dd) return;
   const rect = input.getBoundingClientRect();
@@ -5696,7 +5700,7 @@ function renderHotelTable(){
         <td><input type="text" inputmode="numeric" value="${Number(it.unit_price||0).toLocaleString('ja-JP')}" onchange="bdHotelItems[${i}].unit_price=parseNum(this.value);this.value=bdHotelItems[${i}].unit_price.toLocaleString('ja-JP');hotelCalc(${i})"></td>
         <td style="text-align:right;white-space:nowrap" data-hotel-amount="${i}">${yen(it.amount||0)}</td>
         <td><input value="${escAttr(it.confirmation_no)}" oninput="bdHotelItems[${i}].confirmation_no=this.value" style="width:100%"></td>
-        <td><select onchange="bdHotelItems[${i}].status=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px"><option value="回答待ち" ${it.status!=='手配OK'?'selected':''}>回答待ち</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option><option value="NG回答" ${it.status==='NG回答'?'selected':''}>NG回答</option><option value="キャンセル" ${it.status==='キャンセル'?'selected':''}>キャンセル</option></select></td>
+        <td><select onchange="bdHotelItems[${i}].status=this.value;this.style.background=statusBg(this.value);this.style.color=statusFg(this.value)" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px;${statusSelectStyle(it.status||'回答待ち')}"><option value="回答待ち" ${it.status!=='手配OK'?'selected':''}>回答待ち</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option><option value="NG回答" ${it.status==='NG回答'?'selected':''}>NG回答</option><option value="キャンセル" ${it.status==='キャンセル'?'selected':''}>キャンセル</option></select></td>
         <td><input value="${escAttr(it.memo)}" oninput="bdHotelItems[${i}].memo=this.value" style="width:100%"></td>
       </tr>`;
     }).join('');
@@ -5780,7 +5784,7 @@ function renderBusTable(){
       <td><input type="date" min="1900-01-01" max="9999-12-31" value="${it.start_date||''}" onchange="bdBusItems[${i}].start_date=this.value"></td>
       <td><input type="date" min="1900-01-01" max="9999-12-31" value="${it.end_date||''}" onchange="bdBusItems[${i}].end_date=this.value"></td>
       <td><input type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="busAmountCalc(${i},this)"></td>
-      <td><select onchange="bdBusItems[${i}].status=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px"><option value="問い合わせ中" ${(it.status||'問い合わせ中')==='問い合わせ中'?'selected':''}>問い合わせ中</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option><option value="NG回答" ${it.status==='NG回答'?'selected':''}>NG回答</option><option value="キャンセル" ${it.status==='キャンセル'?'selected':''}>キャンセル</option></select></td>
+      <td><select onchange="bdBusItems[${i}].status=this.value;this.style.background=statusBg(this.value);this.style.color=statusFg(this.value)" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px;${statusSelectStyle(it.status||'問い合わせ中')}"><option value="問い合わせ中" ${(it.status||'問い合わせ中')==='問い合わせ中'?'selected':''}>問い合わせ中</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option><option value="NG回答" ${it.status==='NG回答'?'selected':''}>NG回答</option><option value="キャンセル" ${it.status==='キャンセル'?'selected':''}>キャンセル</option></select></td>
       <td><input value="${escAttr(it.confirmation_no)}" oninput="bdBusItems[${i}].confirmation_no=this.value" style="width:100%"></td>
       <td><input value="${escAttr(it.memo)}" oninput="bdBusItems[${i}].memo=this.value" style="width:100%"></td>
       <td class="li-del"><button class="btn" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="if(confirm('この行を削除しますか？')){bdBusItems.splice(${i},1);renderBusTable()}">✕</button></td>
@@ -5988,7 +5992,7 @@ function renderRestaurantTable(){
       <td><input type="time" value="${it.reservation_time||''}" onchange="bdRestaurantItems[${i}].reservation_time=this.value" style="width:100%"></td>
       <td><input type="number" value="${it.pax||0}" onchange="bdRestaurantItems[${i}].pax=Number(this.value)" style="width:100%"></td>
       <td><input type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="restaurantAmountCalc(${i},this)"></td>
-      <td><select onchange="bdRestaurantItems[${i}].status=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px"><option value="問い合わせ中" ${(it.status||'問い合わせ中')==='問い合わせ中'?'selected':''}>問い合わせ中</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option><option value="NG回答" ${it.status==='NG回答'?'selected':''}>NG回答</option><option value="キャンセル" ${it.status==='キャンセル'?'selected':''}>キャンセル</option></select></td>
+      <td><select onchange="bdRestaurantItems[${i}].status=this.value;this.style.background=statusBg(this.value);this.style.color=statusFg(this.value)" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px;${statusSelectStyle(it.status||'問い合わせ中')}"><option value="問い合わせ中" ${(it.status||'問い合わせ中')==='問い合わせ中'?'selected':''}>問い合わせ中</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option><option value="NG回答" ${it.status==='NG回答'?'selected':''}>NG回答</option><option value="キャンセル" ${it.status==='キャンセル'?'selected':''}>キャンセル</option></select></td>
       <td><select onchange="bdRestaurantItems[${i}].payment_method=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px"><option value="" ${!it.payment_method?'selected':''}></option><option value="請求書払い" ${it.payment_method==='請求書払い'?'selected':''}>請求書払い</option><option value="現金払い" ${it.payment_method==='現金払い'?'selected':''}>現金払い</option><option value="その他" ${it.payment_method==='その他'?'selected':''}>その他</option></select></td>
       <td><input value="${escAttr(it.memo)}" oninput="bdRestaurantItems[${i}].memo=this.value" style="width:100%"></td>
       <td class="li-del"><button class="btn" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="if(confirm('この行を削除しますか？')){bdRestaurantItems.splice(${i},1);renderRestaurantTable()}">✕</button></td>
@@ -6188,7 +6192,7 @@ function renderFacilityTable(){
       <td><input type="date" min="1900-01-01" max="9999-12-31" value="${it.date||''}" onchange="bdFacilityItems[${i}].date=this.value"></td>
       <td><input type="number" value="${it.pax||0}" onchange="bdFacilityItems[${i}].pax=Number(this.value)" style="width:100%"></td>
       <td><input type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="facilityAmountCalc(${i},this)"></td>
-      <td><select onchange="bdFacilityItems[${i}].status=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px"><option value="問い合わせ中" ${(it.status||'問い合わせ中')==='問い合わせ中'?'selected':''}>問い合わせ中</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option><option value="NG回答" ${it.status==='NG回答'?'selected':''}>NG回答</option><option value="キャンセル" ${it.status==='キャンセル'?'selected':''}>キャンセル</option></select></td>
+      <td><select onchange="bdFacilityItems[${i}].status=this.value;this.style.background=statusBg(this.value);this.style.color=statusFg(this.value)" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px;${statusSelectStyle(it.status||'問い合わせ中')}"><option value="問い合わせ中" ${(it.status||'問い合わせ中')==='問い合わせ中'?'selected':''}>問い合わせ中</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option><option value="NG回答" ${it.status==='NG回答'?'selected':''}>NG回答</option><option value="キャンセル" ${it.status==='キャンセル'?'selected':''}>キャンセル</option></select></td>
       <td><input value="${escAttr(it.confirmation_no)}" oninput="bdFacilityItems[${i}].confirmation_no=this.value" style="width:100%"></td>
       <td><input value="${escAttr(it.memo)}" oninput="bdFacilityItems[${i}].memo=this.value" style="width:100%"></td>
       <td class="li-del"><button class="btn" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="if(confirm('この行を削除しますか？')){bdFacilityItems.splice(${i},1);renderFacilityTable()}">✕</button></td>
