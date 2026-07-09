@@ -1464,7 +1464,7 @@ input[type=number]{-moz-appearance:textfield}
         <label class="btn" style="font-size:10px;cursor:pointer">📎 Excel/PDFから読み取り<input type="file" accept=".xlsx,.xls,.pdf" style="display:none" onchange="extractRestaurantFromFile(event)"></label>
         <label class="btn" style="font-size:10px;cursor:pointer">🖼 画像から読み取り<input type="file" accept="image/*" style="display:none" onchange="extractRestaurantFromFile(event,'image')"></label>
         <label class="btn" style="font-size:10px;cursor:pointer">📷 カメラで撮影<input type="file" accept="image/*" capture="environment" style="display:none" onchange="extractRestaurantFromFile(event,'image')"></label>
-        <button class="btn" style="font-size:10px;background:#F0F6FF;border-color:#7CB3E8;color:#004A9F" onclick="openVoucherModal()">🎫 バウチャー発行</button>
+        <button class="btn" style="font-size:10px;background:#F0F6FF;border-color:#7CB3E8;color:#004A9F" onclick="generateMealVoucherDirect()">🎫 バウチャー発行</button>
         <button class="btn" style="font-size:10px" onclick="printRestaurantList()">📋 予約一覧表</button>
         <span id="rest-file-status" style="font-size:11px;color:var(--text3)"></span>
       </div>
@@ -9286,6 +9286,15 @@ function openVoucherModal(){
   populateGuideRegistrySelects([document.getElementById('vc-guide-select')]);
   _renderVoucherEntries();
   document.getElementById('voucher-modal').style.display = 'flex';
+}
+
+// 中間モーダルを介さず、ボタン押下で直接PDFを新タブ生成する
+async function generateMealVoucherDirect(){
+  if(!currentDetailId){ alert('予約詳細を開いてください'); return; }
+  document.getElementById('vc-guide-name').value = document.getElementById('arr-guide-name')?.value || '';
+  document.getElementById('vc-guide-phone').value = document.getElementById('arr-guide-phone')?.value || '';
+  _renderVoucherEntries();
+  await generateMealVoucher();
 }
 
 function closeVoucherModal(){
