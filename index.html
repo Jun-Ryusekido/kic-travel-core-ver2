@@ -519,6 +519,10 @@ input[type=number]{-moz-appearance:textfield}
           <div class="card-title">到着日アラート <span style="font-size:10px;font-weight:400;color:var(--text3)">今後90日以内の進行中予約</span></div>
           <div id="db-arrival-alert"><span style="font-size:12px;color:var(--text3)">読み込み中...</span></div>
         </div>
+        <div class="card" id="db-facility-deadline-card">
+          <div class="card-title">対応が必要な予約 <span style="font-size:10px;font-weight:400;color:var(--text3)">観光施設・バス駐車場等の対応期限日が近いもの</span></div>
+          <div id="db-facility-deadline"><span style="font-size:12px;color:var(--text3)">読み込み中...</span></div>
+        </div>
         <div class="card" style="position:sticky;top:50px;z-index:10;margin-bottom:0;border-radius:12px 12px 0 0">
           <div class="card-title">検索・絞り込み</div>
           <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr 1fr">
@@ -1498,7 +1502,7 @@ input[type=number]{-moz-appearance:textfield}
           <span id="fac-ocr-status" style="font-size:11px;color:var(--text3)"></span>
         </div>
       </div>
-      <div class="tbl-wrap"><table class="li-table" style="min-width:700px">
+      <div class="tbl-wrap"><table class="li-table" style="min-width:820px">
         <thead><tr>
           <th style="width:180px">施設名</th>
           <th style="width:100px">日付</th>
@@ -1506,6 +1510,7 @@ input[type=number]{-moz-appearance:textfield}
           <th style="width:80px">金額</th>
           <th style="width:80px">ステータス</th>
           <th style="width:90px">確認番号</th>
+          <th style="width:110px">対応期限日</th>
           <th>備考</th>
           <th class="li-del"></th>
         </tr></thead>
@@ -2083,7 +2088,7 @@ async function loadBookingListGeneric(prefix){
   const isAdmin = currentUser && currentUser.role==='admin';
   if(fromEl && !fromEl.value && !isAdmin) fromEl.value = TEMP_DEFAULT_FROM;
   filterBookingListGeneric(prefix);
-  if(prefix === 'db') renderDbArrivalAlert();
+  if(prefix === 'db'){ renderDbArrivalAlert(); renderDbFacilityDeadlineAlert(); }
 }
 
 function resetBookingFilter(prefix){
@@ -2171,6 +2176,98 @@ function renderDbArrivalAlert(){
       <th style="padding:4px 8px;text-align:left">Agent</th>
       <th style="padding:4px 8px;text-align:left">Status</th>
       <th style="padding:4px 8px;text-align:left;white-space:nowrap">到着日</th>
+      <th style="padding:4px 8px;text-align:center;white-space:nowrap">残り</th>
+    </tr></thead>
+    <tbody>${tbodyRows}</tbody>
+  </table></div>`;
+}
+
+// 観光施設・バス駐車場等の「対応期限日」が近い（または超過した）明細をダッシュボードに一覧表示
+async function renderDbFacilityDeadlineAlert(){
+  const el = document.getElementById('db-facility-deadline');
+  if(!el) return;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const todayStr = today.toISOString().slice(0,10);
+  const inDays = dateStr => Math.floor((new Date(dateStr+'T00:00:00') - today) / 86400000);
+
+  // 全ブッキングの観光施設明細のうち対応期限日が設定されているものを、1000件上限のページングで全件取得
+  let facRows = [], from = 0;
+  const PAGE = 1000;
+  while(true){
+    const {data: page, error} = await sb.from('booking_facilities').select('id,booking_id,facility_name,date,status,deadline_date').not('deadline_date','is',null).range(from, from+PAGE-1);
+    if(error){ el.innerHTML = '<div style="color:var(--red);font-size:12px">読み込みエラー: '+escHtml(error.message)+'</div>'; return; }
+    facRows = facRows.concat(page||[]);
+    if(!page || page.length < PAGE) break;
+    from += PAGE;
+  }
+
+  const bookingById = {};
+  allBookingsCache.forEach(b=>{ bookingById[b.id] = b; });
+
+  const items = facRows
+    .filter(f=>f.deadline_date)
+    .map(f=>{
+      const b = bookingById[f.booking_id];
+      return { ...f, _booking: b, _days: inDays(f.deadline_date) };
+    })
+    .filter(f=>{
+      if(f._days > 7) return false; // 7日超は対象外
+      if(f._booking && (f._booking.status === 'cancelled' || f._booking.status === 'closed')) return false;
+      if(f.status === 'キャンセル') return false;
+      return true;
+    })
+    .sort((a,b)=> a._days - b._days);
+
+  if(items.length === 0){
+    el.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:4px 0">対応期限日が7日以内（または超過）の観光施設・バス駐車場等予約はありません。</div>';
+    return;
+  }
+
+  const tiers = [
+    { test:d=>d<=0,          label:'🔴 期限当日・超過', bg:'#fde8ea', fg:'#c0392b', border:'#f5c6cb' },
+    { test:d=>d===1,         label:'🟠 期限前日',       bg:'#fff0e6', fg:'#d35400', border:'#ffd9b3' },
+    { test:d=>d===2||d===3,  label:'🟡 期限3日以内',     bg:'#fffae6', fg:'#b8860b', border:'#ffe08a' },
+    { test:d=>d>=4&&d<=7,    label:'⚪ 期限7日以内',     bg:'#f2f2f2', fg:'#666666', border:'#dddddd' },
+  ];
+
+  const buckets = tiers.map(t => ({ ...t, items: items.filter(f=>t.test(f._days)) }));
+
+  const tbodyRows = buckets.map(b=>{
+    if(b.items.length === 0) return '';
+    const sectionHd = `<tr>
+      <td colspan="5" style="padding:6px 8px 4px;background:${b.bg};border-top:2px solid ${b.border}">
+        <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:${b.fg}">
+          ${b.label} <span style="background:rgba(0,0,0,.09);padding:1px 7px;border-radius:10px">${b.items.length}件</span>
+        </span>
+      </td>
+    </tr>`;
+    const rows = b.items.map(f=>{
+      const bk = f._booking || {};
+      const dLabel = f._days < 0 ? `${-f._days}日超過` : (f._days===0 ? '本日' : `${f._days}日`);
+      return `<tr onclick="openBookingDetail('${f.booking_id}')" style="cursor:pointer" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''">
+        <td class="lnk" style="padding:5px 8px;white-space:nowrap">${escHtml(bk.ref_no||'')}</td>
+        <td style="padding:5px 8px">${escHtml(bk.tour_name||'')}</td>
+        <td style="padding:5px 8px">${escHtml(f.facility_name||'（名称未設定）')}</td>
+        <td style="padding:5px 8px;white-space:nowrap">${escHtml(f.deadline_date||'')}</td>
+        <td style="padding:5px 8px;text-align:center;font-weight:700;color:${b.fg};white-space:nowrap">${dLabel}</td>
+      </tr>`;
+    }).join('');
+    return sectionHd + rows;
+  }).join('');
+
+  el.innerHTML = `<div class="tbl-wrap"><table style="width:100%;border-collapse:collapse;font-size:12px">
+    <colgroup>
+      <col style="width:10%">
+      <col style="width:25%">
+      <col style="width:28%">
+      <col style="width:15%">
+      <col style="width:12%">
+    </colgroup>
+    <thead><tr style="background:var(--bg)">
+      <th style="padding:4px 8px;text-align:left;white-space:nowrap">REF#</th>
+      <th style="padding:4px 8px;text-align:left">ツアー名</th>
+      <th style="padding:4px 8px;text-align:left">施設名</th>
+      <th style="padding:4px 8px;text-align:left;white-space:nowrap">対応期限日</th>
       <th style="padding:4px 8px;text-align:center;white-space:nowrap">残り</th>
     </tr></thead>
     <tbody>${tbodyRows}</tbody>
@@ -3377,7 +3474,7 @@ async function openBookingDetail(id){
   ]);
   bdBusItems = (busRows||[]).map(r=>({bus_company:r.bus_company||'',bus_type:r.bus_type||'',buses:r.buses||1,start_date:r.start_date||'',end_date:r.end_date||'',amount:r.amount||0,status:r.status||'問い合わせ中',confirmation_no:r.confirmation_no||'',driver_hotel_name:r.driver_hotel_name||'',driver_hotel_phone:r.driver_hotel_phone||'',driver_hotel_address:r.driver_hotel_address||'',driver_check_in:r.driver_check_in||'',driver_check_out:r.driver_check_out||'',driver_hotel_amount:r.driver_hotel_amount||0,memo:r.memo||''}));
   bdRestaurantItems = (restRows||[]).map(r=>({restaurant_name:r.restaurant_name||'',meal_type:r.meal_type||'昼食',date:r.date||'',reservation_time:r.reservation_time||'',pax:r.pax||0,amount:r.amount||0,status:r.status||'問い合わせ中',payment_method:r.payment_method||'',memo:r.memo||''}));
-  bdFacilityItems = (facRows||[]).map(r=>({facility_name:r.facility_name||'',date:r.date||'',pax:r.pax||0,amount:r.amount||0,status:r.status||'問い合わせ中',confirmation_no:r.confirmation_no||'',memo:r.memo||''}));
+  bdFacilityItems = (facRows||[]).map(r=>({facility_name:r.facility_name||'',date:r.date||'',pax:r.pax||0,amount:r.amount||0,status:r.status||'問い合わせ中',confirmation_no:r.confirmation_no||'',deadline_date:r.deadline_date||'',memo:r.memo||''}));
   bdBulletTrainItems = (btRows||[]).map(r=>({ride_date:r.ride_date||'',train_name:r.train_name||'',train_number:r.train_number||'',departure_station:r.departure_station||'',departure_time:r.departure_time||'',arrival_station:r.arrival_station||'',arrival_time:r.arrival_time||'',pax_adult:r.pax_adult||0,pax_child:r.pax_child||0,pax_free:r.pax_free||0,discount_rate:r.discount_rate||0,status:r.status||'回答待ち',memo:r.memo||''}));
   renderBusTable(); renderRestaurantTable(); renderFacilityTable(); renderBulletTrainTable();
   switchArrangTab('hotel');
@@ -6337,7 +6434,7 @@ function renderFacilityTable(){
   if(!tbody) return;
   const total = bdFacilityItems.reduce((s,it)=>s+Number(it.amount||0),0);
   if(bdFacilityItems.length===0){
-    tbody.innerHTML='<tr><td colspan="8" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
+    tbody.innerHTML='<tr><td colspan="9" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
   }else{
     tbody.innerHTML = bdFacilityItems.map((it,i)=>`<tr>
       <td><input value="${escAttr(it.facility_name)}" oninput="bdFacilityItems[${i}].facility_name=this.value" style="width:100%"></td>
@@ -6346,6 +6443,7 @@ function renderFacilityTable(){
       <td><input type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="facilityAmountCalc(${i},this)"></td>
       <td><select onchange="bdFacilityItems[${i}].status=this.value;this.style.background=statusBg(this.value);this.style.color=statusFg(this.value)" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px;${statusSelectStyle(it.status||'問い合わせ中')}"><option value="未予約" ${it.status==='未予約'?'selected':''}>未予約</option><option value="問い合わせ中" ${(it.status||'問い合わせ中')==='問い合わせ中'?'selected':''}>問い合わせ中</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option><option value="NG回答" ${it.status==='NG回答'?'selected':''}>NG回答</option><option value="キャンセル" ${it.status==='キャンセル'?'selected':''}>キャンセル</option></select></td>
       <td><input value="${escAttr(it.confirmation_no)}" oninput="bdFacilityItems[${i}].confirmation_no=this.value" style="width:100%"></td>
+      <td><input type="date" min="1900-01-01" max="9999-12-31" value="${it.deadline_date||''}" onchange="bdFacilityItems[${i}].deadline_date=this.value"></td>
       <td><input value="${escAttr(it.memo)}" oninput="bdFacilityItems[${i}].memo=this.value" style="width:100%"></td>
       <td class="li-del"><button class="btn" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="if(confirm('この行を削除しますか？')){bdFacilityItems.splice(${i},1);renderFacilityTable()}">✕</button></td>
     </tr>`).join('');
@@ -6354,20 +6452,22 @@ function renderFacilityTable(){
 }
 function addFacilityRow(){
   const b = findBookingById(currentDetailId);
-  bdFacilityItems.push({facility_name:'',date:'',pax:b?b.pax||0:0,amount:0,status:'問い合わせ中',confirmation_no:'',memo:''});
+  bdFacilityItems.push({facility_name:'',date:'',pax:b?b.pax||0:0,amount:0,status:'問い合わせ中',confirmation_no:'',deadline_date:'',memo:''});
   renderFacilityTable();
 }
 async function saveFacilityItems(){
   if(!currentDetailId) return;
   const {error: delErr} = await sb.from('booking_facilities').delete().eq('booking_id', currentDetailId);
   if(delErr) throw new Error('観光施設明細の削除に失敗: '+delErr.message);
-  const rows = bdFacilityItems.filter(it=>it.facility_name||it.date||it.amount||it.confirmation_no||it.memo).map(it=>({
+  const rows = bdFacilityItems.filter(it=>it.facility_name||it.date||it.amount||it.confirmation_no||it.deadline_date||it.memo).map(it=>({
     booking_id: currentDetailId,
     facility_name: it.facility_name||'',
     date: sanitizeDateField(it.date), pax: Number(it.pax)||0,
     amount: Number(it.amount)||0,
     status: it.status||'問い合わせ中',
-    confirmation_no: it.confirmation_no||'', memo: it.memo||''
+    confirmation_no: it.confirmation_no||'',
+    deadline_date: sanitizeDateField(it.deadline_date),
+    memo: it.memo||''
   }));
   if(rows.length){
     const {error: insErr} = await sb.from('booking_facilities').insert(rows);
