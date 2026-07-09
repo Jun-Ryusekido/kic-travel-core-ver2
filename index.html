@@ -1304,45 +1304,6 @@ input[type=number]{-moz-appearance:textfield}
     <div id="bd-est-ref" style="display:none;background:#EEF6FF;border:1px solid #BDD8FF;border-radius:6px;padding:8px 12px;margin-bottom:8px;font-size:11px;line-height:1.7;color:#004A9F"></div>
     <div id="bd-reflect-history" style="display:none;margin-bottom:12px"></div>
 
-    <div class="modal-section-title">関連Invoice</div>
-    <div class="tbl-wrap"><table>
-      <thead><tr><th>Invoice No.</th><th>通貨</th><th>金額</th><th>発行日</th><th>期限</th><th>Status</th></tr></thead>
-      <tbody id="bd-invoices"><tr><td colspan="6" class="empty">なし</td></tr></tbody>
-    </table></div>
-
-    <div class="modal-section-title">売上明細 / 仕入明細</div>
-    <div id="bd-lock-banner" style="margin-bottom:8px"></div>
-    <div class="detail-cols">
-      <div>
-        <h4 class="green">売上明細</h4>
-        <div id="bd-invoice-actions" style="margin-bottom:4px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-          <button class="btn" id="bd-agent-toggle-btn" style="font-size:10px" onclick="toggleBdAgentColumn()">＋ 請求先を分ける</button>
-        </div>
-        <div class="tbl-wrap"><table class="li-table">
-          <thead><tr><th style="width:11%">項目名</th><th style="width:35%">追記事項</th><th style="width:7%;text-align:right">単価</th><th style="width:4%;text-align:right">数量</th><th class="li-amt" style="width:7%;text-align:right">金額</th><th style="width:7%">入金日</th><th style="width:9%" class="li-amt">入金金額</th><th style="width:10%">入金先銀行</th><th style="width:7%" class="li-amt">未収</th><th class="bd-agent-col" style="width:120px;display:none">請求先</th><th class="li-del" style="width:3%"></th></tr></thead>
-          <tbody id="bd-sales-tbody"></tbody>
-        </table></div>
-        <button class="btn" id="bd-sales-add-btn" style="font-size:10px;margin-top:4px" onclick="addSalesRow()">＋ 行追加</button>
-<div class="li-total">売上合計: <span id="bd-sales-total">¥0</span></div>
-      </div>
-      <div>
-        <h4 class="red">仕入明細</h4>
-        <div style="margin-bottom:6px">
-          <button class="btn" id="bd-cost-ocr-btn" style="font-size:10px;background:#F0F6FF;border-color:#7CB3E8;color:#004A9F" onclick="openCostOcrModal()">🤖 AI読み取り</button>
-          <button class="btn" style="font-size:10px;background:var(--green-lt);border-color:var(--green);color:var(--green)" onclick="approveCheckedCostItems()">✓ 選択した行を承認</button>
-        </div>
-        <input id="bd-cost-search" placeholder="仕入先・備考で絞り込み" style="width:100%;padding:5px 8px;border-radius:6px;border:1px solid var(--border);font-size:11px;margin-bottom:4px;box-sizing:border-box" oninput="bdCostSearch=this.value;renderCostTable()">
-        <div class="tbl-wrap"><table class="li-table">
-          <thead></thead>
-          <tbody id="bd-cost-tbody"></tbody>
-        </table></div>
-        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:4px">
-          <button class="btn" id="bd-cost-add-btn" style="font-size:10px" onclick="addCostRow()">＋ 行追加</button>
-        </div>
-        <div class="li-total">仕入合計: <span id="bd-cost-total">¥0</span></div>
-      </div>
-    </div>
-
     <div class="modal-section-title">手配管理</div>
     <div style="display:flex;gap:2px;margin-bottom:8px;border-bottom:2px solid var(--border);padding-bottom:0">
       <button id="arrtab-btn-hotel" onclick="switchArrangTab('hotel')" class="btn" style="font-size:11px;border-radius:6px 6px 0 0;border-bottom:2px solid var(--primary);margin-bottom:-2px">🏨 ホテル</button>
@@ -1538,6 +1499,46 @@ input[type=number]{-moz-appearance:textfield}
     <div class="modal-section-title">手配書</div>
     <div id="bd-arrangements" style="margin-bottom:6px"></div>
     <button class="btn" style="font-size:10px" onclick="openArrangementEditor(null)">＋ 新規手配書作成</button>
+
+
+    <div class="modal-section-title">関連Invoice</div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Invoice No.</th><th>通貨</th><th>金額</th><th>発行日</th><th>期限</th><th>Status</th></tr></thead>
+      <tbody id="bd-invoices"><tr><td colspan="6" class="empty">なし</td></tr></tbody>
+    </table></div>
+
+    <div class="modal-section-title">売上明細 / 仕入明細</div>
+    <div id="bd-lock-banner" style="margin-bottom:8px"></div>
+    <div class="detail-cols">
+      <div>
+        <h4 class="green">売上明細</h4>
+        <div id="bd-invoice-actions" style="margin-bottom:4px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <button class="btn" id="bd-agent-toggle-btn" style="font-size:10px" onclick="toggleBdAgentColumn()">＋ 請求先を分ける</button>
+        </div>
+        <div class="tbl-wrap"><table class="li-table">
+          <thead><tr><th style="width:11%">項目名</th><th style="width:35%">追記事項</th><th style="width:7%;text-align:right">単価</th><th style="width:4%;text-align:right">数量</th><th class="li-amt" style="width:7%;text-align:right">金額</th><th style="width:7%">入金日</th><th style="width:9%" class="li-amt">入金金額</th><th style="width:10%">入金先銀行</th><th style="width:7%" class="li-amt">未収</th><th class="bd-agent-col" style="width:120px;display:none">請求先</th><th class="li-del" style="width:3%"></th></tr></thead>
+          <tbody id="bd-sales-tbody"></tbody>
+        </table></div>
+        <button class="btn" id="bd-sales-add-btn" style="font-size:10px;margin-top:4px" onclick="addSalesRow()">＋ 行追加</button>
+<div class="li-total">売上合計: <span id="bd-sales-total">¥0</span></div>
+      </div>
+      <div>
+        <h4 class="red">仕入明細</h4>
+        <div style="margin-bottom:6px">
+          <button class="btn" id="bd-cost-ocr-btn" style="font-size:10px;background:#F0F6FF;border-color:#7CB3E8;color:#004A9F" onclick="openCostOcrModal()">🤖 AI読み取り</button>
+          <button class="btn" style="font-size:10px;background:var(--green-lt);border-color:var(--green);color:var(--green)" onclick="approveCheckedCostItems()">✓ 選択した行を承認</button>
+        </div>
+        <input id="bd-cost-search" placeholder="仕入先・備考で絞り込み" style="width:100%;padding:5px 8px;border-radius:6px;border:1px solid var(--border);font-size:11px;margin-bottom:4px;box-sizing:border-box" oninput="bdCostSearch=this.value;renderCostTable()">
+        <div class="tbl-wrap"><table class="li-table">
+          <thead></thead>
+          <tbody id="bd-cost-tbody"></tbody>
+        </table></div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:4px">
+          <button class="btn" id="bd-cost-add-btn" style="font-size:10px" onclick="addCostRow()">＋ 行追加</button>
+        </div>
+        <div class="li-total">仕入合計: <span id="bd-cost-total">¥0</span></div>
+      </div>
+    </div>
 
     <div class="modal-section-title" style="display:flex;justify-content:space-between;align-items:center">
       <span>仮払い一覧表</span>
