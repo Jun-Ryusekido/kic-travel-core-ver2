@@ -4456,9 +4456,9 @@ function renderGuideSettlements(){
         <div style="font-size:11px;font-weight:700;margin-bottom:4px">${escHtml(g.name)}</div>
         <div class="gs-fields-row" style="margin-bottom:0">
           <div class="gs-field"><label>携帯番号</label><input value="${escAttr(g.phone)}" onchange="updateGuideEntryField('${s.id}',${i},'phone',this.value)"></div>
-          <div class="gs-field"><label>仮払金</label><input type="number" value="${g.advance_payment||0}" onchange="updateGuideEntryField('${s.id}',${i},'advance_payment',this.value)"></div>
-          <div class="gs-field"><label>仮払金追加</label><input type="number" value="${g.additional_advance_payment||0}" onchange="updateGuideEntryField('${s.id}',${i},'additional_advance_payment',this.value)"></div>
-          <div class="gs-field"><label>仮払金合計</label><input type="number" value="${Number(g.advance_payment||0)+Number(g.additional_advance_payment||0)}" readonly style="background:var(--bg2,#f5f5f5);color:var(--text2)"></div>
+          <div class="gs-field"><label>仮払金${g.advance_manual_override?' <span style="color:var(--amber,#c90)" title="仕入明細からの自動集計を手動で上書き中">✋手動</span>':''}</label><input type="number" value="${g.advance_payment||0}" onchange="updateGuideEntryField('${s.id}',${i},'advance_payment',this.value)"></div>
+          <div class="gs-field"><label>仮払金追加${g.advance_manual_override?' <span style="color:var(--amber,#c90)" title="仕入明細からの自動集計を手動で上書き中">✋手動</span>':''}</label><input type="number" value="${g.additional_advance_payment||0}" onchange="updateGuideEntryField('${s.id}',${i},'additional_advance_payment',this.value)"></div>
+          <div class="gs-field"><label>仮払金合計${g.advance_manual_override?` <span style="cursor:pointer;color:var(--blue)" title="仕入明細からの自動集計に戻す" onclick="if(confirm('仕入明細からの自動集計に戻しますか？手動入力は上書きされます。'))resetGuideAdvanceOverride('${s.id}',${i})">↺自動に戻す</span>`:''}</label><input type="number" value="${Number(g.advance_payment||0)+Number(g.additional_advance_payment||0)}" readonly style="background:var(--bg2,#f5f5f5);color:var(--text2)"></div>
           <div class="gs-field"><label>精算手順</label><div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:2px"><button onclick="window.open('/guide_settlement_jp.pdf','_blank')" style="font-size:11px;padding:4px 8px;" class="btn">📄 JP</button><button onclick="window.open('/guide_settlement_en.pdf','_blank')" style="font-size:11px;padding:4px 8px;" class="btn">📄 EN</button><button onclick="downloadQRFromUrl('https://kic-travel-core-ver2.vercel.app/guide_settlement_jp.pdf','qr_settlement_jp.png')" style="font-size:11px;padding:4px 8px;" class="btn">📱 QR JP</button><button onclick="downloadQRFromUrl('https://kic-travel-core-ver2.vercel.app/guide_settlement_en.pdf','qr_settlement_en.png')" style="font-size:11px;padding:4px 8px;" class="btn">📱 QR EN</button></div></div>
           <div class="gs-field" style="display:none"><label>ガイド費(日当)</label><input type="number" value="${g.guide_fee||0}" onchange="updateGuideEntryField('${s.id}',${i},'guide_fee',this.value)"></div>
         </div>
@@ -4514,9 +4514,24 @@ async function updateGuideEntryField(id, idx, field, value){
   let guideList = Array.isArray(s.guide_names) && s.guide_names.length>0
     ? s.guide_names
     : [{name: s.guide_name||'', phone: s.guide_phone||'', advance_payment: s.advance_payment||0, additional_advance_payment: s.additional_advance_payment||0, guide_fee: s.guide_fee||0}];
-  guideList = guideList.map((g,i)=> i===idx ? {...g, [field]:v} : g);
+  // 仮払金・仮払金追加を手動編集した場合は、以降の仕入明細からの自動集計で
+  // 上書きされないようにフラグを立てる（syncAdvancePaymentsFromCosts参照）
+  const extra = (field==='advance_payment'||field==='additional_advance_payment') ? {advance_manual_override:true} : {};
+  guideList = guideList.map((g,i)=> i===idx ? {...g, [field]:v, ...extra} : g);
   await sb.from('guide_settlements').update({guide_names: guideList}).eq('id', id);
   s.guide_names = guideList;
+  renderGuideSettlements();
+}
+async function resetGuideAdvanceOverride(id, idx){
+  const s = guideSettlementsCache.find(x=>x.id===id);
+  if(!s) return;
+  let guideList = Array.isArray(s.guide_names) && s.guide_names.length>0 ? s.guide_names : [];
+  guideList = guideList.map((g,i)=> i===idx ? {...g, advance_manual_override:false} : g);
+  await sb.from('guide_settlements').update({guide_names: guideList}).eq('id', id);
+  s.guide_names = guideList;
+  const b = allBookingsCache.find(x=>x.ref_no===s.booking_ref);
+  if(b) await syncAdvancePaymentsFromCosts(b.id, s.booking_ref);
+  else renderGuideSettlements();
 }
 
 async function updateGuideSettlementField(id, field, value){
@@ -4528,22 +4543,29 @@ async function updateGuideSettlementField(id, field, value){
 }
 
 // 仕入明細の「仮払金」行をガイド精算の仮払金欄へ自動反映する
+// 各行の担当者名は、item_name内の「仮払金（名前）」表記があればそれを優先し、
+// なければ備考(memo)欄の内容を担当者名として扱う。名前情報があるのに
+// どのガイドとも一致しない場合は「該当ガイドが1人しかいないから」という理由だけで
+// 割り当てない（#1086でBHARTI SHARAN分がRONIの仮払金に合算されてしまった事故の対応）。
 async function syncAdvancePaymentsFromCosts(bookingId, refNo){
   if(!refNo) return;
-  const {data: costs} = await sb.from('booking_costs').select('item_name, amount').eq('booking_id', bookingId).order('id');
+  const {data: costs} = await sb.from('booking_costs').select('item_name, amount, memo').eq('booking_id', bookingId).order('id');
   const advanceRows = (costs||[]).filter(c => (c.item_name||'').includes('仮払金') && !(c.item_name||'').includes('戻し'));
   if(advanceRows.length === 0) return;
 
   const {data: settlements} = await sb.from('guide_settlements').select('*').eq('booking_ref', refNo);
   if(!settlements || settlements.length === 0) return;
 
-  // 全精算レコード横断でガイドの「割り当て先」一覧を作成
+  // 全精算レコード横断でガイドの「割り当て先」一覧を作成（手動上書き済みのガイドはスキップ）
   const targets = [];
   settlements.forEach((s, si) => {
     const guideList = Array.isArray(s.guide_names) && s.guide_names.length>0
       ? s.guide_names
       : [{name: s.guide_name||'', phone: s.guide_phone||'', advance_payment: s.advance_payment||0, additional_advance_payment: s.additional_advance_payment||0, guide_fee: s.guide_fee||0}];
-    guideList.forEach((g, gi) => { targets.push({si, gi, name: (g.name||'').trim()}); });
+    guideList.forEach((g, gi) => {
+      if(g.advance_manual_override) return; // 手動修正済みは自動集計で上書きしない
+      targets.push({si, gi, name: (g.name||'').trim()});
+    });
   });
   if(targets.length === 0) return;
 
@@ -4553,11 +4575,13 @@ async function syncAdvancePaymentsFromCosts(bookingId, refNo){
 
   advanceRows.forEach(row => {
     const m = (row.item_name||'').match(bracketPattern);
+    const rowName = (m && m[1]) ? m[1].trim() : (row.memo||'').trim();
     let target = null;
-    if(m && m[1]){
-      const gName = m[1].trim();
-      target = targets.find(t => nameMatch(t.name, gName));
+    if(rowName){
+      // 名前情報がある場合は必ずマッチするガイドにのみ割り当てる（マッチしなければ誰にも割り当てない）
+      target = targets.find(t => nameMatch(t.name, rowName));
     } else if(targets.length === 1){
+      // 名前情報が一切ない場合のみ、ガイドが1人なら割り当てる
       target = targets[0];
     }
     if(!target) return;
@@ -4572,6 +4596,7 @@ async function syncAdvancePaymentsFromCosts(bookingId, refNo){
       : [{name: s.guide_name||'', phone: s.guide_phone||'', advance_payment: s.advance_payment||0, additional_advance_payment: s.additional_advance_payment||0, guide_fee: s.guide_fee||0}];
     let changed = false;
     guideList = guideList.map((g, gi) => {
+      if(g.advance_manual_override) return g; // 手動修正済みはそのまま維持
       const amounts = assignedByTarget[`${si}-${gi}`];
       if(!amounts || amounts.length===0) return g;
       changed = true;
