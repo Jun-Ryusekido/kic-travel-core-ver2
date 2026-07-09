@@ -1495,7 +1495,7 @@ input[type=number]{-moz-appearance:textfield}
       <div class="tbl-wrap"><table class="li-table" style="min-width:820px">
         <thead><tr>
           <th style="width:180px">施設名</th>
-          <th style="width:100px">日付</th>
+          <th style="width:100px;cursor:pointer;user-select:none" onclick="sortFacilityTable('date')">日付 <span id="fac-date-sort-arrow"></span></th>
           <th style="width:45px">人数</th>
           <th style="width:80px">金額</th>
           <th style="width:80px">ステータス</th>
@@ -6542,6 +6542,20 @@ function renderFacilityTable(){
     </tr>`).join('');
   }
   document.getElementById('bd-facilities-total').textContent = yen(total);
+  const arrowEl = document.getElementById('fac-date-sort-arrow');
+  if(arrowEl) arrowEl.textContent = facilitySortState.field==='date' ? (facilitySortState.dir===1?'▲':'▼') : '';
+}
+// 観光施設・バス駐車場等タブの「日付」列見出しクリックによる昇順/降順ソート
+let facilitySortState = { field: null, dir: 1 };
+function sortFacilityTable(field){
+  if(facilitySortState.field === field){ facilitySortState.dir = -facilitySortState.dir; }
+  else { facilitySortState.field = field; facilitySortState.dir = 1; }
+  bdFacilityItems.sort((a,b)=>{
+    const av = a[field]||''; const bv = b[field]||'';
+    if(av === bv) return 0;
+    return (av < bv ? -1 : 1) * facilitySortState.dir;
+  });
+  renderFacilityTable();
 }
 function addFacilityRow(){
   const b = findBookingById(currentDetailId);
