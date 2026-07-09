@@ -2894,11 +2894,23 @@ function hideBusCompanySuggest(){
 async function loadRestaurantPartnersCache(){
   if(restaurantPartnersCache.length>0) return;
   const {data} = await sb.from('business_partners')
-    .select('company_name,phone')
+    .select('company_name,company_name_en,phone')
     .eq('category','レストラン')
     .or('is_deleted.is.null,is_deleted.eq.false')
     .order('company_name');
   restaurantPartnersCache = data||[];
+}
+// レストラン名（日本語）からbusiness_partnersに登録されている英語名を引く（NFKC正規化で全角/半角ゆれを吸収）
+function restaurantPartnerEnName(jpName){
+  if(!jpName || !restaurantPartnersCache.length) return '';
+  const norm = s => String(s||'').normalize('NFKC').trim();
+  const target = norm(jpName);
+  const match = restaurantPartnersCache.find(p=>norm(p.company_name)===target);
+  return match ? (match.company_name_en||'') : '';
+}
+// 店名表示用：日本語名 / 英語名 の併記文字列を組み立てる（英語名が無ければ日本語名のみ）
+function restaurantBilingualLabel(jpName, enName){
+  return enName ? `${jpName} / ${enName}` : jpName;
 }
 async function loadAllPartnersCache(){
   if(allPartnersCache.length>0) return;
@@ -2927,7 +2939,7 @@ async function showRestaurantSuggest(inputEl, idx){
   await loadRestaurantPartnersCache();
   const q = inputEl.value.trim().toLowerCase();
   const matches = (q
-    ? restaurantPartnersCache.filter(p=>p.company_name.toLowerCase().includes(q))
+    ? restaurantPartnersCache.filter(p=>p.company_name.toLowerCase().includes(q) || (p.company_name_en||'').toLowerCase().includes(q))
     : restaurantPartnersCache
   ).slice(0,12);
   if(!matches.length) return;
@@ -2937,11 +2949,11 @@ async function showRestaurantSuggest(inputEl, idx){
   const rect = inputEl.getBoundingClientRect();
   box.style.left = (rect.left+window.scrollX)+'px';
   box.style.top  = (rect.bottom+window.scrollY)+'px';
-  box.style.width = Math.max(rect.width,200)+'px';
-  box.innerHTML = matches.map(p=>`<div class="rest-suggest-item" style="padding:4px 8px;cursor:pointer" data-name="${escAttr(p.company_name)}">${escHtml(p.company_name)}${p.phone?`<span style="color:var(--text3);margin-left:6px;font-size:10px">${escHtml(p.phone)}</span>`:''}</div>`).join('');
+  box.style.width = Math.max(rect.width,240)+'px';
+  box.innerHTML = matches.map(p=>`<div class="rest-suggest-item" style="padding:4px 8px;cursor:pointer" data-name="${escAttr(p.company_name)}">${escHtml(restaurantBilingualLabel(p.company_name, p.company_name_en))}${p.phone?`<span style="color:var(--text3);margin-left:6px;font-size:10px">${escHtml(p.phone)}</span>`:''}</div>`).join('');
   document.body.appendChild(box);
   box.querySelectorAll('.rest-suggest-item').forEach(item=>{
-    item.addEventListener('mousedown',e=>{ e.preventDefault(); const n=item.getAttribute('data-name'); inputEl.value=n; bdRestaurantItems[idx].restaurant_name=n; hideRestaurantSuggest(); });
+    item.addEventListener('mousedown',e=>{ e.preventDefault(); const n=item.getAttribute('data-name'); inputEl.value=n; bdRestaurantItems[idx].restaurant_name=n; hideRestaurantSuggest(); renderRestaurantTable(); });
     item.addEventListener('mouseenter',()=>{ item.style.background='var(--bg)'; });
     item.addEventListener('mouseleave',()=>{ item.style.background=''; });
   });
@@ -5856,6 +5868,7 @@ function switchArrangTab(tab){
     btn.style.borderBottom = t===tab ? '2px solid var(--primary)' : '';
     btn.style.marginBottom = t===tab ? '-2px' : '';
   });
+  if(tab==='rest' && restaurantPartnersCache.length===0) loadRestaurantPartnersCache().then(renderRestaurantTable);
 }
 
 function calcHotelNights(ci, co){
@@ -6233,7 +6246,10 @@ function renderRestaurantTable(){
     tbody.innerHTML='<tr><td colspan="10" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
   }else{
     tbody.innerHTML = bdRestaurantItems.map((it,i)=>`<tr>
-      <td style="position:relative"><input value="${escAttr(it.restaurant_name)}" oninput="bdRestaurantItems[${i}].restaurant_name=this.value;showRestaurantSuggest(this,${i})" onfocus="showRestaurantSuggest(this,${i})" onblur="setTimeout(hideRestaurantSuggest,200)" style="width:100%"></td>
+      <td style="position:relative">
+        <input value="${escAttr(it.restaurant_name)}" oninput="bdRestaurantItems[${i}].restaurant_name=this.value;showRestaurantSuggest(this,${i})" onfocus="showRestaurantSuggest(this,${i})" onblur="setTimeout(hideRestaurantSuggest,200)" style="width:100%">
+        ${restaurantPartnerEnName(it.restaurant_name) ? `<div style="font-size:9px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(restaurantPartnerEnName(it.restaurant_name))}</div>` : ''}
+      </td>
       <td><select onchange="bdRestaurantItems[${i}].meal_type=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px">
         <option value="朝食" ${it.meal_type==='朝食'?'selected':''}>朝食</option>
         <option value="昼食" ${(it.meal_type||'昼食')==='昼食'?'selected':''}>昼食</option>
