@@ -1359,6 +1359,25 @@ input[type=number]{-moz-appearance:textfield}
     </div>
 
     <div id="arrtab-hotel">
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+        <button class="btn" style="font-size:10px" onclick="document.getElementById('hotel-ocr-area').style.display=document.getElementById('hotel-ocr-area').style.display===''?'none':''">📧 メール/テキストから読み取り</button>
+        <label class="btn" style="font-size:10px;cursor:pointer">
+          📎 Excel/PDFから読み取り
+          <input type="file" accept=".xlsx,.xls,.pdf" style="display:none" onchange="extractHotelFromFile(event)">
+        </label>
+        <label class="btn" style="font-size:10px;cursor:pointer">🖼 画像から読み取り<input type="file" accept="image/*" style="display:none" onchange="extractHotelFromFile(event,'image')"></label>
+        <label class="btn" style="font-size:10px;cursor:pointer">📷 カメラで撮影<input type="file" accept="image/*" capture="environment" style="display:none" onchange="extractHotelFromFile(event,'image')"></label>
+        <span id="hotel-file-status" style="font-size:11px;color:var(--text3)"></span>
+      </div>
+      <div id="hotel-ocr-area" style="display:none;margin-bottom:8px;border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--bg)">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:6px">メールや文書の内容をコピーして貼り付けてください</div>
+        <textarea id="hotel-ocr-text" rows="6" style="width:100%;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:11px;font-family:inherit;resize:vertical" placeholder="ホテル確認メールの本文をここに貼り付け..."></textarea>
+        <div style="margin-top:6px;display:flex;gap:6px;align-items:center">
+          <button class="btn btn-p" style="font-size:11px" onclick="extractHotelFromText()">🤖 AIで読み取り</button>
+          <button class="btn" style="font-size:11px" onclick="document.getElementById('hotel-ocr-area').style.display='none'">閉じる</button>
+          <span id="hotel-ocr-status" style="font-size:11px;color:var(--text3)"></span>
+        </div>
+      </div>
       <div class="tbl-wrap"><table class="li-table" style="min-width:900px">
         <thead><tr>
           <th style="width:160px">ホテル名</th>
@@ -1379,26 +1398,25 @@ input[type=number]{-moz-appearance:textfield}
       </table></div>
       <button class="btn" style="font-size:10px;margin-top:4px" onclick="addHotelRow()">＋ 行追加</button>
       <div class="li-total">ホテル合計: <span id="bd-hotels-total">¥0</span></div>
-      <div id="hotel-ocr-area" style="display:none;margin-top:8px;border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--bg)">
-        <div style="font-size:11px;color:var(--text3);margin-bottom:6px">メールや文書の内容をコピーして貼り付けてください</div>
-        <textarea id="hotel-ocr-text" rows="6" style="width:100%;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:11px;font-family:inherit;resize:vertical" placeholder="ホテル確認メールの本文をここに貼り付け..."></textarea>
-        <div style="margin-top:6px;display:flex;gap:6px;align-items:center">
-          <button class="btn btn-p" style="font-size:11px" onclick="extractHotelFromText()">🤖 AIで読み取り</button>
-          <button class="btn" style="font-size:11px" onclick="document.getElementById('hotel-ocr-area').style.display='none'">閉じる</button>
-          <span id="hotel-ocr-status" style="font-size:11px;color:var(--text3)"></span>
-        </div>
-      </div>
-      <button class="btn" style="font-size:10px;margin-top:6px" onclick="document.getElementById('hotel-ocr-area').style.display=document.getElementById('hotel-ocr-area').style.display===''?'none':''">📧 メール/テキストから読み取り</button>
-      <label class="btn" style="font-size:10px;margin-top:6px;cursor:pointer">
-        📎 Excel/PDFから読み取り
-        <input type="file" accept=".xlsx,.xls,.pdf" style="display:none" onchange="extractHotelFromFile(event)">
-      </label>
-      <label class="btn" style="font-size:10px;margin-top:6px;cursor:pointer">🖼 画像から読み取り<input type="file" accept="image/*" style="display:none" onchange="extractHotelFromFile(event,'image')"></label>
-      <label class="btn" style="font-size:10px;margin-top:6px;cursor:pointer">📷 カメラで撮影<input type="file" accept="image/*" capture="environment" style="display:none" onchange="extractHotelFromFile(event,'image')"></label>
-      <span id="hotel-file-status" style="font-size:11px;color:var(--text3);margin-left:8px"></span>
     </div>
 
     <div id="arrtab-bus" style="display:none">
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+        <button class="btn" style="font-size:10px" onclick="toggleBusOcrArea()">📧 メール/テキストから読み取り</button>
+        <label class="btn" style="font-size:10px;cursor:pointer">📎 Excel/PDFから読み取り<input type="file" accept=".xlsx,.xls,.pdf" style="display:none" onchange="extractBusFromFile(event)"></label>
+        <label class="btn" style="font-size:10px;cursor:pointer">🖼 画像から読み取り<input type="file" accept="image/*" style="display:none" onchange="extractBusFromFile(event,'image')"></label>
+        <label class="btn" style="font-size:10px;cursor:pointer">📷 カメラで撮影<input type="file" accept="image/*" capture="environment" style="display:none" onchange="extractBusFromFile(event,'image')"></label>
+        <span id="bus-file-status" style="font-size:11px;color:var(--text3)"></span>
+      </div>
+      <div id="bus-ocr-area" style="display:none;margin-bottom:8px;border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--bg)">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:6px">メールや文書の内容をコピーして貼り付けてください</div>
+        <textarea id="bus-ocr-text" rows="5" style="width:100%;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:11px;font-family:inherit;resize:vertical" placeholder="バス手配確認書・メールの本文をここに貼り付け..."></textarea>
+        <div style="margin-top:6px;display:flex;gap:6px;align-items:center">
+          <button class="btn btn-p" style="font-size:11px" onclick="extractBusFromText()">🤖 AIで読み取り</button>
+          <button class="btn" style="font-size:11px" onclick="document.getElementById('bus-ocr-area').style.display='none'">閉じる</button>
+          <span id="bus-ocr-status" style="font-size:11px;color:var(--text3)"></span>
+        </div>
+      </div>
       <div class="tbl-wrap"><table class="li-table" style="min-width:820px">
         <thead><tr>
           <th style="width:160px">バス会社</th>
@@ -1416,20 +1434,6 @@ input[type=number]{-moz-appearance:textfield}
       </table></div>
       <button class="btn" style="font-size:10px;margin-top:4px" onclick="addBusRow()">＋ 行追加</button>
       <div class="li-total">バス合計: <span id="bd-buses-total">¥0</span></div>
-      <div id="bus-ocr-area" style="display:none;margin-top:8px;border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--bg)">
-        <div style="font-size:11px;color:var(--text3);margin-bottom:6px">メールや文書の内容をコピーして貼り付けてください</div>
-        <textarea id="bus-ocr-text" rows="5" style="width:100%;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:11px;font-family:inherit;resize:vertical" placeholder="バス手配確認書・メールの本文をここに貼り付け..."></textarea>
-        <div style="margin-top:6px;display:flex;gap:6px;align-items:center">
-          <button class="btn btn-p" style="font-size:11px" onclick="extractBusFromText()">🤖 AIで読み取り</button>
-          <button class="btn" style="font-size:11px" onclick="document.getElementById('bus-ocr-area').style.display='none'">閉じる</button>
-          <span id="bus-ocr-status" style="font-size:11px;color:var(--text3)"></span>
-        </div>
-      </div>
-      <button class="btn" style="font-size:10px;margin-top:6px" onclick="toggleBusOcrArea()">📧 メール/テキストから読み取り</button>
-      <label class="btn" style="font-size:10px;margin-top:6px;cursor:pointer">📎 Excel/PDFから読み取り<input type="file" accept=".xlsx,.xls,.pdf" style="display:none" onchange="extractBusFromFile(event)"></label>
-      <label class="btn" style="font-size:10px;margin-top:6px;cursor:pointer">🖼 画像から読み取り<input type="file" accept="image/*" style="display:none" onchange="extractBusFromFile(event,'image')"></label>
-      <label class="btn" style="font-size:10px;margin-top:6px;cursor:pointer">📷 カメラで撮影<input type="file" accept="image/*" capture="environment" style="display:none" onchange="extractBusFromFile(event,'image')"></label>
-      <span id="bus-file-status" style="font-size:11px;color:var(--text3);margin-left:8px"></span>
     </div>
 
     <div id="arrtab-rest" style="display:none">
@@ -1471,6 +1475,22 @@ input[type=number]{-moz-appearance:textfield}
     </div>
 
     <div id="arrtab-fac" style="display:none">
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+        <button class="btn" style="font-size:10px" onclick="toggleFacOcrArea()">📧 メール/テキストから読み取り</button>
+        <label class="btn" style="font-size:10px;cursor:pointer">📎 Excel/PDFから読み取り<input type="file" accept=".xlsx,.xls,.pdf" style="display:none" onchange="extractFacilityFromFile(event)"></label>
+        <label class="btn" style="font-size:10px;cursor:pointer">🖼 画像から読み取り<input type="file" accept="image/*" style="display:none" onchange="extractFacilityFromFile(event,'image')"></label>
+        <label class="btn" style="font-size:10px;cursor:pointer">📷 カメラで撮影<input type="file" accept="image/*" capture="environment" style="display:none" onchange="extractFacilityFromFile(event,'image')"></label>
+        <span id="fac-file-status" style="font-size:11px;color:var(--text3)"></span>
+      </div>
+      <div id="fac-ocr-area" style="display:none;margin-bottom:8px;border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--bg)">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:6px">メールや文書の内容をコピーして貼り付けてください</div>
+        <textarea id="fac-ocr-text" rows="5" style="width:100%;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:11px;font-family:inherit;resize:vertical" placeholder="観光施設・バス駐車場等の手配確認書・メールの本文をここに貼り付け..."></textarea>
+        <div style="margin-top:6px;display:flex;gap:6px;align-items:center">
+          <button class="btn btn-p" style="font-size:11px" onclick="extractFacilityFromText()">🤖 AIで読み取り</button>
+          <button class="btn" style="font-size:11px" onclick="document.getElementById('fac-ocr-area').style.display='none'">閉じる</button>
+          <span id="fac-ocr-status" style="font-size:11px;color:var(--text3)"></span>
+        </div>
+      </div>
       <div class="tbl-wrap"><table class="li-table" style="min-width:700px">
         <thead><tr>
           <th style="width:180px">施設名</th>
@@ -1486,20 +1506,6 @@ input[type=number]{-moz-appearance:textfield}
       </table></div>
       <button class="btn" style="font-size:10px;margin-top:4px" onclick="addFacilityRow()">＋ 行追加</button>
       <div class="li-total">観光施設合計: <span id="bd-facilities-total">¥0</span></div>
-      <div id="fac-ocr-area" style="display:none;margin-top:8px;border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--bg)">
-        <div style="font-size:11px;color:var(--text3);margin-bottom:6px">メールや文書の内容をコピーして貼り付けてください</div>
-        <textarea id="fac-ocr-text" rows="5" style="width:100%;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:11px;font-family:inherit;resize:vertical" placeholder="観光施設・バス駐車場等の手配確認書・メールの本文をここに貼り付け..."></textarea>
-        <div style="margin-top:6px;display:flex;gap:6px;align-items:center">
-          <button class="btn btn-p" style="font-size:11px" onclick="extractFacilityFromText()">🤖 AIで読み取り</button>
-          <button class="btn" style="font-size:11px" onclick="document.getElementById('fac-ocr-area').style.display='none'">閉じる</button>
-          <span id="fac-ocr-status" style="font-size:11px;color:var(--text3)"></span>
-        </div>
-      </div>
-      <button class="btn" style="font-size:10px;margin-top:6px" onclick="toggleFacOcrArea()">📧 メール/テキストから読み取り</button>
-      <label class="btn" style="font-size:10px;margin-top:6px;cursor:pointer">📎 Excel/PDFから読み取り<input type="file" accept=".xlsx,.xls,.pdf" style="display:none" onchange="extractFacilityFromFile(event)"></label>
-      <label class="btn" style="font-size:10px;margin-top:6px;cursor:pointer">🖼 画像から読み取り<input type="file" accept="image/*" style="display:none" onchange="extractFacilityFromFile(event,'image')"></label>
-      <label class="btn" style="font-size:10px;margin-top:6px;cursor:pointer">📷 カメラで撮影<input type="file" accept="image/*" capture="environment" style="display:none" onchange="extractFacilityFromFile(event,'image')"></label>
-      <span id="fac-file-status" style="font-size:11px;color:var(--text3);margin-left:8px"></span>
     </div>
 
     <div id="arrtab-bullet" style="display:none">
