@@ -827,8 +827,8 @@ input[type=number]{-moz-appearance:textfield}
             <label style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer"><input type="checkbox" id="gsl-filter-closed" onchange="filterGuideSettlementsListByStatus()"> 締め済</label>
           </div>
           <div class="tbl-wrap"><table id="gsl-table">
-            <thead><tr><th>REF#</th><th>Tour</th><th>ガイド名</th><th>電話番号</th><th>状態</th><th>件数</th><th>合計(B)</th><th>ガイド費(C)</th><th>仮払金合計 &nbsp;<button class="btn" style="font-size:10px" onclick="window.open('/guide_settlement_jp.pdf','_blank')">📄 精算方法 JP</button> <button class="btn" style="font-size:10px" onclick="window.open('/guide_settlement_en.pdf','_blank')">📄 EN</button></th><th></th></tr></thead>
-            <tbody id="gsl-tbody"><tr><td colspan="10" class="empty">読み込み中...</td></tr></tbody>
+            <thead><tr><th>REF#</th><th>Tour</th><th>ガイド名</th><th>電話番号</th><th>状態</th><th>件数</th><th>合計(B)</th><th>ガイド費(C)</th><th>総合計</th><th>仮払金合計 &nbsp;<button class="btn" style="font-size:10px" onclick="window.open('/guide_settlement_jp.pdf','_blank')">📄 精算方法 JP</button> <button class="btn" style="font-size:10px" onclick="window.open('/guide_settlement_en.pdf','_blank')">📄 EN</button></th><th></th></tr></thead>
+            <tbody id="gsl-tbody"><tr><td colspan="11" class="empty">読み込み中...</td></tr></tbody>
           </table></div>
         </div>
         <div class="card" id="gsl-print-card" style="display:none">
@@ -4422,7 +4422,7 @@ function renderGuideSettlements(){
         const gTotal = gActiveItems.filter(it=>!isGuideFeeCat(it)).reduce((sum,it)=>sum+Number(it.amount||0),0);
         const gGuideFeeTotal = gActiveItems.filter(isGuideFeeCat).reduce((sum,it)=>sum+Number(it.amount||0),0);
         const rows = gItems.length>0 ? gItems.map(renderItemRow).join('') : '<div class="empty" style="font-size:10px;padding:2px 0">項目なし</div>';
-        return `<div style="margin-top:6px"><div style="font-size:11px;font-weight:700;color:var(--blue);display:flex;justify-content:space-between"><span>👤 ${escHtml(g.name)}</span><span>合計(B) ${yen(gTotal)}${gGuideFeeTotal>0?` / ガイド費(C) ${yen(gGuideFeeTotal)}`:''}</span></div>${rows}</div>`;
+        return `<div style="margin-top:6px"><div style="font-size:11px;font-weight:700;color:var(--blue);display:flex;justify-content:space-between"><span>👤 ${escHtml(g.name)}</span><span>合計(B) ${yen(gTotal)}${gGuideFeeTotal>0?` / ガイド費(C) ${yen(gGuideFeeTotal)} / 総合計 ${yen(gTotal+gGuideFeeTotal)}`:''}</span></div>${rows}</div>`;
       }).join('');
       const guideNamesSet = new Set(guideList.map(g=>g.name));
       const others = items.filter(it=>!guideNamesSet.has(it.guide_name));
@@ -4445,7 +4445,7 @@ function renderGuideSettlements(){
     return `<div class="gs-card">
       <div class="gs-card-head">
         <div><strong>${escHtml(s.booking_ref||'')} / ${escHtml(guideList.map(g=>g.name).join('・')||'(ガイド名未設定)')}</strong> <span style="font-size:10px;color:var(--text3)">${s.status==='closed'?'（締め済）':'（受付中）'}</span></div>
-        <div style="font-size:11px">合計(B): <strong>${yen(total)}</strong>${guideFeeTotal>0?` / ガイド費(C): <strong>${yen(guideFeeTotal)}</strong>`:''}${pendingCount>0?` / 未確認 ${pendingCount}件`:''}</div>
+        <div style="font-size:11px">合計(B): <strong>${yen(total)}</strong>${guideFeeTotal>0?` / ガイド費(C): <strong>${yen(guideFeeTotal)}</strong> / 総合計: <strong>${yen(total+guideFeeTotal)}</strong>`:''}${pendingCount>0?` / 未確認 ${pendingCount}件`:''}</div>
       </div>
       <div class="gs-link-box">
         <span style="flex:1">${escHtml(url)}</span>
@@ -4671,6 +4671,16 @@ function buildGuideSettlementPrintHtml(s, b, guideIndex){
           <tr style="font-weight:700;background:#EEF3FA">
             <td colspan="3" style="border:1px solid #999;padding:6px;text-align:right">合計（B）</td>
             <td style="border:1px solid #999;padding:6px;text-align:right;color:var(--blue)">${yen(localTotal)}</td>
+            <td style="border:1px solid #999;padding:6px"></td>
+          </tr>
+          <tr style="font-weight:700;background:#EEF3FA">
+            <td colspan="3" style="border:1px solid #999;padding:6px;text-align:right">ガイド費合計（C）</td>
+            <td style="border:1px solid #999;padding:6px;text-align:right;color:var(--blue)">${yen(guideFee)}</td>
+            <td style="border:1px solid #999;padding:6px"></td>
+          </tr>
+          <tr style="font-weight:700;background:#DCE4F0">
+            <td colspan="3" style="border:1px solid #999;padding:6px;text-align:right">総合計</td>
+            <td style="border:1px solid #999;padding:6px;text-align:right;color:var(--blue)">${yen(localTotal+guideFee)}</td>
             <td style="border:1px solid #999;padding:6px"></td>
           </tr>
         </tbody>
@@ -7822,12 +7832,12 @@ let guideSettlementsListCache = [];
 
 async function loadGuideSettlementsListPage(){
   const tbody = document.getElementById('gsl-tbody');
-  tbody.innerHTML = '<tr><td colspan="10" class="empty">読み込み中...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="11" class="empty">読み込み中...</td></tr>';
 
   const {data: settlements} = await sb.from('guide_settlements').select('*').order('created_at',{ascending:false});
   if(!settlements || settlements.length===0){
     guideSettlementsListCache = [];
-    tbody.innerHTML = '<tr><td colspan="10" class="empty">発行されたガイド精算リンクはありません</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11" class="empty">発行されたガイド精算リンクはありません</td></tr>';
     return;
   }
 
@@ -7860,7 +7870,7 @@ function filterGuideSettlementsListByStatus(){
   );
 
   if(filtered.length===0){
-    tbody.innerHTML = '<tr><td colspan="10" class="empty">該当する精算リンクがありません</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11" class="empty">該当する精算リンクがありません</td></tr>';
     return;
   }
 
@@ -7883,6 +7893,7 @@ function filterGuideSettlementsListByStatus(){
       <td>${items.length}</td>
       <td style="text-align:right">${yen(localTotal)}</td>
       <td style="text-align:right">${yen(guideFeeTotal)}</td>
+      <td style="text-align:right">${yen(localTotal+guideFeeTotal)}</td>
       <td style="text-align:right">${yen(advanceTotal)}</td>
       <td><button class="btn" style="font-size:10px;white-space:nowrap" onclick="printGuideSettlementFromList('${s.id}')">🖨 精算書を印刷</button></td>
     </tr>`;
