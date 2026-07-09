@@ -1778,8 +1778,8 @@ function yen(n){ return '¥' + Number(n||0).toLocaleString('ja-JP'); }
 function escHtml(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function escAttr(s){ return escHtml(s).replace(/"/g,'&quot;'); }
 // 手配ステータスの色分け（手配OK=緑、問い合わせ中/回答待ち=黄、NG回答/キャンセル=赤）
-function statusBg(s){ return s==='手配OK' ? 'var(--green-lt)' : (s==='NG回答'||s==='キャンセル') ? 'var(--red-lt)' : 'var(--amber-lt)'; }
-function statusFg(s){ return s==='手配OK' ? 'var(--green)' : (s==='NG回答'||s==='キャンセル') ? 'var(--red)' : 'var(--amber)'; }
+function statusBg(s){ return s==='手配OK' ? 'var(--green-lt)' : (s==='NG回答'||s==='キャンセル'||s==='未予約') ? 'var(--red-lt)' : 'var(--amber-lt)'; }
+function statusFg(s){ return s==='手配OK' ? 'var(--green)' : (s==='NG回答'||s==='キャンセル'||s==='未予約') ? 'var(--red)' : 'var(--amber)'; }
 function statusSelectStyle(s){ return `background:${statusBg(s)};color:${statusFg(s)}`; }
 function _positionDropdownNearInput(input, dd){
   if(!input || !dd) return;
@@ -6636,7 +6636,7 @@ function renderBulletTrainTable(){
   }
   const stStyle = s => s==='手配OK'
     ? `background:var(--green-lt);color:var(--green)`
-    : s==='キャンセル'
+    : (s==='キャンセル'||s==='NG回答'||s==='未予約')
       ? `background:var(--red-lt);color:var(--red)`
       : `background:var(--amber-lt);color:var(--amber)`;
   tbody.innerHTML = bdBulletTrainItems.map((it,i)=>`<tr>
