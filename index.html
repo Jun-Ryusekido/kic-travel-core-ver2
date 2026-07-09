@@ -9316,7 +9316,8 @@ async function generateMealVoucher(){
   const b = findBookingById(currentDetailId)||{};
   const tourName = b.tour_name||b.ref_no||'';
 
-  // suppliers.name_en を店名（NFKC正規化）で突合し、レストラン英語名として差し込む
+  // business_partners.company_name_en を店名（NFKC正規化）で突合し、レストラン英語名として差し込む
+  // (取引先マスタUIが実際に参照しているのは suppliers ではなく business_partners テーブルのため)
   const normName = s => String(s||'').normalize('NFKC').trim();
   const restNames = [...new Set(bdRestaurantItems.map(r=>r.restaurant_name).filter(Boolean))];
   let supplierByName = {};
@@ -9324,13 +9325,13 @@ async function generateMealVoucher(){
     let supRows = [], from = 0;
     const PAGE = 1000;
     while(true){
-      const {data: page, error: supErr} = await sb.from('suppliers').select('name,name_en').range(from, from+PAGE-1);
-      if(supErr){ console.error('suppliers取得エラー:', supErr.message); break; }
+      const {data: page, error: supErr} = await sb.from('business_partners').select('company_name,company_name_en').range(from, from+PAGE-1);
+      if(supErr){ console.error('business_partners取得エラー:', supErr.message); break; }
       supRows = supRows.concat(page||[]);
       if(!page || page.length < PAGE) break;
       from += PAGE;
     }
-    supRows.forEach(s=>{ supplierByName[normName(s.name)] = s; });
+    supRows.forEach(s=>{ supplierByName[normName(s.company_name)] = s; });
   }
 
   const restaurants = bdRestaurantItems.map((r,i)=>{
@@ -9339,7 +9340,7 @@ async function generateMealVoucher(){
       ...r,
       payment_method: document.getElementById(`vc-r-payment-${i}`)?.value||'請求書払い',
       memo:        document.getElementById(`vc-r-memo-${i}`)?.value||'',
-      restaurant_name_en: sup ? (sup.name_en||'') : '',
+      restaurant_name_en: sup ? (sup.company_name_en||'') : '',
     };
   });
   const html = _buildVoucherHtml(restaurants, tourName, guideName, guidePhone);
