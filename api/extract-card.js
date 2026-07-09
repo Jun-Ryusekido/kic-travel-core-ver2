@@ -176,8 +176,8 @@ JSONのみ返し、説明文・コードブロック記号は不要です。` }
         type: 'text',
 text: `以下のバス手配確認書やメール（バス手配とドライバー宿泊予約の両方が含まれる場合があります）からバス手配情報を抽出してJSON配列で返してください。
 各バス手配を1つのオブジェクトとして配列に含めてください。
-フィールド：bus_company(バス会社名), bus_type(バスタイプ・車種等), buses(台数・数値), start_date(開始日・YYYY-MM-DD), end_date(終了日・YYYY-MM-DD), amount(金額・数値・円), status, confirmation_no(確認番号), driver_hotel_name(ドライバーの宿泊施設名・ホテル名。記載がなければ空文字), driver_hotel_phone(宿泊施設の電話番号。記載がなければ空文字), driver_hotel_address(宿泊施設の住所。記載がなければ空文字), driver_check_in(宿泊チェックイン日・YYYY-MM-DD。記載がなければ空文字), driver_check_out(宿泊チェックアウト日・YYYY-MM-DD。記載がなければ空文字), memo(備考)
-メール中にホテル予約確認情報（宿泊施設名・住所・電話番号・チェックイン/アウト日）が含まれる場合は、それがバス運転手の宿泊先であるとみなし、driver_hotel_*およびdriver_check_in/driver_check_outフィールドに入れてください。バス手配の情報（バス会社・バスタイプ・台数・運行日等）と宿泊予約の情報は明確に区別し、それぞれ対応するフィールドに正しく振り分けてください。宿泊予約情報が同じメール内の一つのバス手配に対応する場合は同じオブジェクトにまとめ、対応するバス情報が見当たらない場合でも宿泊情報のみのオブジェクトとして1件返してください（その場合bus_company等バス関連フィールドは空文字/デフォルト値で構いません）。
+フィールド：bus_company(バス会社名), bus_type(バスタイプ・車種等), buses(台数・数値), start_date(開始日・YYYY-MM-DD), end_date(終了日・YYYY-MM-DD), amount(金額・数値・円), status, confirmation_no(確認番号), driver_hotel_name(ドライバーの宿泊施設名・ホテル名。記載がなければ空文字), driver_hotel_phone(宿泊施設の電話番号。記載がなければ空文字), driver_hotel_address(宿泊施設の住所。記載がなければ空文字), driver_check_in(宿泊チェックイン日・YYYY-MM-DD。記載がなければ空文字), driver_check_out(宿泊チェックアウト日・YYYY-MM-DD。記載がなければ空文字), driver_hotel_amount(宿泊料金・支払い金額・数値・円。記載がなければ0), memo(備考)
+メール中にホテル予約確認情報（宿泊施設名・住所・電話番号・チェックイン/アウト日・宿泊料金）が含まれる場合は、それがバス運転手の宿泊先であるとみなし、driver_hotel_*およびdriver_check_in/driver_check_outフィールドに入れてください。宿泊料金はdriver_hotel_amountに入れ、バス自体の金額(amount)とは明確に区別してください。バス手配の情報（バス会社・バスタイプ・台数・運行日等）と宿泊予約の情報は明確に区別し、それぞれ対応するフィールドに正しく振り分けてください。宿泊予約情報が同じメール内の一つのバス手配に対応する場合は同じオブジェクトにまとめ、対応するバス情報が見当たらない場合でも宿泊情報のみのオブジェクトとして1件返してください（その場合bus_company等バス関連フィールドは空文字/デフォルト値で構いません）。
 statusは「手配OK」または「問い合わせ中」のいずれかを入れてください。予約確定・確認番号あり・手配完了等の表現があれば「手配OK」、見積もり・問い合わせ・検討中等であれば「問い合わせ中」としてください。
 金額が不明な場合は0、台数不明は1としてください。日付が不明な場合は空文字にしてください。
 JSONのみ返し、説明文・コードブロック記号は不要です。
@@ -193,8 +193,8 @@ ${busText}`
         { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: busPdfBase64 } },
         { type: 'text', text: `このPDFからバス手配情報を抽出してJSON配列で返してください（バス手配とドライバー宿泊予約の両方が含まれる場合があります）。
 各バス手配を1つのオブジェクトとして配列に含めてください。
-フィールド：bus_company(バス会社名), bus_type(バスタイプ・車種等), buses(台数・数値), start_date(開始日・YYYY-MM-DD), end_date(終了日・YYYY-MM-DD), amount(金額・数値・円), status, confirmation_no(確認番号), driver_hotel_name(ドライバーの宿泊施設名。記載がなければ空文字), driver_hotel_phone(宿泊施設の電話番号。記載がなければ空文字), driver_hotel_address(宿泊施設の住所。記載がなければ空文字), driver_check_in(宿泊チェックイン日・YYYY-MM-DD。記載がなければ空文字), driver_check_out(宿泊チェックアウト日・YYYY-MM-DD。記載がなければ空文字), memo(備考)
-ホテル予約確認情報が含まれる場合はバス運転手の宿泊先とみなし、driver_hotel_*およびdriver_check_in/driver_check_outフィールドに正しく振り分けてください。
+フィールド：bus_company(バス会社名), bus_type(バスタイプ・車種等), buses(台数・数値), start_date(開始日・YYYY-MM-DD), end_date(終了日・YYYY-MM-DD), amount(金額・数値・円), status, confirmation_no(確認番号), driver_hotel_name(ドライバーの宿泊施設名。記載がなければ空文字), driver_hotel_phone(宿泊施設の電話番号。記載がなければ空文字), driver_hotel_address(宿泊施設の住所。記載がなければ空文字), driver_check_in(宿泊チェックイン日・YYYY-MM-DD。記載がなければ空文字), driver_check_out(宿泊チェックアウト日・YYYY-MM-DD。記載がなければ空文字), driver_hotel_amount(宿泊料金・支払い金額・数値・円。記載がなければ0), memo(備考)
+ホテル予約確認情報が含まれる場合はバス運転手の宿泊先とみなし、driver_hotel_*およびdriver_check_in/driver_check_out/driver_hotel_amountフィールドに正しく振り分けてください。宿泊料金はdriver_hotel_amountに入れ、バス自体の金額(amount)とは区別してください。
 statusは「手配OK」または「問い合わせ中」のいずれかを入れてください。予約確定・確認番号あり・手配完了等の表現があれば「手配OK」、見積もり・問い合わせ・検討中等であれば「問い合わせ中」としてください。
 金額が不明な場合は0、台数不明は1としてください。日付が不明な場合は空文字にしてください。
 JSONのみ返し、説明文・コードブロック記号は不要です。` }
@@ -208,8 +208,8 @@ JSONのみ返し、説明文・コードブロック記号は不要です。` }
         { type: 'image', source: { type: 'base64', media_type: busImageMediaType || 'image/jpeg', data: busImageBase64 } },
         { type: 'text', text: `この画像からバス手配情報を抽出してJSON配列で返してください（バス手配とドライバー宿泊予約の両方が含まれる場合があります）。
 各バス手配を1つのオブジェクトとして配列に含めてください。
-フィールド：bus_company(バス会社名), bus_type(バスタイプ・車種等), buses(台数・数値), start_date(開始日・YYYY-MM-DD), end_date(終了日・YYYY-MM-DD), amount(金額・数値・円), status, confirmation_no(確認番号), driver_hotel_name(ドライバーの宿泊施設名。記載がなければ空文字), driver_hotel_phone(宿泊施設の電話番号。記載がなければ空文字), driver_hotel_address(宿泊施設の住所。記載がなければ空文字), driver_check_in(宿泊チェックイン日・YYYY-MM-DD。記載がなければ空文字), driver_check_out(宿泊チェックアウト日・YYYY-MM-DD。記載がなければ空文字), memo(備考)
-ホテル予約確認情報が含まれる場合はバス運転手の宿泊先とみなし、driver_hotel_*およびdriver_check_in/driver_check_outフィールドに正しく振り分けてください。
+フィールド：bus_company(バス会社名), bus_type(バスタイプ・車種等), buses(台数・数値), start_date(開始日・YYYY-MM-DD), end_date(終了日・YYYY-MM-DD), amount(金額・数値・円), status, confirmation_no(確認番号), driver_hotel_name(ドライバーの宿泊施設名。記載がなければ空文字), driver_hotel_phone(宿泊施設の電話番号。記載がなければ空文字), driver_hotel_address(宿泊施設の住所。記載がなければ空文字), driver_check_in(宿泊チェックイン日・YYYY-MM-DD。記載がなければ空文字), driver_check_out(宿泊チェックアウト日・YYYY-MM-DD。記載がなければ空文字), driver_hotel_amount(宿泊料金・支払い金額・数値・円。記載がなければ0), memo(備考)
+ホテル予約確認情報が含まれる場合はバス運転手の宿泊先とみなし、driver_hotel_*およびdriver_check_in/driver_check_out/driver_hotel_amountフィールドに正しく振り分けてください。宿泊料金はdriver_hotel_amountに入れ、バス自体の金額(amount)とは区別してください。
 statusは「手配OK」または「問い合わせ中」のいずれかを入れてください。予約確定・確認番号あり・手配完了等の表現があれば「手配OK」、見積もり・問い合わせ・検討中等であれば「問い合わせ中」としてください。
 金額が不明な場合は0、台数不明は1としてください。日付が不明な場合は空文字にしてください。
 JSONのみ返し、説明文・コードブロック記号は不要です。` }
