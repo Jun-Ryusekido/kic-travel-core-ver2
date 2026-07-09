@@ -1433,6 +1433,24 @@ input[type=number]{-moz-appearance:textfield}
     </div>
 
     <div id="arrtab-rest" style="display:none">
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+        <button class="btn" style="font-size:10px" onclick="toggleRestOcrArea()">📧 メール/テキストから読み取り</button>
+        <label class="btn" style="font-size:10px;cursor:pointer">📎 Excel/PDFから読み取り<input type="file" accept=".xlsx,.xls,.pdf" style="display:none" onchange="extractRestaurantFromFile(event)"></label>
+        <label class="btn" style="font-size:10px;cursor:pointer">🖼 画像から読み取り<input type="file" accept="image/*" style="display:none" onchange="extractRestaurantFromFile(event,'image')"></label>
+        <label class="btn" style="font-size:10px;cursor:pointer">📷 カメラで撮影<input type="file" accept="image/*" capture="environment" style="display:none" onchange="extractRestaurantFromFile(event,'image')"></label>
+        <button class="btn" style="font-size:10px;background:#F0F6FF;border-color:#7CB3E8;color:#004A9F" onclick="generateMealVoucherDirect()">🎫 バウチャー発行</button>
+        <button class="btn" style="font-size:10px" onclick="printRestaurantList()">📋 予約一覧表</button>
+        <span id="rest-file-status" style="font-size:11px;color:var(--text3)"></span>
+      </div>
+      <div id="rest-ocr-area" style="display:none;margin-bottom:8px;border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--bg)">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:6px">メールや文書の内容をコピーして貼り付けてください</div>
+        <textarea id="rest-ocr-text" rows="5" style="width:100%;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:11px;font-family:inherit;resize:vertical" placeholder="レストラン手配確認書・メールの本文をここに貼り付け..."></textarea>
+        <div style="margin-top:6px;display:flex;gap:6px;align-items:center">
+          <button class="btn btn-p" style="font-size:11px" onclick="extractRestaurantFromText()">🤖 AIで読み取り</button>
+          <button class="btn" style="font-size:11px" onclick="document.getElementById('rest-ocr-area').style.display='none'">閉じる</button>
+          <span id="rest-ocr-status" style="font-size:11px;color:var(--text3)"></span>
+        </div>
+      </div>
       <div class="tbl-wrap"><table class="li-table" style="min-width:860px">
         <thead><tr>
           <th style="width:160px">店名</th>
@@ -1450,24 +1468,6 @@ input[type=number]{-moz-appearance:textfield}
       </table></div>
       <button class="btn" style="font-size:10px;margin-top:4px" onclick="addRestaurantRow()">＋ 行追加</button>
       <div class="li-total">レストラン合計: <span id="bd-restaurants-total">¥0</span></div>
-      <div id="rest-ocr-area" style="display:none;margin-top:8px;border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--bg)">
-        <div style="font-size:11px;color:var(--text3);margin-bottom:6px">メールや文書の内容をコピーして貼り付けてください</div>
-        <textarea id="rest-ocr-text" rows="5" style="width:100%;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:11px;font-family:inherit;resize:vertical" placeholder="レストラン手配確認書・メールの本文をここに貼り付け..."></textarea>
-        <div style="margin-top:6px;display:flex;gap:6px;align-items:center">
-          <button class="btn btn-p" style="font-size:11px" onclick="extractRestaurantFromText()">🤖 AIで読み取り</button>
-          <button class="btn" style="font-size:11px" onclick="document.getElementById('rest-ocr-area').style.display='none'">閉じる</button>
-          <span id="rest-ocr-status" style="font-size:11px;color:var(--text3)"></span>
-        </div>
-      </div>
-      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px">
-        <button class="btn" style="font-size:10px" onclick="toggleRestOcrArea()">📧 メール/テキストから読み取り</button>
-        <label class="btn" style="font-size:10px;cursor:pointer">📎 Excel/PDFから読み取り<input type="file" accept=".xlsx,.xls,.pdf" style="display:none" onchange="extractRestaurantFromFile(event)"></label>
-        <label class="btn" style="font-size:10px;cursor:pointer">🖼 画像から読み取り<input type="file" accept="image/*" style="display:none" onchange="extractRestaurantFromFile(event,'image')"></label>
-        <label class="btn" style="font-size:10px;cursor:pointer">📷 カメラで撮影<input type="file" accept="image/*" capture="environment" style="display:none" onchange="extractRestaurantFromFile(event,'image')"></label>
-        <button class="btn" style="font-size:10px;background:#F0F6FF;border-color:#7CB3E8;color:#004A9F" onclick="generateMealVoucherDirect()">🎫 バウチャー発行</button>
-        <button class="btn" style="font-size:10px" onclick="printRestaurantList()">📋 予約一覧表</button>
-        <span id="rest-file-status" style="font-size:11px;color:var(--text3)"></span>
-      </div>
     </div>
 
     <div id="arrtab-fac" style="display:none">
