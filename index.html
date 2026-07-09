@@ -2571,6 +2571,23 @@ let bdCostItems = [];
 let _bdReflections = []; // 反映履歴キャッシュ（decided_unit_price の即時保存用）
 let originalSalesCount = 0;
 let originalCostsCount = 0;
+let originalHotelCount = 0, originalBusCount = 0, originalRestaurantCount = 0, originalFacilityCount = 0, originalLocalExpenseCount = 0;
+// 全削除→再挿入の事故(#782でbooking_facilities 9件が消失)を防ぐための安全な差分保存ヘルパー。
+// 「新規データのINSERTに成功してから、既存の旧行だけをidで指定してDELETEする」順序にすることで、
+// INSERTが何らかの理由で失敗しても旧データは一切削除されない（失敗時は例外を投げてDELETEに進まない）。
+async function safeReplaceBookingRows(table, bookingId, rows, label){
+  const {data: existing, error: fetchErr} = await sb.from(table).select('id').eq('booking_id', bookingId);
+  if(fetchErr) throw new Error(label+'の既存データ確認に失敗: '+fetchErr.message);
+  const existingIds = (existing||[]).map(r=>r.id);
+  if(rows.length){
+    const {error: insErr} = await sb.from(table).insert(rows);
+    if(insErr) throw new Error(label+'の保存に失敗: '+insErr.message);
+  }
+  if(existingIds.length){
+    const {error: delErr} = await sb.from(table).delete().in('id', existingIds);
+    if(delErr) throw new Error(label+'の旧データ削除に失敗（新データは保存済みのため重複している可能性があります）: '+delErr.message);
+  }
+}
 let bdLocalExpenses = [];
 const LOCAL_EXPENSE_CATEGORIES = ['D（ドライバー）','ゲスト','ゲスト・TG','その他'];
 const LOCAL_EXPENSE_PAYMENT_METHODS = ['現地払い','前振込み','後請求','全旅クーポン'];
@@ -3489,8 +3506,6 @@ function sanitizeDateField(d){ return (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) ? d :
 async function saveLocalExpenses(){
   if(!currentDetailId) return;
   const bookingId = currentDetailId; // await中のcurrentDetailId変更に影響されないようスナップショットを保持
-  const {error: delErr} = await sb.from('local_expenses').delete().eq('booking_id', bookingId);
-  if(delErr) throw new Error('現地費用明細の削除に失敗: '+delErr.message);
   const rows = bdLocalExpenses.filter(it=>it.content||it.expense_type||it.expense_date||it.category||Number(it.amount)).map((it,i)=>({
     booking_id: bookingId,
     expense_date: sanitizeDateField(it.expense_date),
@@ -3503,10 +3518,7 @@ async function saveLocalExpenses(){
     payment_method: it.payment_method||'',
     sort_order: i
   }));
-  if(rows.length){
-    const {error: insErr} = await sb.from('local_expenses').insert(rows);
-    if(insErr) throw new Error('現地費用明細の保存に失敗: '+insErr.message);
-  }
+  await safeReplaceBookingRows('local_expenses', bookingId, rows, '現地費用明細');
 }
 
 async function openBookingDetail(id){
@@ -3589,35 +3601,45 @@ async function openBookingDetail(id){
   bdNewGuideList = [];  renderBdNewGuideList();
 
 // ホテル割り当てを読み込み
-  const {data: hotelRows} = await sb.from('booking_hotels').select('*').eq('booking_id', id).order('sort_order');
+  const {data: hotelRows, error: hotelFetchErr} = await sb.from('booking_hotels').select('*').eq('booking_id', id).order('sort_order');
+  if(hotelFetchErr){ alert('ホテル明細の読み込みに失敗しました。このまま保存すると既存データが消える危険があるため、画面を再読み込みしてください。\n'+hotelFetchErr.message); }
   bdHotelItems = (hotelRows||[]).map(r=>({
+    id: r.id,
     hotel_name: r.hotel_name||'', check_in: r.check_in||'', check_out: r.check_out||'',
     room_type: r.room_type||'', rooms: r.rooms||1, breakfast: r.breakfast||false,
     unit_price: r.unit_price||0, amount: r.amount||0,
     confirmation_no: r.confirmation_no||'', status: r.status||'回答待ち', memo: r.memo||''
   }));
+  originalHotelCount = bdHotelItems.length;
   renderHotelTable();
   // バス・レストラン・観光施設・新幹線を読み込み
-  const [{data: busRows}, {data: restRows}, {data: facRows}, {data: btRows}] = await Promise.all([
+  const [{data: busRows, error: busFetchErr}, {data: restRows, error: restFetchErr}, {data: facRows, error: facFetchErr}, {data: btRows}] = await Promise.all([
     sb.from('booking_buses').select('*').eq('booking_id', id).order('created_at'),
     sb.from('booking_restaurants').select('*').eq('booking_id', id).order('created_at'),
     sb.from('booking_facilities').select('*').eq('booking_id', id).order('created_at'),
     sb.from('bullet_train_arrangements').select('*').eq('booking_ref', b.ref_no).order('sort_order'),
   ]);
-  bdBusItems = (busRows||[]).map(r=>({bus_company:r.bus_company||'',bus_type:r.bus_type||'',buses:r.buses||1,start_date:r.start_date||'',end_date:r.end_date||'',amount:r.amount||0,status:r.status||'問い合わせ中',confirmation_no:r.confirmation_no||'',driver_hotel_name:r.driver_hotel_name||'',driver_hotel_phone:r.driver_hotel_phone||'',driver_hotel_address:r.driver_hotel_address||'',driver_check_in:r.driver_check_in||'',driver_check_out:r.driver_check_out||'',driver_hotel_amount:r.driver_hotel_amount||0,memo:r.memo||''}));
-  bdRestaurantItems = (restRows||[]).map(r=>({restaurant_name:r.restaurant_name||'',meal_type:r.meal_type||'昼食',date:r.date||'',reservation_time:r.reservation_time||'',pax:r.pax||0,amount:r.amount||0,status:r.status||'問い合わせ中',payment_method:r.payment_method||'',memo:r.memo||''}));
+  if(busFetchErr||restFetchErr||facFetchErr){ alert('手配明細の読み込みに一部失敗しました。このまま保存すると既存データが消える危険があるため、画面を再読み込みしてください。\n'+(busFetchErr||restFetchErr||facFetchErr).message); }
+  bdBusItems = (busRows||[]).map(r=>({id:r.id,bus_company:r.bus_company||'',bus_type:r.bus_type||'',buses:r.buses||1,start_date:r.start_date||'',end_date:r.end_date||'',amount:r.amount||0,status:r.status||'問い合わせ中',confirmation_no:r.confirmation_no||'',driver_hotel_name:r.driver_hotel_name||'',driver_hotel_phone:r.driver_hotel_phone||'',driver_hotel_address:r.driver_hotel_address||'',driver_check_in:r.driver_check_in||'',driver_check_out:r.driver_check_out||'',driver_hotel_amount:r.driver_hotel_amount||0,memo:r.memo||''}));
+  originalBusCount = bdBusItems.length;
+  bdRestaurantItems = (restRows||[]).map(r=>({id:r.id,restaurant_name:r.restaurant_name||'',meal_type:r.meal_type||'昼食',date:r.date||'',reservation_time:r.reservation_time||'',pax:r.pax||0,amount:r.amount||0,status:r.status||'問い合わせ中',payment_method:r.payment_method||'',memo:r.memo||''}));
+  originalRestaurantCount = bdRestaurantItems.length;
   // レストラン明細が空の場合、到着日〜出発日の期間分の昼食・夕食の空行をあらかじめ用意しておく
   if(bdRestaurantItems.length===0) generateRestaurantTemplateRows(b);
-  bdFacilityItems = (facRows||[]).map(r=>({facility_name:r.facility_name||'',date:r.date||'',pax:r.pax||0,amount:r.amount||0,status:r.status||'問い合わせ中',confirmation_no:r.confirmation_no||'',deadline_date:r.deadline_date||'',payment_method:r.payment_method||'',memo:r.memo||''}));
+  bdFacilityItems = (facRows||[]).map(r=>({id:r.id,facility_name:r.facility_name||'',date:r.date||'',pax:r.pax||0,amount:r.amount||0,status:r.status||'問い合わせ中',confirmation_no:r.confirmation_no||'',deadline_date:r.deadline_date||'',payment_method:r.payment_method||'',memo:r.memo||''}));
+  originalFacilityCount = bdFacilityItems.length;
   bdBulletTrainItems = (btRows||[]).map(r=>({ride_date:r.ride_date||'',train_name:r.train_name||'',train_number:r.train_number||'',departure_station:r.departure_station||'',departure_time:r.departure_time||'',arrival_station:r.arrival_station||'',arrival_time:r.arrival_time||'',pax_adult:r.pax_adult||0,pax_child:r.pax_child||0,pax_free:r.pax_free||0,discount_rate:r.discount_rate||0,status:r.status||'回答待ち',memo:r.memo||''}));
   renderBusTable(); renderRestaurantTable(); renderFacilityTable(); renderBulletTrainTable();
   switchArrangTab('hotel');
   // 現地費用明細を読み込み
-  const {data: localRows} = await sb.from('local_expenses').select('*').eq('booking_id', id).order('sort_order');
+  const {data: localRows, error: localFetchErr} = await sb.from('local_expenses').select('*').eq('booking_id', id).order('sort_order');
+  if(localFetchErr){ alert('現地費用明細の読み込みに失敗しました。このまま保存すると既存データが消える危険があるため、画面を再読み込みしてください。\n'+localFetchErr.message); }
   bdLocalExpenses = (localRows||[]).map(r=>({
+    id: r.id,
     expense_date: r.expense_date||'', expense_type: r.expense_type||'', content: r.content||'', category: r.category||'',
     unit_price: r.unit_price||0, qty: r.qty||1, amount: r.amount||0, payment_method: r.payment_method||''
   }));
+  originalLocalExpenseCount = bdLocalExpenses.length;
   renderLocalExpenses();
 
   // 見積もり参照ノートを表示
@@ -6069,8 +6091,6 @@ async function saveHotelItems(){
   // 値が変わる可能性がある。保存処理の間はこのローカル変数のスナップショットを使い、
   // booking_idがnullのまま保存されてしまう不具合(#782で発生)を防ぐ。
   const bookingId = currentDetailId;
-  const {error: delErr} = await sb.from('booking_hotels').delete().eq('booking_id', bookingId);
-  if(delErr) throw new Error('ホテル明細の削除に失敗: '+delErr.message);
   const rows = bdHotelItems.filter(it=>it.hotel_name||it.room_type||it.check_in||it.check_out||it.amount||it.confirmation_no||it.memo||it.breakfast).map((it,i)=>({
     booking_id: bookingId,
     hotel_name: it.hotel_name||'',
@@ -6086,10 +6106,7 @@ async function saveHotelItems(){
     memo: it.memo||'',
     sort_order: i
   }));
-  if(rows.length){
-    const {error: insErr} = await sb.from('booking_hotels').insert(rows);
-    if(insErr) throw new Error('ホテル明細の保存に失敗: '+insErr.message);
-  }
+  await safeReplaceBookingRows('booking_hotels', bookingId, rows, 'ホテル明細');
 }
 
 // テーブル全体を再描画せずに合計のみ更新するヘルパー（フォーカス中の日付入力を破壊しない）
@@ -6153,8 +6170,6 @@ function addBusRow(){
 async function saveBusItems(){
   if(!currentDetailId) return;
   const bookingId = currentDetailId; // await中のcurrentDetailId変更に影響されないようスナップショットを保持
-  const {error: delErr} = await sb.from('booking_buses').delete().eq('booking_id', bookingId);
-  if(delErr) throw new Error('バス明細の削除に失敗: '+delErr.message);
   const rows = bdBusItems.filter(it=>it.bus_company||it.bus_type||it.start_date||it.end_date||it.amount||it.confirmation_no||it.driver_hotel_name||it.driver_hotel_phone||it.driver_hotel_address||it.driver_check_in||it.driver_check_out||it.driver_hotel_amount||it.memo).map(it=>({
     booking_id: bookingId,
     bus_company: it.bus_company||'', bus_type: it.bus_type||'',
@@ -6169,10 +6184,7 @@ async function saveBusItems(){
     driver_hotel_amount: Number(it.driver_hotel_amount)||0,
     memo: it.memo||''
   }));
-  if(rows.length){
-    const {error: insErr} = await sb.from('booking_buses').insert(rows);
-    if(insErr) throw new Error('バス明細の保存に失敗: '+insErr.message);
-  }
+  await safeReplaceBookingRows('booking_buses', bookingId, rows, 'バス明細');
 }
 
 // ─── バスAI読み取り ───────────────────────────────────────────────────────────
@@ -6459,8 +6471,6 @@ async function saveRestaurantItems(){
   // 操作が挟まるとnullに変わってしまい、booking_idがnullのまま保存されようとして
   // not-null制約違反になる不具合があった(#782で発生)。ローカルにスナップショットして防止する。
   const bookingId = currentDetailId;
-  const {error: delErr} = await sb.from('booking_restaurants').delete().eq('booking_id', bookingId);
-  if(delErr) throw new Error('レストラン明細の削除に失敗: '+delErr.message);
   const rows = bdRestaurantItems.filter(it=>it.restaurant_name||it.date||it.reservation_time||it.amount||it.payment_method||it.memo).map(it=>({
     booking_id: bookingId,
     restaurant_name: it.restaurant_name||'', meal_type: it.meal_type||'昼食',
@@ -6469,10 +6479,7 @@ async function saveRestaurantItems(){
     status: it.status||'問い合わせ中', payment_method: it.payment_method||null,
     reservation_time: it.reservation_time||null, memo: it.memo||''
   }));
-  if(rows.length){
-    const {error: insErr} = await sb.from('booking_restaurants').insert(rows);
-    if(insErr) throw new Error('レストラン明細の保存に失敗: '+insErr.message);
-  }
+  await safeReplaceBookingRows('booking_restaurants', bookingId, rows, 'レストラン明細');
 }
 
 // ─── レストランAI読み取り ─────────────────────────────────────────────────────
@@ -6692,8 +6699,6 @@ function addFacilityRow(){
 async function saveFacilityItems(){
   if(!currentDetailId) return;
   const bookingId = currentDetailId; // await中のcurrentDetailId変更に影響されないようスナップショットを保持
-  const {error: delErr} = await sb.from('booking_facilities').delete().eq('booking_id', bookingId);
-  if(delErr) throw new Error('観光施設明細の削除に失敗: '+delErr.message);
   const rows = bdFacilityItems.filter(it=>it.facility_name||it.date||it.amount||it.confirmation_no||it.deadline_date||it.payment_method||it.memo).map(it=>({
     booking_id: bookingId,
     facility_name: it.facility_name||'',
@@ -6705,10 +6710,7 @@ async function saveFacilityItems(){
     payment_method: it.payment_method||null,
     memo: it.memo||''
   }));
-  if(rows.length){
-    const {error: insErr} = await sb.from('booking_facilities').insert(rows);
-    if(insErr) throw new Error('観光施設明細の保存に失敗: '+insErr.message);
-  }
+  await safeReplaceBookingRows('booking_facilities', bookingId, rows, '観光施設明細');
 }
 
 // ─── 観光施設AI読み取り ───────────────────────────────────────────────────────
@@ -7251,6 +7253,22 @@ async function saveBookingDetail(){
   if(originalCostsCount > 0 && bdCostItems.length === 0){
     if(!confirm('仕入明細が0件になっています。本当に保存しますか？')) return;
   }
+  // 手配明細が全削除されている場合に警告（読み込み失敗等による誤消去を防ぐ）
+  if(originalHotelCount > 0 && bdHotelItems.length === 0){
+    if(!confirm('ホテル明細が0件になっています。本当に保存しますか？')) return;
+  }
+  if(originalBusCount > 0 && bdBusItems.length === 0){
+    if(!confirm('バス明細が0件になっています。本当に保存しますか？')) return;
+  }
+  if(originalRestaurantCount > 0 && bdRestaurantItems.length === 0){
+    if(!confirm('レストラン明細が0件になっています。本当に保存しますか？')) return;
+  }
+  if(originalFacilityCount > 0 && bdFacilityItems.length === 0){
+    if(!confirm('観光施設・バス駐車場等の明細が0件になっています。本当に保存しますか？')) return;
+  }
+  if(originalLocalExpenseCount > 0 && bdLocalExpenses.length === 0){
+    if(!confirm('現地費用明細が0件になっています。本当に保存しますか？')) return;
+  }
 
   // 新幹線明細の内部重複チェック（DB制約違反→データ消失を防ぐ）
   {
@@ -7312,12 +7330,7 @@ async function saveBookingDetail(){
       return;
     }
 
-    // 明細の同期（既存削除→再挿入）
-    const {error: salesDelErr} = await sb.from('booking_sales').delete().eq('booking_id', bookingId);
-    if(salesDelErr) throw new Error('売上明細の削除に失敗: '+salesDelErr.message);
-    const {error: costsDelErr} = await sb.from('booking_costs').delete().eq('booking_id', bookingId);
-    if(costsDelErr) throw new Error('仕入明細の削除に失敗: '+costsDelErr.message);
-
+    // 明細の同期（新規INSERT成功後に旧行のみをidで削除する安全な差分更新。詳細はsafeReplaceBookingRows参照）
     const salesToInsert = bdSalesItems.filter(it=>it.item_name||Number(it.amount)||it.memo||it.agent_name||it.payment_date||(it.payments&&it.payments.length)).map(it=>({
       booking_id: bookingId, item_name: it.item_name||'', memo: it.memo||null, unit_price: Number(it.unit_price)||0,
       qty: Number(it.qty)||1, amount: Number(it.amount)||0, payment_date: sanitizeDateField(it.payment_date),
@@ -7327,14 +7340,8 @@ async function saveBookingDetail(){
       booking_id: bookingId, item_name: it.item_name||'', amount: Number(it.amount)||0,
       payment_date: sanitizeDateField(it.payment_date), memo: it.memo||'', status: it.status||'pending'
     }));
-    if(salesToInsert.length){
-      const {error: salesInsErr} = await sb.from('booking_sales').insert(salesToInsert);
-      if(salesInsErr) throw new Error('売上明細の保存に失敗: '+salesInsErr.message);
-    }
-    if(costToInsert.length){
-      const {error: costsInsErr} = await sb.from('booking_costs').insert(costToInsert);
-      if(costsInsErr) throw new Error('仕入明細の保存に失敗: '+costsInsErr.message);
-    }
+    await safeReplaceBookingRows('booking_sales', bookingId, salesToInsert, '売上明細');
+    await safeReplaceBookingRows('booking_costs', bookingId, costToInsert, '仕入明細');
 
     const bForSync = findBookingById(bookingId);
     if(bForSync) await syncAdvancePaymentsFromCosts(bookingId, bForSync.ref_no);
