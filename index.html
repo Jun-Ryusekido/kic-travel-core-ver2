@@ -504,6 +504,10 @@ input[type=number]{-moz-appearance:textfield}
 
       <!-- Dashboard -->
       <div id="pg-dashboard" class="page">
+        <div class="card" id="db-todo-list-card">
+          <div class="card-title">📝 ToDoリスト <span style="font-size:10px;font-weight:400;color:var(--text3)">観光施設・バス駐車場等の対応期限管理（全件）</span></div>
+          <div id="db-todo-list"><span style="font-size:12px;color:var(--text3)">読み込み中...</span></div>
+        </div>
         <div class="card accounting-only">
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
             <button class="btn btn-p" style="font-size:13px;padding:6px 14px" onclick="toggleDashboardBankbookOcr()">📷 通帳OCR</button>
@@ -523,10 +527,6 @@ input[type=number]{-moz-appearance:textfield}
         <div class="card" id="db-arrival-alert-card">
           <div class="card-title">到着日アラート <span style="font-size:10px;font-weight:400;color:var(--text3)">今後90日以内の進行中予約</span></div>
           <div id="db-arrival-alert"><span style="font-size:12px;color:var(--text3)">読み込み中...</span></div>
-        </div>
-        <div class="card" id="db-facility-deadline-card">
-          <div class="card-title">対応が必要な予約 <span style="font-size:10px;font-weight:400;color:var(--text3)">観光施設・バス駐車場等の対応期限日が近いもの</span></div>
-          <div id="db-facility-deadline"><span style="font-size:12px;color:var(--text3)">読み込み中...</span></div>
         </div>
         <div class="card" style="position:sticky;top:50px;z-index:10;margin-bottom:0;border-radius:12px 12px 0 0">
           <div class="card-title">検索・絞り込み</div>
@@ -2081,7 +2081,7 @@ async function loadBookingListGeneric(prefix){
   const isAdmin = currentUser && currentUser.role==='admin';
   if(fromEl && !fromEl.value && !isAdmin) fromEl.value = TEMP_DEFAULT_FROM;
   filterBookingListGeneric(prefix);
-  if(prefix === 'db'){ renderDbArrivalAlert(); renderDbFacilityDeadlineAlert(); }
+  if(prefix === 'db'){ renderDbArrivalAlert(); renderDashboardTodoList(); }
 }
 
 function resetBookingFilter(prefix){
@@ -2182,10 +2182,15 @@ const FACILITY_DEADLINE_TIERS = [
   { test:d=>d===2||d===3,  label:'🟡 期限3日以内',     bg:'#fffae6', fg:'#b8860b', border:'#ffe08a' },
   { test:d=>d>=4&&d<=7,    label:'⚪ 期限7日以内',     bg:'#f2f2f2', fg:'#666666', border:'#dddddd' },
 ];
+// ToDoリスト用：7日超も「通常色」の区分として表示する（対象を全件にするため）
+const FACILITY_DEADLINE_TIERS_FULL = FACILITY_DEADLINE_TIERS.concat([
+  { test:d=>d>7,           label:'📅 それ以降',       bg:'transparent', fg:'var(--text2)', border:'var(--border)' },
+]);
 
 // 観光施設・バス駐車場等の対応期限日が近い（または超過した）明細を取得し、
-// ダッシュボードのカード・画面上部の常時バナーの両方で共有する
-async function fetchFacilityDeadlineItems(){
+// ダッシュボードのToDoリスト・画面上部の常時バナーの両方で共有する。
+// maxDaysを指定すると、その日数以内(超過含む)の未完了分のみに絞り込む（省略時は全件対象）。
+async function fetchFacilityDeadlineItems(maxDays){
   const today = new Date(); today.setHours(0,0,0,0);
   const inDays = dateStr => Math.floor((new Date(dateStr+'T00:00:00') - today) / 86400000);
 
@@ -2195,7 +2200,7 @@ async function fetchFacilityDeadlineItems(){
   let facRows = [], from = 0;
   const PAGE = 1000;
   while(true){
-    const {data: page, error} = await sb.from('booking_facilities').select('id,booking_id,facility_name,date,status,deadline_date').not('deadline_date','is',null).range(from, from+PAGE-1);
+    const {data: page, error} = await sb.from('booking_facilities').select('id,booking_id,facility_name,date,status,deadline_date,deadline_completed').not('deadline_date','is',null).range(from, from+PAGE-1);
     if(error) return { error };
     facRows = facRows.concat(page||[]);
     if(!page || page.length < PAGE) break;
@@ -2205,22 +2210,27 @@ async function fetchFacilityDeadlineItems(){
   const bookingById = {};
   allBookingsCache.forEach(b=>{ bookingById[b.id] = b; });
 
-  const items = facRows
+  const allItems = facRows
     .filter(f=>f.deadline_date)
     .map(f=>{
       const b = bookingById[f.booking_id];
       return { ...f, _booking: b, _days: inDays(f.deadline_date) };
     })
     .filter(f=>{
-      if(f._days > 7) return false; // 7日超は対象外
       if(f._booking && (f._booking.status === 'cancelled' || f._booking.status === 'closed')) return false;
       if(f.status === 'キャンセル') return false;
       return true;
     })
     .sort((a,b)=> a._days - b._days);
 
+  const incompleteAll = allItems.filter(f=>!f.deadline_completed);
+  const completed = allItems.filter(f=>f.deadline_completed)
+    .sort((a,b)=>(b.deadline_date||'').localeCompare(a.deadline_date||''));
+  const items = (maxDays===undefined||maxDays===null) ? incompleteAll : incompleteAll.filter(f=>f._days <= maxDays);
+
   const buckets = FACILITY_DEADLINE_TIERS.map(t => ({ ...t, items: items.filter(f=>t.test(f._days)) }));
-  return { items, buckets };
+  const bucketsFull = FACILITY_DEADLINE_TIERS_FULL.map(t => ({ ...t, items: incompleteAll.filter(f=>t.test(f._days)) }));
+  return { items, buckets, bucketsFull, completed, incompleteAll };
 }
 
 function facilityDeadlineRowsHtml(buckets){
@@ -2268,16 +2278,77 @@ function facilityDeadlineTableHtml(buckets){
   </table></div>`;
 }
 
-async function renderDbFacilityDeadlineAlert(){
-  const el = document.getElementById('db-facility-deadline');
+// ダッシュボード最上部のToDoリスト：観光施設・バス駐車場等の対応期限を持つ全件を
+// 期限が近い順に表示し、チェックで完了扱いにできる（完了分は下部にまとめて表示）
+async function renderDashboardTodoList(){
+  const el = document.getElementById('db-todo-list');
   if(!el) return;
-  const {items, buckets, error} = await fetchFacilityDeadlineItems();
+  const {bucketsFull, completed, incompleteAll, error} = await fetchFacilityDeadlineItems(null);
   if(error){ el.innerHTML = '<div style="color:var(--red);font-size:12px">読み込みエラー: '+escHtml(error.message)+'</div>'; return; }
-  if(items.length === 0){
-    el.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:4px 0">対応期限日が7日以内（または超過）の観光施設・バス駐車場等予約はありません。</div>';
+  if((!incompleteAll || incompleteAll.length===0) && (!completed || completed.length===0)){
+    el.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:4px 0">対応期限日が設定されている観光施設・バス駐車場等予約はありません。</div>';
     return;
   }
-  el.innerHTML = facilityDeadlineTableHtml(buckets);
+
+  const todoRow = (f, tierFg, done) => {
+    const bk = f._booking || {};
+    const dLabel = done ? '' : (f._days < 0 ? `期限超過${-f._days}日` : (f._days===0 ? '本日' : `あと${f._days}日`));
+    const nameStyle = done ? 'text-decoration:line-through;color:var(--text3)' : '';
+    return `<tr style="${done?'opacity:.7':''}">
+      <td style="padding:5px 6px;text-align:center"><input type="checkbox" ${done?'checked':''} onclick="event.stopPropagation();toggleFacilityTodoComplete('${f.id}', ${!done})" style="cursor:pointer;width:16px;height:16px"></td>
+      <td class="lnk" style="padding:5px 8px;white-space:nowrap;cursor:pointer" onclick="openBookingDetail('${f.booking_id}')">${escHtml(bk.ref_no||'')}</td>
+      <td style="padding:5px 8px;cursor:pointer" onclick="openBookingDetail('${f.booking_id}')">${escHtml(bk.tour_name||'')}</td>
+      <td style="padding:5px 8px;cursor:pointer;${nameStyle}" onclick="openBookingDetail('${f.booking_id}')">${escHtml(f.facility_name||'（名称未設定）')}</td>
+      <td style="padding:5px 8px;white-space:nowrap;cursor:pointer" onclick="openBookingDetail('${f.booking_id}')">${escHtml(f.deadline_date||'')}</td>
+      <td style="padding:5px 8px;text-align:center;font-weight:700;color:${done?'var(--text3)':tierFg};white-space:nowrap;cursor:pointer" onclick="openBookingDetail('${f.booking_id}')">${done?'✓ 完了':dLabel}</td>
+    </tr>`;
+  };
+
+  const bucketRows = bucketsFull.map(b=>{
+    if(b.items.length === 0) return '';
+    const sectionHd = `<tr>
+      <td colspan="6" style="padding:6px 8px 4px;background:${b.bg};border-top:2px solid ${b.border}">
+        <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:${b.fg}">
+          ${b.label} <span style="background:rgba(0,0,0,.09);padding:1px 7px;border-radius:10px">${b.items.length}件</span>
+        </span>
+      </td>
+    </tr>`;
+    return sectionHd + b.items.map(f=>todoRow(f, b.fg, false)).join('');
+  }).join('');
+
+  const completedRows = completed.length ? `<tr>
+      <td colspan="6" style="padding:6px 8px 4px;background:#f2f2f2;border-top:2px solid #ddd">
+        <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:#666">
+          ✅ 完了済み <span style="background:rgba(0,0,0,.09);padding:1px 7px;border-radius:10px">${completed.length}件</span>
+        </span>
+      </td>
+    </tr>` + completed.map(f=>todoRow(f, '#666', true)).join('') : '';
+
+  el.innerHTML = `<div class="tbl-wrap"><table style="width:100%;border-collapse:collapse;font-size:12px">
+    <colgroup>
+      <col style="width:5%"><col style="width:9%"><col style="width:23%">
+      <col style="width:26%"><col style="width:14%"><col style="width:13%">
+    </colgroup>
+    <thead><tr style="background:var(--bg)">
+      <th style="padding:4px 6px"></th>
+      <th style="padding:4px 8px;text-align:left;white-space:nowrap">REF#</th>
+      <th style="padding:4px 8px;text-align:left">ツアー名</th>
+      <th style="padding:4px 8px;text-align:left">施設名</th>
+      <th style="padding:4px 8px;text-align:left;white-space:nowrap">対応期限日</th>
+      <th style="padding:4px 8px;text-align:center;white-space:nowrap">残り</th>
+    </tr></thead>
+    <tbody>${bucketRows}${completedRows}</tbody>
+  </table></div>`;
+}
+
+async function toggleFacilityTodoComplete(facilityId, completed){
+  const {error} = await sb.from('booking_facilities').update({
+    deadline_completed: completed,
+    deadline_completed_at: completed ? new Date().toISOString() : null
+  }).eq('id', facilityId);
+  if(error){ alert('更新に失敗しました: '+error.message); return; }
+  await renderDashboardTodoList();
+  await refreshGlobalDeadlineBanner();
 }
 
 // 画面上部の常時警告バナー：ログイン後・どのページを開いていても対応期限日が近い予約の件数を表示する
@@ -2287,7 +2358,7 @@ async function refreshGlobalDeadlineBanner(){
   if(!banner) return;
   let result;
   try{
-    result = await fetchFacilityDeadlineItems();
+    result = await fetchFacilityDeadlineItems(7);
   }catch(e){
     result = { error: e };
   }
