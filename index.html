@@ -1375,8 +1375,8 @@ input[type=number]{-moz-appearance:textfield}
       <div class="tbl-wrap"><table class="li-table" style="min-width:900px">
         <thead><tr>
           <th style="width:160px">ホテル名</th>
-          <th style="width:100px">チェックイン</th>
-          <th style="width:100px">チェックアウト</th>
+          <th style="width:100px;cursor:pointer;user-select:none" onclick="sortHotelTable('check_in')">チェックイン <span id="hotel-checkin-sort-arrow"></span></th>
+          <th style="width:100px;cursor:pointer;user-select:none" onclick="sortHotelTable('check_out')">チェックアウト <span id="hotel-checkout-sort-arrow"></span></th>
           <th style="width:70px">部屋タイプ</th>
           <th style="width:35px">部屋数</th>
           <th style="width:35px">泊数</th>
@@ -1416,8 +1416,8 @@ input[type=number]{-moz-appearance:textfield}
           <th style="width:160px">バス会社</th>
           <th style="width:90px">バスタイプ</th>
           <th style="width:35px">台数</th>
-          <th style="width:100px">開始日</th>
-          <th style="width:100px">終了日</th>
+          <th style="width:100px;cursor:pointer;user-select:none" onclick="sortBusTable('start_date')">開始日 <span id="bus-start-sort-arrow"></span></th>
+          <th style="width:100px;cursor:pointer;user-select:none" onclick="sortBusTable('end_date')">終了日 <span id="bus-end-sort-arrow"></span></th>
           <th style="width:80px">金額</th>
           <th style="width:80px">ステータス</th>
           <th style="width:90px">確認番号</th>
@@ -1460,7 +1460,7 @@ input[type=number]{-moz-appearance:textfield}
         <thead><tr>
           <th style="width:160px">店名</th>
           <th style="width:70px">食事種別</th>
-          <th style="width:100px">日付</th>
+          <th style="width:100px;cursor:pointer;user-select:none" onclick="sortRestaurantTable('date')">日付 <span id="rest-date-sort-arrow"></span></th>
           <th style="width:90px">予約時刻</th>
           <th style="width:45px">人数</th>
           <th style="width:80px">金額</th>
@@ -1513,7 +1513,7 @@ input[type=number]{-moz-appearance:textfield}
     <div id="arrtab-bullet" style="display:none">
       <div class="tbl-wrap"><table class="li-table" style="min-width:1200px">
         <thead><tr>
-          <th style="width:90px">乗車日</th>
+          <th style="width:90px;cursor:pointer;user-select:none" onclick="sortBulletTrainTable('ride_date')">乗車日 <span id="bullet-ride-date-sort-arrow"></span></th>
           <th style="width:80px">列車名</th>
           <th style="width:55px">号数</th>
           <th style="width:75px">出発駅</th>
@@ -5947,6 +5947,10 @@ function renderHotelTable(){
     }).join('');
   }
   document.getElementById('bd-hotels-total').textContent = yen(total);
+  const ciArrow = document.getElementById('hotel-checkin-sort-arrow');
+  if(ciArrow) ciArrow.textContent = bdSortArrow(hotelSortState, 'check_in');
+  const coArrow = document.getElementById('hotel-checkout-sort-arrow');
+  if(coArrow) coArrow.textContent = bdSortArrow(hotelSortState, 'check_out');
 }
 
 function hotelCalc(i){
@@ -6042,6 +6046,10 @@ function renderBusTable(){
     </tr>`).join('');
   }
   document.getElementById('bd-buses-total').textContent = yen(total);
+  const startArrow = document.getElementById('bus-start-sort-arrow');
+  if(startArrow) startArrow.textContent = bdSortArrow(busSortState, 'start_date');
+  const endArrow = document.getElementById('bus-end-sort-arrow');
+  if(endArrow) endArrow.textContent = bdSortArrow(busSortState, 'end_date');
 }
 function addBusRow(){
   bdBusItems.push({bus_company:'',bus_type:'',buses:1,start_date:'',end_date:'',amount:0,status:'問い合わせ中',confirmation_no:'',driver_hotel_name:'',driver_hotel_phone:'',driver_hotel_address:'',driver_check_in:'',driver_check_out:'',driver_hotel_amount:0,memo:''});
@@ -6310,6 +6318,8 @@ function renderRestaurantTable(){
     </tr>`).join('');
   }
   document.getElementById('bd-restaurants-total').textContent = yen(total);
+  const dateArrow = document.getElementById('rest-date-sort-arrow');
+  if(dateArrow) dateArrow.textContent = bdSortArrow(restaurantSortState, 'date');
 }
 function addRestaurantRow(){
   const b = findBookingById(currentDetailId);
@@ -6546,17 +6556,33 @@ function renderFacilityTable(){
   if(arrowEl) arrowEl.textContent = facilitySortState.field==='date' ? (facilitySortState.dir===1?'▲':'▼') : '';
 }
 // 観光施設・バス駐車場等タブの「日付」列見出しクリックによる昇順/降順ソート
-let facilitySortState = { field: null, dir: 1 };
-function sortFacilityTable(field){
-  if(facilitySortState.field === field){ facilitySortState.dir = -facilitySortState.dir; }
-  else { facilitySortState.field = field; facilitySortState.dir = 1; }
-  bdFacilityItems.sort((a,b)=>{
+// 手配管理タブ共通の列ソート処理（同じ列見出しを連続クリックすると昇順⇔降順をトグル）
+function sortBdItems(items, field, state, renderFn){
+  if(state.field === field){ state.dir = -state.dir; }
+  else { state.field = field; state.dir = 1; }
+  items.sort((a,b)=>{
     const av = a[field]||''; const bv = b[field]||'';
     if(av === bv) return 0;
-    return (av < bv ? -1 : 1) * facilitySortState.dir;
+    return (av < bv ? -1 : 1) * state.dir;
   });
-  renderFacilityTable();
+  renderFn();
 }
+function bdSortArrow(state, field){ return state.field===field ? (state.dir===1?'▲':'▼') : ''; }
+
+let facilitySortState = { field: null, dir: 1 };
+function sortFacilityTable(field){ sortBdItems(bdFacilityItems, field, facilitySortState, renderFacilityTable); }
+
+let hotelSortState = { field: null, dir: 1 };
+function sortHotelTable(field){ sortBdItems(bdHotelItems, field, hotelSortState, renderHotelTable); }
+
+let busSortState = { field: null, dir: 1 };
+function sortBusTable(field){ sortBdItems(bdBusItems, field, busSortState, renderBusTable); }
+
+let restaurantSortState = { field: null, dir: 1 };
+function sortRestaurantTable(field){ sortBdItems(bdRestaurantItems, field, restaurantSortState, renderRestaurantTable); }
+
+let bulletTrainSortState = { field: null, dir: 1 };
+function sortBulletTrainTable(field){ sortBdItems(bdBulletTrainItems, field, bulletTrainSortState, renderBulletTrainTable); }
 function addFacilityRow(){
   const b = findBookingById(currentDetailId);
   bdFacilityItems.push({facility_name:'',date:'',pax:b?b.pax||0:0,amount:0,status:'問い合わせ中',confirmation_no:'',deadline_date:'',memo:''});
@@ -6738,6 +6764,8 @@ function saveFacilityConfirm(){
 function renderBulletTrainTable(){
   const tbody = document.getElementById('bd-bullet-tbody');
   if(!tbody) return;
+  const rideDateArrow = document.getElementById('bullet-ride-date-sort-arrow');
+  if(rideDateArrow) rideDateArrow.textContent = bdSortArrow(bulletTrainSortState, 'ride_date');
   if(bdBulletTrainItems.length===0){
     tbody.innerHTML='<tr><td colspan="14" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
     return;
