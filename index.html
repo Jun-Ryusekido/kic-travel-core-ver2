@@ -7887,6 +7887,32 @@ let partnersCache = [];
 let currentPartnerEditId = null;
 const PARTNER_CATEGORIES = ['バス会社','レストラン','ホテル','その他'];
 
+// AIレスポンスからJSONを取り出してパースする防御的ヘルパー。
+// コードブロック記号(```json等)を除去した上でそのままパースを試み、
+// 失敗した場合は前置き文・説明文が混入しているとみなし、応答中の
+// 最初の[/{ から対応する]/} までの部分だけを抽出して再パースする。
+// それでも失敗した場合は、AIの応答内容が分かるエラーを投げる（誤った成功表示を防ぐため）。
+function parseAiJsonResponse(rawText){
+  const cleaned = String(rawText||'').replace(/```json|```/g,'').trim();
+  try{
+    return JSON.parse(cleaned);
+  }catch(e){
+    const arrStart = cleaned.indexOf('[');
+    const objStart = cleaned.indexOf('{');
+    let start = -1, endChar = '';
+    if(arrStart !== -1 && (objStart === -1 || arrStart < objStart)){ start = arrStart; endChar = ']'; }
+    else if(objStart !== -1){ start = objStart; endChar = '}'; }
+    if(start !== -1){
+      const end = cleaned.lastIndexOf(endChar);
+      if(end > start){
+        try{ return JSON.parse(cleaned.slice(start, end+1)); }catch(e2){ /* 抽出しても解析できず、下のエラーにフォールスルー */ }
+      }
+    }
+    const snippet = cleaned.slice(0,150);
+    throw new Error('AIの応答がJSON形式ではありませんでした。応答内容: '+snippet+(cleaned.length>150?'...':''));
+  }
+}
+
 // ===================================================
 // ホテル管理
 // ===================================================
@@ -7938,8 +7964,7 @@ async function extractHotelFromTextHm(){
     if(!response.ok){ const e = await response.json(); throw new Error(e.error||'サーバーエラー'); }
     const data = await response.json();
     const textBlock = data.content.find(b=>b.type==='text');
-    const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
-    const parsed = JSON.parse(cleaned);
+    const parsed = parseAiJsonResponse(textBlock.text);
     const hotels = Array.isArray(parsed) ? parsed : [parsed];
     statusEl.textContent = '✓ '+hotels.length+'件を読み取りました。内容を確認してください。';
     statusEl.classList.remove('ocr-loading');
@@ -7968,8 +7993,7 @@ async function extractHotelFromFileHmParsed(bodyData, statusEl){
   }
   const data = await response.json();
   const textBlock = data.content.find(b=>b.type==='text');
-  const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
-  const parsed = JSON.parse(cleaned);
+  const parsed = parseAiJsonResponse(textBlock.text);
   const hotels = Array.isArray(parsed) ? parsed : [parsed];
   statusEl.textContent = '✓ '+hotels.length+'件を読み取りました。内容を確認してください。';
   statusEl.classList.remove('ocr-loading');
