@@ -9393,20 +9393,19 @@ async function printRestaurantList(){
     return (a.reservation_time||'').localeCompare(c.reservation_time||'');
   });
 
-  const thS = 'style="border:1px solid #999;padding:6px 7px;background:#dce4f0;font-weight:700;white-space:nowrap"';
-  const tdS = 'style="border:1px solid #999;padding:6px 7px;vertical-align:top"';
-  const bl = (jp, en) => `${jp}<div style="font-size:8pt;font-weight:400;color:#555">${en}</div>`;
+  const thS = extra => `style="border:1px solid #999;padding:6px 7px;background:#dce4f0;font-weight:700;white-space:nowrap;color:#000${extra?';'+extra:''}"`;
+  const tdS = extra => `style="border:1px solid #999;padding:6px 7px;vertical-align:top;color:#000${extra?';'+extra:''}"`;
+  const bl = (jp, en) => `${jp}<div style="font-size:8pt;font-weight:400;color:#000">${en}</div>`;
   const rows = sorted.map(r=>{
     const sup = supplierByName[normName(r.restaurant_name)];
     const mealEn = MEAL_TYPE_EN[r.meal_type||'']||'';
     return `<tr>
-    <td ${tdS}>${escHtml(r.date||'')}</td>
-    <td ${tdS}>${escHtml(r.meal_type||'')}${mealEn?`<div style="font-size:8pt;color:#555">${mealEn}</div>`:''}</td>
-    <td ${tdS}>${escHtml(r.restaurant_name||'')}${sup&&(sup.address||sup.phone)?`<div style="font-size:8pt;color:#555">${escHtml(sup.address||'')}${sup.address&&sup.phone?' / ':''}${escHtml(sup.phone||'')}</div>`:''}</td>
-    <td ${tdS}>${escHtml((r.reservation_time||'').slice(0,5))}</td>
-    <td ${tdS} style="text-align:right">${r.pax?Number(r.pax)+'名':''}</td>
-    <td ${tdS}>${escHtml(r.payment_method||'')}</td>
-    <td ${tdS}>${escHtml(r.memo||'')}</td>
+    <td ${tdS()}>${escHtml(r.date||'')}</td>
+    <td ${tdS()}>${escHtml(r.meal_type||'')}${mealEn?`<div style="font-size:8pt;color:#000">${mealEn}</div>`:''}</td>
+    <td ${tdS()}>${escHtml(r.restaurant_name||'')}${sup&&(sup.address||sup.phone)?`<div style="font-size:8pt;color:#000">${escHtml(sup.address||'')}${sup.address&&sup.phone?' / ':''}${escHtml(sup.phone||'')}</div>`:''}</td>
+    <td ${tdS()}>${escHtml((r.reservation_time||'').slice(0,5))}</td>
+    <td ${tdS('text-align:right')}>${r.pax?Number(r.pax)+'名':''}</td>
+    <td ${tdS()}>${escHtml(r.payment_method||'')}</td>
   </tr>`;
   }).join('');
 
@@ -9419,13 +9418,12 @@ async function printRestaurantList(){
     </div>
     <table style="width:100%;border-collapse:collapse;font-size:10pt">
       <thead><tr>
-        <th ${thS} style="width:78px">${bl('日付','Date')}</th>
-        <th ${thS} style="width:64px">${bl('食事種別','Meal')}</th>
-        <th ${thS}>${bl('店名','Restaurant')}</th>
-        <th ${thS} style="width:56px">${bl('予約時刻','Time')}</th>
-        <th ${thS} style="width:50px">${bl('人数','Pax')}</th>
-        <th ${thS} style="width:76px">${bl('支払方法','Payment')}</th>
-        <th ${thS} style="width:130px">${bl('備考','Notes')}</th>
+        <th ${thS('width:82px')}>${bl('日付','Date')}</th>
+        <th ${thS('width:70px')}>${bl('食事種別','Meal')}</th>
+        <th ${thS()}>${bl('店名','Restaurant')}</th>
+        <th ${thS('width:62px')}>${bl('予約時刻','Time')}</th>
+        <th ${thS('width:55px')}>${bl('人数','Pax')}</th>
+        <th ${thS('width:85px')}>${bl('支払方法','Payment')}</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
