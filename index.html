@@ -25,6 +25,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Hiragino Kaku Goth
 .login-hint{font-size:10px;color:var(--text3);margin-top:14px;text-align:center;line-height:1.6}
 #screen-app{display:none}
 .app{display:flex;min-height:100vh}
+body.has-deadline-banner .app{margin-top:34px}
 .sb{width:200px;min-width:200px;background:var(--card);border-right:1px solid var(--border);display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
 .sb-logo{padding:14px 14px 10px;border-bottom:1px solid var(--border)}
 .sb-logo-main{font-size:13px;font-weight:600;color:var(--blue)}
@@ -448,6 +449,11 @@ input[type=number]{-moz-appearance:textfield}
 
 <!-- ===== APP ===== -->
 <div id="screen-app">
+<div id="global-deadline-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:150;padding:8px 20px;font-size:12px;font-weight:600;cursor:pointer;align-items:center;justify-content:space-between" onclick="toggleGlobalDeadlineDetail()">
+  <span id="global-deadline-banner-text"></span>
+  <span style="font-size:11px;font-weight:400;opacity:.85">クリックで詳細表示 ▾</span>
+</div>
+<div id="global-deadline-detail" style="display:none;position:fixed;top:34px;left:0;right:0;z-index:150;background:#fff;border-bottom:1px solid var(--border);max-height:320px;overflow-y:auto;box-shadow:0 4px 10px rgba(0,0,0,.15)"></div>
 <div class="app">
   <div class="sb" id="sidebar">
     <div class="sb-logo">
@@ -1937,6 +1943,8 @@ function applyLoggedInUI(data){
   });
   const backupWrap = document.getElementById('backup-btn-wrap');
   if(backupWrap) backupWrap.style.display = isBackupUser() ? '' : 'none';
+
+  refreshGlobalDeadlineBanner();
 }
 
 async function changePassword(){
@@ -2183,19 +2191,27 @@ function renderDbArrivalAlert(){
 }
 
 // 観光施設・バス駐車場等の「対応期限日」が近い（または超過した）明細をダッシュボードに一覧表示
-async function renderDbFacilityDeadlineAlert(){
-  const el = document.getElementById('db-facility-deadline');
-  if(!el) return;
+const FACILITY_DEADLINE_TIERS = [
+  { test:d=>d<=0,          label:'🔴 期限当日・超過', bg:'#fde8ea', fg:'#c0392b', border:'#f5c6cb' },
+  { test:d=>d===1,         label:'🟠 期限前日',       bg:'#fff0e6', fg:'#d35400', border:'#ffd9b3' },
+  { test:d=>d===2||d===3,  label:'🟡 期限3日以内',     bg:'#fffae6', fg:'#b8860b', border:'#ffe08a' },
+  { test:d=>d>=4&&d<=7,    label:'⚪ 期限7日以内',     bg:'#f2f2f2', fg:'#666666', border:'#dddddd' },
+];
+
+// 観光施設・バス駐車場等の対応期限日が近い（または超過した）明細を取得し、
+// ダッシュボードのカード・画面上部の常時バナーの両方で共有する
+async function fetchFacilityDeadlineItems(){
   const today = new Date(); today.setHours(0,0,0,0);
-  const todayStr = today.toISOString().slice(0,10);
   const inDays = dateStr => Math.floor((new Date(dateStr+'T00:00:00') - today) / 86400000);
+
+  if(!allBookingsCache.length) allBookingsCache = await fetchAllBookings();
 
   // 全ブッキングの観光施設明細のうち対応期限日が設定されているものを、1000件上限のページングで全件取得
   let facRows = [], from = 0;
   const PAGE = 1000;
   while(true){
     const {data: page, error} = await sb.from('booking_facilities').select('id,booking_id,facility_name,date,status,deadline_date').not('deadline_date','is',null).range(from, from+PAGE-1);
-    if(error){ el.innerHTML = '<div style="color:var(--red);font-size:12px">読み込みエラー: '+escHtml(error.message)+'</div>'; return; }
+    if(error) return { error };
     facRows = facRows.concat(page||[]);
     if(!page || page.length < PAGE) break;
     from += PAGE;
@@ -2218,21 +2234,12 @@ async function renderDbFacilityDeadlineAlert(){
     })
     .sort((a,b)=> a._days - b._days);
 
-  if(items.length === 0){
-    el.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:4px 0">対応期限日が7日以内（または超過）の観光施設・バス駐車場等予約はありません。</div>';
-    return;
-  }
+  const buckets = FACILITY_DEADLINE_TIERS.map(t => ({ ...t, items: items.filter(f=>t.test(f._days)) }));
+  return { items, buckets };
+}
 
-  const tiers = [
-    { test:d=>d<=0,          label:'🔴 期限当日・超過', bg:'#fde8ea', fg:'#c0392b', border:'#f5c6cb' },
-    { test:d=>d===1,         label:'🟠 期限前日',       bg:'#fff0e6', fg:'#d35400', border:'#ffd9b3' },
-    { test:d=>d===2||d===3,  label:'🟡 期限3日以内',     bg:'#fffae6', fg:'#b8860b', border:'#ffe08a' },
-    { test:d=>d>=4&&d<=7,    label:'⚪ 期限7日以内',     bg:'#f2f2f2', fg:'#666666', border:'#dddddd' },
-  ];
-
-  const buckets = tiers.map(t => ({ ...t, items: items.filter(f=>t.test(f._days)) }));
-
-  const tbodyRows = buckets.map(b=>{
+function facilityDeadlineRowsHtml(buckets){
+  return buckets.map(b=>{
     if(b.items.length === 0) return '';
     const sectionHd = `<tr>
       <td colspan="5" style="padding:6px 8px 4px;background:${b.bg};border-top:2px solid ${b.border}">
@@ -2254,8 +2261,10 @@ async function renderDbFacilityDeadlineAlert(){
     }).join('');
     return sectionHd + rows;
   }).join('');
+}
 
-  el.innerHTML = `<div class="tbl-wrap"><table style="width:100%;border-collapse:collapse;font-size:12px">
+function facilityDeadlineTableHtml(buckets){
+  return `<div class="tbl-wrap"><table style="width:100%;border-collapse:collapse;font-size:12px">
     <colgroup>
       <col style="width:10%">
       <col style="width:25%">
@@ -2270,8 +2279,70 @@ async function renderDbFacilityDeadlineAlert(){
       <th style="padding:4px 8px;text-align:left;white-space:nowrap">対応期限日</th>
       <th style="padding:4px 8px;text-align:center;white-space:nowrap">残り</th>
     </tr></thead>
-    <tbody>${tbodyRows}</tbody>
+    <tbody>${facilityDeadlineRowsHtml(buckets)}</tbody>
   </table></div>`;
+}
+
+async function renderDbFacilityDeadlineAlert(){
+  const el = document.getElementById('db-facility-deadline');
+  if(!el) return;
+  const {items, buckets, error} = await fetchFacilityDeadlineItems();
+  if(error){ el.innerHTML = '<div style="color:var(--red);font-size:12px">読み込みエラー: '+escHtml(error.message)+'</div>'; return; }
+  if(items.length === 0){
+    el.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:4px 0">対応期限日が7日以内（または超過）の観光施設・バス駐車場等予約はありません。</div>';
+    return;
+  }
+  el.innerHTML = facilityDeadlineTableHtml(buckets);
+}
+
+// 画面上部の常時警告バナー：ログイン後・どのページを開いていても対応期限日が近い予約の件数を表示する
+async function refreshGlobalDeadlineBanner(){
+  const banner = document.getElementById('global-deadline-banner');
+  const detail = document.getElementById('global-deadline-detail');
+  if(!banner) return;
+  let result;
+  try{
+    result = await fetchFacilityDeadlineItems();
+  }catch(e){
+    result = { error: e };
+  }
+  if(result.error){
+    // deadline_dateカラム未追加等、DBスキーマ起因のエラー時はバナーを出さず静かに諦める
+    console.warn('対応期限日アラートの取得に失敗しました:', result.error.message||result.error);
+    banner.style.display = 'none';
+    detail.style.display = 'none';
+    document.body.classList.remove('has-deadline-banner');
+    return;
+  }
+  const { items, buckets } = result;
+  window._globalDeadlineBuckets = buckets;
+  if(!items.length){
+    banner.style.display = 'none';
+    detail.style.display = 'none';
+    detail.innerHTML = '';
+    document.body.classList.remove('has-deadline-banner');
+    return;
+  }
+  const urgentCount = items.filter(f=>f._days <= 1).length; // 当日・超過・前日は緊急扱い
+  const isUrgent = urgentCount > 0;
+  banner.style.background = isUrgent ? '#fde8ea' : '#fffae6';
+  banner.style.color = isUrgent ? '#c0392b' : '#8a6d00';
+  banner.style.borderBottom = isUrgent ? '1px solid #f5c6cb' : '1px solid #ffe08a';
+  document.getElementById('global-deadline-banner-text').textContent =
+    `⚠ 対応が必要な予約が${items.length}件あります` + (isUrgent ? `（うち緊急${urgentCount}件）` : '');
+  banner.style.display = 'flex';
+  document.body.classList.add('has-deadline-banner');
+}
+
+function toggleGlobalDeadlineDetail(){
+  const detail = document.getElementById('global-deadline-detail');
+  if(!detail) return;
+  if(detail.style.display === 'block'){
+    detail.style.display = 'none';
+    return;
+  }
+  detail.innerHTML = facilityDeadlineTableHtml(window._globalDeadlineBuckets||[]);
+  detail.style.display = 'block';
 }
 
 // 全角英数記号を半角に変換（検索用）
