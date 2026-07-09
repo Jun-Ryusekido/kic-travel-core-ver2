@@ -3415,10 +3415,11 @@ function sanitizeDateField(d){ return (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) ? d :
 
 async function saveLocalExpenses(){
   if(!currentDetailId) return;
-  const {error: delErr} = await sb.from('local_expenses').delete().eq('booking_id', currentDetailId);
+  const bookingId = currentDetailId; // await中のcurrentDetailId変更に影響されないようスナップショットを保持
+  const {error: delErr} = await sb.from('local_expenses').delete().eq('booking_id', bookingId);
   if(delErr) throw new Error('現地費用明細の削除に失敗: '+delErr.message);
   const rows = bdLocalExpenses.filter(it=>it.content||it.expense_type||it.expense_date||it.category||Number(it.amount)).map((it,i)=>({
-    booking_id: currentDetailId,
+    booking_id: bookingId,
     expense_date: sanitizeDateField(it.expense_date),
     expense_type: it.expense_type||'',
     content: it.content||'',
@@ -5976,10 +5977,14 @@ function addHotelRow(){
 
 async function saveHotelItems(){
   if(!currentDetailId) return;
-  const {error: delErr} = await sb.from('booking_hotels').delete().eq('booking_id', currentDetailId);
+  // currentDetailIdはグローバル変数のため、await中に閉じる/別の予約を開く等で
+  // 値が変わる可能性がある。保存処理の間はこのローカル変数のスナップショットを使い、
+  // booking_idがnullのまま保存されてしまう不具合(#782で発生)を防ぐ。
+  const bookingId = currentDetailId;
+  const {error: delErr} = await sb.from('booking_hotels').delete().eq('booking_id', bookingId);
   if(delErr) throw new Error('ホテル明細の削除に失敗: '+delErr.message);
   const rows = bdHotelItems.filter(it=>it.hotel_name||it.room_type||it.check_in||it.check_out||it.amount||it.confirmation_no||it.memo||it.breakfast).map((it,i)=>({
-    booking_id: currentDetailId,
+    booking_id: bookingId,
     hotel_name: it.hotel_name||'',
     check_in: sanitizeDateField(it.check_in),
     check_out: sanitizeDateField(it.check_out),
@@ -6059,10 +6064,11 @@ function addBusRow(){
 }
 async function saveBusItems(){
   if(!currentDetailId) return;
-  const {error: delErr} = await sb.from('booking_buses').delete().eq('booking_id', currentDetailId);
+  const bookingId = currentDetailId; // await中のcurrentDetailId変更に影響されないようスナップショットを保持
+  const {error: delErr} = await sb.from('booking_buses').delete().eq('booking_id', bookingId);
   if(delErr) throw new Error('バス明細の削除に失敗: '+delErr.message);
   const rows = bdBusItems.filter(it=>it.bus_company||it.bus_type||it.start_date||it.end_date||it.amount||it.confirmation_no||it.driver_hotel_name||it.driver_hotel_phone||it.driver_hotel_address||it.driver_check_in||it.driver_check_out||it.driver_hotel_amount||it.memo).map(it=>({
-    booking_id: currentDetailId,
+    booking_id: bookingId,
     bus_company: it.bus_company||'', bus_type: it.bus_type||'',
     buses: Number(it.buses)||1,
     start_date: sanitizeDateField(it.start_date), end_date: sanitizeDateField(it.end_date),
@@ -6361,10 +6367,14 @@ function generateRestaurantTemplateRowsClick(){
 }
 async function saveRestaurantItems(){
   if(!currentDetailId) return;
-  const {error: delErr} = await sb.from('booking_restaurants').delete().eq('booking_id', currentDetailId);
+  // currentDetailIdはグローバル変数のため、削除〜挿入のawaitの間に予約を閉じる/切り替える等の
+  // 操作が挟まるとnullに変わってしまい、booking_idがnullのまま保存されようとして
+  // not-null制約違反になる不具合があった(#782で発生)。ローカルにスナップショットして防止する。
+  const bookingId = currentDetailId;
+  const {error: delErr} = await sb.from('booking_restaurants').delete().eq('booking_id', bookingId);
   if(delErr) throw new Error('レストラン明細の削除に失敗: '+delErr.message);
   const rows = bdRestaurantItems.filter(it=>it.restaurant_name||it.date||it.reservation_time||it.amount||it.payment_method||it.memo).map(it=>({
-    booking_id: currentDetailId,
+    booking_id: bookingId,
     restaurant_name: it.restaurant_name||'', meal_type: it.meal_type||'昼食',
     date: sanitizeDateField(it.date), pax: Number(it.pax)||0,
     amount: Number(it.amount)||0,
@@ -6593,10 +6603,11 @@ function addFacilityRow(){
 }
 async function saveFacilityItems(){
   if(!currentDetailId) return;
-  const {error: delErr} = await sb.from('booking_facilities').delete().eq('booking_id', currentDetailId);
+  const bookingId = currentDetailId; // await中のcurrentDetailId変更に影響されないようスナップショットを保持
+  const {error: delErr} = await sb.from('booking_facilities').delete().eq('booking_id', bookingId);
   if(delErr) throw new Error('観光施設明細の削除に失敗: '+delErr.message);
   const rows = bdFacilityItems.filter(it=>it.facility_name||it.date||it.amount||it.confirmation_no||it.deadline_date||it.payment_method||it.memo).map(it=>({
-    booking_id: currentDetailId,
+    booking_id: bookingId,
     facility_name: it.facility_name||'',
     date: sanitizeDateField(it.date), pax: Number(it.pax)||0,
     amount: Number(it.amount)||0,
@@ -7139,6 +7150,11 @@ async function reflectHotelsToCost(){
 }
 async function saveBookingDetail(){
   if(!currentDetailId) return;
+  // currentDetailIdはグローバル変数のため、保存処理中の複数のawaitの間に
+  // モーダルを閉じる/別の予約を開く等の操作が挟まるとnullや別のIDに変わってしまい、
+  // 明細がnullのbooking_idで保存されようとして失敗する不具合があった(#782で発生)。
+  // 以降はこのローカルスナップショットを使用する。
+  const bookingId = currentDetailId;
 
   // 売上・仕入明細が全削除されている場合に警告
   if(originalSalesCount > 0 && bdSalesItems.length === 0){
@@ -7201,7 +7217,7 @@ async function saveBookingDetail(){
   };
   try {
     // .select()を付けることで更新が実際に反映されたか検証（v2はselect()なしだと0行更新でもerror:nullを返す）
-    const {data: updatedRows, error} = await sb.from('bookings').update(payload).eq('id', currentDetailId).select();
+    const {data: updatedRows, error} = await sb.from('bookings').update(payload).eq('id', bookingId).select();
     if(error){ alert('保存に失敗しました: '+error.message); return; }
     if(!updatedRows || updatedRows.length === 0){
       alert('保存に失敗しました: 更新対象の予約が見つかりませんでした。ページを再読み込みして再度お試しください。');
@@ -7209,18 +7225,18 @@ async function saveBookingDetail(){
     }
 
     // 明細の同期（既存削除→再挿入）
-    const {error: salesDelErr} = await sb.from('booking_sales').delete().eq('booking_id', currentDetailId);
+    const {error: salesDelErr} = await sb.from('booking_sales').delete().eq('booking_id', bookingId);
     if(salesDelErr) throw new Error('売上明細の削除に失敗: '+salesDelErr.message);
-    const {error: costsDelErr} = await sb.from('booking_costs').delete().eq('booking_id', currentDetailId);
+    const {error: costsDelErr} = await sb.from('booking_costs').delete().eq('booking_id', bookingId);
     if(costsDelErr) throw new Error('仕入明細の削除に失敗: '+costsDelErr.message);
 
     const salesToInsert = bdSalesItems.filter(it=>it.item_name||Number(it.amount)||it.memo||it.agent_name||it.payment_date||(it.payments&&it.payments.length)).map(it=>({
-      booking_id: currentDetailId, item_name: it.item_name||'', memo: it.memo||null, unit_price: Number(it.unit_price)||0,
+      booking_id: bookingId, item_name: it.item_name||'', memo: it.memo||null, unit_price: Number(it.unit_price)||0,
       qty: Number(it.qty)||1, amount: Number(it.amount)||0, payment_date: sanitizeDateField(it.payment_date),
       agent_name: it.agent_name||null, payments: it.payments||[]
     }));
     const costToInsert = bdCostItems.filter(it=>it.item_name||Number(it.amount)||it.memo||it.payment_date).map(it=>({
-      booking_id: currentDetailId, item_name: it.item_name||'', amount: Number(it.amount)||0,
+      booking_id: bookingId, item_name: it.item_name||'', amount: Number(it.amount)||0,
       payment_date: sanitizeDateField(it.payment_date), memo: it.memo||'', status: it.status||'pending'
     }));
     if(salesToInsert.length){
@@ -7232,8 +7248,8 @@ async function saveBookingDetail(){
       if(costsInsErr) throw new Error('仕入明細の保存に失敗: '+costsInsErr.message);
     }
 
-    const bForSync = findBookingById(currentDetailId);
-    if(bForSync) await syncAdvancePaymentsFromCosts(currentDetailId, bForSync.ref_no);
+    const bForSync = findBookingById(bookingId);
+    if(bForSync) await syncAdvancePaymentsFromCosts(bookingId, bForSync.ref_no);
 
     for(const it of costToInsert){
       if(it.item_name) await registerNewSupplier(it.item_name);
@@ -7244,8 +7260,8 @@ async function saveBookingDetail(){
     await saveRestaurantItems();
     await saveFacilityItems();
     await saveBulletTrainItems();
-    const b = findBookingById(currentDetailId);
-    await logAction('予約編集', b ? b.ref_no : currentDetailId);
+    const b = findBookingById(bookingId);
+    await logAction('予約編集', b ? b.ref_no : bookingId);
 
     // キャッシュ更新 & 再描画（キャッシュに存在する場合のみ更新）
     if(b) Object.assign(b, payload);
@@ -7264,7 +7280,7 @@ async function saveBookingDetail(){
     // 入金合計が売上合計以上になったらInvoiceをpaidに自動更新
     const totalPaidNow = bdSalesItems.reduce((s,it)=>s+(it.payments||[]).reduce((ps,p)=>ps+(Number(p.amount)||0),0),0);
     if(totalPaidNow>0 && totalPaidNow>=totalSales){
-      await sb.from('invoices').update({status:'paid'}).eq('booking_id', currentDetailId).eq('status','pending');
+      await sb.from('invoices').update({status:'paid'}).eq('booking_id', bookingId).eq('status','pending');
     }
   } catch(e) {
     alert('保存中にエラーが発生しました: ' + (e.message || String(e)));
