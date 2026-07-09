@@ -1499,6 +1499,7 @@ input[type=number]{-moz-appearance:textfield}
     <div class="modal-section-title">手配書</div>
     <div id="bd-arrangements" style="margin-bottom:6px"></div>
     <button class="btn" style="font-size:10px" onclick="openArrangementEditor(null)">＋ 新規手配書作成</button>
+    <button class="btn" style="font-size:10px;background:#F0F6FF;border-color:#7CB3E8;color:#004A9F" onclick="printArrangementSummaryList()">🖨 手配一覧PDF出力</button>
 
 
     <div class="modal-section-title">関連Invoice</div>
@@ -9983,6 +9984,108 @@ async function printFacilityList(){
   const win = window.open('','_blank','width=1100,height=700');
   if(!win){ alert('ポップアップがブロックされました。ブラウザの設定を確認してください。'); return; }
   win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><style>@page{size:A4 portrait;margin:14mm}body{margin:0;padding:0}table{page-break-inside:auto}tr{page-break-inside:avoid}</style></head><body>${html}<script>window.onload=()=>{window.print();window.close()}<\/script></body></html>`);
+  win.document.close();
+}
+
+// 手配書セクション用：ホテル・バス・観光施設/バス駐車場等・新幹線の手配内容をまとめてA4一枚のPDFに出力する
+async function printArrangementSummaryList(){
+  const hasAny = (bdHotelItems&&bdHotelItems.length) || (bdBusItems&&bdBusItems.length) || (bdFacilityItems&&bdFacilityItems.length) || (bdBulletTrainItems&&bdBulletTrainItems.length);
+  if(!hasAny){ alert('ホテル・バス・観光施設・新幹線のいずれの手配データもありません'); return; }
+  const b = findBookingById(currentDetailId)||{};
+  const guideName = document.getElementById('arr-guide-name')?.value.trim()||'';
+  const guidePhone = document.getElementById('arr-guide-phone')?.value.trim()||'';
+  const tourName = b.tour_name||b.ref_no||'';
+  const period = [b.in_date, b.out_date].filter(Boolean).join(' ～ ');
+
+  const thS = extra => `style="border:1px solid #999;padding:4px 5px;background:#dce4f0;font-weight:700;white-space:nowrap;color:#000;font-size:8.5pt${extra?';'+extra:''}"`;
+  const tdS = extra => `style="border:1px solid #999;padding:4px 5px;vertical-align:top;color:#000;font-size:8.5pt${extra?';'+extra:''}"`;
+  const sectionTitle = t => `<div style="font-size:11pt;font-weight:700;margin:10px 0 4px;padding-bottom:2px;border-bottom:2px solid #333">${t}</div>`;
+
+  let sections = '';
+
+  if(bdHotelItems && bdHotelItems.length){
+    const sorted = [...bdHotelItems].sort((a,c)=>(a.check_in||'').localeCompare(c.check_in||''));
+    const rows = sorted.map(h=>`<tr>
+      <td ${tdS()}>${escHtml(h.hotel_name||'')}</td>
+      <td ${tdS()}>${escHtml(h.check_in||'')}</td>
+      <td ${tdS()}>${escHtml(h.check_out||'')}</td>
+      <td ${tdS()}>${escHtml(h.room_type||'')}</td>
+      <td ${tdS('text-align:right')}>${h.rooms||''}</td>
+      <td ${tdS()}>${escHtml(h.confirmation_no||'')}</td>
+      <td ${tdS()}>${escHtml(h.status||'')}</td>
+    </tr>`).join('');
+    sections += sectionTitle('🏨 ホテル / Hotels') + `<table style="width:100%;border-collapse:collapse;margin-bottom:6px">
+      <thead><tr>
+        <th ${thS()}>ホテル名</th><th ${thS('width:70px')}>チェックイン</th><th ${thS('width:70px')}>チェックアウト</th>
+        <th ${thS('width:60px')}>部屋タイプ</th><th ${thS('width:40px')}>部屋数</th><th ${thS('width:70px')}>確認番号</th><th ${thS('width:60px')}>ステータス</th>
+      </tr></thead><tbody>${rows}</tbody></table>`;
+  }
+
+  if(bdBusItems && bdBusItems.length){
+    const sorted = [...bdBusItems].sort((a,c)=>(a.start_date||'').localeCompare(c.start_date||''));
+    const rows = sorted.map(bu=>`<tr>
+      <td ${tdS()}>${escHtml(bu.bus_company||'')}</td>
+      <td ${tdS()}>${escHtml(bu.bus_type||'')}</td>
+      <td ${tdS('text-align:right')}>${bu.buses||''}</td>
+      <td ${tdS()}>${escHtml(bu.start_date||'')}</td>
+      <td ${tdS()}>${escHtml(bu.end_date||'')}</td>
+      <td ${tdS()}>${escHtml(bu.confirmation_no||'')}</td>
+      <td ${tdS()}>${escHtml(bu.status||'')}</td>
+    </tr>`).join('');
+    sections += sectionTitle('🚌 バス / Bus') + `<table style="width:100%;border-collapse:collapse;margin-bottom:6px">
+      <thead><tr>
+        <th ${thS()}>バス会社</th><th ${thS('width:70px')}>バスタイプ</th><th ${thS('width:35px')}>台数</th>
+        <th ${thS('width:70px')}>開始日</th><th ${thS('width:70px')}>終了日</th><th ${thS('width:70px')}>確認番号</th><th ${thS('width:60px')}>ステータス</th>
+      </tr></thead><tbody>${rows}</tbody></table>`;
+  }
+
+  if(bdFacilityItems && bdFacilityItems.length){
+    const sorted = [...bdFacilityItems].sort((a,c)=>(a.date||'').localeCompare(c.date||''));
+    const rows = sorted.map(f=>`<tr>
+      <td ${tdS()}>${escHtml(f.date||'')}</td>
+      <td ${tdS()}>${escHtml(f.facility_name||'')}</td>
+      <td ${tdS('text-align:right')}>${f.pax?Number(f.pax)+'名':''}</td>
+      <td ${tdS()}>${escHtml(f.confirmation_no||'')}</td>
+      <td ${tdS()}>${escHtml(f.payment_method||'')}</td>
+      <td ${tdS()}>${escHtml(f.status||'')}</td>
+    </tr>`).join('');
+    sections += sectionTitle('🎡 観光施設・バス駐車場等 / Sightseeing &amp; Parking') + `<table style="width:100%;border-collapse:collapse;margin-bottom:6px">
+      <thead><tr>
+        <th ${thS('width:70px')}>日付</th><th ${thS()}>施設名</th><th ${thS('width:45px')}>人数</th>
+        <th ${thS('width:70px')}>確認番号</th><th ${thS('width:70px')}>支払方法</th><th ${thS('width:60px')}>ステータス</th>
+      </tr></thead><tbody>${rows}</tbody></table>`;
+  }
+
+  if(bdBulletTrainItems && bdBulletTrainItems.length){
+    const sorted = [...bdBulletTrainItems].sort((a,c)=>(a.ride_date||'').localeCompare(c.ride_date||''));
+    const rows = sorted.map(t=>`<tr>
+      <td ${tdS()}>${escHtml(t.ride_date||'')}</td>
+      <td ${tdS()}>${escHtml(t.train_name||'')}${t.train_number?(' '+escHtml(t.train_number)):''}</td>
+      <td ${tdS()}>${escHtml(t.departure_station||'')}${t.departure_time?(' '+escHtml(t.departure_time.slice(0,5))):''}</td>
+      <td ${tdS()}>${escHtml(t.arrival_station||'')}${t.arrival_time?(' '+escHtml(t.arrival_time.slice(0,5))):''}</td>
+      <td ${tdS('text-align:right')}>${(t.pax_adult||0)+(t.pax_child||0)+(t.pax_free||0)}名</td>
+      <td ${tdS()}>${escHtml(t.status||'')}</td>
+    </tr>`).join('');
+    sections += sectionTitle('🚅 新幹線 / Bullet Train') + `<table style="width:100%;border-collapse:collapse;margin-bottom:6px">
+      <thead><tr>
+        <th ${thS('width:70px')}>乗車日</th><th ${thS()}>列車</th><th ${thS()}>出発</th><th ${thS()}>到着</th>
+        <th ${thS('width:45px')}>人数</th><th ${thS('width:60px')}>ステータス</th>
+      </tr></thead><tbody>${rows}</tbody></table>`;
+  }
+
+  const html = `<div style="font-family:'Meiryo','Noto Sans JP',sans-serif;font-size:10pt;color:#000">
+    <div style="font-size:15pt;font-weight:700;letter-spacing:0.05em;margin-bottom:8px">手配一覧表 / Arrangement Summary</div>
+    <div style="font-size:9.5pt;line-height:1.7;margin-bottom:6px">
+      <div>ツアー番号 / Tour No.：${escHtml(tourName)}</div>
+      <div>ガイド名 / Guide：${escHtml(guideName)}${guidePhone?'　TEL：'+escHtml(guidePhone):''}</div>
+      <div>ツアー期間 / Period：${escHtml(period)}</div>
+    </div>
+    ${sections}
+  </div>`;
+
+  const win = window.open('','_blank','width=1100,height=700');
+  if(!win){ alert('ポップアップがブロックされました。ブラウザの設定を確認してください。'); return; }
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><style>@page{size:A4 portrait;margin:12mm}body{margin:0;padding:0}table{page-break-inside:auto}tr{page-break-inside:avoid}</style></head><body>${html}<script>window.onload=()=>{window.print();window.close()}<\/script></body></html>`);
   win.document.close();
 }
 
