@@ -5921,6 +5921,39 @@ function toggleBusOcrArea(){
   if(a) a.style.display=a.style.display==='none'?'':'none';
 }
 
+// AIの応答でチェックイン/アウト日が空欄だった場合に備え、原文から直接
+// 「チェックイン」「チェックアウト」等のキーワード付近の日付をフォールバック抽出する
+function fallbackExtractHotelDate(text, keywords){
+  const lines = String(text||'').split(/\r?\n/);
+  for(const line of lines){
+    if(!keywords.some(k=>line.includes(k))) continue;
+    const m = line.match(/(\d{4})[年\/\-.](\d{1,2})[月\/\-.](\d{1,2})日?/) || line.match(/(\d{1,2})[月\/\-](\d{1,2})日?/);
+    if(!m) continue;
+    if(m.length===4){
+      return `${m[1]}-${String(m[2]).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}`;
+    } else {
+      // 年が省略されている場合、原文中の別の西暦（4桁年）を探して補う
+      const yearMatch = String(text||'').match(/(\d{4})年/) || String(text||'').match(/(\d{4})[\/\-]\d{1,2}[\/\-]\d{1,2}/);
+      const year = yearMatch ? yearMatch[1] : new Date().getFullYear();
+      return `${year}-${String(m[1]).padStart(2,'0')}-${String(m[2]).padStart(2,'0')}`;
+    }
+  }
+  return '';
+}
+function fillMissingDriverHotelDates(buses, sourceText){
+  buses.forEach(b=>{
+    if(b.driver_hotel_name && !b.driver_check_in){
+      const found = fallbackExtractHotelDate(sourceText, ['チェックイン','宿泊日','IN:','IN：']);
+      if(found) b.driver_check_in = found;
+    }
+    if(b.driver_hotel_name && !b.driver_check_out){
+      const found = fallbackExtractHotelDate(sourceText, ['チェックアウト','退室日','OUT:','OUT：']);
+      if(found) b.driver_check_out = found;
+    }
+  });
+  return buses;
+}
+
 async function extractBusFromText(){
   const text=(document.getElementById('bus-ocr-text')||{}).value||'';
   if(!text.trim()){ alert('テキストを入力してください'); return; }
@@ -5934,7 +5967,8 @@ async function extractBusFromText(){
     const tb=data.content.find(b=>b.type==='text');
     const cleaned=(tb.text||'').replace(/```json|```/g,'').trim();
     const parsed=JSON.parse(cleaned);
-    const buses=Array.isArray(parsed)?parsed:[parsed];
+    let buses=Array.isArray(parsed)?parsed:[parsed];
+    buses = fillMissingDriverHotelDates(buses, text);
     statusEl.textContent=`✓ ${buses.length}件を読み取りました。内容を確認してください。`;
     statusEl.classList.remove('ocr-loading');
     hideGlobalOcrBanner();
