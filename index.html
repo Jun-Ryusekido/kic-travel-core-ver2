@@ -1444,6 +1444,7 @@ input[type=number]{-moz-appearance:textfield}
         <label class="btn" style="font-size:10px;cursor:pointer">📷 カメラで撮影<input type="file" accept="image/*" capture="environment" style="display:none" onchange="extractRestaurantFromFile(event,'image')"></label>
         <button class="btn" style="font-size:10px;background:#F0F6FF;border-color:#7CB3E8;color:#004A9F" onclick="generateMealVoucherDirect()">🎫 バウチャー発行</button>
         <button class="btn" style="font-size:10px" onclick="printRestaurantList()">📋 予約一覧表</button>
+        <button class="btn" style="font-size:10px" onclick="generateRestaurantTemplateRowsClick()">📅 期間分の空行を生成</button>
         <span id="rest-file-status" style="font-size:11px;color:var(--text3)"></span>
       </div>
       <div id="rest-ocr-area" style="display:none;margin-bottom:8px;border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--bg)">
@@ -3473,6 +3474,8 @@ async function openBookingDetail(id){
   ]);
   bdBusItems = (busRows||[]).map(r=>({bus_company:r.bus_company||'',bus_type:r.bus_type||'',buses:r.buses||1,start_date:r.start_date||'',end_date:r.end_date||'',amount:r.amount||0,status:r.status||'問い合わせ中',confirmation_no:r.confirmation_no||'',driver_hotel_name:r.driver_hotel_name||'',driver_hotel_phone:r.driver_hotel_phone||'',driver_hotel_address:r.driver_hotel_address||'',driver_check_in:r.driver_check_in||'',driver_check_out:r.driver_check_out||'',driver_hotel_amount:r.driver_hotel_amount||0,memo:r.memo||''}));
   bdRestaurantItems = (restRows||[]).map(r=>({restaurant_name:r.restaurant_name||'',meal_type:r.meal_type||'昼食',date:r.date||'',reservation_time:r.reservation_time||'',pax:r.pax||0,amount:r.amount||0,status:r.status||'問い合わせ中',payment_method:r.payment_method||'',memo:r.memo||''}));
+  // レストラン明細が空の場合、到着日〜出発日の期間分の昼食・夕食の空行をあらかじめ用意しておく
+  if(bdRestaurantItems.length===0) generateRestaurantTemplateRows(b);
   bdFacilityItems = (facRows||[]).map(r=>({facility_name:r.facility_name||'',date:r.date||'',pax:r.pax||0,amount:r.amount||0,status:r.status||'問い合わせ中',confirmation_no:r.confirmation_no||'',deadline_date:r.deadline_date||'',memo:r.memo||''}));
   bdBulletTrainItems = (btRows||[]).map(r=>({ride_date:r.ride_date||'',train_name:r.train_name||'',train_number:r.train_number||'',departure_station:r.departure_station||'',departure_time:r.departure_time||'',arrival_station:r.arrival_station||'',arrival_time:r.arrival_time||'',pax_adult:r.pax_adult||0,pax_child:r.pax_child||0,pax_free:r.pax_free||0,discount_rate:r.discount_rate||0,status:r.status||'回答待ち',memo:r.memo||''}));
   renderBusTable(); renderRestaurantTable(); renderFacilityTable(); renderBulletTrainTable();
@@ -6252,6 +6255,37 @@ function addRestaurantRow(){
   const b = findBookingById(currentDetailId);
   bdRestaurantItems.push({restaurant_name:'',meal_type:'昼食',date:'',reservation_time:'',pax:b?b.pax||0:0,amount:0,status:'問い合わせ中',payment_method:'',memo:''});
   renderRestaurantTable();
+}
+// 到着日〜出発日の期間分、各日「昼食」「夕食」の空行をあらかじめ用意する。
+// 既存の行（店名入力済み・自動生成済み問わず）は壊さず、同じ日付・食事種別の
+// 組み合わせがまだ存在しない分だけを追加する（何度呼んでも重複しない）。
+function generateRestaurantTemplateRows(b){
+  if(!b || !b.in_date || !b.out_date) return;
+  const start = new Date(b.in_date+'T00:00:00');
+  const end = new Date(b.out_date+'T00:00:00');
+  if(isNaN(start) || isNaN(end) || start > end) return;
+  const existing = new Set(bdRestaurantItems.map(it=>(it.date||'')+'|'+(it.meal_type||'')));
+  const pax = b.pax||0;
+  const newRows = [];
+  const fmtLocalDate = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  for(let d = new Date(start); d <= end; d.setDate(d.getDate()+1)){
+    const dateStr = fmtLocalDate(d);
+    ['昼食','夕食'].forEach(mealType=>{
+      const key = dateStr+'|'+mealType;
+      if(existing.has(key)) return;
+      newRows.push({restaurant_name:'',meal_type:mealType,date:dateStr,reservation_time:'',pax,amount:0,status:'問い合わせ中',payment_method:'',memo:''});
+    });
+  }
+  bdRestaurantItems.push(...newRows);
+}
+function generateRestaurantTemplateRowsClick(){
+  const b = findBookingById(currentDetailId);
+  if(!b || !b.in_date || !b.out_date){ alert('到着日・出発日が設定されていないため、テンプレートを生成できません。'); return; }
+  const before = bdRestaurantItems.length;
+  generateRestaurantTemplateRows(b);
+  const added = bdRestaurantItems.length - before;
+  renderRestaurantTable();
+  alert(added>0 ? added+'件の空行を追加しました。' : '追加する行はありませんでした（既に全ての日付・食事種別が揃っています）。');
 }
 async function saveRestaurantItems(){
   if(!currentDetailId) return;
