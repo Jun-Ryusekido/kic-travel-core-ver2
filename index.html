@@ -9367,22 +9367,23 @@ async function printRestaurantList(){
   const period = [b.in_date, b.out_date].filter(Boolean).join(' ～ ');
 
   // 店名の全角/半角ゆれ（例: ＆ vs &）を吸収するため、NFKC正規化した名前をキーに突合する
+  // 実データはsuppliersではなくbusiness_partners（取引先マスタ）に登録されているため、こちらを参照する
   const normName = s => String(s||'').normalize('NFKC').trim();
   const restNames = [...new Set(bdRestaurantItems.map(r=>r.restaurant_name).filter(Boolean))];
   let supplierByName = {};
   if(restNames.length){
-    // suppliersは件数が1000件超の場合があり、PostgREST側の上限(1000件/回)で
+    // business_partnersは件数が1000件超の場合があり、PostgREST側の上限(1000件/回)で
     // 途中までしか取得できず突合漏れが起きるため、ページングして全件取得する
     let supRows = [], from = 0;
     const PAGE = 1000;
     while(true){
-      const {data: page, error: supErr} = await sb.from('suppliers').select('name,address,phone').range(from, from+PAGE-1);
-      if(supErr){ console.error('suppliers取得エラー:', supErr.message); break; }
+      const {data: page, error: supErr} = await sb.from('business_partners').select('company_name,address,phone').range(from, from+PAGE-1);
+      if(supErr){ console.error('business_partners取得エラー:', supErr.message); break; }
       supRows = supRows.concat(page||[]);
       if(!page || page.length < PAGE) break;
       from += PAGE;
     }
-    supRows.forEach(s=>{ supplierByName[normName(s.name)] = s; });
+    supRows.forEach(s=>{ supplierByName[normName(s.company_name)] = s; });
   }
 
   const MEAL_TYPE_EN = {'朝食':'Breakfast','昼食':'Lunch','夕食':'Dinner'};
