@@ -1991,6 +1991,7 @@ function restoreSession(){
     const s = JSON.parse(raw);
     if(!s.expiresAt || Date.now() > s.expiresAt){ clearSession(); return; }
     currentUser = s.user;
+    sessionStorage.removeItem('db_todo_dismissed');
     applyLoggedInUI(currentUser);
     touchSession();
     go('dashboard');
