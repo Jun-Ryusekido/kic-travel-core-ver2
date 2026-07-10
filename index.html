@@ -6418,9 +6418,16 @@ function saveBusConfirm(){
 }
 
 // ─── レストラン ──────────────────────────────────────────────────────────────
+const MEAL_TYPE_ORDER = {'朝食':0,'昼食':1,'夕食':2};
 function renderRestaurantTable(){
   const tbody = document.getElementById('bd-restaurants-tbody');
   if(!tbody) return;
+  bdRestaurantItems.sort((a,b)=>{
+    const ad = a.date||'', bd = b.date||'';
+    if(ad !== bd) return ad < bd ? -1 : 1;
+    const am = MEAL_TYPE_ORDER[a.meal_type] ?? 99, bm = MEAL_TYPE_ORDER[b.meal_type] ?? 99;
+    return am - bm;
+  });
   const total = bdRestaurantItems.reduce((s,it)=>s+Number(it.amount||0),0);
   if(bdRestaurantItems.length===0){
     tbody.innerHTML='<tr><td colspan="10" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
