@@ -1323,6 +1323,7 @@ input[type=number]{-moz-appearance:textfield}
       <button id="arrtab-btn-bus" onclick="switchArrangTab('bus')" class="btn" style="font-size:11px;border-radius:6px 6px 0 0;flex-shrink:0">🚌 バス</button>
       <button id="arrtab-btn-rest" onclick="switchArrangTab('rest')" class="btn" style="font-size:11px;border-radius:6px 6px 0 0;flex-shrink:0">🍽️ レストラン</button>
       <button id="arrtab-btn-fac" onclick="switchArrangTab('fac')" class="btn" style="font-size:11px;border-radius:6px 6px 0 0;flex-shrink:0">🎡 観光施設・バス駐車場等</button>
+      <button id="arrtab-btn-water" onclick="switchArrangTab('water')" class="btn" style="font-size:11px;border-radius:6px 6px 0 0;flex-shrink:0">💧 ミネラルウォーター</button>
       <button id="arrtab-btn-bullet" onclick="switchArrangTab('bullet')" class="btn" style="font-size:11px;border-radius:6px 6px 0 0;flex-shrink:0">🚅 新幹線</button>
     </div>
 
@@ -1478,6 +1479,24 @@ input[type=number]{-moz-appearance:textfield}
       </table></div>
       <button class="btn" style="font-size:10px;margin-top:4px" onclick="addFacilityRow()">＋ 行追加</button>
       <div class="li-total">観光施設合計: <span id="bd-facilities-total">¥0</span></div>
+    </div>
+
+    <div id="arrtab-water" style="display:none">
+      <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:760px">
+        <thead><tr>
+          <th style="width:180px">品名</th>
+          <th style="width:100px">日付</th>
+          <th style="width:60px">数量</th>
+          <th style="width:80px">単価</th>
+          <th style="width:80px">金額</th>
+          <th style="width:80px">ステータス</th>
+          <th>備考</th>
+          <th class="li-del"></th>
+        </tr></thead>
+        <tbody id="bd-water-tbody"></tbody>
+      </table></div>
+      <button class="btn" style="font-size:10px;margin-top:4px" onclick="addWaterRow()">＋ 行追加</button>
+      <div class="li-total">ミネラルウォーター合計: <span id="bd-water-total">¥0</span></div>
     </div>
 
     <div id="arrtab-bullet" style="display:none">
@@ -2582,7 +2601,7 @@ let bdCostItems = [];
 let _bdReflections = []; // 反映履歴キャッシュ（decided_unit_price の即時保存用）
 let originalSalesCount = 0;
 let originalCostsCount = 0;
-let originalHotelCount = 0, originalBusCount = 0, originalRestaurantCount = 0, originalFacilityCount = 0, originalLocalExpenseCount = 0;
+let originalHotelCount = 0, originalBusCount = 0, originalRestaurantCount = 0, originalFacilityCount = 0, originalLocalExpenseCount = 0, originalWaterCount = 0;
 // 全削除→再挿入の事故(#782でbooking_facilities 9件が消失)を防ぐための安全な差分保存ヘルパー。
 // 「新規データのINSERTに成功してから、既存の旧行だけをidで指定してDELETEする」順序にすることで、
 // INSERTが何らかの理由で失敗しても旧データは一切削除されない（失敗時は例外を投げてDELETEに進まない）。
@@ -3623,14 +3642,15 @@ async function openBookingDetail(id){
   }));
   originalHotelCount = bdHotelItems.length;
   renderHotelTable();
-  // バス・レストラン・観光施設・新幹線を読み込み
-  const [{data: busRows, error: busFetchErr}, {data: restRows, error: restFetchErr}, {data: facRows, error: facFetchErr}, {data: btRows}] = await Promise.all([
+  // バス・レストラン・観光施設・ミネラルウォーター・新幹線を読み込み
+  const [{data: busRows, error: busFetchErr}, {data: restRows, error: restFetchErr}, {data: facRows, error: facFetchErr}, {data: waterRows, error: waterFetchErr}, {data: btRows}] = await Promise.all([
     sb.from('booking_buses').select('*').eq('booking_id', id).order('created_at'),
     sb.from('booking_restaurants').select('*').eq('booking_id', id).order('created_at'),
     sb.from('booking_facilities').select('*').eq('booking_id', id).order('created_at'),
+    sb.from('booking_water_items').select('*').eq('booking_id', id).order('created_at'),
     sb.from('bullet_train_arrangements').select('*').eq('booking_ref', b.ref_no).order('sort_order'),
   ]);
-  if(busFetchErr||restFetchErr||facFetchErr){ alert('手配明細の読み込みに一部失敗しました。このまま保存すると既存データが消える危険があるため、画面を再読み込みしてください。\n'+(busFetchErr||restFetchErr||facFetchErr).message); }
+  if(busFetchErr||restFetchErr||facFetchErr||waterFetchErr){ alert('手配明細の読み込みに一部失敗しました。このまま保存すると既存データが消える危険があるため、画面を再読み込みしてください。\n'+(busFetchErr||restFetchErr||facFetchErr||waterFetchErr).message); }
   bdBusItems = (busRows||[]).map(r=>({id:r.id,bus_company:r.bus_company||'',bus_type:r.bus_type||'',buses:r.buses||1,start_date:r.start_date||'',end_date:r.end_date||'',amount:r.amount||0,status:r.status||'問い合わせ中',confirmation_no:r.confirmation_no||'',driver_hotel_name:r.driver_hotel_name||'',driver_hotel_phone:r.driver_hotel_phone||'',driver_hotel_address:r.driver_hotel_address||'',driver_check_in:r.driver_check_in||'',driver_check_out:r.driver_check_out||'',driver_hotel_amount:r.driver_hotel_amount||0,memo:r.memo||''}));
   originalBusCount = bdBusItems.length;
   bdRestaurantItems = (restRows||[]).map(r=>({id:r.id,restaurant_name:r.restaurant_name||'',meal_type:r.meal_type||'昼食',date:r.date||'',reservation_time:r.reservation_time||'',pax:r.pax||0,amount:r.amount||0,status:r.status||'問い合わせ中',payment_method:r.payment_method||'',memo:r.memo||''}));
@@ -3639,8 +3659,10 @@ async function openBookingDetail(id){
   if(bdRestaurantItems.length===0) generateRestaurantTemplateRows(b);
   bdFacilityItems = (facRows||[]).map(r=>({id:r.id,facility_name:r.facility_name||'',date:r.date||'',pax:r.pax||0,amount:r.amount||0,status:r.status||'問い合わせ中',confirmation_no:r.confirmation_no||'',deadline_date:r.deadline_date||'',payment_method:r.payment_method||'',memo:r.memo||''}));
   originalFacilityCount = bdFacilityItems.length;
+  bdWaterItems = (waterRows||[]).map(r=>({id:r.id,item_name:r.item_name||'',date:r.date||'',qty:r.qty||0,unit_price:r.unit_price||0,amount:r.amount||0,status:r.status||'問い合わせ中',memo:r.memo||''}));
+  originalWaterCount = bdWaterItems.length;
   bdBulletTrainItems = (btRows||[]).map(r=>({ride_date:r.ride_date||'',train_name:r.train_name||'',train_number:r.train_number||'',departure_station:r.departure_station||'',departure_time:r.departure_time||'',arrival_station:r.arrival_station||'',arrival_time:r.arrival_time||'',pax_adult:r.pax_adult||0,pax_child:r.pax_child||0,pax_free:r.pax_free||0,discount_rate:r.discount_rate||0,status:r.status||'回答待ち',memo:r.memo||''}));
-  renderBusTable(); renderRestaurantTable(); renderFacilityTable(); renderBulletTrainTable();
+  renderBusTable(); renderRestaurantTable(); renderFacilityTable(); renderWaterTable(); renderBulletTrainTable();
   switchArrangTab('hotel');
   // 現地費用明細を読み込み
   const {data: localRows, error: localFetchErr} = await sb.from('local_expenses').select('*').eq('booking_id', id).order('sort_order');
@@ -6066,9 +6088,10 @@ async function issueInvoiceFromBookingDetail(currency, agentFilter){
 let bdHotelItems = [];
 let bdBusItems = [], bdRestaurantItems = [], bdFacilityItems = [];
 let bdBulletTrainItems = [];
+let bdWaterItems = [];
 
 function switchArrangTab(tab){
-  ['hotel','bus','rest','fac','bullet'].forEach(t=>{
+  ['hotel','bus','rest','fac','water','bullet'].forEach(t=>{
     document.getElementById('arrtab-'+t).style.display = t===tab ? '' : 'none';
     const btn = document.getElementById('arrtab-btn-'+t);
     btn.style.borderBottom = t===tab ? '2px solid var(--primary)' : '';
@@ -6743,6 +6766,58 @@ async function saveFacilityItems(){
   await safeReplaceBookingRows('booking_facilities', bookingId, rows, '観光施設明細');
 }
 
+// ─── ミネラルウォーター ─────────────────────────────────────────────────────
+function renderWaterTable(){
+  const tbody = document.getElementById('bd-water-tbody');
+  if(!tbody) return;
+  const total = bdWaterItems.reduce((s,it)=>s+Number(it.amount||0),0);
+  if(bdWaterItems.length===0){
+    tbody.innerHTML='<tr><td colspan="8" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
+  }else{
+    tbody.innerHTML = bdWaterItems.map((it,i)=>`<tr>
+      <td data-label="品名"><input value="${escAttr(it.item_name)}" oninput="bdWaterItems[${i}].item_name=this.value" style="width:100%"></td>
+      <td data-label="日付"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.date||''}" onchange="bdWaterItems[${i}].date=this.value"></td>
+      <td data-label="数量"><input type="number" value="${it.qty||0}" onchange="bdWaterItems[${i}].qty=Number(this.value);waterAmountCalc(${i})" style="width:100%"></td>
+      <td data-label="単価"><input type="text" inputmode="numeric" value="${Number(it.unit_price||0).toLocaleString('ja-JP')}" onchange="bdWaterItems[${i}].unit_price=parseNum(this.value);this.value=bdWaterItems[${i}].unit_price.toLocaleString('ja-JP');waterAmountCalc(${i})"></td>
+      <td data-label="金額" style="text-align:right;white-space:nowrap" data-water-amount="${i}">${yen(it.amount||0)}</td>
+      <td data-label="ステータス"><select onchange="bdWaterItems[${i}].status=this.value;this.style.background=statusBg(this.value);this.style.color=statusFg(this.value)" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px;${statusSelectStyle(it.status||'問い合わせ中')}"><option value="未予約" ${it.status==='未予約'?'selected':''}>未予約</option><option value="問い合わせ中" ${(it.status||'問い合わせ中')==='問い合わせ中'?'selected':''}>問い合わせ中</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option><option value="NG回答" ${it.status==='NG回答'?'selected':''}>NG回答</option><option value="予約不要" ${it.status==='予約不要'?'selected':''}>予約不要</option><option value="キャンセル" ${it.status==='キャンセル'?'selected':''}>キャンセル</option></select></td>
+      <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdWaterItems[${i}].memo=this.value" style="width:100%"></td>
+      <td class="li-del"><button class="btn" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="if(confirm('この行を削除しますか？')){bdWaterItems.splice(${i},1);renderWaterTable()}">✕</button></td>
+    </tr>`).join('');
+  }
+  document.getElementById('bd-water-total').textContent = yen(total);
+}
+
+function waterAmountCalc(i){
+  const it = bdWaterItems[i];
+  it.amount = Math.round(Number(it.qty||0) * Number(it.unit_price||0));
+  const amountEl = document.querySelector(`[data-water-amount="${i}"]`);
+  if(amountEl) amountEl.textContent = yen(it.amount||0);
+  const total = bdWaterItems.reduce((s,h)=>s+Number(h.amount||0),0);
+  const totalEl = document.getElementById('bd-water-total');
+  if(totalEl) totalEl.textContent = yen(total);
+}
+
+function addWaterRow(){
+  bdWaterItems.push({item_name:'',date:'',qty:0,unit_price:0,amount:0,status:'問い合わせ中',memo:''});
+  renderWaterTable();
+}
+
+async function saveWaterItems(){
+  if(!currentDetailId) return;
+  const bookingId = currentDetailId; // await中のcurrentDetailId変更に影響されないようスナップショットを保持
+  const rows = bdWaterItems.filter(it=>it.item_name||it.date||it.qty||it.unit_price||it.memo).map(it=>({
+    booking_id: bookingId,
+    item_name: it.item_name||'',
+    date: sanitizeDateField(it.date), qty: Number(it.qty)||0,
+    unit_price: Number(it.unit_price)||0,
+    amount: Number(it.amount)||0,
+    status: it.status||'問い合わせ中',
+    memo: it.memo||''
+  }));
+  await safeReplaceBookingRows('booking_water_items', bookingId, rows, 'ミネラルウォーター明細');
+}
+
 // ─── 観光施設AI読み取り ───────────────────────────────────────────────────────
 function toggleFacOcrArea(){
   const a=document.getElementById('fac-ocr-area');
@@ -7299,6 +7374,9 @@ async function saveBookingDetail(){
   if(originalFacilityCount > 0 && bdFacilityItems.length === 0){
     if(!confirm('観光施設・バス駐車場等の明細が0件になっています。本当に保存しますか？')) return;
   }
+  if(originalWaterCount > 0 && bdWaterItems.length === 0){
+    if(!confirm('ミネラルウォーターの明細が0件になっています。本当に保存しますか？')) return;
+  }
   if(originalLocalExpenseCount > 0 && bdLocalExpenses.length === 0){
     if(!confirm('現地費用明細が0件になっています。本当に保存しますか？')) return;
   }
@@ -7387,6 +7465,7 @@ async function saveBookingDetail(){
     await saveBusItems();
     await saveRestaurantItems();
     await saveFacilityItems();
+    await saveWaterItems();
     await saveBulletTrainItems();
     const b = findBookingById(bookingId);
     await logAction('予約編集', b ? b.ref_no : bookingId);
