@@ -1372,7 +1372,7 @@ input[type=number]{-moz-appearance:textfield}
           <span id="bus-ocr-status" style="font-size:11px;color:var(--text3)"></span>
         </div>
       </div>
-      <div class="tbl-wrap"><table class="li-table" style="min-width:1510px">
+      <div class="tbl-wrap"><table class="li-table" style="min-width:800px">
         <thead><tr>
           <th style="width:160px">バス会社</th>
           <th style="width:90px">バスタイプ</th>
@@ -1382,12 +1382,6 @@ input[type=number]{-moz-appearance:textfield}
           <th style="width:80px">金額</th>
           <th style="width:80px">ステータス</th>
           <th style="width:90px">確認番号</th>
-          <th style="width:140px">ドライバー宿泊施設名</th>
-          <th style="width:110px">宿泊先電話番号</th>
-          <th style="width:160px">宿泊先住所</th>
-          <th style="width:100px">宿泊チェックイン</th>
-          <th style="width:100px">宿泊チェックアウト</th>
-          <th style="width:90px">宿泊料金</th>
           <th>備考</th>
           <th class="li-del"></th>
         </tr></thead>
@@ -6153,10 +6147,6 @@ function busAmountCalc(i, el){
   el.value = bdBusItems[i].amount.toLocaleString('ja-JP');
   document.getElementById('bd-buses-total').textContent = yen(bdBusItems.reduce((s,h)=>s+Number(h.amount||0),0));
 }
-function driverHotelAmountCalc(i, el){
-  bdBusItems[i].driver_hotel_amount = parseNum(el.value);
-  el.value = bdBusItems[i].driver_hotel_amount.toLocaleString('ja-JP');
-}
 function restaurantAmountCalc(i, el){
   bdRestaurantItems[i].amount = parseNum(el.value);
   el.value = bdRestaurantItems[i].amount.toLocaleString('ja-JP');
@@ -6185,12 +6175,6 @@ function renderBusTable(){
       <td><input type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="busAmountCalc(${i},this)"></td>
       <td><select onchange="bdBusItems[${i}].status=this.value;this.style.background=statusBg(this.value);this.style.color=statusFg(this.value)" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px;${statusSelectStyle(it.status||'問い合わせ中')}"><option value="未予約" ${it.status==='未予約'?'selected':''}>未予約</option><option value="問い合わせ中" ${(it.status||'問い合わせ中')==='問い合わせ中'?'selected':''}>問い合わせ中</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option><option value="NG回答" ${it.status==='NG回答'?'selected':''}>NG回答</option><option value="キャンセル" ${it.status==='キャンセル'?'selected':''}>キャンセル</option></select></td>
       <td><input value="${escAttr(it.confirmation_no)}" oninput="bdBusItems[${i}].confirmation_no=this.value" style="width:100%"></td>
-      <td><input value="${escAttr(it.driver_hotel_name)}" oninput="bdBusItems[${i}].driver_hotel_name=this.value" style="width:100%"></td>
-      <td><input value="${escAttr(it.driver_hotel_phone)}" oninput="bdBusItems[${i}].driver_hotel_phone=this.value" style="width:100%"></td>
-      <td><input value="${escAttr(it.driver_hotel_address)}" oninput="bdBusItems[${i}].driver_hotel_address=this.value" style="width:100%"></td>
-      <td><input type="date" min="1900-01-01" max="9999-12-31" value="${it.driver_check_in||''}" onchange="bdBusItems[${i}].driver_check_in=this.value"></td>
-      <td><input type="date" min="1900-01-01" max="9999-12-31" value="${it.driver_check_out||''}" onchange="bdBusItems[${i}].driver_check_out=this.value"></td>
-      <td><input type="text" inputmode="numeric" value="${Number(it.driver_hotel_amount||0).toLocaleString('ja-JP')}" onchange="driverHotelAmountCalc(${i},this)"></td>
       <td><input value="${escAttr(it.memo)}" oninput="bdBusItems[${i}].memo=this.value" style="width:100%"></td>
       <td class="li-del"><button class="btn" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="if(confirm('この行を削除しますか？')){bdBusItems.splice(${i},1);renderBusTable()}">✕</button></td>
     </tr>`).join('');
@@ -6202,13 +6186,13 @@ function renderBusTable(){
   if(endArrow) endArrow.textContent = bdSortArrow(busSortState, 'end_date');
 }
 function addBusRow(){
-  bdBusItems.push({bus_company:'',bus_type:'',buses:1,start_date:'',end_date:'',amount:0,status:'問い合わせ中',confirmation_no:'',driver_hotel_name:'',driver_hotel_phone:'',driver_hotel_address:'',driver_check_in:'',driver_check_out:'',driver_hotel_amount:0,memo:''});
+  bdBusItems.push({bus_company:'',bus_type:'',buses:1,start_date:'',end_date:'',amount:0,status:'問い合わせ中',confirmation_no:'',memo:''});
   renderBusTable();
 }
 async function saveBusItems(){
   if(!currentDetailId) return;
   const bookingId = currentDetailId; // await中のcurrentDetailId変更に影響されないようスナップショットを保持
-  const rows = bdBusItems.filter(it=>it.bus_company||it.bus_type||it.start_date||it.end_date||it.amount||it.confirmation_no||it.driver_hotel_name||it.driver_hotel_phone||it.driver_hotel_address||it.driver_check_in||it.driver_check_out||it.driver_hotel_amount||it.memo).map(it=>({
+  const rows = bdBusItems.filter(it=>it.bus_company||it.bus_type||it.start_date||it.end_date||it.amount||it.confirmation_no||it.memo).map(it=>({
     booking_id: bookingId,
     bus_company: it.bus_company||'', bus_type: it.bus_type||'',
     buses: Number(it.buses)||1,
@@ -6216,10 +6200,6 @@ async function saveBusItems(){
     amount: Number(it.amount)||0,
     status: it.status||'問い合わせ中',
     confirmation_no: it.confirmation_no||'',
-    driver_hotel_name: it.driver_hotel_name||'', driver_hotel_phone: it.driver_hotel_phone||'',
-    driver_hotel_address: it.driver_hotel_address||'',
-    driver_check_in: sanitizeDateField(it.driver_check_in), driver_check_out: sanitizeDateField(it.driver_check_out),
-    driver_hotel_amount: Number(it.driver_hotel_amount)||0,
     memo: it.memo||''
   }));
   await safeReplaceBookingRows('booking_buses', bookingId, rows, 'バス明細');
@@ -6364,12 +6344,6 @@ function showBusConfirmDialog(buses){
     <td style="padding:5px 4px"><input type="number" value="${b.amount||0}" id="bus-c-amount-${i}" style="width:90px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;text-align:right"></td>
     <td style="padding:5px 4px"><select id="bus-c-status-${i}" style="font-size:11px;padding:3px;border:1px solid var(--border);border-radius:5px"><option value="未予約" ${b.status==='未予約'?'selected':''}>未予約</option><option value="問い合わせ中" ${(b.status||'問い合わせ中')==='問い合わせ中'?'selected':''}>問い合わせ中</option><option value="手配OK" ${b.status==='手配OK'?'selected':''}>手配OK</option><option value="NG回答" ${b.status==='NG回答'?'selected':''}>NG回答</option><option value="キャンセル" ${b.status==='キャンセル'?'selected':''}>キャンセル</option></select></td>
     <td style="padding:5px 4px"><input value="${escAttr(b.confirmation_no||'')}" id="bus-c-conf-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
-    <td style="padding:5px 4px"><input value="${escAttr(b.driver_hotel_name||'')}" id="bus-c-dhname-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
-    <td style="padding:5px 4px"><input value="${escAttr(b.driver_hotel_phone||'')}" id="bus-c-dhphone-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
-    <td style="padding:5px 4px"><input value="${escAttr(b.driver_hotel_address||'')}" id="bus-c-dhaddr-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
-    <td style="padding:5px 4px"><input type="date" min="1900-01-01" max="9999-12-31" value="${b.driver_check_in||''}" id="bus-c-dhin-${i}" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
-    <td style="padding:5px 4px"><input type="date" min="1900-01-01" max="9999-12-31" value="${b.driver_check_out||''}" id="bus-c-dhout-${i}" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
-    <td style="padding:5px 4px"><input type="number" value="${b.driver_hotel_amount||0}" id="bus-c-dhamount-${i}" style="width:90px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;text-align:right"></td>
     <td style="padding:5px 4px"><input value="${escAttr(b.memo||'')}" id="bus-c-memo-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
   </tr>`).join('');
   const modal=document.createElement('div');
@@ -6393,12 +6367,6 @@ function showBusConfirmDialog(buses){
           <th style="padding:5px 4px;min-width:90px">金額</th>
           <th style="padding:5px 4px;min-width:100px">ステータス</th>
           <th style="padding:5px 4px;min-width:100px">確認番号</th>
-          <th style="padding:5px 4px;min-width:140px">ドライバー宿泊施設名</th>
-          <th style="padding:5px 4px;min-width:110px">宿泊先電話番号</th>
-          <th style="padding:5px 4px;min-width:160px">宿泊先住所</th>
-          <th style="padding:5px 4px;min-width:110px">宿泊チェックイン</th>
-          <th style="padding:5px 4px;min-width:110px">宿泊チェックアウト</th>
-          <th style="padding:5px 4px;min-width:90px">宿泊料金</th>
           <th style="padding:5px 4px;min-width:120px">備考</th>
         </tr></thead>
         <tbody>${rows}</tbody>
@@ -6425,12 +6393,6 @@ function saveBusConfirm(){
       amount: Number(document.getElementById(`bus-c-amount-${i}`)?.value)||0,
       status: document.getElementById(`bus-c-status-${i}`)?.value||'問い合わせ中',
       confirmation_no: document.getElementById(`bus-c-conf-${i}`)?.value||'',
-      driver_hotel_name: document.getElementById(`bus-c-dhname-${i}`)?.value||'',
-      driver_hotel_phone: document.getElementById(`bus-c-dhphone-${i}`)?.value||'',
-      driver_hotel_address: document.getElementById(`bus-c-dhaddr-${i}`)?.value||'',
-      driver_check_in: document.getElementById(`bus-c-dhin-${i}`)?.value||'',
-      driver_check_out: document.getElementById(`bus-c-dhout-${i}`)?.value||'',
-      driver_hotel_amount: Number(document.getElementById(`bus-c-dhamount-${i}`)?.value)||0,
       memo: document.getElementById(`bus-c-memo-${i}`)?.value||''
     });
   });
