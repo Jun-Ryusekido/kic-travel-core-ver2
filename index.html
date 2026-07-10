@@ -1318,13 +1318,16 @@ input[type=number]{-moz-appearance:textfield}
     <div id="bd-reflect-history" style="display:none;margin-bottom:12px"></div>
 
     <div class="modal-section-title">手配管理</div>
-    <div class="arrtab-bar" style="display:flex;gap:2px;margin-bottom:8px;border-bottom:2px solid var(--border);padding-bottom:0">
-      <button id="arrtab-btn-hotel" onclick="switchArrangTab('hotel')" class="btn" style="font-size:11px;border-radius:6px 6px 0 0;border-bottom:2px solid var(--primary);margin-bottom:-2px;flex-shrink:0">🏨 ホテル</button>
-      <button id="arrtab-btn-bus" onclick="switchArrangTab('bus')" class="btn" style="font-size:11px;border-radius:6px 6px 0 0;flex-shrink:0">🚌 バス</button>
-      <button id="arrtab-btn-rest" onclick="switchArrangTab('rest')" class="btn" style="font-size:11px;border-radius:6px 6px 0 0;flex-shrink:0">🍽️ レストラン</button>
-      <button id="arrtab-btn-fac" onclick="switchArrangTab('fac')" class="btn" style="font-size:11px;border-radius:6px 6px 0 0;flex-shrink:0">🎡 観光施設・バス駐車場等</button>
-      <button id="arrtab-btn-water" onclick="switchArrangTab('water')" class="btn" style="font-size:11px;border-radius:6px 6px 0 0;flex-shrink:0">💧 ミネラルウォーター</button>
-      <button id="arrtab-btn-bullet" onclick="switchArrangTab('bullet')" class="btn" style="font-size:11px;border-radius:6px 6px 0 0;flex-shrink:0">🚅 新幹線</button>
+    <div style="display:flex;align-items:center;gap:8px">
+      <div class="arrtab-bar" style="display:flex;gap:2px;margin-bottom:8px;border-bottom:2px solid var(--border);padding-bottom:0;flex:1">
+        <button id="arrtab-btn-hotel" onclick="switchArrangTab('hotel')" class="btn" style="font-size:11px;border-radius:6px 6px 0 0;border-bottom:2px solid var(--primary);margin-bottom:-2px;flex-shrink:0">🏨 ホテル</button>
+        <button id="arrtab-btn-bus" onclick="switchArrangTab('bus')" class="btn" style="font-size:11px;border-radius:6px 6px 0 0;flex-shrink:0">🚌 バス</button>
+        <button id="arrtab-btn-rest" onclick="switchArrangTab('rest')" class="btn" style="font-size:11px;border-radius:6px 6px 0 0;flex-shrink:0">🍽️ レストラン</button>
+        <button id="arrtab-btn-fac" onclick="switchArrangTab('fac')" class="btn" style="font-size:11px;border-radius:6px 6px 0 0;flex-shrink:0">🎡 観光施設・バス駐車場等</button>
+        <button id="arrtab-btn-water" onclick="switchArrangTab('water')" class="btn" style="font-size:11px;border-radius:6px 6px 0 0;flex-shrink:0">💧 ミネラルウォーター</button>
+        <button id="arrtab-btn-bullet" onclick="switchArrangTab('bullet')" class="btn" style="font-size:11px;border-radius:6px 6px 0 0;flex-shrink:0">🚅 新幹線</button>
+      </div>
+      <button class="btn" style="font-size:10px;background:#F0F6FF;border-color:#7CB3E8;color:#004A9F;flex-shrink:0" onclick="printArrangementSummaryList()">🖨 手配一覧PDF出力</button>
     </div>
 
     <div id="arrtab-hotel">
@@ -1525,7 +1528,6 @@ input[type=number]{-moz-appearance:textfield}
     <div class="modal-section-title">手配書</div>
     <div id="bd-arrangements" style="margin-bottom:6px"></div>
     <button class="btn" style="font-size:10px" onclick="openArrangementEditor(null)">＋ 新規手配書作成</button>
-    <button class="btn" style="font-size:10px;background:#F0F6FF;border-color:#7CB3E8;color:#004A9F" onclick="printArrangementSummaryList()">🖨 手配一覧PDF出力</button>
 
 
     <div class="modal-section-title">関連Invoice</div>
