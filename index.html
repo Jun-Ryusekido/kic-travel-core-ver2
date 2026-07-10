@@ -138,12 +138,14 @@ th.sortable:hover{color:var(--blue)}
   .menu-btn{display:flex!important}
 }
 @media(max-width:768px){
-  #db-thead th,#db-tbody td{display:none}
+  #db-thead th,#db-tbody td,#bl-thead th,#bl-tbody td{display:none}
   #db-thead th:nth-child(1),#db-thead th:nth-child(3),#db-thead th:nth-child(4),
-  #db-tbody tr td:nth-child(1),#db-tbody tr td:nth-child(3),#db-tbody tr td:nth-child(4){display:table-cell;white-space:normal;overflow:visible;text-overflow:clip}
-  #db-thead th:nth-child(1),#db-tbody tr td:nth-child(1){width:15%!important}
-  #db-thead th:nth-child(3),#db-tbody tr td:nth-child(3){width:50%!important}
-  #db-thead th:nth-child(4),#db-tbody tr td:nth-child(4){width:35%!important}
+  #db-tbody tr td:nth-child(1),#db-tbody tr td:nth-child(3),#db-tbody tr td:nth-child(4),
+  #bl-thead th:nth-child(1),#bl-thead th:nth-child(3),#bl-thead th:nth-child(4),
+  #bl-tbody tr td:nth-child(1),#bl-tbody tr td:nth-child(3),#bl-tbody tr td:nth-child(4){display:table-cell;white-space:normal;overflow:visible;text-overflow:clip}
+  #db-thead th:nth-child(1),#db-tbody tr td:nth-child(1),#bl-thead th:nth-child(1),#bl-tbody tr td:nth-child(1){width:15%!important}
+  #db-thead th:nth-child(3),#db-tbody tr td:nth-child(3),#bl-thead th:nth-child(3),#bl-tbody tr td:nth-child(3){width:50%!important}
+  #db-thead th:nth-child(4),#db-tbody tr td:nth-child(4),#bl-thead th:nth-child(4),#bl-tbody tr td:nth-child(4){width:35%!important}
 }
 .menu-btn{display:none;align-items:center;justify-content:center;width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:#fff;cursor:pointer;margin-right:8px}
 
@@ -351,6 +353,7 @@ input[type=number]{-moz-appearance:textfield}
   #pt-card-upload-section { border-top: 1px solid var(--border) }
 }
 @media(max-width:640px){
+  .confirm-table{min-width:0!important}
   .confirm-table thead{display:none}
   .confirm-table, .confirm-table tbody{display:block;width:100%}
   .confirm-table tr{display:block;border:1px solid var(--border);border-radius:8px;margin-bottom:10px;padding:8px}
@@ -1342,7 +1345,7 @@ input[type=number]{-moz-appearance:textfield}
           <span id="hotel-ocr-status" style="font-size:11px;color:var(--text3)"></span>
         </div>
       </div>
-      <div class="tbl-wrap"><table class="li-table" style="min-width:900px">
+      <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:900px">
         <thead><tr>
           <th style="width:160px">ホテル名</th>
           <th style="width:100px;cursor:pointer;user-select:none" onclick="sortHotelTable('check_in')">チェックイン <span id="hotel-checkin-sort-arrow"></span></th>
@@ -1381,7 +1384,7 @@ input[type=number]{-moz-appearance:textfield}
           <span id="bus-ocr-status" style="font-size:11px;color:var(--text3)"></span>
         </div>
       </div>
-      <div class="tbl-wrap"><table class="li-table" style="min-width:800px">
+      <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:800px">
         <thead><tr>
           <th style="width:160px">バス会社</th>
           <th style="width:90px">バスタイプ</th>
@@ -1420,7 +1423,7 @@ input[type=number]{-moz-appearance:textfield}
           <span id="rest-ocr-status" style="font-size:11px;color:var(--text3)"></span>
         </div>
       </div>
-      <div class="tbl-wrap"><table class="li-table" style="min-width:860px">
+      <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:860px">
         <thead><tr>
           <th style="width:160px">店名</th>
           <th style="width:70px">食事種別</th>
@@ -1457,7 +1460,7 @@ input[type=number]{-moz-appearance:textfield}
           <span id="fac-ocr-status" style="font-size:11px;color:var(--text3)"></span>
         </div>
       </div>
-      <div class="tbl-wrap"><table class="li-table" style="min-width:820px">
+      <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:820px">
         <thead><tr>
           <th style="width:180px">施設名</th>
           <th style="width:100px;cursor:pointer;user-select:none" onclick="sortFacilityTable('date')">日付 <span id="fac-date-sort-arrow"></span></th>
@@ -6085,18 +6088,18 @@ function renderHotelTable(){
     tbody.innerHTML = bdHotelItems.map((it,i)=>{
       const nights = calcHotelNights(it.check_in, it.check_out);
       return `<tr>
-        <td><input value="${escAttr(it.hotel_name)}" oninput="bdHotelItems[${i}].hotel_name=this.value" style="width:100%"></td>
-        <td><input type="date" min="1900-01-01" max="9999-12-31" value="${it.check_in}" onchange="bdHotelItems[${i}].check_in=this.value;hotelCalc(${i})"></td>
-        <td><input type="date" min="1900-01-01" max="9999-12-31" value="${it.check_out}" onchange="bdHotelItems[${i}].check_out=this.value;hotelCalc(${i})"></td>
-        <td><input value="${escAttr(it.room_type)}" oninput="bdHotelItems[${i}].room_type=this.value" style="width:100%"></td>
-        <td><input type="number" value="${it.rooms||1}" onchange="bdHotelItems[${i}].rooms=Number(this.value);hotelCalc(${i})" style="width:100%"></td>
-        <td style="text-align:center" data-hotel-nights="${i}">${nights}</td>
-        <td style="text-align:center"><input type="checkbox" ${it.breakfast?'checked':''} onchange="bdHotelItems[${i}].breakfast=this.checked"></td>
-        <td><input type="text" inputmode="numeric" value="${Number(it.unit_price||0).toLocaleString('ja-JP')}" onchange="bdHotelItems[${i}].unit_price=parseNum(this.value);this.value=bdHotelItems[${i}].unit_price.toLocaleString('ja-JP');hotelCalc(${i})"></td>
-        <td style="text-align:right;white-space:nowrap" data-hotel-amount="${i}">${yen(it.amount||0)}</td>
-        <td><input value="${escAttr(it.confirmation_no)}" oninput="bdHotelItems[${i}].confirmation_no=this.value" style="width:100%"></td>
-        <td><select onchange="bdHotelItems[${i}].status=this.value;this.style.background=statusBg(this.value);this.style.color=statusFg(this.value)" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px;${statusSelectStyle(it.status||'回答待ち')}"><option value="未予約" ${it.status==='未予約'?'selected':''}>未予約</option><option value="回答待ち" ${!it.status||it.status==='回答待ち'?'selected':''}>回答待ち</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option><option value="NG回答" ${it.status==='NG回答'?'selected':''}>NG回答</option><option value="キャンセル" ${it.status==='キャンセル'?'selected':''}>キャンセル</option></select></td>
-        <td><input value="${escAttr(it.memo)}" oninput="bdHotelItems[${i}].memo=this.value" style="width:100%"></td>
+        <td data-label="ホテル名"><input value="${escAttr(it.hotel_name)}" oninput="bdHotelItems[${i}].hotel_name=this.value" style="width:100%"></td>
+        <td data-label="ｲﾝ"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.check_in}" onchange="bdHotelItems[${i}].check_in=this.value;hotelCalc(${i})"></td>
+        <td data-label="ｱｳﾄ"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.check_out}" onchange="bdHotelItems[${i}].check_out=this.value;hotelCalc(${i})"></td>
+        <td data-label="部屋タイプ"><input value="${escAttr(it.room_type)}" oninput="bdHotelItems[${i}].room_type=this.value" style="width:100%"></td>
+        <td data-label="部屋数"><input type="number" value="${it.rooms||1}" onchange="bdHotelItems[${i}].rooms=Number(this.value);hotelCalc(${i})" style="width:100%"></td>
+        <td data-label="泊数" style="text-align:center" data-hotel-nights="${i}">${nights}</td>
+        <td data-label="朝食" style="text-align:center"><input type="checkbox" ${it.breakfast?'checked':''} onchange="bdHotelItems[${i}].breakfast=this.checked"></td>
+        <td data-label="単価"><input type="text" inputmode="numeric" value="${Number(it.unit_price||0).toLocaleString('ja-JP')}" onchange="bdHotelItems[${i}].unit_price=parseNum(this.value);this.value=bdHotelItems[${i}].unit_price.toLocaleString('ja-JP');hotelCalc(${i})"></td>
+        <td data-label="金額" style="text-align:right;white-space:nowrap" data-hotel-amount="${i}">${yen(it.amount||0)}</td>
+        <td data-label="確認番号"><input value="${escAttr(it.confirmation_no)}" oninput="bdHotelItems[${i}].confirmation_no=this.value" style="width:100%"></td>
+        <td data-label="ステータス"><select onchange="bdHotelItems[${i}].status=this.value;this.style.background=statusBg(this.value);this.style.color=statusFg(this.value)" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px;${statusSelectStyle(it.status||'回答待ち')}"><option value="未予約" ${it.status==='未予約'?'selected':''}>未予約</option><option value="回答待ち" ${!it.status||it.status==='回答待ち'?'selected':''}>回答待ち</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option><option value="NG回答" ${it.status==='NG回答'?'selected':''}>NG回答</option><option value="キャンセル" ${it.status==='キャンセル'?'selected':''}>キャンセル</option></select></td>
+        <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdHotelItems[${i}].memo=this.value" style="width:100%"></td>
       </tr>`;
     }).join('');
   }
@@ -6176,15 +6179,15 @@ function renderBusTable(){
     tbody.innerHTML='<tr><td colspan="10" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
   }else{
     tbody.innerHTML = bdBusItems.map((it,i)=>`<tr>
-      <td style="position:relative"><input value="${escAttr(it.bus_company)}" oninput="bdBusItems[${i}].bus_company=this.value;showBusCompanySuggest(this,${i})" onfocus="showBusCompanySuggest(this,${i})" onblur="setTimeout(hideBusCompanySuggest,150)" style="width:100%"></td>
-      <td><input value="${escAttr(it.bus_type)}" oninput="bdBusItems[${i}].bus_type=this.value" style="width:100%"></td>
-      <td><input type="number" value="${it.buses||1}" onchange="bdBusItems[${i}].buses=Number(this.value)" style="width:100%"></td>
-      <td><input type="date" min="1900-01-01" max="9999-12-31" value="${it.start_date||''}" onchange="bdBusItems[${i}].start_date=this.value"></td>
-      <td><input type="date" min="1900-01-01" max="9999-12-31" value="${it.end_date||''}" onchange="bdBusItems[${i}].end_date=this.value"></td>
-      <td><input type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="busAmountCalc(${i},this)"></td>
-      <td><select onchange="bdBusItems[${i}].status=this.value;this.style.background=statusBg(this.value);this.style.color=statusFg(this.value)" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px;${statusSelectStyle(it.status||'問い合わせ中')}"><option value="未予約" ${it.status==='未予約'?'selected':''}>未予約</option><option value="問い合わせ中" ${(it.status||'問い合わせ中')==='問い合わせ中'?'selected':''}>問い合わせ中</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option><option value="NG回答" ${it.status==='NG回答'?'selected':''}>NG回答</option><option value="キャンセル" ${it.status==='キャンセル'?'selected':''}>キャンセル</option></select></td>
-      <td><input value="${escAttr(it.confirmation_no)}" oninput="bdBusItems[${i}].confirmation_no=this.value" style="width:100%"></td>
-      <td><input value="${escAttr(it.memo)}" oninput="bdBusItems[${i}].memo=this.value" style="width:100%"></td>
+      <td data-label="バス会社" style="position:relative"><input value="${escAttr(it.bus_company)}" oninput="bdBusItems[${i}].bus_company=this.value;showBusCompanySuggest(this,${i})" onfocus="showBusCompanySuggest(this,${i})" onblur="setTimeout(hideBusCompanySuggest,150)" style="width:100%"></td>
+      <td data-label="バスタイプ"><input value="${escAttr(it.bus_type)}" oninput="bdBusItems[${i}].bus_type=this.value" style="width:100%"></td>
+      <td data-label="台数"><input type="number" value="${it.buses||1}" onchange="bdBusItems[${i}].buses=Number(this.value)" style="width:100%"></td>
+      <td data-label="開始日"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.start_date||''}" onchange="bdBusItems[${i}].start_date=this.value"></td>
+      <td data-label="終了日"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.end_date||''}" onchange="bdBusItems[${i}].end_date=this.value"></td>
+      <td data-label="金額"><input type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="busAmountCalc(${i},this)"></td>
+      <td data-label="ステータス"><select onchange="bdBusItems[${i}].status=this.value;this.style.background=statusBg(this.value);this.style.color=statusFg(this.value)" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px;${statusSelectStyle(it.status||'問い合わせ中')}"><option value="未予約" ${it.status==='未予約'?'selected':''}>未予約</option><option value="問い合わせ中" ${(it.status||'問い合わせ中')==='問い合わせ中'?'selected':''}>問い合わせ中</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option><option value="NG回答" ${it.status==='NG回答'?'selected':''}>NG回答</option><option value="キャンセル" ${it.status==='キャンセル'?'selected':''}>キャンセル</option></select></td>
+      <td data-label="確認番号"><input value="${escAttr(it.confirmation_no)}" oninput="bdBusItems[${i}].confirmation_no=this.value" style="width:100%"></td>
+      <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdBusItems[${i}].memo=this.value" style="width:100%"></td>
       <td class="li-del"><button class="btn" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="if(confirm('この行を削除しますか？')){bdBusItems.splice(${i},1);renderBusTable()}">✕</button></td>
     </tr>`).join('');
   }
@@ -6418,22 +6421,22 @@ function renderRestaurantTable(){
     tbody.innerHTML='<tr><td colspan="10" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
   }else{
     tbody.innerHTML = bdRestaurantItems.map((it,i)=>`<tr>
-      <td style="position:relative">
+      <td data-label="店名" style="position:relative">
         <input value="${escAttr(it.restaurant_name)}" oninput="bdRestaurantItems[${i}].restaurant_name=this.value;showRestaurantSuggest(this,${i})" onfocus="showRestaurantSuggest(this,${i})" onblur="setTimeout(hideRestaurantSuggest,200)" style="width:100%">
         ${restaurantPartnerEnName(it.restaurant_name) ? `<div style="font-size:9px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(restaurantPartnerEnName(it.restaurant_name))}</div>` : ''}
       </td>
-      <td><select onchange="bdRestaurantItems[${i}].meal_type=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px">
+      <td data-label="食事種別"><select onchange="bdRestaurantItems[${i}].meal_type=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px">
         <option value="朝食" ${it.meal_type==='朝食'?'selected':''}>朝食</option>
         <option value="昼食" ${(it.meal_type||'昼食')==='昼食'?'selected':''}>昼食</option>
         <option value="夕食" ${it.meal_type==='夕食'?'selected':''}>夕食</option>
       </select></td>
-      <td><input type="date" min="1900-01-01" max="9999-12-31" value="${it.date||''}" onchange="bdRestaurantItems[${i}].date=this.value"></td>
-      <td><input type="time" value="${it.reservation_time||''}" onchange="bdRestaurantItems[${i}].reservation_time=this.value" style="width:100%"></td>
-      <td><input type="number" value="${it.pax||0}" onchange="bdRestaurantItems[${i}].pax=Number(this.value)" style="width:100%"></td>
-      <td><input type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="restaurantAmountCalc(${i},this)"></td>
-      <td><select onchange="bdRestaurantItems[${i}].status=this.value;this.style.background=statusBg(this.value);this.style.color=statusFg(this.value)" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px;${statusSelectStyle(it.status||'問い合わせ中')}"><option value="未予約" ${it.status==='未予約'?'selected':''}>未予約</option><option value="問い合わせ中" ${(it.status||'問い合わせ中')==='問い合わせ中'?'selected':''}>問い合わせ中</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option><option value="NG回答" ${it.status==='NG回答'?'selected':''}>NG回答</option><option value="キャンセル" ${it.status==='キャンセル'?'selected':''}>キャンセル</option></select></td>
-      <td><select onchange="bdRestaurantItems[${i}].payment_method=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px"><option value="" ${!it.payment_method?'selected':''}></option><option value="請求書払い" ${it.payment_method==='請求書払い'?'selected':''}>請求書払い</option><option value="現金払い" ${it.payment_method==='現金払い'?'selected':''}>現金払い</option><option value="その他" ${it.payment_method==='その他'?'selected':''}>その他</option></select></td>
-      <td><input value="${escAttr(it.memo)}" oninput="bdRestaurantItems[${i}].memo=this.value" style="width:100%"></td>
+      <td data-label="日付"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.date||''}" onchange="bdRestaurantItems[${i}].date=this.value"></td>
+      <td data-label="時刻"><input type="time" value="${it.reservation_time||''}" onchange="bdRestaurantItems[${i}].reservation_time=this.value" style="width:100%"></td>
+      <td data-label="人数"><input type="number" value="${it.pax||0}" onchange="bdRestaurantItems[${i}].pax=Number(this.value)" style="width:100%"></td>
+      <td data-label="金額"><input type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="restaurantAmountCalc(${i},this)"></td>
+      <td data-label="ステータス"><select onchange="bdRestaurantItems[${i}].status=this.value;this.style.background=statusBg(this.value);this.style.color=statusFg(this.value)" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px;${statusSelectStyle(it.status||'問い合わせ中')}"><option value="未予約" ${it.status==='未予約'?'selected':''}>未予約</option><option value="問い合わせ中" ${(it.status||'問い合わせ中')==='問い合わせ中'?'selected':''}>問い合わせ中</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option><option value="NG回答" ${it.status==='NG回答'?'selected':''}>NG回答</option><option value="キャンセル" ${it.status==='キャンセル'?'selected':''}>キャンセル</option></select></td>
+      <td data-label="支払方法"><select onchange="bdRestaurantItems[${i}].payment_method=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px"><option value="" ${!it.payment_method?'selected':''}></option><option value="請求書払い" ${it.payment_method==='請求書払い'?'selected':''}>請求書払い</option><option value="現金払い" ${it.payment_method==='現金払い'?'selected':''}>現金払い</option><option value="その他" ${it.payment_method==='その他'?'selected':''}>その他</option></select></td>
+      <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdRestaurantItems[${i}].memo=this.value" style="width:100%"></td>
       <td class="li-del"><button class="btn" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="if(confirm('${escAttr([it.date, it.meal_type, it.restaurant_name].filter(Boolean).join(' '))} の行を削除しますか？')){bdRestaurantItems.splice(${i},1);renderRestaurantTable()}">✕</button></td>
     </tr>`).join('');
   }
@@ -6662,15 +6665,15 @@ function renderFacilityTable(){
     tbody.innerHTML='<tr><td colspan="10" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
   }else{
     tbody.innerHTML = bdFacilityItems.map((it,i)=>`<tr>
-      <td><input value="${escAttr(it.facility_name)}" oninput="bdFacilityItems[${i}].facility_name=this.value" style="width:100%"></td>
-      <td><input type="date" min="1900-01-01" max="9999-12-31" value="${it.date||''}" onchange="bdFacilityItems[${i}].date=this.value"></td>
-      <td><input type="number" value="${it.pax||0}" onchange="bdFacilityItems[${i}].pax=Number(this.value)" style="width:100%"></td>
-      <td><input type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="facilityAmountCalc(${i},this)"></td>
-      <td><select onchange="bdFacilityItems[${i}].status=this.value;this.style.background=statusBg(this.value);this.style.color=statusFg(this.value)" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px;${statusSelectStyle(it.status||'問い合わせ中')}"><option value="未予約" ${it.status==='未予約'?'selected':''}>未予約</option><option value="問い合わせ中" ${(it.status||'問い合わせ中')==='問い合わせ中'?'selected':''}>問い合わせ中</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option><option value="NG回答" ${it.status==='NG回答'?'selected':''}>NG回答</option><option value="キャンセル" ${it.status==='キャンセル'?'selected':''}>キャンセル</option></select></td>
-      <td><input value="${escAttr(it.confirmation_no)}" oninput="bdFacilityItems[${i}].confirmation_no=this.value" style="width:100%"></td>
-      <td><input type="date" min="1900-01-01" max="9999-12-31" value="${it.deadline_date||''}" onchange="bdFacilityItems[${i}].deadline_date=this.value"></td>
-      <td><select onchange="bdFacilityItems[${i}].payment_method=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px"><option value="" ${!it.payment_method?'selected':''}></option>${LOCAL_EXPENSE_PAYMENT_METHODS.map(m=>`<option value="${m}" ${it.payment_method===m?'selected':''}>${m}</option>`).join('')}</select></td>
-      <td><input value="${escAttr(it.memo)}" oninput="bdFacilityItems[${i}].memo=this.value" style="width:100%"></td>
+      <td data-label="施設名"><input value="${escAttr(it.facility_name)}" oninput="bdFacilityItems[${i}].facility_name=this.value" style="width:100%"></td>
+      <td data-label="日付"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.date||''}" onchange="bdFacilityItems[${i}].date=this.value"></td>
+      <td data-label="人数"><input type="number" value="${it.pax||0}" onchange="bdFacilityItems[${i}].pax=Number(this.value)" style="width:100%"></td>
+      <td data-label="金額"><input type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="facilityAmountCalc(${i},this)"></td>
+      <td data-label="ステータス"><select onchange="bdFacilityItems[${i}].status=this.value;this.style.background=statusBg(this.value);this.style.color=statusFg(this.value)" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px;${statusSelectStyle(it.status||'問い合わせ中')}"><option value="未予約" ${it.status==='未予約'?'selected':''}>未予約</option><option value="問い合わせ中" ${(it.status||'問い合わせ中')==='問い合わせ中'?'selected':''}>問い合わせ中</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option><option value="NG回答" ${it.status==='NG回答'?'selected':''}>NG回答</option><option value="キャンセル" ${it.status==='キャンセル'?'selected':''}>キャンセル</option></select></td>
+      <td data-label="確認番号"><input value="${escAttr(it.confirmation_no)}" oninput="bdFacilityItems[${i}].confirmation_no=this.value" style="width:100%"></td>
+      <td data-label="期限日"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.deadline_date||''}" onchange="bdFacilityItems[${i}].deadline_date=this.value"></td>
+      <td data-label="支払方法"><select onchange="bdFacilityItems[${i}].payment_method=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px"><option value="" ${!it.payment_method?'selected':''}></option>${LOCAL_EXPENSE_PAYMENT_METHODS.map(m=>`<option value="${m}" ${it.payment_method===m?'selected':''}>${m}</option>`).join('')}</select></td>
+      <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdFacilityItems[${i}].memo=this.value" style="width:100%"></td>
       <td class="li-del"><button class="btn" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="if(confirm('この行を削除しますか？')){bdFacilityItems.splice(${i},1);renderFacilityTable()}">✕</button></td>
     </tr>`).join('');
   }
