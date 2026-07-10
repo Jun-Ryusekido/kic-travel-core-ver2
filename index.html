@@ -4571,15 +4571,28 @@ async function syncAdvancePaymentsFromCosts(bookingId, refNo){
 
   const nameMatch = (a, b) => !!a && !!b && (a===b || a.includes(b) || b.includes(a));
   const bracketPattern = /仮払金\s*[（(]([^）)]+)[）)]/;
+  // 備考欄の末尾に付く「(A)」「（B)」等の1文字タグ（同一予約内で複数の仮払金を
+  // 区別するための便宜的な符牒で、担当者名の一部ではない）を除去してから比較する。
+  const stripTag = s => (s||'').replace(/[（(]\s*[A-Za-z0-9]\s*[）)]\s*$/, '').trim();
+  // 「ｶﾀｶﾅ名/ROMAJI名」「漢字名/ｶﾀｶﾅ名」のように「/」区切りで複数表記が
+  // 併記されている場合があるため、各断片を個別の候補としてマッチを試みる。
+  const nameCandidates = s => stripTag(s).split('/').map(x=>x.trim()).filter(Boolean);
   const assignedByTarget = {}; // key: `${si}-${gi}` -> [amount, amount, ...]（仕入明細内の順序）
 
   advanceRows.forEach(row => {
     const m = (row.item_name||'').match(bracketPattern);
-    const rowName = (m && m[1]) ? m[1].trim() : (row.memo||'').trim();
+    const rawName = (m && m[1]) ? m[1] : (row.memo||'');
+    const candidates = nameCandidates(rawName);
     let target = null;
-    if(rowName){
-      // 名前情報がある場合は必ずマッチするガイドにのみ割り当てる（マッチしなければ誰にも割り当てない）
-      target = targets.find(t => nameMatch(t.name, rowName));
+    if(advanceRows.length === 1 && targets.length === 1){
+      // 仮払金行・ガイドともに1件しかない場合は曖昧さがないため、備考の表記が
+      // ガイド名と文字列一致しなくても（片仮名表記のみ等）その1人に割り当てる。
+      target = targets[0];
+    } else if(candidates.length){
+      // 複数の仮払金行、または複数ガイドが存在し得る場合は、必ずマッチする
+      // ガイドにのみ割り当てる（マッチしなければ誰にも割り当てない。
+      // 他の担当者の仮払金が紛れ込むのを防ぐため）。
+      target = targets.find(t => candidates.some(c => nameMatch(t.name, c)));
     } else if(targets.length === 1){
       // 名前情報が一切ない場合のみ、ガイドが1人なら割り当てる
       target = targets[0];
