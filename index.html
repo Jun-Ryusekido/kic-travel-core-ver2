@@ -517,8 +517,8 @@ input[type=number]{-moz-appearance:textfield}
 
       <!-- Dashboard -->
       <div id="pg-dashboard" class="page">
-        <div class="card" id="db-todo-list-card">
-          <div class="card-title">📝 ToDoリスト <span style="font-size:10px;font-weight:400;color:var(--text3)">観光施設・バス駐車場等の対応期限管理（全件）</span></div>
+        <div class="card" id="db-todo-list-card" style="position:sticky;top:8px;z-index:5">
+          <div class="card-title"><span>📝 ToDoリスト <span style="font-size:10px;font-weight:400;color:var(--text3)">観光施設・バス駐車場等の対応期限管理（全件）</span></span><button class="btn" style="font-size:11px" onclick="sessionStorage.setItem('db_todo_dismissed','1');document.getElementById('db-todo-list-card').style.display='none'">✕ 閉じる</button></div>
           <div id="db-todo-list"><span style="font-size:12px;color:var(--text3)">読み込み中...</span></div>
         </div>
         <div class="card accounting-only">
@@ -1909,6 +1909,7 @@ async function doLogin(){
   }
 
   currentUser = data;
+  sessionStorage.removeItem('db_todo_dismissed');
 
   // 最終ログイン更新
   await sb.from('app_users').update({last_login:new Date().toISOString()}).eq('id', data.id);
@@ -2289,6 +2290,8 @@ function facilityDeadlineTableHtml(buckets){
 // ダッシュボード最上部のToDoリスト：観光施設・バス駐車場等の対応期限を持つ全件を
 // 期限が近い順に表示し、チェックで完了扱いにできる（完了分は下部にまとめて表示）
 async function renderDashboardTodoList(){
+  const card = document.getElementById('db-todo-list-card');
+  if(card && sessionStorage.getItem('db_todo_dismissed')){ card.style.display = 'none'; }
   const el = document.getElementById('db-todo-list');
   if(!el) return;
   const {bucketsFull, completed, incompleteAll, error} = await fetchFacilityDeadlineItems(null);
