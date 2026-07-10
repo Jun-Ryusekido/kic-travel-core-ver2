@@ -1333,6 +1333,7 @@ input[type=number]{-moz-appearance:textfield}
     <div id="arrtab-hotel">
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
         <button class="btn" style="font-size:10px" onclick="document.getElementById('hotel-ocr-area').style.display=document.getElementById('hotel-ocr-area').style.display===''?'none':''">📧 メール/テキストから読み取り</button>
+        <button class="btn" style="font-size:10px" onclick="openEmailQueuePicker('hotel-ocr-text','hotel-ocr-area')">📥 保留メールから選択</button>
         <label class="btn" style="font-size:10px;cursor:pointer">
           📎 Excel/PDF/Wordから読み取り
           <input type="file" accept=".xlsx,.xls,.pdf,.docx" style="display:none" onchange="extractHotelFromFile(event)">
@@ -1375,6 +1376,7 @@ input[type=number]{-moz-appearance:textfield}
     <div id="arrtab-bus" style="display:none">
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
         <button class="btn" style="font-size:10px" onclick="toggleBusOcrArea()">📧 メール/テキストから読み取り</button>
+        <button class="btn" style="font-size:10px" onclick="openEmailQueuePicker('bus-ocr-text','bus-ocr-area')">📥 保留メールから選択</button>
         <label class="btn" style="font-size:10px;cursor:pointer">📎 Excel/PDFから読み取り<input type="file" accept=".xlsx,.xls,.pdf" style="display:none" onchange="extractBusFromFile(event)"></label>
         <label class="btn" style="font-size:10px;cursor:pointer">🖼 画像から読み取り<input type="file" accept="image/*" style="display:none" onchange="extractBusFromFile(event,'image')"></label>
         <label class="btn" style="font-size:10px;cursor:pointer">📷 カメラで撮影<input type="file" accept="image/*" capture="environment" style="display:none" onchange="extractBusFromFile(event,'image')"></label>
@@ -1411,6 +1413,7 @@ input[type=number]{-moz-appearance:textfield}
     <div id="arrtab-rest" style="display:none">
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
         <button class="btn" style="font-size:10px" onclick="toggleRestOcrArea()">📧 メール/テキストから読み取り</button>
+        <button class="btn" style="font-size:10px" onclick="openEmailQueuePicker('rest-ocr-text','rest-ocr-area')">📥 保留メールから選択</button>
         <label class="btn" style="font-size:10px;cursor:pointer">📎 Excel/PDFから読み取り<input type="file" accept=".xlsx,.xls,.pdf" style="display:none" onchange="extractRestaurantFromFile(event)"></label>
         <label class="btn" style="font-size:10px;cursor:pointer">🖼 画像から読み取り<input type="file" accept="image/*" style="display:none" onchange="extractRestaurantFromFile(event,'image')"></label>
         <label class="btn" style="font-size:10px;cursor:pointer">📷 カメラで撮影<input type="file" accept="image/*" capture="environment" style="display:none" onchange="extractRestaurantFromFile(event,'image')"></label>
@@ -1450,6 +1453,7 @@ input[type=number]{-moz-appearance:textfield}
     <div id="arrtab-fac" style="display:none">
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
         <button class="btn" style="font-size:10px" onclick="toggleFacOcrArea()">📧 メール/テキストから読み取り</button>
+        <button class="btn" style="font-size:10px" onclick="openEmailQueuePicker('fac-ocr-text','fac-ocr-area')">📥 保留メールから選択</button>
         <label class="btn" style="font-size:10px;cursor:pointer">📎 Excel/PDFから読み取り<input type="file" accept=".xlsx,.xls,.pdf" style="display:none" onchange="extractFacilityFromFile(event)"></label>
         <label class="btn" style="font-size:10px;cursor:pointer">🖼 画像から読み取り<input type="file" accept="image/*" style="display:none" onchange="extractFacilityFromFile(event,'image')"></label>
         <label class="btn" style="font-size:10px;cursor:pointer">📷 カメラで撮影<input type="file" accept="image/*" capture="environment" style="display:none" onchange="extractFacilityFromFile(event,'image')"></label>
@@ -6245,6 +6249,50 @@ async function saveBusItems(){
     memo: it.memo||''
   }));
   await safeReplaceBookingRows('booking_buses', bookingId, rows, 'バス明細');
+}
+
+// ─── Outlookメール半自動取り込み(email_import_queue) ───────────────────────────
+// 未取り込み(imported=false)のメールを一覧表示し、選んだメールの本文を対象のOCRテキストエリアに流し込む
+async function openEmailQueuePicker(textId, areaId){
+  const existing = document.getElementById('email-queue-picker-modal');
+  if(existing) existing.remove();
+  const modal = document.createElement('div');
+  modal.id = 'email-queue-picker-modal';
+  modal.className = 'modal-overlay open';
+  modal.innerHTML = `
+    <div class="modal-box" style="max-width:700px">
+      <div class="modal-header">📥 保留メールから選択 <button class="modal-close" onclick="document.getElementById('email-queue-picker-modal').remove()">✕</button></div>
+      <div id="email-queue-picker-body" style="font-size:12px;color:var(--text3)">読み込み中...</div>
+    </div>`;
+  document.body.appendChild(modal);
+
+  const {data, error} = await sb.from('email_import_queue').select('id,subject,sender,received_at,body').eq('imported', false).order('received_at', {ascending:false}).limit(30);
+  const body = document.getElementById('email-queue-picker-body');
+  if(!body) return;
+  if(error){ body.innerHTML = '<div style="color:var(--red);font-size:12px">読み込みエラー: '+escHtml(error.message)+'</div>'; return; }
+  if(!data || data.length===0){ body.innerHTML = '<div style="font-size:12px;color:var(--text3);padding:8px 0">保留中のメールはありません。</div>'; return; }
+  body.innerHTML = data.map(m=>{
+    const preview = String(m.body||'').replace(/\s+/g,' ').trim().slice(0,80);
+    const received = m.received_at ? new Date(m.received_at).toLocaleString('ja-JP') : '';
+    return `<div onclick="applyEmailQueueItem('${m.id}','${textId}','${areaId}')" style="padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;cursor:pointer" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''">
+      <div style="font-size:12px;font-weight:600;margin-bottom:2px">${escHtml(m.subject||'(件名なし)')}</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:2px">${escHtml(m.sender||'')} ・ ${escHtml(received)}</div>
+      <div style="font-size:11px;color:var(--text2)">${escHtml(preview)}${preview.length>=80?'…':''}</div>
+    </div>`;
+  }).join('');
+}
+
+async function applyEmailQueueItem(id, textId, areaId){
+  const {data, error} = await sb.from('email_import_queue').select('body').eq('id', id).single();
+  if(error){ alert('メール本文の取得に失敗しました: '+error.message); return; }
+  const textEl = document.getElementById(textId);
+  if(textEl) textEl.value = data.body||'';
+  const areaEl = document.getElementById(areaId);
+  if(areaEl) areaEl.style.display = '';
+  const {error: updErr} = await sb.from('email_import_queue').update({imported:true}).eq('id', id);
+  if(updErr){ alert('取り込み済みへの更新に失敗しました: '+updErr.message); }
+  const modal = document.getElementById('email-queue-picker-modal');
+  if(modal) modal.remove();
 }
 
 // ─── バスAI読み取り ───────────────────────────────────────────────────────────
