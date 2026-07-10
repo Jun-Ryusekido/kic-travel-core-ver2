@@ -4456,9 +4456,9 @@ function renderGuideSettlements(){
         <div style="font-size:11px;font-weight:700;margin-bottom:4px">${escHtml(g.name)}</div>
         <div class="gs-fields-row" style="margin-bottom:0">
           <div class="gs-field"><label>携帯番号</label><input value="${escAttr(g.phone)}" onchange="updateGuideEntryField('${s.id}',${i},'phone',this.value)"></div>
-          <div class="gs-field"><label>仮払金${g.advance_manual_override?' <span style="color:var(--amber,#c90)" title="仕入明細からの自動集計を手動で上書き中">✋手動</span>':''}</label><input type="number" value="${g.advance_payment||0}" onchange="updateGuideEntryField('${s.id}',${i},'advance_payment',this.value)"></div>
-          <div class="gs-field"><label>仮払金追加${g.advance_manual_override?' <span style="color:var(--amber,#c90)" title="仕入明細からの自動集計を手動で上書き中">✋手動</span>':''}</label><input type="number" value="${g.additional_advance_payment||0}" onchange="updateGuideEntryField('${s.id}',${i},'additional_advance_payment',this.value)"></div>
-          <div class="gs-field"><label>仮払金合計${g.advance_manual_override?` <span style="cursor:pointer;color:var(--blue)" title="仕入明細からの自動集計に戻す" onclick="if(confirm('仕入明細からの自動集計に戻しますか？手動入力は上書きされます。'))resetGuideAdvanceOverride('${s.id}',${i})">↺自動に戻す</span>`:''}</label><input type="number" value="${Number(g.advance_payment||0)+Number(g.additional_advance_payment||0)}" readonly style="background:var(--bg2,#f5f5f5);color:var(--text2)"></div>
+          <div class="gs-field"><label>仮払金${g.advance_manual_override?' <span style="color:var(--amber,#c90)" title="仕入明細からの自動集計を手動で上書き中">✋手動</span>':''}</label><input type="text" inputmode="numeric" style="text-align:right" value="${fmtAmt(g.advance_payment||0)}" onchange="updateGuideEntryField('${s.id}',${i},'advance_payment',parseAmt(this.value))" onblur="amtBlur(this)"></div>
+          <div class="gs-field"><label>仮払金追加${g.advance_manual_override?' <span style="color:var(--amber,#c90)" title="仕入明細からの自動集計を手動で上書き中">✋手動</span>':''}</label><input type="text" inputmode="numeric" style="text-align:right" value="${fmtAmt(g.additional_advance_payment||0)}" onchange="updateGuideEntryField('${s.id}',${i},'additional_advance_payment',parseAmt(this.value))" onblur="amtBlur(this)"></div>
+          <div class="gs-field"><label>仮払金合計${g.advance_manual_override?` <span style="cursor:pointer;color:var(--blue)" title="仕入明細からの自動集計に戻す" onclick="if(confirm('仕入明細からの自動集計に戻しますか？手動入力は上書きされます。'))resetGuideAdvanceOverride('${s.id}',${i})">↺自動に戻す</span>`:''}</label><input type="text" style="text-align:right;background:var(--bg2,#f5f5f5);color:var(--text2)" value="${fmtAmt(Number(g.advance_payment||0)+Number(g.additional_advance_payment||0))}" readonly></div>
           <div class="gs-field"><label>精算手順</label><div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:2px"><button onclick="window.open('/guide_settlement_jp.pdf','_blank')" style="font-size:11px;padding:4px 8px;" class="btn">📄 JP</button><button onclick="window.open('/guide_settlement_en.pdf','_blank')" style="font-size:11px;padding:4px 8px;" class="btn">📄 EN</button><button onclick="downloadQRFromUrl('https://kic-travel-core-ver2.vercel.app/guide_settlement_jp.pdf','qr_settlement_jp.png')" style="font-size:11px;padding:4px 8px;" class="btn">📱 QR JP</button><button onclick="downloadQRFromUrl('https://kic-travel-core-ver2.vercel.app/guide_settlement_en.pdf','qr_settlement_en.png')" style="font-size:11px;padding:4px 8px;" class="btn">📱 QR EN</button></div></div>
           <div class="gs-field" style="display:none"><label>ガイド費(日当)</label><input type="number" value="${g.guide_fee||0}" onchange="updateGuideEntryField('${s.id}',${i},'guide_fee',this.value)"></div>
         </div>
@@ -6355,6 +6355,7 @@ async function extractBusFromFile(event, mode){
 function showBusConfirmDialog(buses){
   window._pendingBuses=buses;
   const rows=buses.map((b,i)=>`<tr style="border-bottom:1px solid var(--border)">
+    <td style="padding:5px 4px;text-align:center"><input type="checkbox" id="bus-c-sel-${i}" checked></td>
     <td style="padding:5px 4px"><input value="${escAttr(b.bus_company||'')}" id="bus-c-company-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
     <td style="padding:5px 4px"><input value="${escAttr(b.bus_type||'')}" id="bus-c-type-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
     <td style="padding:5px 4px"><input type="number" value="${b.buses||1}" id="bus-c-buses-${i}" style="width:50px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;text-align:right"></td>
@@ -6380,9 +6381,10 @@ function showBusConfirmDialog(buses){
         <div style="font-size:14px;font-weight:700">読み取り結果の確認</div>
         <button class="btn" onclick="document.getElementById('bus-confirm-modal').remove()">✕ 閉じる</button>
       </div>
-      <div style="font-size:11px;color:var(--text3);margin-bottom:10px">内容を確認・修正してから「明細に追加」してください。</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:10px">内容を確認・修正してから「明細に追加」してください。追加しない行はチェックを外してください。</div>
       <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">
         <thead><tr style="background:var(--bg)">
+          <th style="padding:5px 4px;min-width:40px">追加</th>
           <th style="padding:5px 4px;text-align:left;min-width:130px">バス会社</th>
           <th style="padding:5px 4px;text-align:left;min-width:90px">バスタイプ</th>
           <th style="padding:5px 4px;min-width:50px">台数</th>
@@ -6413,6 +6415,7 @@ function saveBusConfirm(){
   const buses=window._pendingBuses;
   if(!buses) return;
   buses.forEach((b,i)=>{
+    if(!document.getElementById(`bus-c-sel-${i}`)?.checked) return;
     bdBusItems.push({
       bus_company: document.getElementById(`bus-c-company-${i}`)?.value||'',
       bus_type: document.getElementById(`bus-c-type-${i}`)?.value||'',
@@ -6616,6 +6619,7 @@ async function extractRestaurantFromFile(event, mode){
 function showRestaurantConfirmDialog(restaurants){
   window._pendingRestaurants=restaurants;
   const rows=restaurants.map((r,i)=>`<tr style="border-bottom:1px solid var(--border)">
+    <td style="padding:5px 4px;text-align:center"><input type="checkbox" id="rest-c-sel-${i}" checked></td>
     <td style="padding:5px 4px"><input value="${escAttr(r.restaurant_name||'')}" id="rest-c-name-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
     <td style="padding:5px 4px"><select id="rest-c-meal-${i}" style="font-size:11px;padding:3px;border:1px solid var(--border);border-radius:5px"><option value="朝食" ${r.meal_type==='朝食'?'selected':''}>朝食</option><option value="昼食" ${(r.meal_type||'昼食')==='昼食'?'selected':''}>昼食</option><option value="夕食" ${r.meal_type==='夕食'?'selected':''}>夕食</option></select></td>
     <td style="padding:5px 4px"><input type="date" min="1900-01-01" max="9999-12-31" value="${r.date||''}" id="rest-c-date-${i}" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
@@ -6634,9 +6638,10 @@ function showRestaurantConfirmDialog(restaurants){
         <div style="font-size:14px;font-weight:700">読み取り結果の確認</div>
         <button class="btn" onclick="document.getElementById('rest-confirm-modal').remove()">✕ 閉じる</button>
       </div>
-      <div style="font-size:11px;color:var(--text3);margin-bottom:10px">内容を確認・修正してから「明細に追加」してください。</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:10px">内容を確認・修正してから「明細に追加」してください。追加しない行はチェックを外してください。</div>
       <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">
         <thead><tr style="background:var(--bg)">
+          <th style="padding:5px 4px;min-width:40px">追加</th>
           <th style="padding:5px 4px;text-align:left;min-width:140px">店名</th>
           <th style="padding:5px 4px;min-width:70px">食事種別</th>
           <th style="padding:5px 4px;min-width:110px">日付</th>
@@ -6661,6 +6666,7 @@ function saveRestaurantConfirm(){
   if(!restaurants) return;
   const b=findBookingById(currentDetailId);
   restaurants.forEach((r,i)=>{
+    if(!document.getElementById(`rest-c-sel-${i}`)?.checked) return;
     bdRestaurantItems.push({
       restaurant_name: document.getElementById(`rest-c-name-${i}`)?.value||'',
       meal_type: document.getElementById(`rest-c-meal-${i}`)?.value||'昼食',
@@ -6847,6 +6853,7 @@ async function extractFacilityFromFile(event, mode){
 function showFacilityConfirmDialog(facilities){
   window._pendingFacilities=facilities;
   const rows=facilities.map((f,i)=>`<tr style="border-bottom:1px solid var(--border)">
+    <td style="padding:5px 4px;text-align:center"><input type="checkbox" id="fac-c-sel-${i}" checked></td>
     <td style="padding:5px 4px"><input value="${escAttr(f.facility_name||'')}" id="fac-c-name-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
     <td style="padding:5px 4px"><input type="date" min="1900-01-01" max="9999-12-31" value="${f.date||''}" id="fac-c-date-${i}" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
     <td style="padding:5px 4px"><input type="number" value="${f.pax||0}" id="fac-c-pax-${i}" style="width:55px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;text-align:right"></td>
@@ -6864,9 +6871,10 @@ function showFacilityConfirmDialog(facilities){
         <div style="font-size:14px;font-weight:700">読み取り結果の確認</div>
         <button class="btn" onclick="document.getElementById('fac-confirm-modal').remove()">✕ 閉じる</button>
       </div>
-      <div style="font-size:11px;color:var(--text3);margin-bottom:10px">内容を確認・修正してから「明細に追加」してください。</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:10px">内容を確認・修正してから「明細に追加」してください。追加しない行はチェックを外してください。</div>
       <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">
         <thead><tr style="background:var(--bg)">
+          <th style="padding:5px 4px;min-width:40px">追加</th>
           <th style="padding:5px 4px;text-align:left;min-width:140px">施設名</th>
           <th style="padding:5px 4px;text-align:left;min-width:110px">日付</th>
           <th style="padding:5px 4px;min-width:55px">人数</th>
@@ -6889,6 +6897,7 @@ function saveFacilityConfirm(){
   const facilities=window._pendingFacilities;
   if(!facilities) return;
   facilities.forEach((f,i)=>{
+    if(!document.getElementById(`fac-c-sel-${i}`)?.checked) return;
     bdFacilityItems.push({
       facility_name: document.getElementById(`fac-c-name-${i}`)?.value||'',
       date: document.getElementById(`fac-c-date-${i}`)?.value||'',
