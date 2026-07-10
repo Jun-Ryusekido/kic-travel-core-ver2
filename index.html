@@ -350,6 +350,15 @@ input[type=number]{-moz-appearance:textfield}
   /* PC用のカメラセクションのdashed枠をスマホでは消す */
   #pt-card-upload-section { border-top: 1px solid var(--border) }
 }
+@media(max-width:640px){
+  .confirm-table thead{display:none}
+  .confirm-table, .confirm-table tbody{display:block;width:100%}
+  .confirm-table tr{display:block;border:1px solid var(--border);border-radius:8px;margin-bottom:10px;padding:8px}
+  .confirm-table td{display:flex!important;align-items:center;gap:8px;border:none!important;padding:4px 0!important;min-width:0!important}
+  .confirm-table td::before{content:attr(data-label);font-weight:600;flex:0 0 76px;font-size:10px;color:var(--text3)}
+  .confirm-table td input,.confirm-table td select{flex:1;width:auto!important}
+  .confirm-table td[data-label="追加"]::before{display:none}
+}
 /* 請求書読み取り確認モーダル：スマホはカード形式（縦積み） */
 @media (max-width: 599px) {
   #invoice-confirm-modal table { table-layout: auto !important; min-width: 0 !important; }
@@ -6335,16 +6344,16 @@ async function extractBusFromFile(event, mode){
 function showBusConfirmDialog(buses){
   window._pendingBuses=buses;
   const rows=buses.map((b,i)=>`<tr style="border-bottom:1px solid var(--border)">
-    <td style="padding:5px 4px;text-align:center"><input type="checkbox" id="bus-c-sel-${i}" checked></td>
-    <td style="padding:5px 4px"><input value="${escAttr(b.bus_company||'')}" id="bus-c-company-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
-    <td style="padding:5px 4px"><input value="${escAttr(b.bus_type||'')}" id="bus-c-type-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
-    <td style="padding:5px 4px"><input type="number" value="${b.buses||1}" id="bus-c-buses-${i}" style="width:50px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;text-align:right"></td>
-    <td style="padding:5px 4px"><input type="date" min="1900-01-01" max="9999-12-31" value="${b.start_date||''}" id="bus-c-start-${i}" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
-    <td style="padding:5px 4px"><input type="date" min="1900-01-01" max="9999-12-31" value="${b.end_date||''}" id="bus-c-end-${i}" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
-    <td style="padding:5px 4px"><input type="number" value="${b.amount||0}" id="bus-c-amount-${i}" style="width:90px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;text-align:right"></td>
-    <td style="padding:5px 4px"><select id="bus-c-status-${i}" style="font-size:11px;padding:3px;border:1px solid var(--border);border-radius:5px"><option value="未予約" ${b.status==='未予約'?'selected':''}>未予約</option><option value="問い合わせ中" ${(b.status||'問い合わせ中')==='問い合わせ中'?'selected':''}>問い合わせ中</option><option value="手配OK" ${b.status==='手配OK'?'selected':''}>手配OK</option><option value="NG回答" ${b.status==='NG回答'?'selected':''}>NG回答</option><option value="キャンセル" ${b.status==='キャンセル'?'selected':''}>キャンセル</option></select></td>
-    <td style="padding:5px 4px"><input value="${escAttr(b.confirmation_no||'')}" id="bus-c-conf-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
-    <td style="padding:5px 4px"><input value="${escAttr(b.memo||'')}" id="bus-c-memo-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
+    <td data-label="追加" style="padding:5px 4px;text-align:center"><input type="checkbox" id="bus-c-sel-${i}" checked></td>
+    <td data-label="バス会社" style="padding:5px 4px"><input value="${escAttr(b.bus_company||'')}" id="bus-c-company-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
+    <td data-label="バスタイプ" style="padding:5px 4px"><input value="${escAttr(b.bus_type||'')}" id="bus-c-type-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
+    <td data-label="台数" style="padding:5px 4px"><input type="number" value="${b.buses||1}" id="bus-c-buses-${i}" style="width:50px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;text-align:right"></td>
+    <td data-label="開始日" style="padding:5px 4px"><input type="date" min="1900-01-01" max="9999-12-31" value="${b.start_date||''}" id="bus-c-start-${i}" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
+    <td data-label="終了日" style="padding:5px 4px"><input type="date" min="1900-01-01" max="9999-12-31" value="${b.end_date||''}" id="bus-c-end-${i}" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
+    <td data-label="金額" style="padding:5px 4px"><input type="number" value="${b.amount||0}" id="bus-c-amount-${i}" style="width:90px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;text-align:right"></td>
+    <td data-label="ステータス" style="padding:5px 4px"><select id="bus-c-status-${i}" style="font-size:11px;padding:3px;border:1px solid var(--border);border-radius:5px"><option value="未予約" ${b.status==='未予約'?'selected':''}>未予約</option><option value="問い合わせ中" ${(b.status||'問い合わせ中')==='問い合わせ中'?'selected':''}>問い合わせ中</option><option value="手配OK" ${b.status==='手配OK'?'selected':''}>手配OK</option><option value="NG回答" ${b.status==='NG回答'?'selected':''}>NG回答</option><option value="キャンセル" ${b.status==='キャンセル'?'selected':''}>キャンセル</option></select></td>
+    <td data-label="確認番号" style="padding:5px 4px"><input value="${escAttr(b.confirmation_no||'')}" id="bus-c-conf-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
+    <td data-label="備考" style="padding:5px 4px"><input value="${escAttr(b.memo||'')}" id="bus-c-memo-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
   </tr>`).join('');
   const modal=document.createElement('div');
   modal.id='bus-confirm-modal';
@@ -6356,7 +6365,7 @@ function showBusConfirmDialog(buses){
         <button class="btn" onclick="document.getElementById('bus-confirm-modal').remove()">✕ 閉じる</button>
       </div>
       <div style="font-size:11px;color:var(--text3);margin-bottom:10px">内容を確認・修正してから「明細に追加」してください。追加しない行はチェックを外してください。</div>
-      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">
+      <div style="overflow-x:auto"><table class="confirm-table" style="width:100%;border-collapse:collapse;font-size:11px">
         <thead><tr style="background:var(--bg)">
           <th style="padding:5px 4px;min-width:40px">追加</th>
           <th style="padding:5px 4px;text-align:left;min-width:130px">バス会社</th>
@@ -6581,15 +6590,15 @@ async function extractRestaurantFromFile(event, mode){
 function showRestaurantConfirmDialog(restaurants){
   window._pendingRestaurants=restaurants;
   const rows=restaurants.map((r,i)=>`<tr style="border-bottom:1px solid var(--border)">
-    <td style="padding:5px 4px;text-align:center"><input type="checkbox" id="rest-c-sel-${i}" checked></td>
-    <td style="padding:5px 4px"><input value="${escAttr(r.restaurant_name||'')}" id="rest-c-name-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
-    <td style="padding:5px 4px"><select id="rest-c-meal-${i}" style="font-size:11px;padding:3px;border:1px solid var(--border);border-radius:5px"><option value="朝食" ${r.meal_type==='朝食'?'selected':''}>朝食</option><option value="昼食" ${(r.meal_type||'昼食')==='昼食'?'selected':''}>昼食</option><option value="夕食" ${r.meal_type==='夕食'?'selected':''}>夕食</option></select></td>
-    <td style="padding:5px 4px"><input type="date" min="1900-01-01" max="9999-12-31" value="${r.date||''}" id="rest-c-date-${i}" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
-    <td style="padding:5px 4px"><input type="time" value="${r.reservation_time||''}" id="rest-c-time-${i}" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
-    <td style="padding:5px 4px"><input type="number" value="${r.pax||0}" id="rest-c-pax-${i}" style="width:55px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;text-align:right"></td>
-    <td style="padding:5px 4px"><input type="number" value="${r.amount||0}" id="rest-c-amount-${i}" style="width:90px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;text-align:right"></td>
-    <td style="padding:5px 4px"><select id="rest-c-status-${i}" style="font-size:11px;padding:3px;border:1px solid var(--border);border-radius:5px"><option value="未予約" ${r.status==='未予約'?'selected':''}>未予約</option><option value="問い合わせ中" ${(r.status||'問い合わせ中')==='問い合わせ中'?'selected':''}>問い合わせ中</option><option value="手配OK" ${r.status==='手配OK'?'selected':''}>手配OK</option><option value="NG回答" ${r.status==='NG回答'?'selected':''}>NG回答</option><option value="キャンセル" ${r.status==='キャンセル'?'selected':''}>キャンセル</option></select></td>
-    <td style="padding:5px 4px"><input value="${escAttr(r.memo||'')}" id="rest-c-memo-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
+    <td data-label="追加" style="padding:5px 4px;text-align:center"><input type="checkbox" id="rest-c-sel-${i}" checked></td>
+    <td data-label="店名" style="padding:5px 4px"><input value="${escAttr(r.restaurant_name||'')}" id="rest-c-name-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
+    <td data-label="食事種別" style="padding:5px 4px"><select id="rest-c-meal-${i}" style="font-size:11px;padding:3px;border:1px solid var(--border);border-radius:5px"><option value="朝食" ${r.meal_type==='朝食'?'selected':''}>朝食</option><option value="昼食" ${(r.meal_type||'昼食')==='昼食'?'selected':''}>昼食</option><option value="夕食" ${r.meal_type==='夕食'?'selected':''}>夕食</option></select></td>
+    <td data-label="日付" style="padding:5px 4px"><input type="date" min="1900-01-01" max="9999-12-31" value="${r.date||''}" id="rest-c-date-${i}" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
+    <td data-label="予約時刻" style="padding:5px 4px"><input type="time" value="${r.reservation_time||''}" id="rest-c-time-${i}" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
+    <td data-label="人数" style="padding:5px 4px"><input type="number" value="${r.pax||0}" id="rest-c-pax-${i}" style="width:55px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;text-align:right"></td>
+    <td data-label="金額" style="padding:5px 4px"><input type="number" value="${r.amount||0}" id="rest-c-amount-${i}" style="width:90px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;text-align:right"></td>
+    <td data-label="ステータス" style="padding:5px 4px"><select id="rest-c-status-${i}" style="font-size:11px;padding:3px;border:1px solid var(--border);border-radius:5px"><option value="未予約" ${r.status==='未予約'?'selected':''}>未予約</option><option value="問い合わせ中" ${(r.status||'問い合わせ中')==='問い合わせ中'?'selected':''}>問い合わせ中</option><option value="手配OK" ${r.status==='手配OK'?'selected':''}>手配OK</option><option value="NG回答" ${r.status==='NG回答'?'selected':''}>NG回答</option><option value="キャンセル" ${r.status==='キャンセル'?'selected':''}>キャンセル</option></select></td>
+    <td data-label="備考" style="padding:5px 4px"><input value="${escAttr(r.memo||'')}" id="rest-c-memo-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
   </tr>`).join('');
   const modal=document.createElement('div');
   modal.id='rest-confirm-modal';
@@ -6601,7 +6610,7 @@ function showRestaurantConfirmDialog(restaurants){
         <button class="btn" onclick="document.getElementById('rest-confirm-modal').remove()">✕ 閉じる</button>
       </div>
       <div style="font-size:11px;color:var(--text3);margin-bottom:10px">内容を確認・修正してから「明細に追加」してください。追加しない行はチェックを外してください。</div>
-      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">
+      <div style="overflow-x:auto"><table class="confirm-table" style="width:100%;border-collapse:collapse;font-size:11px">
         <thead><tr style="background:var(--bg)">
           <th style="padding:5px 4px;min-width:40px">追加</th>
           <th style="padding:5px 4px;text-align:left;min-width:140px">店名</th>
@@ -6815,14 +6824,14 @@ async function extractFacilityFromFile(event, mode){
 function showFacilityConfirmDialog(facilities){
   window._pendingFacilities=facilities;
   const rows=facilities.map((f,i)=>`<tr style="border-bottom:1px solid var(--border)">
-    <td style="padding:5px 4px;text-align:center"><input type="checkbox" id="fac-c-sel-${i}" checked></td>
-    <td style="padding:5px 4px"><input value="${escAttr(f.facility_name||'')}" id="fac-c-name-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
-    <td style="padding:5px 4px"><input type="date" min="1900-01-01" max="9999-12-31" value="${f.date||''}" id="fac-c-date-${i}" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
-    <td style="padding:5px 4px"><input type="number" value="${f.pax||0}" id="fac-c-pax-${i}" style="width:55px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;text-align:right"></td>
-    <td style="padding:5px 4px"><input type="number" value="${f.amount||0}" id="fac-c-amount-${i}" style="width:90px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;text-align:right"></td>
-    <td style="padding:5px 4px"><select id="fac-c-status-${i}" style="font-size:11px;padding:3px;border:1px solid var(--border);border-radius:5px"><option value="未予約" ${f.status==='未予約'?'selected':''}>未予約</option><option value="問い合わせ中" ${(f.status||'問い合わせ中')==='問い合わせ中'?'selected':''}>問い合わせ中</option><option value="手配OK" ${f.status==='手配OK'?'selected':''}>手配OK</option><option value="NG回答" ${f.status==='NG回答'?'selected':''}>NG回答</option><option value="キャンセル" ${f.status==='キャンセル'?'selected':''}>キャンセル</option></select></td>
-    <td style="padding:5px 4px"><input value="${escAttr(f.confirmation_no||'')}" id="fac-c-conf-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
-    <td style="padding:5px 4px"><input value="${escAttr(f.memo||'')}" id="fac-c-memo-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
+    <td data-label="追加" style="padding:5px 4px;text-align:center"><input type="checkbox" id="fac-c-sel-${i}" checked></td>
+    <td data-label="施設名" style="padding:5px 4px"><input value="${escAttr(f.facility_name||'')}" id="fac-c-name-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
+    <td data-label="日付" style="padding:5px 4px"><input type="date" min="1900-01-01" max="9999-12-31" value="${f.date||''}" id="fac-c-date-${i}" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
+    <td data-label="人数" style="padding:5px 4px"><input type="number" value="${f.pax||0}" id="fac-c-pax-${i}" style="width:55px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;text-align:right"></td>
+    <td data-label="金額" style="padding:5px 4px"><input type="number" value="${f.amount||0}" id="fac-c-amount-${i}" style="width:90px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;text-align:right"></td>
+    <td data-label="ステータス" style="padding:5px 4px"><select id="fac-c-status-${i}" style="font-size:11px;padding:3px;border:1px solid var(--border);border-radius:5px"><option value="未予約" ${f.status==='未予約'?'selected':''}>未予約</option><option value="問い合わせ中" ${(f.status||'問い合わせ中')==='問い合わせ中'?'selected':''}>問い合わせ中</option><option value="手配OK" ${f.status==='手配OK'?'selected':''}>手配OK</option><option value="NG回答" ${f.status==='NG回答'?'selected':''}>NG回答</option><option value="キャンセル" ${f.status==='キャンセル'?'selected':''}>キャンセル</option></select></td>
+    <td data-label="確認番号" style="padding:5px 4px"><input value="${escAttr(f.confirmation_no||'')}" id="fac-c-conf-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
+    <td data-label="備考" style="padding:5px 4px"><input value="${escAttr(f.memo||'')}" id="fac-c-memo-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
   </tr>`).join('');
   const modal=document.createElement('div');
   modal.id='fac-confirm-modal';
@@ -6834,7 +6843,7 @@ function showFacilityConfirmDialog(facilities){
         <button class="btn" onclick="document.getElementById('fac-confirm-modal').remove()">✕ 閉じる</button>
       </div>
       <div style="font-size:11px;color:var(--text3);margin-bottom:10px">内容を確認・修正してから「明細に追加」してください。追加しない行はチェックを外してください。</div>
-      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">
+      <div style="overflow-x:auto"><table class="confirm-table" style="width:100%;border-collapse:collapse;font-size:11px">
         <thead><tr style="background:var(--bg)">
           <th style="padding:5px 4px;min-width:40px">追加</th>
           <th style="padding:5px 4px;text-align:left;min-width:140px">施設名</th>
