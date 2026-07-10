@@ -479,6 +479,7 @@ input[type=number]{-moz-appearance:textfield}
     <div class="sb-item" data-pg="booking-list" onclick="go('booking-list')">📋 Booking List</div>
     <div class="sb-item" data-pg="hotels" onclick="go('hotels')">🏨 ホテル予約管理<span class="sb-en">/ Hotels</span></div>
     <div class="sb-item" data-pg="bullet-trains" onclick="go('bullet-trains')">🚅 新幹線手配<span class="sb-en">/ Shinkansen</span></div>
+    <div class="sb-item" data-pg="email-inbox" onclick="go('email-inbox')">📥 メール受信箱<span class="sb-en">/ Email Inbox</span></div>
     <div class="sb-sec">請求・精算 <span class="sb-en">/ Billing</span></div>
     <div class="sb-item" data-pg="invoice" onclick="go('invoice')">🧾 Invoice</div>
     <div class="sb-item" data-pg="estimation" onclick="go('estimation')">📝 見積もり<span class="sb-en">/ Estimation</span></div>
@@ -1169,6 +1170,15 @@ input[type=number]{-moz-appearance:textfield}
         </div>
       </div>
 
+      <!-- メール受信箱 -->
+      <div id="pg-email-inbox" class="page" style="display:none">
+        <div class="card">
+          <div class="card-title">📥 メール受信箱（Outlookから半自動取り込み）</div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Outlookから取り込まれた未処理のメールです。各メールにREF#とカテゴリを指定して「📤 送る」を押すと、該当予約の該当タブにメール本文が読み込まれます。</div>
+          <div id="email-inbox-list"></div>
+        </div>
+      </div>
+
       <!-- 取引先マスタ -->
       <div id="pg-partners" class="page" style="display:none">
         <!-- 検索エリア（スティッキー） -->
@@ -1333,7 +1343,6 @@ input[type=number]{-moz-appearance:textfield}
     <div id="arrtab-hotel">
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
         <button class="btn" style="font-size:10px" onclick="document.getElementById('hotel-ocr-area').style.display=document.getElementById('hotel-ocr-area').style.display===''?'none':''">📧 メール/テキストから読み取り</button>
-        <button class="btn" style="font-size:10px" onclick="openEmailQueuePicker('hotel-ocr-text','hotel-ocr-area')">📥 保留メールから選択</button>
         <label class="btn" style="font-size:10px;cursor:pointer">
           📎 Excel/PDF/Wordから読み取り
           <input type="file" accept=".xlsx,.xls,.pdf,.docx" style="display:none" onchange="extractHotelFromFile(event)">
@@ -1376,7 +1385,6 @@ input[type=number]{-moz-appearance:textfield}
     <div id="arrtab-bus" style="display:none">
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
         <button class="btn" style="font-size:10px" onclick="toggleBusOcrArea()">📧 メール/テキストから読み取り</button>
-        <button class="btn" style="font-size:10px" onclick="openEmailQueuePicker('bus-ocr-text','bus-ocr-area')">📥 保留メールから選択</button>
         <label class="btn" style="font-size:10px;cursor:pointer">📎 Excel/PDFから読み取り<input type="file" accept=".xlsx,.xls,.pdf" style="display:none" onchange="extractBusFromFile(event)"></label>
         <label class="btn" style="font-size:10px;cursor:pointer">🖼 画像から読み取り<input type="file" accept="image/*" style="display:none" onchange="extractBusFromFile(event,'image')"></label>
         <label class="btn" style="font-size:10px;cursor:pointer">📷 カメラで撮影<input type="file" accept="image/*" capture="environment" style="display:none" onchange="extractBusFromFile(event,'image')"></label>
@@ -1413,7 +1421,6 @@ input[type=number]{-moz-appearance:textfield}
     <div id="arrtab-rest" style="display:none">
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
         <button class="btn" style="font-size:10px" onclick="toggleRestOcrArea()">📧 メール/テキストから読み取り</button>
-        <button class="btn" style="font-size:10px" onclick="openEmailQueuePicker('rest-ocr-text','rest-ocr-area')">📥 保留メールから選択</button>
         <label class="btn" style="font-size:10px;cursor:pointer">📎 Excel/PDFから読み取り<input type="file" accept=".xlsx,.xls,.pdf" style="display:none" onchange="extractRestaurantFromFile(event)"></label>
         <label class="btn" style="font-size:10px;cursor:pointer">🖼 画像から読み取り<input type="file" accept="image/*" style="display:none" onchange="extractRestaurantFromFile(event,'image')"></label>
         <label class="btn" style="font-size:10px;cursor:pointer">📷 カメラで撮影<input type="file" accept="image/*" capture="environment" style="display:none" onchange="extractRestaurantFromFile(event,'image')"></label>
@@ -1453,7 +1460,6 @@ input[type=number]{-moz-appearance:textfield}
     <div id="arrtab-fac" style="display:none">
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
         <button class="btn" style="font-size:10px" onclick="toggleFacOcrArea()">📧 メール/テキストから読み取り</button>
-        <button class="btn" style="font-size:10px" onclick="openEmailQueuePicker('fac-ocr-text','fac-ocr-area')">📥 保留メールから選択</button>
         <label class="btn" style="font-size:10px;cursor:pointer">📎 Excel/PDFから読み取り<input type="file" accept=".xlsx,.xls,.pdf" style="display:none" onchange="extractFacilityFromFile(event)"></label>
         <label class="btn" style="font-size:10px;cursor:pointer">🖼 画像から読み取り<input type="file" accept="image/*" style="display:none" onchange="extractFacilityFromFile(event,'image')"></label>
         <label class="btn" style="font-size:10px;cursor:pointer">📷 カメラで撮影<input type="file" accept="image/*" capture="environment" style="display:none" onchange="extractFacilityFromFile(event,'image')"></label>
@@ -2027,7 +2033,7 @@ function restoreSession(){
 const pageNames={
   dashboard:'Dashboard','new-booking':'New Booking','booking-list':'Booking List',
   invoice:'Invoice',estimation:'見積もり','guide-settlements':'ガイド精算一覧',gross:'GROSS / 粗利管理',payment:'入出金管理',accounts:'アカウント管理',logs:'アクセスログ'
-,hotels:'ホテル予約管理',partners:'取引先マスタ','bullet-trains':'新幹線手配','invoice-import':'請求書読み取り'
+,hotels:'ホテル予約管理',partners:'取引先マスタ','bullet-trains':'新幹線手配','invoice-import':'請求書読み取り','email-inbox':'メール受信箱'
 };
 function go(id){
   if((id==='accounts'||id==='logs'||id==='gross') && currentUser && currentUser.role!=='admin') return;
@@ -2060,6 +2066,7 @@ function go(id){
   if(id==='bullet-trains') loadBulletTrains();
   if(id==='logs') loadLogs();
   if(id==='invoice-import') initInvoiceImportPage();
+  if(id==='email-inbox') renderEmailInboxList();
 }
 
 // ===== 全件取得（1000件制限を回避） =====
@@ -6251,48 +6258,68 @@ async function saveBusItems(){
   await safeReplaceBookingRows('booking_buses', bookingId, rows, 'バス明細');
 }
 
-// ─── Outlookメール半自動取り込み(email_import_queue) ───────────────────────────
-// 未取り込み(imported=false)のメールを一覧表示し、選んだメールの本文を対象のOCRテキストエリアに流し込む
-async function openEmailQueuePicker(textId, areaId){
-  const existing = document.getElementById('email-queue-picker-modal');
-  if(existing) existing.remove();
-  const modal = document.createElement('div');
-  modal.id = 'email-queue-picker-modal';
-  modal.className = 'modal-overlay open';
-  modal.innerHTML = `
-    <div class="modal-box" style="max-width:700px">
-      <div class="modal-header">📥 保留メールから選択 <button class="modal-close" onclick="document.getElementById('email-queue-picker-modal').remove()">✕</button></div>
-      <div id="email-queue-picker-body" style="font-size:12px;color:var(--text3)">読み込み中...</div>
-    </div>`;
-  document.body.appendChild(modal);
+// ─── Outlookメール半自動取り込み(email_import_queue / メール受信箱ページ) ─────────
+const EMAIL_INBOX_CATEGORY_MAP = {
+  'ホテル': {tab:'hotel', textId:'hotel-ocr-text', areaId:'hotel-ocr-area'},
+  'バス': {tab:'bus', textId:'bus-ocr-text', areaId:'bus-ocr-area'},
+  'レストラン': {tab:'rest', textId:'rest-ocr-text', areaId:'rest-ocr-area'},
+  '観光施設・バス駐車場等': {tab:'fac', textId:'fac-ocr-text', areaId:'fac-ocr-area'}
+};
 
-  const {data, error} = await sb.from('email_import_queue').select('id,subject,sender,received_at,body').eq('imported', false).order('received_at', {ascending:false}).limit(30);
-  const body = document.getElementById('email-queue-picker-body');
-  if(!body) return;
-  if(error){ body.innerHTML = '<div style="color:var(--red);font-size:12px">読み込みエラー: '+escHtml(error.message)+'</div>'; return; }
-  if(!data || data.length===0){ body.innerHTML = '<div style="font-size:12px;color:var(--text3);padding:8px 0">保留中のメールはありません。</div>'; return; }
-  body.innerHTML = data.map(m=>{
+// 未取り込み(imported=false)のメールを一覧表示。REF#とカテゴリを指定して該当予約に送れるようにする
+async function renderEmailInboxList(){
+  const el = document.getElementById('email-inbox-list');
+  if(!el) return;
+  el.innerHTML = '<span style="font-size:12px;color:var(--text3)">読み込み中...</span>';
+  const {data, error} = await sb.from('email_import_queue').select('id,subject,sender,received_at,body').eq('imported', false).order('received_at', {ascending:false}).limit(50);
+  if(error){ el.innerHTML = '<div style="color:var(--red);font-size:12px">読み込みエラー: '+escHtml(error.message)+'</div>'; return; }
+  if(!data || data.length===0){ el.innerHTML = '<div style="font-size:12px;color:var(--text3);padding:8px 0">保留中のメールはありません。</div>'; return; }
+  const catOptions = Object.keys(EMAIL_INBOX_CATEGORY_MAP).map(c=>`<option value="${escAttr(c)}">${escHtml(c)}</option>`).join('');
+  el.innerHTML = data.map(m=>{
     const preview = String(m.body||'').replace(/\s+/g,' ').trim().slice(0,80);
     const received = m.received_at ? new Date(m.received_at).toLocaleString('ja-JP') : '';
-    return `<div onclick="applyEmailQueueItem('${m.id}','${textId}','${areaId}')" style="padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;cursor:pointer" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''">
+    return `<div id="email-inbox-row-${m.id}" style="padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px">
       <div style="font-size:12px;font-weight:600;margin-bottom:2px">${escHtml(m.subject||'(件名なし)')}</div>
       <div style="font-size:11px;color:var(--text3);margin-bottom:2px">${escHtml(m.sender||'')} ・ ${escHtml(received)}</div>
-      <div style="font-size:11px;color:var(--text2)">${escHtml(preview)}${preview.length>=80?'…':''}</div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:8px">${escHtml(preview)}${preview.length>=80?'…':''}</div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <input id="email-inbox-ref-${m.id}" placeholder="REF# 例: #1374" style="font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px;width:140px">
+        <select id="email-inbox-cat-${m.id}" style="font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px">${catOptions}</select>
+        <button class="btn btn-p" style="font-size:11px" onclick="sendEmailToBooking('${m.id}')">📤 送る</button>
+      </div>
     </div>`;
   }).join('');
 }
 
-async function applyEmailQueueItem(id, textId, areaId){
-  const {data, error} = await sb.from('email_import_queue').select('body').eq('id', id).single();
-  if(error){ alert('メール本文の取得に失敗しました: '+error.message); return; }
-  const textEl = document.getElementById(textId);
-  if(textEl) textEl.value = data.body||'';
-  const areaEl = document.getElementById(areaId);
+// 指定されたメールを、入力されたREF#の予約・指定カテゴリのタブに送り込む
+async function sendEmailToBooking(emailId){
+  const refInput = document.getElementById('email-inbox-ref-'+emailId);
+  const catSelect = document.getElementById('email-inbox-cat-'+emailId);
+  const refNo = refInput ? refInput.value.trim() : '';
+  const category = catSelect ? catSelect.value : '';
+  if(!refNo){ alert('REF#を入力してください'); return; }
+  const map = EMAIL_INBOX_CATEGORY_MAP[category];
+  if(!map){ alert('カテゴリを選択してください'); return; }
+
+  const {data: booking, error: bErr} = await sb.from('bookings').select('id,ref_no').eq('ref_no', refNo).maybeSingle();
+  if(bErr){ alert('予約検索でエラーが発生しました: '+bErr.message); return; }
+  if(!booking){ alert('REF# "'+refNo+'" の予約が見つかりませんでした。'); return; }
+
+  const {data: emailRow, error: eErr} = await sb.from('email_import_queue').select('body').eq('id', emailId).single();
+  if(eErr){ alert('メール本文の取得に失敗しました: '+eErr.message); return; }
+
+  await openBookingDetail(booking.id);
+  switchArrangTab(map.tab);
+  const textEl = document.getElementById(map.textId);
+  if(textEl) textEl.value = emailRow.body||'';
+  const areaEl = document.getElementById(map.areaId);
   if(areaEl) areaEl.style.display = '';
-  const {error: updErr} = await sb.from('email_import_queue').update({imported:true}).eq('id', id);
+
+  const {error: updErr} = await sb.from('email_import_queue').update({imported:true}).eq('id', emailId);
   if(updErr){ alert('取り込み済みへの更新に失敗しました: '+updErr.message); }
-  const modal = document.getElementById('email-queue-picker-modal');
-  if(modal) modal.remove();
+
+  const rowEl = document.getElementById('email-inbox-row-'+emailId);
+  if(rowEl) rowEl.remove();
 }
 
 // ─── バスAI読み取り ───────────────────────────────────────────────────────────
