@@ -1174,8 +1174,10 @@ input[type=number]{-moz-appearance:textfield}
       <div id="pg-email-inbox" class="page" style="display:none">
         <div class="card">
           <div class="card-title">📥 メール受信箱（Outlookから半自動取り込み）</div>
-          <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Outlookから取り込まれた未処理のメールです。各メールにREF#とカテゴリを指定して「📤 送る」を押すと、該当予約の該当タブにメール本文が読み込まれます。</div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Outlookから取り込まれた未処理のメールです。各メールにREF#とカテゴリを指定して「📤 送る」を押すと、該当予約の該当タブにメール本文が読み込まれます。同一の件名・送信者・受信日時のメールはまとめて1件のみ表示しています。</div>
+          <input id="email-inbox-search" type="text" placeholder="🔍 件名・送信者・本文で検索..." oninput="filterEmailInboxList()" style="width:100%;max-width:420px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;margin-bottom:10px">
           <div id="email-inbox-list"></div>
+          <div id="email-inbox-pagination" style="display:flex;align-items:center;gap:10px;margin-top:12px;font-size:12px"></div>
         </div>
       </div>
 
@@ -6267,15 +6269,158 @@ const EMAIL_INBOX_CATEGORY_MAP = {
 };
 
 // 未取り込み(imported=false)のメールを一覧表示。REF#とカテゴリを指定して該当予約に送れるようにする
+//
+// email_import_queueは万単位の行数になり得るため(2026年時点で12,000件超・増加中)、
+// 全件の本文をクライアントに一括転送すると数十秒単位で固まってしまう。そのため:
+// ・重複除外・並び替え用の一覧は subject/sender/received_at のみの軽量メタ情報で保持
+// ・本文(body)は表示中のページ分（最大50件）だけ都度取得
+// ・検索はサーバー側(ilike)で subject/sender/body を対象に行い、結果のみをクライアントに渡す
+// という構成にして、重複除外・検索・ページ送りは常に「重複除外後の一覧」に対して行われるようにしている。
+let emailInboxIndex = [];  // 現在の一覧（検索中はヒットした行、検索なしは全未取込行）。重複除外済み
+let emailInboxPage = 1;
+let emailInboxSearchDebounceTimer = null;
+const EMAIL_INBOX_PAGE_SIZE = 50;
+
+function dedupeEmailInboxRows(rows){
+  // 件名+送信者+受信日時が完全一致するものをグルーピングし、各グループの最初の1件だけを残す（表示のみ間引き。DBのデータは削除しない）
+  const seen = new Set();
+  const deduped = [];
+  for(const m of rows){
+    const key = (m.subject||'')+' '+(m.sender||'')+' '+(m.received_at||'');
+    if(seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(m);
+  }
+  deduped.sort((a,b)=> (b.received_at||'').localeCompare(a.received_at||''));
+  return deduped;
+}
+
+let emailInboxRawList = []; // 未取込メールの軽量一覧（重複除外済み）。ページ表示中はDBに再取得しない
+let emailInboxSearchToken = 0; // 検索中に別の検索が走った場合、古い検索結果を無視するためのトークン
+
 async function renderEmailInboxList(){
+  const searchEl = document.getElementById('email-inbox-search');
+  if(searchEl) searchEl.value = '';
+
   const el = document.getElementById('email-inbox-list');
+  const pager = document.getElementById('email-inbox-pagination');
   if(!el) return;
   el.innerHTML = '<span style="font-size:12px;color:var(--text3)">読み込み中...</span>';
-  const {data, error} = await sb.from('email_import_queue').select('id,subject,sender,received_at,body').eq('imported', false).order('received_at', {ascending:false}).limit(50);
-  if(error){ el.innerHTML = '<div style="color:var(--red);font-size:12px">読み込みエラー: '+escHtml(error.message)+'</div>'; return; }
-  if(!data || data.length===0){ el.innerHTML = '<div style="font-size:12px;color:var(--text3);padding:8px 0">保留中のメールはありません。</div>'; return; }
+  if(pager) pager.innerHTML = '';
+
+  let rows = [];
+  try{
+    // 1000件制限を回避するため全件ページングして取得（本文は含めない軽量取得）
+    let from = 0;
+    const pageSize = 1000;
+    while(true){
+      const {data, error} = await sb.from('email_import_queue').select('id,subject,sender,received_at').eq('imported', false).order('received_at', {ascending:false}).range(from, from+pageSize-1);
+      if(error) throw error;
+      rows = rows.concat(data||[]);
+      if(!data || data.length < pageSize) break;
+      from += pageSize;
+    }
+  }catch(error){
+    el.innerHTML = '<div style="color:var(--red);font-size:12px">読み込みエラー: '+escHtml(error.message)+'</div>';
+    return;
+  }
+
+  emailInboxRawList = dedupeEmailInboxRows(rows);
+  emailInboxIndex = emailInboxRawList.slice();
+  emailInboxPage = 1;
+  await renderEmailInboxPage();
+}
+
+function filterEmailInboxList(){
+  clearTimeout(emailInboxSearchDebounceTimer);
+  emailInboxSearchDebounceTimer = setTimeout(()=>{
+    const searchEl = document.getElementById('email-inbox-search');
+    applyEmailInboxSearch(searchEl ? searchEl.value.trim() : '');
+  }, 300);
+}
+
+// 件名・送信者はキャッシュ済み一覧からクライアント側で絞り込み、本文はDB側でILIKE検索する。
+// 本文(body)は行によっては数KBあり、12,000件超を一度にILIKEで全表フルスキャンすると
+// Postgres側のstatement timeoutで失敗するため、id単位で小さく分割してから並列に問い合わせる。
+async function applyEmailInboxSearch(term){
+  const el = document.getElementById('email-inbox-list');
+  const pager = document.getElementById('email-inbox-pagination');
+  if(!el) return;
+
+  if(!term){
+    emailInboxIndex = emailInboxRawList.slice();
+    emailInboxPage = 1;
+    await renderEmailInboxPage();
+    return;
+  }
+
+  const myToken = ++emailInboxSearchToken;
+  el.innerHTML = '<span style="font-size:12px;color:var(--text3)">検索中...</span>';
+  if(pager) pager.innerHTML = '';
+
+  const lower = term.toLowerCase();
+  const subjectOrSenderMatchIds = new Set(
+    emailInboxRawList.filter(m => (m.subject||'').toLowerCase().includes(lower) || (m.sender||'').toLowerCase().includes(lower)).map(m=>m.id)
+  );
+
+  const pattern = '%'+term.replace(/[%_]/g,'\\$&')+'%';
+  const allIds = emailInboxRawList.map(m=>m.id);
+  const chunkSize = 500;
+  const bodyMatchIds = new Set();
+  try{
+    const chunkPromises = [];
+    for(let i=0;i<allIds.length;i+=chunkSize){
+      const chunk = allIds.slice(i, i+chunkSize);
+      chunkPromises.push(sb.from('email_import_queue').select('id').eq('imported',false).in('id', chunk).ilike('body', pattern));
+    }
+    const chunkResults = await Promise.all(chunkPromises);
+    for(const {data, error} of chunkResults){
+      if(error) throw error;
+      (data||[]).forEach(r=>bodyMatchIds.add(r.id));
+    }
+  }catch(error){
+    if(myToken !== emailInboxSearchToken) return; // より新しい検索が既に走っている場合は結果を無視
+    el.innerHTML = '<div style="color:var(--red);font-size:12px">本文検索でエラーが発生しました: '+escHtml(error.message)+'</div>';
+    return;
+  }
+  if(myToken !== emailInboxSearchToken) return; // より新しい検索が既に走っている場合は結果を無視
+
+  const matchedIds = new Set([...subjectOrSenderMatchIds, ...bodyMatchIds]);
+  emailInboxIndex = emailInboxRawList.filter(m=>matchedIds.has(m.id));
+  emailInboxPage = 1;
+  await renderEmailInboxPage();
+}
+
+async function renderEmailInboxPage(){
+  const el = document.getElementById('email-inbox-list');
+  const pager = document.getElementById('email-inbox-pagination');
+  if(!el) return;
+  const searchEl = document.getElementById('email-inbox-search');
+  const hasSearch = !!(searchEl && searchEl.value.trim());
+  const total = emailInboxIndex.length;
+  if(total===0){
+    el.innerHTML = '<div style="font-size:12px;color:var(--text3);padding:8px 0">'+(hasSearch?'該当するメールが見つかりません。':'保留中のメールはありません。')+'</div>';
+    if(pager) pager.innerHTML = '';
+    return;
+  }
+  const totalPages = Math.max(1, Math.ceil(total / EMAIL_INBOX_PAGE_SIZE));
+  if(emailInboxPage > totalPages) emailInboxPage = totalPages;
+  if(emailInboxPage < 1) emailInboxPage = 1;
+  const startIdx = (emailInboxPage-1)*EMAIL_INBOX_PAGE_SIZE;
+  const pageItems = emailInboxIndex.slice(startIdx, startIdx+EMAIL_INBOX_PAGE_SIZE);
+
+  // 表示するページの分だけ本文を取得（既に取得済みの行は再取得しない）
+  const needBodyIds = pageItems.filter(m=>m.body==null).map(m=>m.id);
+  if(needBodyIds.length){
+    const {data: bodyRows, error: bodyErr} = await sb.from('email_import_queue').select('id,body').in('id', needBodyIds);
+    if(!bodyErr && bodyRows){
+      const bodyMap = new Map(bodyRows.map(r=>[r.id, r.body]));
+      pageItems.forEach(m=>{ if(m.body==null) m.body = bodyMap.get(m.id)||''; });
+    }
+  }
+
   const catOptions = Object.keys(EMAIL_INBOX_CATEGORY_MAP).map(c=>`<option value="${escAttr(c)}">${escHtml(c)}</option>`).join('');
-  el.innerHTML = data.map(m=>{
+  el.innerHTML = pageItems.map(m=>{
     const preview = String(m.body||'').replace(/\s+/g,' ').trim().slice(0,80);
     const received = m.received_at ? new Date(m.received_at).toLocaleString('ja-JP') : '';
     return `<div id="email-inbox-row-${m.id}" style="padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px">
@@ -6289,6 +6434,19 @@ async function renderEmailInboxList(){
       </div>
     </div>`;
   }).join('');
+
+  if(pager){
+    pager.innerHTML = `
+      <button class="btn" style="font-size:11px" ${emailInboxPage<=1?'disabled':''} onclick="changeEmailInboxPage(-1)">← 前へ</button>
+      <span>${emailInboxPage} / ${totalPages} ページ（全${total}件）</span>
+      <button class="btn" style="font-size:11px" ${emailInboxPage>=totalPages?'disabled':''} onclick="changeEmailInboxPage(1)">次へ →</button>
+    `;
+  }
+}
+
+function changeEmailInboxPage(delta){
+  emailInboxPage += delta;
+  renderEmailInboxPage();
 }
 
 // 指定されたメールを、入力されたREF#の予約・指定カテゴリのタブに送り込む
@@ -6318,8 +6476,9 @@ async function sendEmailToBooking(emailId){
   const {error: updErr} = await sb.from('email_import_queue').update({imported:true}).eq('id', emailId);
   if(updErr){ alert('取り込み済みへの更新に失敗しました: '+updErr.message); }
 
-  const rowEl = document.getElementById('email-inbox-row-'+emailId);
-  if(rowEl) rowEl.remove();
+  emailInboxRawList = emailInboxRawList.filter(m=>m.id!==emailId);
+  emailInboxIndex = emailInboxIndex.filter(m=>m.id!==emailId);
+  renderEmailInboxPage();
 }
 
 // ─── バスAI読み取り ───────────────────────────────────────────────────────────
