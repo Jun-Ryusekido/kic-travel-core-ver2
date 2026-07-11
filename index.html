@@ -6431,7 +6431,7 @@ async function renderEmailInboxPage(){
         <input id="email-inbox-ref-${m.id}" placeholder="REF# 例: #1374" style="font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px;width:140px">
         <select id="email-inbox-cat-${m.id}" style="font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px">${catOptions}</select>
         <button class="btn btn-p" style="font-size:11px" onclick="sendEmailToBooking('${m.id}')">📤 送る</button>
-        <button class="btn" style="font-size:11px;color:var(--red)" onclick="if(confirm('このメールを無視しますか？(一覧から非表示になります。予約への送信はできなくなります)')){ignoreEmailInboxItem('${m.id}')}">🚫 無視する</button>
+        <button class="btn" style="font-size:11px;color:var(--red)" onclick="if(confirm('このメールを一覧から除外しますか？')){ignoreEmailInboxItem('${m.id}')}">🗑 無視</button>
       </div>
     </div>`;
   }).join('');
