@@ -6314,7 +6314,7 @@ async function renderEmailInboxList(){
     let from = 0;
     const pageSize = 1000;
     while(true){
-      const {data, error} = await sb.from('email_import_queue').select('id,subject,sender,received_at').eq('imported', false).order('received_at', {ascending:false}).range(from, from+pageSize-1);
+      const {data, error} = await sb.from('email_import_queue').select('id,subject,sender,received_at').eq('imported', false).eq('ignored', false).order('received_at', {ascending:false}).range(from, from+pageSize-1);
       if(error) throw error;
       rows = rows.concat(data||[]);
       if(!data || data.length < pageSize) break;
@@ -6371,7 +6371,7 @@ async function applyEmailInboxSearch(term){
     const chunkPromises = [];
     for(let i=0;i<allIds.length;i+=chunkSize){
       const chunk = allIds.slice(i, i+chunkSize);
-      chunkPromises.push(sb.from('email_import_queue').select('id').eq('imported',false).in('id', chunk).ilike('body', pattern));
+      chunkPromises.push(sb.from('email_import_queue').select('id').eq('imported',false).eq('ignored',false).in('id', chunk).ilike('body', pattern));
     }
     const chunkResults = await Promise.all(chunkPromises);
     for(const {data, error} of chunkResults){
@@ -6431,6 +6431,7 @@ async function renderEmailInboxPage(){
         <input id="email-inbox-ref-${m.id}" placeholder="REF# 例: #1374" style="font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px;width:140px">
         <select id="email-inbox-cat-${m.id}" style="font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px">${catOptions}</select>
         <button class="btn btn-p" style="font-size:11px" onclick="sendEmailToBooking('${m.id}')">📤 送る</button>
+        <button class="btn" style="font-size:11px;color:var(--red)" onclick="if(confirm('このメールを無視しますか？(一覧から非表示になります。予約への送信はできなくなります)')){ignoreEmailInboxItem('${m.id}')}">🚫 無視する</button>
       </div>
     </div>`;
   }).join('');
@@ -6475,6 +6476,16 @@ async function sendEmailToBooking(emailId){
 
   const {error: updErr} = await sb.from('email_import_queue').update({imported:true}).eq('id', emailId);
   if(updErr){ alert('取り込み済みへの更新に失敗しました: '+updErr.message); }
+
+  emailInboxRawList = emailInboxRawList.filter(m=>m.id!==emailId);
+  emailInboxIndex = emailInboxIndex.filter(m=>m.id!==emailId);
+  renderEmailInboxPage();
+}
+
+// ニュースレター等、予約に紐付ける必要のないメールを一覧から除外する（データ自体は削除せず、ignored=trueにするだけ）
+async function ignoreEmailInboxItem(emailId){
+  const {error} = await sb.from('email_import_queue').update({ignored:true}).eq('id', emailId);
+  if(error){ alert('無視設定への更新に失敗しました: '+error.message); return; }
 
   emailInboxRawList = emailInboxRawList.filter(m=>m.id!==emailId);
   emailInboxIndex = emailInboxIndex.filter(m=>m.id!==emailId);
