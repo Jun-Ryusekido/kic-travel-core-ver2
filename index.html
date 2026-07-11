@@ -1176,6 +1176,10 @@ input[type=number]{-moz-appearance:textfield}
           <div class="card-title">📥 メール受信箱（Outlookから半自動取り込み）</div>
           <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Outlookから取り込まれた未処理のメールです。各メールにREF#とカテゴリを指定して「📤 送る」を押すと、該当予約の該当タブにメール本文が読み込まれます。同一の件名・送信者・受信日時のメールはまとめて1件のみ表示しています。</div>
           <input id="email-inbox-search" type="text" placeholder="🔍 件名・送信者・本文で検索..." oninput="filterEmailInboxList()" style="width:100%;max-width:420px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;margin-bottom:10px">
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:10px;cursor:pointer;width:fit-content">
+            <input type="checkbox" id="email-inbox-postponed-toggle" onchange="toggleEmailInboxPostponedView()">
+            ⏸ 保留中のメールを表示
+          </label>
           <div id="email-inbox-list"></div>
           <div id="email-inbox-pagination" style="display:flex;align-items:center;gap:10px;margin-top:12px;font-size:12px"></div>
         </div>
@@ -6272,13 +6276,14 @@ const EMAIL_INBOX_CATEGORY_MAP = {
 //
 // email_import_queueは万単位の行数になり得るため(2026年時点で12,000件超・増加中)、
 // 全件の本文をクライアントに一括転送すると数十秒単位で固まってしまう。そのため:
-// ・重複除外・並び替え用の一覧は subject/sender/received_at のみの軽量メタ情報で保持
+// ・重複除外・並び替え用の一覧は subject/sender/received_at/postponed のみの軽量メタ情報で保持
 // ・本文(body)は表示中のページ分（最大50件）だけ都度取得
 // ・検索はサーバー側(ilike)で subject/sender/body を対象に行い、結果のみをクライアントに渡す
 // という構成にして、重複除外・検索・ページ送りは常に「重複除外後の一覧」に対して行われるようにしている。
-let emailInboxIndex = [];  // 現在の一覧（検索中はヒットした行、検索なしは全未取込行）。重複除外済み
+let emailInboxIndex = [];  // 現在の一覧（検索・保留表示のON/OFFを反映したもの）。重複除外済み
 let emailInboxPage = 1;
 let emailInboxSearchDebounceTimer = null;
+let emailInboxShowPostponed = false; // false: 通常一覧(postponed=false) / true: 保留一覧(postponed=true)
 const EMAIL_INBOX_PAGE_SIZE = 50;
 
 function dedupeEmailInboxRows(rows){
@@ -6295,12 +6300,107 @@ function dedupeEmailInboxRows(rows){
   return deduped;
 }
 
-let emailInboxRawList = []; // 未取込メールの軽量一覧（重複除外済み）。ページ表示中はDBに再取得しない
+let emailInboxRawList = []; // 未取込・無視されていないメールの軽量一覧（imported=false かつ ignored=false。postponedの値は問わず両方含む）。重複除外済み。ページ表示中はDBに再取得しない
 let emailInboxSearchToken = 0; // 検索中に別の検索が走った場合、古い検索結果を無視するためのトークン
+
+// ─── REF#候補の提示用インデックス（bookings / booking_hotels から一度だけ構築してキャッシュ） ───
+let emailInboxSuggestIndex = null; // {hotels:[{ref_no,hotel_name,check_in,check_out}], bookings:[{ref_no,tour_name,in_date,out_date}]}
+
+async function ensureEmailInboxSuggestIndex(){
+  if(emailInboxSuggestIndex) return emailInboxSuggestIndex;
+  if(!allBookingsCache.length) allBookingsCache = await fetchAllBookings();
+  const refByBookingId = new Map(allBookingsCache.map(b=>[b.id, b.ref_no]));
+  const bookings = allBookingsCache
+    .filter(b=>b.ref_no && (b.tour_name || b.in_date || b.out_date))
+    .map(b=>({ref_no:b.ref_no, tour_name:b.tour_name||'', in_date:b.in_date||'', out_date:b.out_date||''}));
+
+  let hotelRows = [];
+  let from = 0;
+  const pageSize = 1000;
+  while(true){
+    const {data, error} = await sb.from('booking_hotels').select('booking_id,hotel_name,check_in,check_out').range(from, from+pageSize-1);
+    if(error) break;
+    hotelRows = hotelRows.concat(data||[]);
+    if(!data || data.length < pageSize) break;
+    from += pageSize;
+  }
+  const hotels = hotelRows
+    .map(r=>({ref_no: refByBookingId.get(r.booking_id), hotel_name: r.hotel_name||'', check_in: r.check_in||'', check_out: r.check_out||''}))
+    .filter(h=>h.ref_no && h.hotel_name && h.hotel_name.length>=3);
+
+  emailInboxSuggestIndex = {hotels, bookings};
+  return emailInboxSuggestIndex;
+}
+
+// メール本文/件名から日付らしき文字列を抽出する（全角数字を半角に正規化した上で、
+// 「YYYY年MM月DD日」「YYYY/MM/DD」「YYYY-MM-DD」の形式をYYYY-MM-DD文字列として拾う。簡易抽出でよい）
+function extractDatesFromEmailText(text){
+  const normalized = String(text||'').replace(/[０-９]/g, d => String.fromCharCode(d.charCodeAt(0)-0xFEE0));
+  const dates = new Set();
+  const patterns = [/(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})日/g, /(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/g];
+  for(const re of patterns){
+    let m;
+    while((m = re.exec(normalized))){
+      dates.add(`${m[1]}-${String(m[2]).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}`);
+      if(dates.size>=10) break;
+    }
+  }
+  return dates;
+}
+
+// 件名・本文と、既存のホテル名マスタ・予約データ（団体名・チェックイン/アウト日）との
+// 単純な文字列マッチングでREF#候補を最大5件返す（優先度: 団体名一致 > ホテル名一致 > 日付一致）
+function computeRefSuggestions(subject, body, index){
+  if(!index) return [];
+  const text = (String(subject||'')+' '+String(body||'')).slice(0, 4000);
+  const lowerText = text.toLowerCase();
+  const results = new Map(); // ref_no -> 表示ラベル
+
+  for(const b of index.bookings){
+    if(results.size>=5) break;
+    if(b.tour_name && b.tour_name.length>=4 && text.includes(b.tour_name) && !results.has(b.ref_no)){
+      results.set(b.ref_no, b.tour_name);
+    }
+  }
+  if(results.size<5){
+    for(const h of index.hotels){
+      if(results.size>=5) break;
+      if(h.hotel_name && lowerText.includes(h.hotel_name.toLowerCase()) && !results.has(h.ref_no)){
+        results.set(h.ref_no, h.hotel_name);
+      }
+    }
+  }
+  if(results.size<5){
+    const dates = extractDatesFromEmailText(text);
+    if(dates.size){
+      for(const h of index.hotels){
+        if(results.size>=5) break;
+        if(((h.check_in && dates.has(h.check_in)) || (h.check_out && dates.has(h.check_out))) && !results.has(h.ref_no)){
+          results.set(h.ref_no, h.hotel_name || h.check_in || h.check_out);
+        }
+      }
+      for(const b of index.bookings){
+        if(results.size>=5) break;
+        if(((b.in_date && dates.has(b.in_date)) || (b.out_date && dates.has(b.out_date))) && !results.has(b.ref_no)){
+          results.set(b.ref_no, b.in_date || b.out_date);
+        }
+      }
+    }
+  }
+  return Array.from(results.entries()).slice(0,5).map(([ref_no,label])=>({ref_no, label}));
+}
+
+function applyRefSuggestion(emailId, refNo){
+  const input = document.getElementById('email-inbox-ref-'+emailId);
+  if(input) input.value = refNo;
+}
 
 async function renderEmailInboxList(){
   const searchEl = document.getElementById('email-inbox-search');
   if(searchEl) searchEl.value = '';
+  const postponedToggle = document.getElementById('email-inbox-postponed-toggle');
+  if(postponedToggle) postponedToggle.checked = false;
+  emailInboxShowPostponed = false;
 
   const el = document.getElementById('email-inbox-list');
   const pager = document.getElementById('email-inbox-pagination');
@@ -6310,25 +6410,35 @@ async function renderEmailInboxList(){
 
   let rows = [];
   try{
-    // 1000件制限を回避するため全件ページングして取得（本文は含めない軽量取得）
-    let from = 0;
-    const pageSize = 1000;
-    while(true){
-      const {data, error} = await sb.from('email_import_queue').select('id,subject,sender,received_at').eq('imported', false).eq('ignored', false).order('received_at', {ascending:false}).range(from, from+pageSize-1);
-      if(error) throw error;
-      rows = rows.concat(data||[]);
-      if(!data || data.length < pageSize) break;
-      from += pageSize;
-    }
+    const [fetchedRows] = await Promise.all([
+      fetchEmailInboxPendingRows(),
+      ensureEmailInboxSuggestIndex()
+    ]);
+    rows = fetchedRows;
   }catch(error){
     el.innerHTML = '<div style="color:var(--red);font-size:12px">読み込みエラー: '+escHtml(error.message)+'</div>';
     return;
   }
 
   emailInboxRawList = dedupeEmailInboxRows(rows);
-  emailInboxIndex = emailInboxRawList.slice();
+  emailInboxIndex = emailInboxRawList.filter(m=>!!m.postponed === emailInboxShowPostponed);
   emailInboxPage = 1;
   await renderEmailInboxPage();
+}
+
+// 1000件制限を回避するため全件ページングして取得（本文は含めない軽量取得。postponedの状態は問わず全件取得し、表示は画面側のトグルで絞り込む）
+async function fetchEmailInboxPendingRows(){
+  let rows = [];
+  let from = 0;
+  const pageSize = 1000;
+  while(true){
+    const {data, error} = await sb.from('email_import_queue').select('id,subject,sender,received_at,postponed').eq('imported', false).eq('ignored', false).order('received_at', {ascending:false}).range(from, from+pageSize-1);
+    if(error) throw error;
+    rows = rows.concat(data||[]);
+    if(!data || data.length < pageSize) break;
+    from += pageSize;
+  }
+  return rows;
 }
 
 function filterEmailInboxList(){
@@ -6337,6 +6447,13 @@ function filterEmailInboxList(){
     const searchEl = document.getElementById('email-inbox-search');
     applyEmailInboxSearch(searchEl ? searchEl.value.trim() : '');
   }, 300);
+}
+
+function toggleEmailInboxPostponedView(){
+  const toggle = document.getElementById('email-inbox-postponed-toggle');
+  emailInboxShowPostponed = !!(toggle && toggle.checked);
+  const searchEl = document.getElementById('email-inbox-search');
+  applyEmailInboxSearch(searchEl ? searchEl.value.trim() : '');
 }
 
 // 件名・送信者はキャッシュ済み一覧からクライアント側で絞り込み、本文はDB側でILIKE検索する。
@@ -6348,7 +6465,7 @@ async function applyEmailInboxSearch(term){
   if(!el) return;
 
   if(!term){
-    emailInboxIndex = emailInboxRawList.slice();
+    emailInboxIndex = emailInboxRawList.filter(m=>!!m.postponed === emailInboxShowPostponed);
     emailInboxPage = 1;
     await renderEmailInboxPage();
     return;
@@ -6386,7 +6503,7 @@ async function applyEmailInboxSearch(term){
   if(myToken !== emailInboxSearchToken) return; // より新しい検索が既に走っている場合は結果を無視
 
   const matchedIds = new Set([...subjectOrSenderMatchIds, ...bodyMatchIds]);
-  emailInboxIndex = emailInboxRawList.filter(m=>matchedIds.has(m.id));
+  emailInboxIndex = emailInboxRawList.filter(m=>matchedIds.has(m.id) && !!m.postponed === emailInboxShowPostponed);
   emailInboxPage = 1;
   await renderEmailInboxPage();
 }
@@ -6399,7 +6516,8 @@ async function renderEmailInboxPage(){
   const hasSearch = !!(searchEl && searchEl.value.trim());
   const total = emailInboxIndex.length;
   if(total===0){
-    el.innerHTML = '<div style="font-size:12px;color:var(--text3);padding:8px 0">'+(hasSearch?'該当するメールが見つかりません。':'保留中のメールはありません。')+'</div>';
+    const emptyMsg = hasSearch ? '該当するメールが見つかりません。' : (emailInboxShowPostponed ? '保留中のメールはありません。' : '未処理のメールはありません。');
+    el.innerHTML = '<div style="font-size:12px;color:var(--text3);padding:8px 0">'+emptyMsg+'</div>';
     if(pager) pager.innerHTML = '';
     return;
   }
@@ -6419,10 +6537,16 @@ async function renderEmailInboxPage(){
     }
   }
 
+  const suggestIndex = await ensureEmailInboxSuggestIndex();
   const catOptions = Object.keys(EMAIL_INBOX_CATEGORY_MAP).map(c=>`<option value="${escAttr(c)}">${escHtml(c)}</option>`).join('');
   el.innerHTML = pageItems.map(m=>{
     const preview = String(m.body||'').replace(/\s+/g,' ').trim().slice(0,80);
     const received = m.received_at ? new Date(m.received_at).toLocaleString('ja-JP') : '';
+    const suggestions = computeRefSuggestions(m.subject, m.body, suggestIndex);
+    const suggestHtml = suggestions.length ? `<div style="font-size:10px;color:var(--text3);margin-top:4px;display:flex;align-items:center;gap:4px;flex-wrap:wrap">候補:${suggestions.map(s=>`<button type="button" class="btn" style="font-size:10px;padding:2px 6px" onclick="applyRefSuggestion('${m.id}','${s.ref_no}')">${escHtml(s.ref_no)} (${escHtml(s.label)})</button>`).join('')}</div>` : '';
+    const postponeBtn = emailInboxShowPostponed
+      ? `<button class="btn" style="font-size:11px" onclick="unpostponeEmailInboxItem('${m.id}')">▶ 保留を解除</button>`
+      : `<button class="btn" style="font-size:11px" onclick="postponeEmailInboxItem('${m.id}')">⏸ 保留</button>`;
     return `<div id="email-inbox-row-${m.id}" style="padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px">
       <div style="font-size:12px;font-weight:600;margin-bottom:2px">${escHtml(m.subject||'(件名なし)')}</div>
       <div style="font-size:11px;color:var(--text3);margin-bottom:2px">${escHtml(m.sender||'')} ・ ${escHtml(received)}</div>
@@ -6432,7 +6556,9 @@ async function renderEmailInboxPage(){
         <select id="email-inbox-cat-${m.id}" style="font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px">${catOptions}</select>
         <button class="btn btn-p" style="font-size:11px" onclick="sendEmailToBooking('${m.id}')">📤 送る</button>
         <button class="btn" style="font-size:11px;color:var(--red)" onclick="if(confirm('このメールを一覧から除外しますか？')){ignoreEmailInboxItem('${m.id}')}">🗑 無視</button>
+        ${postponeBtn}
       </div>
+      ${suggestHtml}
     </div>`;
   }).join('');
 
@@ -6488,6 +6614,28 @@ async function ignoreEmailInboxItem(emailId){
   if(error){ alert('無視設定への更新に失敗しました: '+error.message); return; }
 
   emailInboxRawList = emailInboxRawList.filter(m=>m.id!==emailId);
+  emailInboxIndex = emailInboxIndex.filter(m=>m.id!==emailId);
+  renderEmailInboxPage();
+}
+
+// 今すぐ対応する必要のないメールを保留状態にし、通常一覧から一時的に隠す（確認なしで即時実行）
+async function postponeEmailInboxItem(emailId){
+  const {error} = await sb.from('email_import_queue').update({postponed:true}).eq('id', emailId);
+  if(error){ alert('保留設定への更新に失敗しました: '+error.message); return; }
+
+  const row = emailInboxRawList.find(m=>m.id===emailId);
+  if(row) row.postponed = true;
+  emailInboxIndex = emailInboxIndex.filter(m=>m.id!==emailId);
+  renderEmailInboxPage();
+}
+
+// 保留を解除し、通常一覧に戻す
+async function unpostponeEmailInboxItem(emailId){
+  const {error} = await sb.from('email_import_queue').update({postponed:false}).eq('id', emailId);
+  if(error){ alert('保留解除に失敗しました: '+error.message); return; }
+
+  const row = emailInboxRawList.find(m=>m.id===emailId);
+  if(row) row.postponed = false;
   emailInboxIndex = emailInboxIndex.filter(m=>m.id!==emailId);
   renderEmailInboxPage();
 }
