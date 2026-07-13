@@ -84,4 +84,14 @@ function allDatesInMonth(year, month) {
   return dates;
 }
 
-module.exports = { getTodayJST, subtractDays, toSiteDateFormat, toSiteTimestampFormat, timestampForFilename, dateForFilename, toSiteTimeParts, roundMinuteToSiteOption, addMonthsToTodayJST, daysInMonth, allDatesInMonth };
+// dateStr: "YYYY-MM-DD"。指定months分だけ前の年月日を返す（同じ日付。存在しない場合は月末に丸まる）
+function subtractMonths(dateStr, months) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const total = (y * 12 + (m - 1)) - months;
+  const ry = Math.floor(total / 12);
+  const rm = (total % 12) + 1;
+  const clampedDay = Math.min(d, daysInMonth(ry, rm));
+  return `${ry}-${String(rm).padStart(2, '0')}-${String(clampedDay).padStart(2, '0')}`;
+}
+
+module.exports = { getTodayJST, subtractDays, toSiteDateFormat, toSiteTimestampFormat, timestampForFilename, dateForFilename, toSiteTimeParts, roundMinuteToSiteOption, addMonthsToTodayJST, daysInMonth, allDatesInMonth, subtractMonths };

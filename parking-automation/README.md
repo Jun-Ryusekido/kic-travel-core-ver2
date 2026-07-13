@@ -4,6 +4,7 @@
 
 - **新大阪駅バス駐車場**（revn.jrbusparkingyoyaku.jp） / 設定: `config.json`
 - **名古屋 大型車両夜間宿泊予約システム**（midori.ccx.mobi/Parking、名城公園正門前駐車場・若宮大通公園白川前駐車場） / 設定: `nagoya-config.json`
+- **京都テルサ 大型バス駐車場**（reserva.be/kyototerrsaparking） / 設定: `.env`
 
 ## セットアップ（初回のみ）
 
@@ -143,6 +144,53 @@ Windowsタスクスケジューラ等で「毎月1日 00:00」に `node book-nag
 よう登録することで、月次のまとめ予約を自動化できます（タスクスケジューラの登録自体は本スクリプトの
 範囲外です）。
 
+---
+
+## 京都テルサ 大型バス駐車場（RESERVA / reserva.be/kyototerrsaparking）
+
+### 設定 (.env)
+
+ログイン情報は `config.json`/`nagoya-config.json` とは異なり、`.env` ファイル（**gitで管理されません**）
+から読み込みます。`parking-automation/.env.example` を参考に、同じ場所に `.env` を作成してください。
+
+```
+KYOTO_TERRSA_LOGIN_ID=実際のログインID(メールアドレス)
+KYOTO_TERRSA_PASSWORD=実際のパスワード
+```
+
+### 実行方法
+
+```
+node parking-kyoto-terrsa.js --date 2026-10-14
+```
+
+`--date` に指定した日（1泊、18時〜翌朝8時の「大型バス　夜間駐車」枠）を予約します。利用団体は
+`KIC0000`、バス会社名は `KICトラベル` で固定です。
+
+- 予約受付開始（利用日の3ヶ月前00:00、サイト上の表記に基づく）より前の日付を指定した場合は、
+  ブラウザを起動せずにエラーメッセージを表示して終了します。
+  **実際に確認したところ、サイトのカレンダーは現時点でそれより短い範囲（今回の確認時点で約1ヶ月半程度先まで）
+  しか日付を選択可能にしていませんでした。** 3ヶ月前チェックを通過しても、その時点でカレンダー上に
+  当該日が表示・選択できない場合は「対象日は選択できません」というエラーで失敗します。
+- 各ステップ（日付選択後・時間枠確定後・入力後・確認画面・完了画面）でスクリーンショットを
+  `logs/kyoto-terrsa-{日付}-{ステップ}-{日時}.png` に保存します。失敗時は
+  `logs/kyoto-terrsa-{日付}-error.png` も保存されます。
+- 実行結果（成功/失敗、確認番号、エラー内容）は毎回Supabaseの`parking_reservations`テーブルに
+  `facility_type: "kyoto_terrsa"` として1件記録します（`ref_no`は`KYOTO-{日付}`、
+  `extra`列に利用団体・バス会社名を保持）。
+
+### 既知の制約・注意点
+
+- ログイン画面(id-sso.reserva.be)はCloudflareのボット対策(Turnstile)があり、**headless:trueだと
+  検証ページで止まってしまうことを確認済みです。** そのため本スクリプトは常にheadless:falseで
+  動作します（`parking-kyoto-terrsa.js`冒頭の`HEADLESS`は変更しないでください）。
+- 確認画面の利用規約チェックボックス（`#agree_terms`）は、Playwrightの通常の`click()`だと
+  チェック状態が変化しないことを確認済みです（ラベルが利用規約リンクも内包する構造のため
+  クリック座標がリンク側に解釈されてしまうと推測）。`page.evaluate`で直接`.click()`を発火させる
+  方式で確実にチェックしています。
+- 実際に2026-08-14（1泊）で実予約を実行し、予約番号が発行され「予約完了」画面が表示されることを
+  確認済みです。
+
 ## headless（画面表示）の切り替え
 
 `book-parking.js` / `book-parking-test.js` / `book-parking-now.js` /
@@ -160,14 +208,16 @@ const HEADLESS = false;
 const HEADLESS = true;
 ```
 
-に変更してください。
+に変更してください。**`parking-kyoto-terrsa.js` のみ例外です。** CloudflareのTurnstile検証を
+通過するためheadless:trueでは動作しないため、常に`HEADLESS = false`のまま無人実行はできません
+（Windowsタスクスケジューラ等で無人実行する場合も、画面付きセッションで実行する必要があります）。
 
 ## ログ・スクリーンショット
 
 `logs/` フォルダに保存されます（このフォルダもgit管理外です）。
 
-- `reservation-{REF#}-{日時}.png` / `nagoya-{日付}-{日時}.png`: 予約完了画面のスクリーンショット
-- `error-{日付}.log` / `nagoya-error-{日付}.log`: エラー発生時の内容
+- `reservation-{REF#}-{日時}.png` / `nagoya-{日付}-{日時}.png` / `kyoto-terrsa-{日付}-{ステップ}-{日時}.png`: 予約完了画面等のスクリーンショット
+- `error-{日付}.log` / `nagoya-error-{日付}.log` / `kyoto-terrsa-error-{日付}.log`: エラー発生時の内容
 - `nagoya-monthly-summary-{日時}.log`: 月次バッチの成功/失敗一覧
 
 ## 既知の制約・注意点

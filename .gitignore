@@ -3,4 +3,5 @@ __pycache__/
 *.pyc
 parking-automation/config.json
 parking-automation/nagoya-config.json
+parking-automation/.env
 parking-automation/logs/
