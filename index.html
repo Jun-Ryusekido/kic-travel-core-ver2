@@ -1213,6 +1213,26 @@ input[type=number]{-moz-appearance:textfield}
         </div>
       </div>
 
+      <!-- 手配管理タブ共通: REF#からコピー モーダル -->
+      <div class="modal-overlay" id="arr-copy-modal">
+        <div class="modal-box" style="max-width:420px">
+          <div class="modal-header">
+            <div class="modal-title" id="arr-copy-title">REF#からコピー</div>
+            <div class="modal-close" onclick="closeArrCopyModal()">✕</div>
+          </div>
+          <div style="font-size:11px;color:var(--text3);margin:8px 0 12px">コピー元のREF#を入力してください。名称・日付・人数などの内容はコピーされますが、確認番号・ステータスはコピーされません（新規に確認が必要なため空欄/初期値になります）。</div>
+          <div class="form-field" style="position:relative">
+            <label>REF#</label>
+            <input id="arr-copy-ref-input" placeholder="例: 1352" autocomplete="off" oninput="showArrCopyRefSuggest(this)" onfocus="showArrCopyRefSuggest(this)" onblur="setTimeout(hideArrCopyRefSuggest,150)">
+          </div>
+          <div style="margin-top:14px;display:flex;gap:8px;align-items:center">
+            <button class="btn btn-p" onclick="confirmArrCopy()">📋 コピー実行</button>
+            <button class="btn" onclick="closeArrCopyModal()">キャンセル</button>
+          </div>
+          <div id="arr-copy-err" style="display:none;color:var(--red);font-size:11px;margin-top:8px"></div>
+        </div>
+      </div>
+
       <!-- メール受信箱 -->
       <div id="pg-email-inbox" class="page" style="display:none">
         <div class="card">
@@ -1442,6 +1462,7 @@ input[type=number]{-moz-appearance:textfield}
         <tbody id="bd-hotels-tbody"></tbody>
       </table></div>
       <button class="btn" style="font-size:10px;margin-top:4px" onclick="addHotelRow()">＋ 行追加</button>
+      <button class="btn" style="font-size:10px;margin-top:4px" onclick="openArrCopyModal('hotel')">📋 REF#からコピー</button>
       <div class="li-total">ホテル合計: <span id="bd-hotels-total">¥0</span></div>
     </div>
 
@@ -1478,6 +1499,7 @@ input[type=number]{-moz-appearance:textfield}
         <tbody id="bd-buses-tbody"></tbody>
       </table></div>
       <button class="btn" style="font-size:10px;margin-top:4px" onclick="addBusRow()">＋ 行追加</button>
+      <button class="btn" style="font-size:10px;margin-top:4px" onclick="openArrCopyModal('bus')">📋 REF#からコピー</button>
       <div class="li-total">バス合計: <span id="bd-buses-total">¥0</span></div>
     </div>
 
@@ -1517,6 +1539,7 @@ input[type=number]{-moz-appearance:textfield}
         <tbody id="bd-restaurants-tbody"></tbody>
       </table></div>
       <button class="btn" style="font-size:10px;margin-top:4px" onclick="addRestaurantRow()">＋ 行追加</button>
+      <button class="btn" style="font-size:10px;margin-top:4px" onclick="openArrCopyModal('rest')">📋 REF#からコピー</button>
       <div class="li-total">レストラン合計: <span id="bd-restaurants-total">¥0</span></div>
     </div>
 
@@ -1554,6 +1577,7 @@ input[type=number]{-moz-appearance:textfield}
         <tbody id="bd-facilities-tbody"></tbody>
       </table></div>
       <button class="btn" style="font-size:10px;margin-top:4px" onclick="addFacilityRow()">＋ 行追加</button>
+      <button class="btn" style="font-size:10px;margin-top:4px" onclick="openArrCopyModal('fac')">📋 REF#からコピー</button>
       <div class="li-total">観光施設合計: <span id="bd-facilities-total">¥0</span></div>
     </div>
 
@@ -1572,6 +1596,7 @@ input[type=number]{-moz-appearance:textfield}
         <tbody id="bd-water-tbody"></tbody>
       </table></div>
       <button class="btn" style="font-size:10px;margin-top:4px" onclick="addWaterRow()">＋ 行追加</button>
+      <button class="btn" style="font-size:10px;margin-top:4px" onclick="openArrCopyModal('water')">📋 REF#からコピー</button>
       <div class="li-total">ミネラルウォーター合計: <span id="bd-water-total">¥0</span></div>
     </div>
 
@@ -1596,6 +1621,7 @@ input[type=number]{-moz-appearance:textfield}
         <tbody id="bd-bullet-tbody"></tbody>
       </table></div>
       <button class="btn" style="font-size:10px;margin-top:4px" onclick="addBulletTrainRow()">＋ 行追加</button>
+      <button class="btn" style="font-size:10px;margin-top:4px" onclick="openArrCopyModal('bullet')">📋 REF#からコピー</button>
     </div>
 
     <div class="modal-section-title">手配書</div>
@@ -6165,6 +6191,124 @@ let bdHotelItems = [];
 let bdBusItems = [], bdRestaurantItems = [], bdFacilityItems = [];
 let bdBulletTrainItems = [];
 let bdWaterItems = [];
+
+// ─── 手配管理タブ共通: 他のREF#から手配内容をコピー ─────────
+// 名称・日付・人数・単価などの「内容」はコピーするが、確認番号・ステータスは
+// 新しいツアーではまだ確定していない情報のため、コピーせず空欄/初期値にリセットする。
+const ARR_COPY_CONFIG = {
+  hotel:  { table:'booking_hotels',        keyField:'booking_id',
+    map:r=>({hotel_name:r.hotel_name||'', check_in:r.check_in||'', check_out:r.check_out||'', room_type:r.room_type||'', rooms:r.rooms||1, breakfast:r.breakfast||false, unit_price:r.unit_price||0, amount:r.amount||0, confirmation_no:'', status:'回答待ち', memo:r.memo||''}) },
+  bus:    { table:'booking_buses',         keyField:'booking_id',
+    map:r=>({bus_company:r.bus_company||'', bus_type:r.bus_type||'', buses:r.buses||1, start_date:r.start_date||'', end_date:r.end_date||'', amount:r.amount||0, status:'問い合わせ中', confirmation_no:'', driver_hotel_name:r.driver_hotel_name||'', driver_hotel_phone:r.driver_hotel_phone||'', driver_hotel_address:r.driver_hotel_address||'', driver_check_in:r.driver_check_in||'', driver_check_out:r.driver_check_out||'', driver_hotel_amount:r.driver_hotel_amount||0, memo:r.memo||''}) },
+  rest:   { table:'booking_restaurants',   keyField:'booking_id',
+    map:r=>({restaurant_name:r.restaurant_name||'', meal_type:r.meal_type||'昼食', date:r.date||'', reservation_time:r.reservation_time||'', pax:r.pax||0, amount:r.amount||0, status:'問い合わせ中', payment_method:r.payment_method||'', memo:r.memo||''}) },
+  fac:    { table:'booking_facilities',    keyField:'booking_id',
+    map:r=>({facility_name:r.facility_name||'', date:r.date||'', pax:r.pax||0, amount:r.amount||0, status:'問い合わせ中', confirmation_no:'', deadline_date:r.deadline_date||'', payment_method:r.payment_method||'', memo:r.memo||''}) },
+  water:  { table:'booking_water_items',   keyField:'booking_id',
+    map:r=>({item_name:r.item_name||'', date:r.date||'', qty:r.qty||0, unit_price:r.unit_price||0, amount:r.amount||0, status:'問い合わせ中', memo:r.memo||''}) },
+  bullet: { table:'bullet_train_arrangements', keyField:'booking_ref',
+    map:r=>({ride_date:r.ride_date||'', train_name:r.train_name||'', train_number:r.train_number||'', departure_station:r.departure_station||'', departure_time:r.departure_time||'', arrival_station:r.arrival_station||'', arrival_time:r.arrival_time||'', pax_adult:r.pax_adult||0, pax_child:r.pax_child||0, pax_free:r.pax_free||0, discount_rate:r.discount_rate||0, status:'回答待ち', memo:r.memo||''}) },
+};
+const ARR_COPY_TAB_LABELS = {hotel:'ホテル', bus:'バス', rest:'レストラン', fac:'観光施設・バス駐車場等', water:'ミネラルウォーター', bullet:'新幹線'};
+let arrCopyTab = null;
+
+function openArrCopyModal(tab){
+  arrCopyTab = tab;
+  document.getElementById('arr-copy-title').textContent = '📋 '+ARR_COPY_TAB_LABELS[tab]+' - REF#からコピー';
+  document.getElementById('arr-copy-ref-input').value = '';
+  document.getElementById('arr-copy-err').style.display = 'none';
+  document.getElementById('arr-copy-modal').classList.add('open');
+  setTimeout(()=>{ const el=document.getElementById('arr-copy-ref-input'); if(el) el.focus(); }, 50);
+}
+function closeArrCopyModal(){
+  document.getElementById('arr-copy-modal').classList.remove('open');
+  hideArrCopyRefSuggest();
+}
+
+async function showArrCopyRefSuggest(inputEl){
+  hideArrCopyRefSuggest();
+  const q = inputEl.value.trim();
+  if(!q) return;
+  const {data} = await sb.from('bookings').select('id,ref_no,tour_name,in_date').ilike('ref_no', `%${q}%`).order('created_at',{ascending:false}).limit(10);
+  const matches = data||[];
+  if(!matches.length) return;
+  const box = document.createElement('div');
+  box.id = 'arr-copy-ref-suggest-box';
+  box.style.cssText = 'position:absolute;z-index:200;background:#fff;border:1px solid var(--border);border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.12);max-height:220px;overflow-y:auto;font-size:11px';
+  const rect = inputEl.getBoundingClientRect();
+  box.style.left = (rect.left+window.scrollX)+'px';
+  box.style.top  = (rect.bottom+window.scrollY)+'px';
+  box.style.width = Math.max(rect.width,220)+'px';
+  box.innerHTML = matches.map(b=>`<div class="arr-copy-ref-item" style="padding:5px 8px;cursor:pointer" data-ref="${escAttr(b.ref_no)}">#${escHtml(b.ref_no)} ${escHtml(b.tour_name||'')}${b.in_date?' ('+escHtml(b.in_date)+')':''}</div>`).join('');
+  document.body.appendChild(box);
+  box.querySelectorAll('.arr-copy-ref-item').forEach(item=>{
+    item.addEventListener('mousedown',e=>{ e.preventDefault(); inputEl.value = item.getAttribute('data-ref'); hideArrCopyRefSuggest(); });
+    item.addEventListener('mouseenter',()=>{ item.style.background='var(--bg)'; });
+    item.addEventListener('mouseleave',()=>{ item.style.background=''; });
+  });
+}
+function hideArrCopyRefSuggest(){
+  const box = document.getElementById('arr-copy-ref-suggest-box');
+  if(box) box.remove();
+}
+
+function arrCopyAppendAndRender(tab, mapped){
+  switch(tab){
+    case 'hotel':  bdHotelItems.push(...mapped);      renderHotelTable();      break;
+    case 'bus':    bdBusItems.push(...mapped);        renderBusTable();        break;
+    case 'rest':   bdRestaurantItems.push(...mapped); renderRestaurantTable(); break;
+    case 'fac':    bdFacilityItems.push(...mapped);   renderFacilityTable();   break;
+    case 'water':  bdWaterItems.push(...mapped);      renderWaterTable();      break;
+    case 'bullet': bdBulletTrainItems.push(...mapped);renderBulletTrainTable();break;
+  }
+}
+
+async function confirmArrCopy(){
+  const errEl = document.getElementById('arr-copy-err');
+  errEl.style.display='none';
+  const refNo = document.getElementById('arr-copy-ref-input').value.trim();
+  if(!refNo){ errEl.textContent='REF#を入力してください'; errEl.style.display='block'; return; }
+
+  const currentRefEl = document.getElementById('bd-ref-input');
+  if(currentRefEl && refNo === currentRefEl.value.trim()){
+    errEl.textContent = '現在開いている予約と同じREF#です';
+    errEl.style.display='block';
+    return;
+  }
+
+  let srcBooking = null;
+  {
+    const {data} = await sb.from('bookings').select('id,ref_no,tour_name').eq('ref_no', refNo).maybeSingle();
+    srcBooking = data;
+  }
+  if(!srcBooking){
+    // 完全一致がなければ、"#"の有無等の揺れを吸収するため部分一致で1件だけなら採用する
+    const {data} = await sb.from('bookings').select('id,ref_no,tour_name').ilike('ref_no', `%${refNo}%`).limit(2);
+    if(data && data.length===1) srcBooking = data[0];
+  }
+  if(!srcBooking){
+    errEl.textContent = 'REF#「'+refNo+'」が見つかりませんでした';
+    errEl.style.display='block';
+    return;
+  }
+
+  const cfg = ARR_COPY_CONFIG[arrCopyTab];
+  const filterValue = cfg.keyField==='booking_ref' ? srcBooking.ref_no : srcBooking.id;
+  const {data: srcRows, error: rowsErr} = await sb.from(cfg.table).select('*').eq(cfg.keyField, filterValue);
+  if(rowsErr){ errEl.textContent = '読み込みエラー: '+rowsErr.message; errEl.style.display='block'; return; }
+  if(!srcRows || srcRows.length===0){
+    errEl.textContent = 'REF#'+refNo+'には'+ARR_COPY_TAB_LABELS[arrCopyTab]+'の手配データがありません';
+    errEl.style.display='block';
+    return;
+  }
+
+  const label = 'REF#'+refNo+(srcBooking.tour_name?'（'+srcBooking.tour_name+'）':'')+'の'+ARR_COPY_TAB_LABELS[arrCopyTab]+'手配内容 '+srcRows.length+'件';
+  if(!confirm(label+'をコピーします。よろしいですか？\n（確認番号・ステータスはコピーされません）')) return;
+
+  const mapped = srcRows.map(cfg.map);
+  arrCopyAppendAndRender(arrCopyTab, mapped);
+  closeArrCopyModal();
+}
 
 function switchArrangTab(tab){
   ['hotel','bus','rest','fac','water','bullet'].forEach(t=>{
