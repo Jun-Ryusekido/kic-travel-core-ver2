@@ -1,5 +1,8 @@
 // 京都テルサ 大型バス駐車場（RESERVAプラットフォーム、reserva.be/kyototerrsaparking）の操作ロジック。
-// 実際にログインして各画面のHTML構造を確認済み（2026年7月時点）。
+// 実際にログインして各画面のHTML構造を確認済み（2026年7月時点）。ログインから予約確定まで
+// すべて同一ブラウザセッション・同一page内で連続実行する（途中で再ログインやページ再読み込みは行わない）。
+// 各ステップ間の待機は、固定時間のsleepではなく「次に操作する要素が実際に表示されるまで」を
+// 待つ方式にしている（AJAX/ページ遷移どちらでも、要素が揃い次第すぐ次の操作に進むため速い）。
 //
 //   - ログイン画面(id-sso.reserva.be/login/consumer)はCloudflareのボット対策(Turnstile)があり、
 //     headless:trueだと"Just a moment..."の検証ページで止まってしまうことを確認済み。
@@ -21,6 +24,8 @@
 //   - 「確認する」(#contact-btn__confirm) → 確認画面で利用規約チェックボックス(#agree_terms、
 //     「利用規約、RESERVA利用規約に同意する」の1つのチェックボックスで両方を兼ねている実装だった)
 //     にチェック → 「完了する」(#contact-btn__rsv) で確定する。
+//     このチェックボックスはPlaywrightの通常click()だと状態が変化しないことを確認済みのため、
+//     page.evaluateで直接.click()を発火させている。
 
 const fs = require('fs');
 const path = require('path');
@@ -36,24 +41,25 @@ function logError(message) {
   fs.appendFileSync(logPath, `[${new Date().toISOString()}] ${message}\n`, 'utf8');
 }
 
-async function screenshotStep(page, refLabel, stepName) {
+// スクリーンショット保存はawaitせず呼び出し元に返す（本流の待ち時間に含めない）。
+function screenshotStep(page, refLabel, stepName) {
   fs.mkdirSync(LOGS_DIR, { recursive: true });
   const p = path.join(LOGS_DIR, `kyoto-terrsa-${refLabel}-${stepName}-${dateForFilename()}.png`);
-  await page.screenshot({ path: p, fullPage: true }).catch(() => null);
-  return p;
+  const promise = page.screenshot({ path: p, fullPage: true }).catch(() => null);
+  return { path: p, promise };
 }
 
 async function login(page, loginId, loginPassword) {
   await page.goto(LOGIN_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
-  // CloudflareのTurnstile検証が終わるまで少し待つ（headless:falseなら自動的に通過する）
-  await page.waitForTimeout(3000);
+  // CloudflareのTurnstile検証を経てログインフォームが操作可能になるまで待つ
+  // （固定sleepではなく、フォーム自体の出現を待つことで検証が早く終われば即座に次へ進む）
+  await page.waitForSelector('#mem_id', { state: 'visible', timeout: 20000 });
   await page.fill('#mem_id', loginId);
   await page.fill('#mem_pass', loginPassword);
   await Promise.all([
-    page.waitForLoadState('domcontentloaded', { timeout: 20000 }).catch(() => null),
+    page.waitForURL(/\/mypage/, { timeout: 20000 }).catch(() => null),
     page.click('input[type=submit][value="ログイン"]'),
   ]);
-  await page.waitForTimeout(1500);
   if (!/\/mypage/.test(page.url())) {
     throw new Error('ログインに失敗しました（マイページに遷移しませんでした。.envのKYOTO_TERRSA_LOGIN_ID/KYOTO_TERRSA_PASSWORDをご確認ください）');
   }
@@ -61,24 +67,20 @@ async function login(page, loginId, loginPassword) {
 
 async function openReservationFlow(page) {
   await page.goto(RESERVE_TOP_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
-  await page.waitForTimeout(1500);
   const link = page.locator('a[href*="mode=service_staff"]').first();
-  if ((await link.count()) === 0) {
-    throw new Error('予約する対象（大型バス　夜間駐車）のリンクが見つかりませんでした');
-  }
-  await Promise.all([
-    page.waitForLoadState('domcontentloaded', { timeout: 20000 }).catch(() => null),
-    link.click(),
-  ]);
-  await page.waitForTimeout(1500);
+  await link.waitFor({ state: 'visible', timeout: 15000 });
+  await link.click();
+  await page.locator('.cal__title__label').waitFor({ state: 'visible', timeout: 15000 });
 }
 
 // カレンダーの対象年月まで、Ajaxの「次へ／前へ」リンクを使って移動する。
+// クリックのたびに「タイトル表示が変わるまで」を待つため、Ajax応答が速ければ即座に次へ進む。
 async function goToMonth(page, targetYear, targetMonth) {
   const targetLabel = `${targetYear}年${String(targetMonth).padStart(2, '0')}月`;
+  const titleLocator = page.locator('.cal__title__label');
   let guard = 0;
   while (guard < 36) {
-    const title = (await page.textContent('.cal__title__label').catch(() => '') || '').trim();
+    const title = (await titleLocator.textContent().catch(() => '') || '').trim();
     if (title === targetLabel) return;
 
     const m = title.match(/(\d+)年(\d+)月/);
@@ -90,7 +92,14 @@ async function goToMonth(page, targetYear, targetMonth) {
     if ((await navLink.count()) === 0) throw new Error('カレンダーの月移動リンクが見つかりませんでした');
 
     await navLink.click();
-    await page.waitForTimeout(800); // Ajaxでの書き換えのため少し待つ
+    await page.waitForFunction(
+      (prevTitle) => {
+        const el = document.querySelector('.cal__title__label');
+        return el && el.textContent.trim() !== prevTitle;
+      },
+      title,
+      { timeout: 5000 },
+    ).catch(() => null);
     guard++;
   }
   throw new Error(`カレンダーを対象年月(${targetLabel})まで移動できませんでした`);
@@ -112,7 +121,6 @@ async function selectDate(page, dateISO) {
     throw new Error(`対象日(${dateISO})は選択できません（予約受付前、満車、または対象外の日付です）`);
   }
   await page.click(`label[for="${dateISO}"]`);
-  await page.waitForTimeout(1000);
 }
 
 async function selectOvernightSlot(page) {
@@ -123,22 +131,19 @@ async function selectOvernightSlot(page) {
     throw new Error('「18時～翌朝8時泊り」の枠が見つかりませんでした（満車の可能性があります）');
   }
   await label.click();
-  await page.waitForTimeout(500);
 }
 
 async function confirmDateTimeSelection(page) {
   await page.click('#js-userselect-next');
-  await page.waitForTimeout(1000);
+  await page.locator('a.js-userselect-submit').waitFor({ state: 'visible', timeout: 10000 });
 }
 
 async function proceedToInputForm(page) {
   const submitLink = page.locator('a.js-userselect-submit');
-  await submitLink.waitFor({ state: 'visible', timeout: 10000 });
-  await Promise.all([
-    page.waitForLoadState('domcontentloaded', { timeout: 20000 }).catch(() => null),
-    submitLink.click(),
-  ]);
-  await page.waitForTimeout(1500);
+  await submitLink.click();
+  // 入力画面の最初の質問項目（利用団体）が表示されるまで待つ
+  await page.locator('dl.contact-js__item', { has: page.locator('dt', { hasText: '利用団体' }) })
+    .waitFor({ state: 'visible', timeout: 15000 });
 }
 
 // 「利用団体」「バス会社名」等、RESERVAのアンケート項目はラベルのテキストから対応する
@@ -159,11 +164,8 @@ async function fillGroupAndBusCompany(page, utilizationGroup, busCompanyName) {
 
 async function submitInputForm(page) {
   const btn = page.locator('text=確認する').first();
-  await Promise.all([
-    page.waitForLoadState('domcontentloaded', { timeout: 20000 }).catch(() => null),
-    btn.click(),
-  ]);
-  await page.waitForTimeout(1500);
+  await btn.click();
+  await page.locator('#agree_terms').waitFor({ state: 'visible', timeout: 15000 });
 }
 
 // 確認画面で利用規約チェックボックスにチェックし、「完了する」を押して確定する。
@@ -175,18 +177,18 @@ async function agreeAndComplete(page) {
   const isChecked = await page.isChecked('#agree_terms').catch(() => false);
   if (!isChecked) {
     await page.evaluate(() => { document.querySelector('#agree_terms').click(); });
-    await page.waitForTimeout(300);
+    await page.waitForFunction(() => document.querySelector('#agree_terms')?.checked === true, { timeout: 3000 }).catch(() => null);
   }
   const nowChecked = await page.isChecked('#agree_terms').catch(() => false);
   if (!nowChecked) {
     throw new Error('利用規約への同意チェックボックスをオンにできませんでした');
   }
   const completeBtn = page.locator('#contact-btn__rsv');
-  await Promise.all([
-    page.waitForLoadState('domcontentloaded', { timeout: 20000 }).catch(() => null),
-    completeBtn.click(),
-  ]);
-  await page.waitForTimeout(2000);
+  await completeBtn.click();
+  await page.waitForFunction(
+    () => /予約完了|ご予約が完了いたしました|ご予約いただき、誠にありがとうございます/.test(document.body.innerText),
+    { timeout: 20000 },
+  ).catch(() => null);
 }
 
 // 完了画面から確認番号らしき文字列を探す（見つからなければnull）。
@@ -202,31 +204,37 @@ async function isCompletionPage(page) {
 }
 
 // 1件分の予約処理（ログイン後の状態のpageを渡すこと）。成功時は確認番号・スクリーンショットのパスを返す。
+// ログインから完了まで、すべて同一ページ・同一セッション内で連続実行する（再ログイン・再読み込みなし）。
 async function processKyotoTerrsaReservation(page, dateISO, utilizationGroup, busCompanyName) {
+  const shots = [];
+
   await openReservationFlow(page);
   await selectDate(page, dateISO);
-  await screenshotStep(page, dateISO, '1-date-selected');
+  shots.push(screenshotStep(page, dateISO, '1-date-selected'));
 
   await selectOvernightSlot(page);
   await confirmDateTimeSelection(page);
-  await screenshotStep(page, dateISO, '2-time-confirmed');
+  shots.push(screenshotStep(page, dateISO, '2-time-confirmed'));
 
   await proceedToInputForm(page);
   await fillGroupAndBusCompany(page, utilizationGroup, busCompanyName);
-  await screenshotStep(page, dateISO, '3-form-filled');
+  shots.push(screenshotStep(page, dateISO, '3-form-filled'));
 
   await submitInputForm(page);
-  await screenshotStep(page, dateISO, '4-review');
+  shots.push(screenshotStep(page, dateISO, '4-review'));
 
   await agreeAndComplete(page);
-  const screenshotPath = await screenshotStep(page, dateISO, '5-complete');
+  const finalShot = screenshotStep(page, dateISO, '5-complete');
+  shots.push(finalShot);
 
   const completed = await isCompletionPage(page);
   if (!completed) {
+    await Promise.all(shots.map((s) => s.promise));
     throw new Error('完了画面を確認できませんでした（予約が確定していない可能性があります）');
   }
   const confirmationNumber = await extractConfirmationNumber(page);
-  return { confirmationNumber, screenshotPath };
+  await Promise.all(shots.map((s) => s.promise)); // 結果を返す前に保存だけは完了させる
+  return { confirmationNumber, screenshotPath: finalShot.path };
 }
 
 module.exports = {

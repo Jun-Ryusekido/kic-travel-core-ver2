@@ -88,10 +88,11 @@ async function main() {
   const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
   const browser = await chromium.launch({ headless: HEADLESS, slowMo: HEADLESS ? 200 : 0 });
   const page = await browser.newPage();
+  const startedAt = Date.now();
 
   try {
     await login(page, loginId, password);
-    console.log('ログイン成功');
+    console.log(`ログイン成功（${((Date.now() - startedAt) / 1000).toFixed(1)}秒経過）`);
   } catch (e) {
     console.error('ログインに失敗したため、処理を中止します:', e.message);
     logError(`ログイン失敗: ${e.message}`);
@@ -102,8 +103,10 @@ async function main() {
 
   try {
     const result = await processKyotoTerrsaReservation(page, dateISO, UTILIZATION_GROUP, BUS_COMPANY_NAME);
+    const elapsedSec = ((Date.now() - startedAt) / 1000).toFixed(1);
     console.log(`✓ ${dateISO} 予約完了。確認番号: ${result.confirmationNumber || '(画面上に見つかりませんでした)'}`);
     console.log(`  スクリーンショット: ${result.screenshotPath}`);
+    console.log(`  実行時間（ログイン開始〜完了確認まで）: ${elapsedSec}秒`);
     await recordResult(sb, {
       dateISO,
       status: '完了',
