@@ -1192,11 +1192,11 @@ input[type=number]{-moz-appearance:textfield}
               <input type="checkbox" id="email-inbox-select-all" onchange="toggleEmailInboxSelectAll()">
               すべて選択/すべて解除
             </label>
-            <button class="btn" id="email-inbox-bulk-ignore-btn" style="font-size:12px;color:var(--red)" disabled onclick="bulkIgnoreEmailInboxItems()">🗑 選択したメールを一括無視</button>
           </div>
           <div id="email-inbox-list"></div>
           <div id="email-inbox-pagination" style="display:flex;align-items:center;gap:10px;margin-top:12px;font-size:12px"></div>
         </div>
+        <button id="email-inbox-bulk-ignore-btn" class="btn" style="display:none;position:fixed;right:20px;bottom:20px;z-index:60;background:var(--red);border-color:var(--red);color:#fff;padding:12px 18px;border-radius:24px;font-size:13px;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,.25);max-width:calc(100vw - 40px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" onclick="bulkIgnoreEmailInboxItems()">🗑 選択した0件を無視</button>
       </div>
 
       <!-- 取引先マスタ -->
@@ -6601,7 +6601,14 @@ function toggleEmailInboxSelectAll(){
 
 function updateEmailInboxBulkIgnoreButton(){
   const btn = document.getElementById('email-inbox-bulk-ignore-btn');
-  if(btn) btn.disabled = emailInboxSelectedIds.size===0;
+  if(!btn) return;
+  const count = emailInboxSelectedIds.size;
+  if(count===0){
+    btn.style.display = 'none';
+  }else{
+    btn.style.display = '';
+    btn.textContent = `🗑 選択した${count}件を無視`;
+  }
 }
 
 async function bulkIgnoreEmailInboxItems(){
