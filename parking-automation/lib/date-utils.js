@@ -1,0 +1,44 @@
+// 日本時間(JST, UTC+9固定・サマータイムなし)基準での日付計算ユーティリティ。
+// このスクリプトの実行サーバーがどのタイムゾーンであっても、
+// 「解禁日」の判定が予約サイト側（日本国内サービス）の想定する日付とズレないよう、
+// 常にJSTで計算する。
+
+function getTodayJST() {
+  const jst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  return `${jst.getUTCFullYear()}-${String(jst.getUTCMonth() + 1).padStart(2, '0')}-${String(jst.getUTCDate()).padStart(2, '0')}`;
+}
+
+// dateStr: "YYYY-MM-DD" 形式。カレンダー日付としての単純な引き算（時刻・タイムゾーンの影響を受けないようUTC計算する）
+function subtractDays(dateStr, days) {
+  const d = new Date(dateStr + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() - days);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+
+// "2026-09-27T18:40:00" -> "2026/09/27"（サイト側の日付フォーマット）
+function toSiteDateFormat(isoDateTime) {
+  return isoDateTime.slice(0, 10).replace(/-/g, '/');
+}
+
+// "2026-09-27T18:40:00" -> "2026/09/27 18:40"（サイト側の data-usage-timestamp 形式）
+function toSiteTimestampFormat(isoDateTime) {
+  return `${toSiteDateFormat(isoDateTime)} ${isoDateTime.slice(11, 16)}`;
+}
+
+// ログ・スクリーンショットのファイル名用タイムスタンプ（JST）
+function timestampForFilename() {
+  const jst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  const y = jst.getUTCFullYear();
+  const m = String(jst.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(jst.getUTCDate()).padStart(2, '0');
+  const hh = String(jst.getUTCHours()).padStart(2, '0');
+  const mm = String(jst.getUTCMinutes()).padStart(2, '0');
+  const ss = String(jst.getUTCSeconds()).padStart(2, '0');
+  return `${y}${m}${d}-${hh}${mm}${ss}`;
+}
+
+function dateForFilename() {
+  return timestampForFilename().slice(0, 8);
+}
+
+module.exports = { getTodayJST, subtractDays, toSiteDateFormat, toSiteTimestampFormat, timestampForFilename, dateForFilename };

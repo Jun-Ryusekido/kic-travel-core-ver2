@@ -1,3 +1,5 @@
 node_modules/
 __pycache__/
 *.pyc
+parking-automation/config.json
+parking-automation/logs/
