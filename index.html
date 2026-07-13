@@ -6931,6 +6931,101 @@ async function extractBusFromText(){
   }
 }
 
+// ─── パスワード保護されたPDF/Excelファイルへの対応（共通ヘルパー） ──────────────────
+// 「Excel/PDF/Wordから読み取り」の各ボタン（ホテル・バス・レストラン・観光施設等、
+// ホテル予約管理ページ）すべてで共通して使う。
+
+// FileReaderでファイルをBase64化する（data:...;base64, の接頭辞を除いた部分のみ返す）
+function readFileAsBase64(file){
+  return new Promise((resolve, reject)=>{
+    const r = new FileReader();
+    r.onload = ()=>resolve(r.result.split(',')[1]);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+
+// SheetJSでExcelファイルを読み込みCSVテキスト化する。パスワード保護によるエラーの場合は
+// error.isPasswordProtected=true を立てて再スローする（呼び出し側はこれを見てサーバー側の
+// パスワード対応フローにフォールバックする）
+async function parseExcelToSheetsText(file){
+  const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs');
+  try{
+    const arrayBuffer = await file.arrayBuffer();
+    const workbook = XLSX.read(arrayBuffer, {type:'array'});
+    return workbook.SheetNames.map(name=>{
+      const ws = workbook.Sheets[name];
+      return `[シート: ${name}]\n${XLSX.utils.sheet_to_csv(ws)}`;
+    }).join('\n\n');
+  }catch(e){
+    if(/password/i.test(e.message||'')) e.isPasswordProtected = true;
+    throw e;
+  }
+}
+
+// statusElの直後にパスワード入力欄＋再試行ボタンを表示し、ユーザーが再試行を押すまで待つ
+// （通常時はこの要素自体が存在しないため、パスワード入力欄は非表示のまま）。
+// 戻り値: ユーザーが入力したパスワード文字列
+function showOcrPasswordPrompt(statusEl, isWrongPasswordRetry){
+  return new Promise((resolve)=>{
+    let promptEl = statusEl.parentElement.querySelector('.ocr-password-prompt');
+    if(!promptEl){
+      promptEl = document.createElement('span');
+      promptEl.className = 'ocr-password-prompt';
+      promptEl.style.cssText = 'display:inline-flex;align-items:center;gap:6px;margin-left:6px';
+      statusEl.insertAdjacentElement('afterend', promptEl);
+    }
+    promptEl.innerHTML = `
+      <input type="password" placeholder="ファイルのパスワード" style="font-size:11px;padding:3px 6px;border:1px solid var(--border);border-radius:5px;width:140px">
+      <button type="button" class="btn" style="font-size:11px">🔓 再試行</button>
+    `;
+    statusEl.textContent = isWrongPasswordRetry
+      ? 'パスワードが違います。もう一度お試しください'
+      : 'このファイルはパスワードが必要です';
+    statusEl.style.color = 'var(--amber)';
+    const input = promptEl.querySelector('input');
+    const btn = promptEl.querySelector('button');
+    input.focus();
+    const submit = ()=>resolve(input.value);
+    btn.onclick = submit;
+    input.onkeydown = (e)=>{ if(e.key==='Enter'){ e.preventDefault(); submit(); } };
+  });
+}
+
+function clearOcrPasswordPrompt(statusEl){
+  const promptEl = statusEl.parentElement && statusEl.parentElement.querySelector('.ocr-password-prompt');
+  if(promptEl) promptEl.remove();
+}
+
+// /api/extract-card へのPOSTを、パスワード保護ファイルのやり取りに対応した形で行う。
+// buildBody(password): password===nullなら初回リクエスト用、文字列なら再試行用のボディを返す関数。
+// レスポンスが {error:'password_required'} または {error:'invalid_password'} の場合、
+// パスワード入力欄を表示してユーザーの再試行を待ち、パスワードを添えて再送信する
+// （ファイルの再選択は不要。buildBodyのクロージャが元のファイルデータを保持しているため）。
+async function fetchExtractCardWithPasswordSupport(buildBody, statusEl){
+  let password = null;
+  while(true){
+    const resp = await fetchWithTimeout('/api/extract-card', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(buildBody(password))
+    });
+    let data = null;
+    try{ data = await resp.json(); }catch(_){ /* ignore */ }
+    if(resp.ok){
+      clearOcrPasswordPrompt(statusEl);
+      return data;
+    }
+    const errCode = data && data.error;
+    if(errCode === 'password_required' || errCode === 'invalid_password'){
+      password = await showOcrPasswordPrompt(statusEl, errCode === 'invalid_password');
+      continue;
+    }
+    clearOcrPasswordPrompt(statusEl);
+    throw new Error(errCode || `サーバーエラー (${resp.status})`);
+  }
+}
+
 async function extractBusFromFile(event, mode){
   const file=event.target.files[0];
   if(!file) return;
@@ -6941,35 +7036,27 @@ async function extractBusFromFile(event, mode){
     const isPdf = mode==='image' ? false : file.name.toLowerCase().endsWith('.pdf');
     const isExcel = mode==='image' ? false : file.name.toLowerCase().match(/\.(xlsx|xls)$/);
     const isImage = mode==='image';
-    let body;
+    let bodyBase; // password不要な場合はこのオブジェクトをそのまま使う
     if(isPdf){
-      const base64=await new Promise((resolve,reject)=>{
-        const r=new FileReader();
-        r.onload=()=>resolve(r.result.split(',')[1]);
-        r.onerror=reject;
-        r.readAsDataURL(file);
-      });
-      body={busPdfBase64:base64};
+      const base64 = await readFileAsBase64(file);
+      bodyBase = {busPdfBase64:base64};
     }else if(isExcel){
-      const XLSX=await import('https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs');
-      const ab=await file.arrayBuffer();
-      const wb=XLSX.read(ab,{type:'array'});
-      const sheets=wb.SheetNames.map(n=>`[シート: ${n}]\n${XLSX.utils.sheet_to_csv(wb.Sheets[n])}`).join('\n\n');
-      body={busText:sheets};
+      try{
+        const sheets = await parseExcelToSheetsText(file);
+        bodyBase = {busText:sheets};
+      }catch(e){
+        if(!e.isPasswordProtected) throw e;
+        // クライアント側で読み取れなかった（パスワード保護の可能性）→ 生データをサーバーへ送る
+        const base64 = await readFileAsBase64(file);
+        bodyBase = {busExcelBase64:base64};
+      }
     }else if(isImage){
       const base64 = await compressImageToBase64(file);
-      body={busImageBase64:base64, busImageMediaType:'image/jpeg'};
+      bodyBase = {busImageBase64:base64, busImageMediaType:'image/jpeg'};
     }else{
       throw new Error('対応していないファイル形式です');
     }
-    const resp=await fetch('/api/extract-card',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    if(!resp.ok){
-      let errMsg = 'サーバーエラー';
-      try{ const e = await resp.json(); errMsg = e.error || errMsg; }
-      catch(_){ errMsg = `サーバーエラー (${resp.status})`; }
-      throw new Error(errMsg);
-    }
-    const data=await resp.json();
+    const data = await fetchExtractCardWithPasswordSupport(pw => pw ? {...bodyBase, password: pw} : bodyBase, statusEl);
     const tb=data.content.find(b=>b.type==='text');
     const cleaned=(tb.text||'').replace(/```json|```/g,'').trim();
     const parsed=JSON.parse(cleaned);
@@ -7202,35 +7289,26 @@ async function extractRestaurantFromFile(event, mode){
     const isPdf = mode==='image' ? false : file.name.toLowerCase().endsWith('.pdf');
     const isExcel = mode==='image' ? false : file.name.toLowerCase().match(/\.(xlsx|xls)$/);
     const isImage = mode==='image';
-    let body;
+    let bodyBase;
     if(isPdf){
-      const base64=await new Promise((resolve,reject)=>{
-        const r=new FileReader();
-        r.onload=()=>resolve(r.result.split(',')[1]);
-        r.onerror=reject;
-        r.readAsDataURL(file);
-      });
-      body={restaurantPdfBase64:base64};
+      const base64 = await readFileAsBase64(file);
+      bodyBase = {restaurantPdfBase64:base64};
     }else if(isExcel){
-      const XLSX=await import('https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs');
-      const ab=await file.arrayBuffer();
-      const wb=XLSX.read(ab,{type:'array'});
-      const sheets=wb.SheetNames.map(n=>`[シート: ${n}]\n${XLSX.utils.sheet_to_csv(wb.Sheets[n])}`).join('\n\n');
-      body={restaurantText:sheets};
+      try{
+        const sheets = await parseExcelToSheetsText(file);
+        bodyBase = {restaurantText:sheets};
+      }catch(e){
+        if(!e.isPasswordProtected) throw e;
+        const base64 = await readFileAsBase64(file);
+        bodyBase = {restaurantExcelBase64:base64};
+      }
     }else if(isImage){
       const base64 = await compressImageToBase64(file);
-      body={restaurantImageBase64:base64, restaurantImageMediaType:'image/jpeg'};
+      bodyBase = {restaurantImageBase64:base64, restaurantImageMediaType:'image/jpeg'};
     }else{
       throw new Error('対応していないファイル形式です');
     }
-    const resp=await fetch('/api/extract-card',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    if(!resp.ok){
-      let errMsg = 'サーバーエラー';
-      try{ const e = await resp.json(); errMsg = e.error || errMsg; }
-      catch(_){ errMsg = `サーバーエラー (${resp.status})`; }
-      throw new Error(errMsg);
-    }
-    const data=await resp.json();
+    const data = await fetchExtractCardWithPasswordSupport(pw => pw ? {...bodyBase, password: pw} : bodyBase, statusEl);
     const tb=data.content.find(b=>b.type==='text');
     const cleaned=(tb.text||'').replace(/```json|```/g,'').trim();
     const parsed=JSON.parse(cleaned);
@@ -7496,35 +7574,26 @@ async function extractFacilityFromFile(event, mode){
     const isPdf = mode==='image' ? false : file.name.toLowerCase().endsWith('.pdf');
     const isExcel = mode==='image' ? false : file.name.toLowerCase().match(/\.(xlsx|xls)$/);
     const isImage = mode==='image';
-    let body;
+    let bodyBase;
     if(isPdf){
-      const base64=await new Promise((resolve,reject)=>{
-        const r=new FileReader();
-        r.onload=()=>resolve(r.result.split(',')[1]);
-        r.onerror=reject;
-        r.readAsDataURL(file);
-      });
-      body={facilityPdfBase64:base64};
+      const base64 = await readFileAsBase64(file);
+      bodyBase = {facilityPdfBase64:base64};
     }else if(isExcel){
-      const XLSX=await import('https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs');
-      const ab=await file.arrayBuffer();
-      const wb=XLSX.read(ab,{type:'array'});
-      const sheets=wb.SheetNames.map(n=>`[シート: ${n}]\n${XLSX.utils.sheet_to_csv(wb.Sheets[n])}`).join('\n\n');
-      body={facilityText:sheets};
+      try{
+        const sheets = await parseExcelToSheetsText(file);
+        bodyBase = {facilityText:sheets};
+      }catch(e){
+        if(!e.isPasswordProtected) throw e;
+        const base64 = await readFileAsBase64(file);
+        bodyBase = {facilityExcelBase64:base64};
+      }
     }else if(isImage){
       const base64 = await compressImageToBase64(file);
-      body={facilityImageBase64:base64, facilityImageMediaType:'image/jpeg'};
+      bodyBase = {facilityImageBase64:base64, facilityImageMediaType:'image/jpeg'};
     }else{
       throw new Error('対応していないファイル形式です');
     }
-    const resp=await fetch('/api/extract-card',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    if(!resp.ok){
-      let errMsg = 'サーバーエラー';
-      try{ const e = await resp.json(); errMsg = e.error || errMsg; }
-      catch(_){ errMsg = `サーバーエラー (${resp.status})`; }
-      throw new Error(errMsg);
-    }
-    const data=await resp.json();
+    const data = await fetchExtractCardWithPasswordSupport(pw => pw ? {...bodyBase, password: pw} : bodyBase, statusEl);
     const tb=data.content.find(b=>b.type==='text');
     const cleaned=(tb.text||'').replace(/```json|```/g,'').trim();
     const parsed=JSON.parse(cleaned);
@@ -7746,167 +7815,56 @@ async function extractHotelFromFile(event, mode){
     const isExcel = mode==='image' ? false : file.name.toLowerCase().match(/\.(xlsx|xls)$/);
     const isWord = mode==='image' ? false : file.name.toLowerCase().endsWith('.docx');
     const isImage = mode==='image';
-    let hotelText = '';
+    let bodyBase;
 
     if(isImage){
-      // 画像を圧縮してBase64化しAPIに送信
       const base64 = await compressImageToBase64(file);
-      const response = await fetchWithTimeout('/api/extract-card', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ hotelImageBase64: base64, hotelImageMediaType: 'image/jpeg' })
-      });
-      if(!response.ok){
-        let errMsg = 'サーバーエラー';
-        try{ const e = await response.json(); errMsg = e.error || errMsg; }
-        catch(_){ errMsg = `サーバーエラー (${response.status})`; }
-        throw new Error(errMsg);
-      }
-      const data = await response.json();
-      const textBlock = data.content.find(b=>b.type==='text');
-      const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
-      const parsed = JSON.parse(cleaned);
-      const hotels = Array.isArray(parsed) ? parsed : [parsed];
-      if(!checkBulkReadSanity(hotels, 'check_in')){
-        statusEl.textContent = '読み取りをキャンセルしました（件数・日付範囲が不自然なため）';
-        statusEl.classList.remove('ocr-loading');
-        hideGlobalOcrBanner();
-        statusEl.style.color = 'var(--text3)';
-        return;
-      }
-      hotels.forEach(h=>{
-        const nights = calcHotelNights(h.check_in||'', h.check_out||'');
-        bdHotelItems.push({
-          hotel_name: h.hotel_name||'', check_in: h.check_in||'', check_out: h.check_out||'',
-          room_type: h.room_type||'', rooms: Number(h.rooms)||1, breakfast: !!h.breakfast,
-          unit_price: Number(h.unit_price)||0, amount: Number(h.unit_price||0)*Number(h.rooms||1)*nights,
-          confirmation_no: h.confirmation_no||'', memo: h.memo||''
-        });
-      });
-      renderHotelTable();
-      statusEl.textContent = '✓ '+hotels.length+'件を読み取りました';
-      statusEl.classList.remove('ocr-loading');
-      hideGlobalOcrBanner();
-      statusEl.style.color = 'var(--green)';
+      bodyBase = { hotelImageBase64: base64, hotelImageMediaType: 'image/jpeg' };
     } else if(isPdf){
-      // PDFをBase64に変換してAPIに送信
-      const base64 = await new Promise((resolve,reject)=>{
-        const r = new FileReader();
-        r.onload = ()=>resolve(r.result.split(',')[1]);
-        r.onerror = reject;
-        r.readAsDataURL(file);
-      });
-      const response = await fetchWithTimeout('/api/extract-card', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ hotelPdfBase64: base64 })
-      });
-      if(!response.ok){ const e = await response.json(); throw new Error(e.error||'サーバーエラー'); }
-      const data = await response.json();
-      const textBlock = data.content.find(b=>b.type==='text');
-      const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
-      const parsed = JSON.parse(cleaned);
-      const hotels = Array.isArray(parsed) ? parsed : [parsed];
-      if(!checkBulkReadSanity(hotels, 'check_in')){
-        statusEl.textContent = '読み取りをキャンセルしました（件数・日付範囲が不自然なため）';
-        statusEl.classList.remove('ocr-loading');
-        hideGlobalOcrBanner();
-        statusEl.style.color = 'var(--text3)';
-        return;
-      }
-      hotels.forEach(h=>{
-        const nights = calcHotelNights(h.check_in||'', h.check_out||'');
-        bdHotelItems.push({
-          hotel_name: h.hotel_name||'', check_in: h.check_in||'', check_out: h.check_out||'',
-          room_type: h.room_type||'', rooms: Number(h.rooms)||1, breakfast: !!h.breakfast,
-          unit_price: Number(h.unit_price)||0, amount: Number(h.unit_price||0)*Number(h.rooms||1)*nights,
-          confirmation_no: h.confirmation_no||'', memo: h.memo||''
-        });
-      });
-      renderHotelTable();
-      statusEl.textContent = '✓ '+hotels.length+'件を読み取りました';
-      statusEl.classList.remove('ocr-loading');
-      hideGlobalOcrBanner();
-      statusEl.style.color = 'var(--green)';
+      const base64 = await readFileAsBase64(file);
+      bodyBase = { hotelPdfBase64: base64 };
     } else if(isExcel){
-      // ExcelをSheetJSで読み込みテキスト化
-      const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs');
-      const arrayBuffer = await file.arrayBuffer();
-      const workbook = XLSX.read(arrayBuffer, {type:'array'});
-      const sheets = workbook.SheetNames.map(name=>{
-        const ws = workbook.Sheets[name];
-        return `[シート: ${name}]\n${XLSX.utils.sheet_to_csv(ws)}`;
-      }).join('\n\n');
-      const response = await fetchWithTimeout('/api/extract-card', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ hotelText: sheets })
-      });
-      if(!response.ok){ const e = await response.json(); throw new Error(e.error||'サーバーエラー'); }
-      const data = await response.json();
-      const textBlock = data.content.find(b=>b.type==='text');
-      const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
-      const parsed = JSON.parse(cleaned);
-      const hotels = Array.isArray(parsed) ? parsed : [parsed];
-      if(!checkBulkReadSanity(hotels, 'check_in')){
-        statusEl.textContent = '読み取りをキャンセルしました（件数・日付範囲が不自然なため）';
-        statusEl.classList.remove('ocr-loading');
-        hideGlobalOcrBanner();
-        statusEl.style.color = 'var(--text3)';
-        return;
+      try{
+        const sheets = await parseExcelToSheetsText(file);
+        bodyBase = { hotelText: sheets };
+      }catch(e){
+        if(!e.isPasswordProtected) throw e;
+        const base64 = await readFileAsBase64(file);
+        bodyBase = { hotelExcelBase64: base64 };
       }
-      hotels.forEach(h=>{
-        const nights = calcHotelNights(h.check_in||'', h.check_out||'');
-        bdHotelItems.push({
-          hotel_name: h.hotel_name||'', check_in: h.check_in||'', check_out: h.check_out||'',
-          room_type: h.room_type||'', rooms: Number(h.rooms)||1, breakfast: !!h.breakfast,
-          unit_price: Number(h.unit_price)||0, amount: Number(h.unit_price||0)*Number(h.rooms||1)*nights,
-          confirmation_no: h.confirmation_no||'', memo: h.memo||''
-        });
-      });
-      renderHotelTable();
-      statusEl.textContent = '✓ '+hotels.length+'件を読み取りました';
-      statusEl.classList.remove('ocr-loading');
-      hideGlobalOcrBanner();
-      statusEl.style.color = 'var(--green)';
     } else if(isWord){
-      // WordをJSZip+document.xmlでテキスト化
       const docText = await extractDocxText(file);
-      const response = await fetchWithTimeout('/api/extract-card', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ hotelText: docText })
-      });
-      if(!response.ok){ const e = await response.json(); throw new Error(e.error||'サーバーエラー'); }
-      const data = await response.json();
-      const textBlock = data.content.find(b=>b.type==='text');
-      const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
-      const parsed = JSON.parse(cleaned);
-      const hotels = Array.isArray(parsed) ? parsed : [parsed];
-      if(!checkBulkReadSanity(hotels, 'check_in')){
-        statusEl.textContent = '読み取りをキャンセルしました（件数・日付範囲が不自然なため）';
-        statusEl.classList.remove('ocr-loading');
-        hideGlobalOcrBanner();
-        statusEl.style.color = 'var(--text3)';
-        return;
-      }
-      hotels.forEach(h=>{
-        const nights = calcHotelNights(h.check_in||'', h.check_out||'');
-        bdHotelItems.push({
-          hotel_name: h.hotel_name||'', check_in: h.check_in||'', check_out: h.check_out||'',
-          room_type: h.room_type||'', rooms: Number(h.rooms)||1, breakfast: !!h.breakfast,
-          unit_price: Number(h.unit_price)||0, amount: Number(h.unit_price||0)*Number(h.rooms||1)*nights,
-          confirmation_no: h.confirmation_no||'', memo: h.memo||''
-        });
-      });
-      renderHotelTable();
-      statusEl.textContent = '✓ '+hotels.length+'件を読み取りました';
-      statusEl.classList.remove('ocr-loading');
-      hideGlobalOcrBanner();
-      statusEl.style.color = 'var(--green)';
+      bodyBase = { hotelText: docText };
     } else {
       throw new Error('対応していないファイル形式です（.xlsx / .xls / .pdf / .docx のいずれかを選択してください）');
     }
+
+    const data = await fetchExtractCardWithPasswordSupport(pw => pw ? {...bodyBase, password: pw} : bodyBase, statusEl);
+    const textBlock = data.content.find(b=>b.type==='text');
+    const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
+    const parsed = JSON.parse(cleaned);
+    const hotels = Array.isArray(parsed) ? parsed : [parsed];
+    if(!checkBulkReadSanity(hotels, 'check_in')){
+      statusEl.textContent = '読み取りをキャンセルしました（件数・日付範囲が不自然なため）';
+      statusEl.classList.remove('ocr-loading');
+      hideGlobalOcrBanner();
+      statusEl.style.color = 'var(--text3)';
+      return;
+    }
+    hotels.forEach(h=>{
+      const nights = calcHotelNights(h.check_in||'', h.check_out||'');
+      bdHotelItems.push({
+        hotel_name: h.hotel_name||'', check_in: h.check_in||'', check_out: h.check_out||'',
+        room_type: h.room_type||'', rooms: Number(h.rooms)||1, breakfast: !!h.breakfast,
+        unit_price: Number(h.unit_price)||0, amount: Number(h.unit_price||0)*Number(h.rooms||1)*nights,
+        confirmation_no: h.confirmation_no||'', memo: h.memo||''
+      });
+    });
+    renderHotelTable();
+    statusEl.textContent = '✓ '+hotels.length+'件を読み取りました';
+    statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
+    statusEl.style.color = 'var(--green)';
   }catch(e){
     statusEl.textContent = '読み取り失敗: '+e.message;
     statusEl.classList.remove('ocr-loading');
@@ -8998,19 +8956,8 @@ async function extractHotelFromTextHm(){
   }
 }
 
-async function extractHotelFromFileHmParsed(bodyData, statusEl){
-  const response = await fetch('/api/extract-card', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(bodyData)
-  });
-  if(!response.ok){
-    let errMsg = 'サーバーエラー';
-    try{ const e = await response.json(); errMsg = e.error || errMsg; }
-    catch(_){ errMsg = `サーバーエラー (${response.status})`; }
-    throw new Error(errMsg);
-  }
-  const data = await response.json();
+async function extractHotelFromFileHmParsed(buildBody, statusEl){
+  const data = await fetchExtractCardWithPasswordSupport(buildBody, statusEl);
   const textBlock = data.content.find(b=>b.type==='text');
   const parsed = parseAiJsonResponse(textBlock.text);
   const hotels = Array.isArray(parsed) ? parsed : [parsed];
@@ -9232,29 +9179,24 @@ async function extractHotelFromFileHm(event, mode){
   try{
     const isPdf = mode==='image' ? false : file.name.toLowerCase().endsWith('.pdf');
     const isImage = mode==='image';
-    let bodyData;
+    let bodyBase;
     if(isImage){
       const base64 = await compressImageToBase64(file);
-      bodyData = { hotelImageBase64: base64, hotelImageMediaType: 'image/jpeg' };
+      bodyBase = { hotelImageBase64: base64, hotelImageMediaType: 'image/jpeg' };
     }else if(isPdf){
-      const base64 = await new Promise((resolve,reject)=>{
-        const r = new FileReader();
-        r.onload = ()=>resolve(r.result.split(',')[1]);
-        r.onerror = reject;
-        r.readAsDataURL(file);
-      });
-      bodyData = { hotelPdfBase64: base64 };
+      const base64 = await readFileAsBase64(file);
+      bodyBase = { hotelPdfBase64: base64 };
     }else{
-      const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs');
-      const arrayBuffer = await file.arrayBuffer();
-      const workbook = XLSX.read(arrayBuffer, {type:'array'});
-      const sheets = workbook.SheetNames.map(name=>{
-        const ws = workbook.Sheets[name];
-        return `[シート: ${name}]\n${XLSX.utils.sheet_to_csv(ws)}`;
-      }).join('\n\n');
-      bodyData = { hotelText: sheets };
+      try{
+        const sheets = await parseExcelToSheetsText(file);
+        bodyBase = { hotelText: sheets };
+      }catch(e){
+        if(!e.isPasswordProtected) throw e;
+        const base64 = await readFileAsBase64(file);
+        bodyBase = { hotelExcelBase64: base64 };
+      }
     }
-    await extractHotelFromFileHmParsed(bodyData, statusEl);
+    await extractHotelFromFileHmParsed(pw => pw ? {...bodyBase, password: pw} : bodyBase, statusEl);
   }catch(e){
     statusEl.textContent = '読み取り失敗: '+e.message;
     statusEl.classList.remove('ocr-loading');

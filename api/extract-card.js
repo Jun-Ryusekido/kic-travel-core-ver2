@@ -1,7 +1,32 @@
-﻿// 1通のメールに複数日程・複数ツアー分の予約情報が混在しているケースで、今開いている予約と
+﻿import XLSX from 'xlsx';
+import { isPdfEncrypted, decryptPdfToBase64, isExcelEncrypted, decryptExcelToSheetsText } from './lib/protected-file.js';
+
+// 1通のメールに複数日程・複数ツアー分の予約情報が混在しているケースで、今開いている予約と
 // 無関係な行まで抽出されてしまうのを防ぐための日付絞り込み許容日数。
 // 日付のズレ・表記ゆれを考慮した仮の値。調整する場合はこの値を変更する。
 const DATE_FILTER_TOLERANCE_DAYS = 3;
+
+// PDFがパスワード保護されている場合はpasswordで復号したBase64を返す（保護されていなければそのまま返す）。
+// パスワード関連のエラー(PasswordRequiredError/InvalidPasswordError、lib/protected-file.js参照)は
+// そのまま呼び出し元(ハンドラ末尾のcatch)に伝播させ、そこで{error:'password_required'}等に変換する。
+function resolvePdfBase64(pdfBase64, password) {
+  const buffer = Buffer.from(pdfBase64, 'base64');
+  if (!isPdfEncrypted(buffer)) return pdfBase64;
+  return decryptPdfToBase64(buffer, password);
+}
+
+// クライアント側(SheetJS)でExcelのパスワード保護を検知して解析できなかった場合、
+// ファイルの生データ(base64)がここに渡ってくる。パスワードで復号し、各シートをCSVテキスト化する。
+// （暗号化されていないのに何らかの理由でクライアント側の解析に失敗していた場合の保険として、
+// 実際には暗号化されていなければそのままサーバー側でパースする）
+async function resolveExcelText(excelBase64, password) {
+  const buffer = Buffer.from(excelBase64, 'base64');
+  if (!isExcelEncrypted(buffer)) {
+    const workbook = XLSX.read(buffer, { type: 'buffer' });
+    return workbook.SheetNames.map((name) => `[シート: ${name}]\n${XLSX.utils.sheet_to_csv(workbook.Sheets[name])}`).join('\n\n');
+  }
+  return await decryptExcelToSheetsText(buffer, password);
+}
 
 // targetCheckIn/targetCheckOut（今開いている予約のIn-Date/Out-Date）が渡された場合、
 // プロンプトに追記する絞り込み指示を組み立てる。どちらも空ならフィルタなし（従来通り全件抽出）。
@@ -21,7 +46,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
   try {
-    const { variants, mediaType, base64, hotelText, hotelPdfBase64, hotelImageBase64, hotelImageMediaType, facilityText, facilityPdfBase64, facilityImageBase64, facilityImageMediaType, busText, busPdfBase64, busImageBase64, busImageMediaType, restaurantText, restaurantPdfBase64, restaurantImageBase64, restaurantImageMediaType, invoiceText, invoicePdfBase64, invoiceImageBase64, invoiceImageMediaType, targetCheckIn, targetCheckOut } = req.body;
+    const { variants, mediaType, base64, hotelText, hotelPdfBase64, hotelExcelBase64, hotelImageBase64, hotelImageMediaType, facilityText, facilityPdfBase64, facilityExcelBase64, facilityImageBase64, facilityImageMediaType, busText, busPdfBase64, busExcelBase64, busImageBase64, busImageMediaType, restaurantText, restaurantPdfBase64, restaurantExcelBase64, restaurantImageBase64, restaurantImageMediaType, invoiceText, invoicePdfBase64, invoiceImageBase64, invoiceImageMediaType, targetCheckIn, targetCheckOut, password } = req.body;
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
       return res.status(500).json({ error: 'サーバー側にAPIキーが設定されていません' });
@@ -54,8 +79,10 @@ export default async function handler(req, res) {
       return data;
     };
 
-    // ホテルテキスト解析モード
-    if (hotelText) {
+    // ホテルテキスト解析モード（クライアント側でパスワード保護されたExcelを検知できなかった場合、
+    // hotelExcelBase64として生データが渡ってくるので、ここでサーバー側で復号してテキスト化する）
+    const resolvedHotelText = hotelText || (hotelExcelBase64 ? await resolveExcelText(hotelExcelBase64, password) : '');
+    if (resolvedHotelText) {
       const data = await callClaude([{
         type: 'text',
 text: `以下のホテル予約確認メールや文書からホテル情報を抽出してJSON配列で返してください。
@@ -66,14 +93,15 @@ ref_noは文書中のツアーコード・予約番号・REF#・KICから始ま�
 statusは「手配OK」または「問い合わせ中」のいずれかを入れてください。予約確定・確認番号あり・手配完了等の表現があれば「手配OK」、見積もり・問い合わせ・検討中等であれば「問い合わせ中」としてください。
 重要: 出力は必ずJSON配列そのものだけにしてください。前置き・説明文・注釈・補足・コードブロック記号(\`\`\`)は一切含めないでください。日付形式の説明や注意書きなどの文章も絶対に出力しないでください。出力の最初の文字は必ず[、最後の文字は必ず]にしてください。${buildDateFilterInstruction('チェックイン日(check_in)', targetCheckIn, targetCheckOut)}
 
-${hotelText}`
+${resolvedHotelText}`
       }], 8000);
       return res.status(200).json(data);
     }
 // ホテルPDF解析モード
     if (hotelPdfBase64) {
+      const resolvedHotelPdfBase64 = resolvePdfBase64(hotelPdfBase64, password);
       const data = await callClaude([
-        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: hotelPdfBase64 } },
+        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: resolvedHotelPdfBase64 } },
 { type: 'text', text: `このPDFからホテル予約情報を抽出してJSON配列で返してください。
 各ホテルの情報を1つのオブジェクトとして配列に含めてください。
 フィールド：ref_no(ツアー番号・予約番号・REF#等), hotel_name, check_in(YYYY-MM-DD), check_out(YYYY-MM-DD), room_type, rooms(数値), breakfast(true/false), unit_price(数値・円), confirmation_no, memo
@@ -101,7 +129,8 @@ statusは「手配OK」または「問い合わせ中」のいずれかを入れ
     }
 
     // 観光施設テキスト解析モード
-    if (facilityText) {
+    const resolvedFacilityText = facilityText || (facilityExcelBase64 ? await resolveExcelText(facilityExcelBase64, password) : '');
+    if (resolvedFacilityText) {
       const data = await callClaude([{
         type: 'text',
 text: `以下の観光施設・バス駐車場等の手配確認書やメールから情報を抽出してJSON配列で返してください。
@@ -111,15 +140,16 @@ statusは「手配OK」または「問い合わせ中」のいずれかを入れ
 金額が不明な場合は0、人数不明は0としてください。
 JSONのみ返し、説明文・コードブロック記号は不要です。${buildDateFilterInstruction('日付(date)', targetCheckIn, targetCheckOut)}
 
-${facilityText}`
+${resolvedFacilityText}`
       }], 8000);
       return res.status(200).json(data);
     }
 
     // 観光施設PDF解析モード
     if (facilityPdfBase64) {
+      const resolvedFacilityPdfBase64 = resolvePdfBase64(facilityPdfBase64, password);
       const data = await callClaude([
-        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: facilityPdfBase64 } },
+        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: resolvedFacilityPdfBase64 } },
         { type: 'text', text: `このPDFから観光施設・バス駐車場等の手配情報を抽出してJSON配列で返してください。
 各施設・駐車場等の情報を1つのオブジェクトとして配列に含めてください。
 フィールド：facility_name(施設名・駐車場名等), date(YYYY-MM-DD), pax(人数・数値), amount(金額・数値・円), status, confirmation_no(確認番号), memo(備考)
@@ -145,7 +175,8 @@ JSONのみ返し、説明文・コードブロック記号は不要です。` }
     }
 
     // レストランテキスト解析モード
-    if (restaurantText) {
+    const resolvedRestaurantText = restaurantText || (restaurantExcelBase64 ? await resolveExcelText(restaurantExcelBase64, password) : '');
+    if (resolvedRestaurantText) {
       const data = await callClaude([{
         type: 'text',
 text: `以下のレストラン手配確認書やメールからレストラン手配情報を抽出してJSON配列で返してください。
@@ -155,15 +186,16 @@ statusは「手配OK」または「問い合わせ中」のいずれかを入れ
 金額が不明な場合は0、人数不明は0としてください。日付が不明な場合は空文字にしてください。
 JSONのみ返し、説明文・コードブロック記号は不要です。${buildDateFilterInstruction('日付(date)', targetCheckIn, targetCheckOut)}
 
-${restaurantText}`
+${resolvedRestaurantText}`
       }], 8000);
       return res.status(200).json(data);
     }
 
     // レストランPDF解析モード
     if (restaurantPdfBase64) {
+      const resolvedRestaurantPdfBase64 = resolvePdfBase64(restaurantPdfBase64, password);
       const data = await callClaude([
-        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: restaurantPdfBase64 } },
+        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: resolvedRestaurantPdfBase64 } },
         { type: 'text', text: `このPDFからレストラン手配情報を抽出してJSON配列で返してください。
 各レストランを1つのオブジェクトとして配列に含めてください。
 フィールド：restaurant_name(店名), meal_type(食事種別：「朝食」「昼食」「夕食」のいずれか), date(日付・YYYY-MM-DD), reservation_time(予約時刻・HH:MM形式、不明は空文字), pax(人数・数値), amount(金額・数値・円), status, memo(備考)
@@ -189,7 +221,8 @@ JSONのみ返し、説明文・コードブロック記号は不要です。` }
     }
 
     // バステキスト解析モード
-    if (busText) {
+    const resolvedBusText = busText || (busExcelBase64 ? await resolveExcelText(busExcelBase64, password) : '');
+    if (resolvedBusText) {
       const data = await callClaude([{
         type: 'text',
 text: `以下のバス手配確認書やメール（バス手配とドライバー宿泊予約の両方が含まれる場合があります）からバス手配情報を抽出してJSON配列で返してください。
@@ -223,15 +256,16 @@ statusは予約確定・確認番号あり・手配完了等の表現があれ�
 金額が不明な場合は0、台数不明は1としてください。
 JSONのみ返し、説明文・コードブロック記号は不要です。${buildDateFilterInstruction('バスの運行開始日(start_date)', targetCheckIn, targetCheckOut)}
 
-${busText}`
+${resolvedBusText}`
       }], 8000);
       return res.status(200).json(data);
     }
 
     // バスPDF解析モード
     if (busPdfBase64) {
+      const resolvedBusPdfBase64 = resolvePdfBase64(busPdfBase64, password);
       const data = await callClaude([
-        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: busPdfBase64 } },
+        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: resolvedBusPdfBase64 } },
         { type: 'text', text: `このPDFからバス手配情報を抽出してJSON配列で返してください（バス手配とドライバー宿泊予約の両方が含まれる場合があります）。
 各バス手配を1つのオブジェクトとして配列に含めてください。
 
@@ -415,6 +449,12 @@ ${rawText}
     return res.status(200).json(stage2);
 
   } catch (e) {
+    // PasswordRequiredError / InvalidPasswordError（lib/protected-file.js）はここで検知し、
+    // フロントエンドがパスワード入力欄を出し分けられる専用のエラーコードとして返す。
+    // パスワードの値自体はここでもログに出力しない。
+    if (e && (e.code === 'password_required' || e.code === 'invalid_password')) {
+      return res.status(400).json({ error: e.code });
+    }
     return res.status(500).json({ error: e.message || 'Internal server error' });
   }
 }
