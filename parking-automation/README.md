@@ -111,7 +111,7 @@ Web画面の「今すぐ予約」機能を使う場合、SupabaseのSQL Editor�
 ```sql
 create table if not exists parking_reservations (
   id bigint generated always as identity primary key,
-  ref_number text,
+  ref_no text,
   facility_area text not null default 'JR新大阪駅前',
   start_datetime timestamp not null,
   end_datetime timestamp not null,
@@ -121,7 +121,6 @@ create table if not exists parking_reservations (
   status text not null default '即時実行待ち',
   result_message text,
   screenshot_path text,
-  created_by text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

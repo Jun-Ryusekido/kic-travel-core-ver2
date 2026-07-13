@@ -63,13 +63,13 @@ async function main() {
   }
 
   for (const record of targets) {
-    console.log(`--- REF#${record.ref_number}（id=${record.id}）の予約処理を開始します ---`);
+    console.log(`--- REF#${record.ref_no}（id=${record.id}）の予約処理を開始します ---`);
 
     // 他プロセス・多重実行との競合を避けるため、処理開始時点で「実行中」に更新する
     await sb.from('parking_reservations').update({ status: STATUS_RUNNING, updated_at: new Date().toISOString() }).eq('id', record.id);
 
     const reservation = {
-      refNumber: record.ref_number,
+      refNumber: record.ref_no,
       facilityArea: record.facility_area,
       startDateTime: record.start_datetime,
       endDateTime: record.end_datetime,
@@ -86,15 +86,15 @@ async function main() {
         screenshot_path: result.screenshotPath,
         updated_at: new Date().toISOString(),
       }).eq('id', record.id);
-      console.log(`✓ REF#${record.ref_number} 予約完了。スクリーンショット: ${result.screenshotPath}`);
+      console.log(`✓ REF#${record.ref_no} 予約完了。スクリーンショット: ${result.screenshotPath}`);
     } catch (e) {
       await sb.from('parking_reservations').update({
         status: STATUS_FAILED,
         result_message: e.message,
         updated_at: new Date().toISOString(),
       }).eq('id', record.id);
-      console.error(`✗ REF#${record.ref_number} 予約失敗: ${e.message}`);
-      logError(`[即時実行] REF#${record.ref_number}（id=${record.id}） 予約失敗: ${e.message}\n${e.stack || ''}`);
+      console.error(`✗ REF#${record.ref_no} 予約失敗: ${e.message}`);
+      logError(`[即時実行] REF#${record.ref_no}（id=${record.id}） 予約失敗: ${e.message}\n${e.stack || ''}`);
     }
   }
 

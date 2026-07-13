@@ -6496,7 +6496,7 @@ async function loadParkingNowHistory(){
   el.textContent = '読み込み中...';
   const {data, error} = await sb.from('parking_reservations').select('*').order('created_at', {ascending:false}).limit(10);
   if(error){
-    if(/relation .* does not exist|schema cache/i.test(error.message||'')){
+    if(/relation .* does not exist/i.test(error.message||'')){
       el.innerHTML = '<span style="color:var(--red)">parking_reservationsテーブルが未作成です。管理者にSupabase側でのテーブル作成を依頼してください。</span>';
     }else{
       el.innerHTML = '<span style="color:var(--red)">読み込みエラー: '+escHtml(error.message)+'</span>';
@@ -6509,7 +6509,7 @@ async function loadParkingNowHistory(){
     return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">
       <span class="pill" style="background:${c.bg};color:${c.fg}">${escHtml(r.status||'')}</span>
       <span style="flex:1;min-width:0">
-        REF#${escHtml(r.ref_number||'')} ${escHtml((r.start_datetime||'').replace('T',' ').slice(0,16))}〜${escHtml((r.end_datetime||'').replace('T',' ').slice(0,16))}
+        REF#${escHtml(r.ref_no||'')} ${escHtml((r.start_datetime||'').replace('T',' ').slice(0,16))}〜${escHtml((r.end_datetime||'').replace('T',' ').slice(0,16))}
         ${r.result_message ? '<br><span style="color:var(--text3)">'+escHtml(r.result_message)+'</span>' : ''}
       </span>
     </div>`;
@@ -6541,19 +6541,18 @@ async function saveParkingNowReservation(){
   }
 
   const payload = {
-    ref_number: ref,
+    ref_no: ref,
     facility_area: facility,
     start_datetime: startRaw + ':00',
     end_datetime: endRaw + ':00',
     car_number: car,
     remarks: remarks,
     payment_method: payment,
-    status: '即時実行待ち',
-    created_by: (currentUser && (currentUser.name||currentUser.email)) || null
+    status: '即時実行待ち'
   };
   const {error} = await sb.from('parking_reservations').insert(payload);
   if(error){
-    if(/relation .* does not exist|schema cache/i.test(error.message||'')){
+    if(/relation .* does not exist/i.test(error.message||'')){
       errEl.textContent = 'parking_reservationsテーブルが未作成です。管理者にSupabase側でのテーブル作成を依頼してください。';
     }else{
       errEl.textContent = '登録エラー: '+error.message;
