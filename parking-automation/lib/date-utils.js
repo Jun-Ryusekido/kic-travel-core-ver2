@@ -61,4 +61,27 @@ function roundMinuteToSiteOption(minute) {
   return 0;
 }
 
-module.exports = { getTodayJST, subtractDays, toSiteDateFormat, toSiteTimestampFormat, timestampForFilename, dateForFilename, toSiteTimeParts, roundMinuteToSiteOption };
+// 今日(JST)から指定months分先の年月を { year, month } で返す（月初基準）
+function addMonthsToTodayJST(months) {
+  const today = getTodayJST(); // "YYYY-MM-DD"
+  const y = Number(today.slice(0, 4));
+  const m = Number(today.slice(5, 7));
+  const total = (y * 12 + (m - 1)) + months;
+  return { year: Math.floor(total / 12), month: (total % 12) + 1 };
+}
+
+// 指定年月(year, 1-12のmonth)の日数
+function daysInMonth(year, month) {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+// 指定年月の全日付を "YYYY-MM-DD" の配列で返す
+function allDatesInMonth(year, month) {
+  const n = daysInMonth(year, month);
+  const mm = String(month).padStart(2, '0');
+  const dates = [];
+  for (let d = 1; d <= n; d++) dates.push(`${year}-${mm}-${String(d).padStart(2, '0')}`);
+  return dates;
+}
+
+module.exports = { getTodayJST, subtractDays, toSiteDateFormat, toSiteTimestampFormat, timestampForFilename, dateForFilename, toSiteTimeParts, roundMinuteToSiteOption, addMonthsToTodayJST, daysInMonth, allDatesInMonth };

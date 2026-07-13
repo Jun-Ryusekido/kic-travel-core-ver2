@@ -1177,27 +1177,45 @@ input[type=number]{-moz-appearance:textfield}
       <div class="modal-overlay" id="parking-now-modal">
         <div class="modal-box" style="max-width:560px">
           <div class="modal-header">
-            <div class="modal-title">🅿️ 駐車場 今すぐ予約（新大阪駅バス駐車場）</div>
+            <div class="modal-title">🅿️ 駐車場 今すぐ予約</div>
             <div class="modal-close" onclick="closeParkingNowModal()">✕</div>
           </div>
           <div style="font-size:11px;color:var(--text3);margin:8px 0 12px">この画面から直接予約は実行されません。ここで登録した内容は「即時実行待ち」としてSupabaseに保存され、JUNさんのPCで parking-automation/book-parking-now.js を実行した時点で実際に予約が行われます。</div>
+          <div class="form-field" style="margin-bottom:8px">
+            <label>駐車場の種類</label>
+            <select id="pn-type" onchange="updateParkingNowTypeUI()">
+              <option value="shinosaka">新大阪駅バス駐車場</option>
+              <option value="nagoya">名古屋（大型車両夜間宿泊予約システム）</option>
+            </select>
+          </div>
           <div class="form-grid">
             <div class="form-field"><label>REF#（ツアーコード）</label><input id="pn-ref" placeholder="例: KIC250401-KK"></div>
-            <div class="form-field"><label>施設名</label>
-              <select id="pn-facility">
+            <div class="form-field" id="pn-facility-shinosaka-wrap"><label>施設名</label>
+              <select id="pn-facility-shinosaka">
                 <option value="JR新大阪駅前">JR新大阪駅前</option>
+              </select>
+            </div>
+            <div class="form-field" id="pn-facility-nagoya-wrap" style="display:none"><label>駐車場</label>
+              <select id="pn-facility-nagoya">
+                <option value="名城公園　正門前駐車場">名城公園　正門前駐車場</option>
+                <option value="若宮大通公園 白川前駐車場">若宮大通公園 白川前駐車場</option>
               </select>
             </div>
             <div class="form-field"><label>利用開始日時</label><input id="pn-start" type="datetime-local"></div>
             <div class="form-field"><label>利用終了日時</label><input id="pn-end" type="datetime-local"></div>
             <div class="form-field"><label>車両ナンバー</label><input id="pn-car" placeholder="未定時は仮ナンバー(例:0000)"></div>
-            <div class="form-field"><label>支払い方法</label>
+            <div class="form-field" id="pn-payment-wrap"><label>支払い方法</label>
               <select id="pn-payment">
                 <option value="現地支払">現地支払</option>
                 <option value="クレジットカード">クレジットカード</option>
               </select>
             </div>
-            <div class="form-field" style="grid-column:1/-1"><label>備考（当日バス運行会社）</label><input id="pn-remarks" placeholder="未定時は予定社情報"></div>
+            <div class="form-field" id="pn-ng-buscompany-wrap" style="display:none"><label>バス会社名</label><input id="pn-ng-buscompany" placeholder="例: KICトラベル"></div>
+            <div class="form-field" id="pn-ng-drivername-wrap" style="display:none"><label>運転手名</label><input id="pn-ng-drivername" placeholder="未定可"></div>
+            <div class="form-field" id="pn-ng-driverhotel-wrap" style="display:none"><label>運転手宿泊ホテル名</label><input id="pn-ng-driverhotel"></div>
+            <div class="form-field" id="pn-ng-contactphone-wrap" style="display:none"><label>連絡先電話番号</label><input id="pn-ng-contactphone" placeholder="例: 03-6869-5550"></div>
+            <div class="form-field" id="pn-ng-applicantname-wrap" style="display:none"><label>申込者名（かな・カナ）</label><input id="pn-ng-applicantname" placeholder="例: リュウセキドウ"></div>
+            <div class="form-field" style="grid-column:1/-1" id="pn-remarks-wrap"><label>備考（当日バス運行会社）</label><input id="pn-remarks" placeholder="未定時は予定社情報"></div>
           </div>
           <div style="margin-top:14px;display:flex;gap:8px;align-items:center">
             <button class="btn btn-p" onclick="saveParkingNowReservation()">📤 即時実行待ちとして登録</button>
@@ -6468,13 +6486,31 @@ async function saveBusItems(){
 // 実際の予約実行はこの画面からは行わない（VercelのWeb画面からPlaywrightを直接実行できないため）。
 // ここではSupabaseにstatus="即時実行待ち"でレコードを保存するのみで、
 // 実行はJUNさんのPCで parking-automation/book-parking-now.js を手動実行することで行う。
+function updateParkingNowTypeUI(){
+  const isNagoya = document.getElementById('pn-type').value === 'nagoya';
+  document.getElementById('pn-facility-shinosaka-wrap').style.display = isNagoya ? 'none' : '';
+  document.getElementById('pn-facility-nagoya-wrap').style.display = isNagoya ? '' : 'none';
+  document.getElementById('pn-payment-wrap').style.display = isNagoya ? 'none' : '';
+  document.getElementById('pn-remarks-wrap').style.display = isNagoya ? 'none' : '';
+  ['pn-ng-buscompany-wrap','pn-ng-drivername-wrap','pn-ng-driverhotel-wrap','pn-ng-contactphone-wrap','pn-ng-applicantname-wrap'].forEach(id=>{
+    document.getElementById(id).style.display = isNagoya ? '' : 'none';
+  });
+}
+
 function openParkingNowModal(){
+  document.getElementById('pn-type').value='shinosaka';
   document.getElementById('pn-ref').value='';
   document.getElementById('pn-start').value='';
   document.getElementById('pn-end').value='';
   document.getElementById('pn-car').value='';
   document.getElementById('pn-remarks').value='';
   document.getElementById('pn-payment').value='現地支払';
+  document.getElementById('pn-ng-buscompany').value='';
+  document.getElementById('pn-ng-drivername').value='';
+  document.getElementById('pn-ng-driverhotel').value='';
+  document.getElementById('pn-ng-contactphone').value='';
+  document.getElementById('pn-ng-applicantname').value='';
+  updateParkingNowTypeUI();
   document.getElementById('pn-modal-msg').style.display='none';
   document.getElementById('pn-modal-err').style.display='none';
   document.getElementById('parking-now-modal').classList.add('open');
@@ -6489,6 +6525,10 @@ function parkingNowStatusColor(status){
   if(status==='完了') return {bg:'var(--green-lt)', fg:'var(--green)'};
   if(status==='失敗') return {bg:'var(--red-lt)', fg:'var(--red)'};
   return {bg:'var(--amber-lt)', fg:'var(--amber)'};
+}
+
+function parkingNowFacilityTypeLabel(t){
+  return t==='nagoya' ? '名古屋' : '新大阪';
 }
 
 async function loadParkingNowHistory(){
@@ -6509,7 +6549,7 @@ async function loadParkingNowHistory(){
     return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">
       <span class="pill" style="background:${c.bg};color:${c.fg}">${escHtml(r.status||'')}</span>
       <span style="flex:1;min-width:0">
-        REF#${escHtml(r.ref_no||'')} ${escHtml((r.start_datetime||'').replace('T',' ').slice(0,16))}〜${escHtml((r.end_datetime||'').replace('T',' ').slice(0,16))}
+        [${escHtml(parkingNowFacilityTypeLabel(r.facility_type))}] REF#${escHtml(r.ref_no||'')} ${escHtml((r.start_datetime||'').replace('T',' ').slice(0,16))}〜${escHtml((r.end_datetime||'').replace('T',' ').slice(0,16))}
         ${r.result_message ? '<br><span style="color:var(--text3)">'+escHtml(r.result_message)+'</span>' : ''}
       </span>
     </div>`;
@@ -6521,16 +6561,14 @@ async function saveParkingNowReservation(){
   const msgEl = document.getElementById('pn-modal-msg');
   errEl.style.display='none'; msgEl.style.display='none';
 
+  const facilityType = document.getElementById('pn-type').value;
   const ref = document.getElementById('pn-ref').value.trim();
-  const facility = document.getElementById('pn-facility').value;
   const startRaw = document.getElementById('pn-start').value;
   const endRaw = document.getElementById('pn-end').value;
   const car = document.getElementById('pn-car').value.trim();
-  const remarks = document.getElementById('pn-remarks').value.trim();
-  const payment = document.getElementById('pn-payment').value;
 
-  if(!ref || !startRaw || !endRaw || !car || !remarks){
-    errEl.textContent = 'REF#・利用開始/終了日時・車両ナンバー・備考はすべて必須です';
+  if(!ref || !startRaw || !endRaw || !car){
+    errEl.textContent = 'REF#・利用開始/終了日時・車両ナンバーは必須です';
     errEl.style.display='block';
     return;
   }
@@ -6541,15 +6579,44 @@ async function saveParkingNowReservation(){
   }
 
   const payload = {
+    facility_type: facilityType,
     ref_no: ref,
-    facility_area: facility,
     start_datetime: startRaw + ':00',
     end_datetime: endRaw + ':00',
     car_number: car,
-    remarks: remarks,
-    payment_method: payment,
     status: '即時実行待ち'
   };
+
+  if(facilityType==='nagoya'){
+    const buscompany = document.getElementById('pn-ng-buscompany').value.trim();
+    const drivername = document.getElementById('pn-ng-drivername').value.trim();
+    const driverhotel = document.getElementById('pn-ng-driverhotel').value.trim();
+    const contactphone = document.getElementById('pn-ng-contactphone').value.trim();
+    const applicantname = document.getElementById('pn-ng-applicantname').value.trim();
+    if(!buscompany || !drivername || !driverhotel || !contactphone || !applicantname){
+      errEl.textContent = 'バス会社名・運転手名・運転手宿泊ホテル名・連絡先電話番号・申込者名はすべて必須です';
+      errEl.style.display='block';
+      return;
+    }
+    payload.facility_area = document.getElementById('pn-facility-nagoya').value;
+    payload.extra = {
+      bus_company_name: buscompany,
+      driver_name: drivername,
+      driver_hotel_name: driverhotel,
+      contact_phone: contactphone,
+      applicant_name: applicantname
+    };
+  }else{
+    payload.facility_area = document.getElementById('pn-facility-shinosaka').value;
+    payload.remarks = document.getElementById('pn-remarks').value.trim();
+    payload.payment_method = document.getElementById('pn-payment').value;
+    if(!payload.remarks){
+      errEl.textContent = '備考（当日バス運行会社）は必須です';
+      errEl.style.display='block';
+      return;
+    }
+  }
+
   const {error} = await sb.from('parking_reservations').insert(payload);
   if(error){
     if(/relation .* does not exist/i.test(error.message||'')){
@@ -6562,12 +6629,7 @@ async function saveParkingNowReservation(){
   }
   msgEl.style.display='block';
   setTimeout(()=>msgEl.style.display='none', 3000);
-  document.getElementById('pn-ref').value='';
-  document.getElementById('pn-start').value='';
-  document.getElementById('pn-end').value='';
-  document.getElementById('pn-car').value='';
-  document.getElementById('pn-remarks').value='';
-  loadParkingNowHistory();
+  openParkingNowModal();
 }
 
 // ─── Outlookメール半自動取り込み(email_import_queue / メール受信箱ページ) ─────────
