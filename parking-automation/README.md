@@ -58,6 +58,21 @@ node book-parking-test.js
 
 `status: "pending"` の予約を、日付条件を無視して今すぐ全件処理します。動作確認専用です。
 
+### Web画面からの「今すぐ予約」を処理する
+
+```
+node book-parking-now.js
+```
+
+KIC Travel Core（index.html）の「🅿️ 駐車場 今すぐ予約」モーダルから登録された、Supabaseの
+`parking_reservations` テーブルの `status = "即時実行待ち"` レコードを取得し、その場で処理します。
+Web画面（Vercel）からは直接Playwrightを実行できないため、この画面はSupabaseへの登録のみを行い、
+実際の予約実行はこのスクリプトをJUNさんのPCで手動実行することで行います。処理結果（成功/失敗、
+エラー内容、スクリーンショットのパス）は同レコードに書き戻され、Web画面側でも確認できます。
+
+事前に一度だけ、Supabase側で `parking_reservations` テーブルを作成しておく必要があります
+（SQLは本READMEの末尾を参照）。
+
 ## headless（画面表示）の切り替え
 
 `book-parking.js` と `book-parking-test.js` の冒頭に
@@ -85,6 +100,33 @@ const HEADLESS = true;
 
 ## 既知の制約・注意点
 
-- **ログイン後にのみ表示される「予約登録フォーム」（車両ナンバー・備考欄・支払い方法などの入力画面）は、実際にログインした状態で確認できていません。** ログイン前のトップページ・ログイン画面・カレンダー画面（空き状況の閲覧）は実際にブラウザで開いて構造を確認済みですが、認証が必要なページはサイト構造を直接確認できなかったため、JUNさんから伝えられた画面上の文言（「内容確認へ進む」「現地支払」「予約を登録する」等）をそのままテキスト一致で探すようにしています。初回の実データでの動作確認時に、この部分でエラーになる場合は、実際の画面のHTML構造を教えていただければ `lib/booking-flow.js` の `fillReservationForm` 関数を調整します。
+- 予約登録フォーム（車両ナンバー・備考欄・利用終了日時・支払い方法）は、実際にログインした状態でHTML構造を確認済みです（テーブル(表)レイアウトで正式な`<label for>`が無いため、`lib/booking-flow.js`の`fillByLabel`は行(`tr`)構造ベースで、支払い方法は`label.cmn-radio`ベースで要素を特定しています）。日をまたぐ「宿泊」パターン（利用開始日と終了日が別日）にも対応済みです。ただし利用終了日時の「分」はサイト側が0/20/40分単位のみ選択可能なため、指定した分数はこの3択に切り下げられます（例: 08:30指定 → 08:20で登録）。
 - 車番未定時の仮予約（"0000"）までを自動化の範囲とし、車番確定後の変更は対象外です（サイト側の運用ルール通り、手動で「予約履歴」から変更してください）。
 - 1台ごとに個別予約が必要なため、`reservations` 配列に複数件ある場合は1件ずつ順番に処理します。
+
+## Supabase側の事前準備（parking_reservationsテーブル）
+
+Web画面の「今すぐ予約」機能を使う場合、SupabaseのSQL Editorで一度だけ以下を実行してテーブルを作成してください（このスクリプト自身はSupabaseへのDDL実行権限を持たないpublishable keyしか使わないため、テーブル作成はSupabase側で手動で行う必要があります）。
+
+```sql
+create table if not exists parking_reservations (
+  id bigint generated always as identity primary key,
+  ref_number text,
+  facility_area text not null default 'JR新大阪駅前',
+  start_datetime timestamp not null,
+  end_datetime timestamp not null,
+  car_number text,
+  remarks text,
+  payment_method text not null default '現地支払',
+  status text not null default '即時実行待ち',
+  result_message text,
+  screenshot_path text,
+  created_by text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table parking_reservations disable row level security;
+```
+
+（既存の他テーブルと同様、クライアント側はpublishable/anonキーで直接読み書きするためRLSは無効化しています。）

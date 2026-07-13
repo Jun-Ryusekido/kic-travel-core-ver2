@@ -481,6 +481,7 @@ input[type=number]{-moz-appearance:textfield}
     <div class="sb-item" data-pg="hotels" onclick="go('hotels')">🏨 ホテル予約管理<span class="sb-en">/ Hotels</span></div>
     <div class="sb-item" data-pg="bullet-trains" onclick="go('bullet-trains')">🚅 新幹線手配<span class="sb-en">/ Shinkansen</span></div>
     <div class="sb-item" data-pg="email-inbox" onclick="go('email-inbox')">📥 メール受信箱<span class="sb-en">/ Email Inbox</span></div>
+    <div class="sb-item" onclick="openParkingNowModal()">🅿️ 駐車場 今すぐ予約<span class="sb-en">/ Parking Now</span></div>
     <div class="sb-sec">請求・精算 <span class="sb-en">/ Billing</span></div>
     <div class="sb-item" data-pg="invoice" onclick="go('invoice')">🧾 Invoice</div>
     <div class="sb-item" data-pg="estimation" onclick="go('estimation')">📝 見積もり<span class="sb-en">/ Estimation</span></div>
@@ -1168,6 +1169,46 @@ input[type=number]{-moz-appearance:textfield}
             <button class="btn btn-p" onclick="importBtCsv()">✅ この内容で取り込む</button>
             <button class="btn" onclick="closeBtCsvModal()">キャンセル</button>
             <span id="bt-csv-import-status" style="font-size:11px;margin-left:8px"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 駐車場 今すぐ予約モーダル -->
+      <div class="modal-overlay" id="parking-now-modal">
+        <div class="modal-box" style="max-width:560px">
+          <div class="modal-header">
+            <div class="modal-title">🅿️ 駐車場 今すぐ予約（新大阪駅バス駐車場）</div>
+            <div class="modal-close" onclick="closeParkingNowModal()">✕</div>
+          </div>
+          <div style="font-size:11px;color:var(--text3);margin:8px 0 12px">この画面から直接予約は実行されません。ここで登録した内容は「即時実行待ち」としてSupabaseに保存され、JUNさんのPCで parking-automation/book-parking-now.js を実行した時点で実際に予約が行われます。</div>
+          <div class="form-grid">
+            <div class="form-field"><label>REF#（ツアーコード）</label><input id="pn-ref" placeholder="例: KIC250401-KK"></div>
+            <div class="form-field"><label>施設名</label>
+              <select id="pn-facility">
+                <option value="JR新大阪駅前">JR新大阪駅前</option>
+              </select>
+            </div>
+            <div class="form-field"><label>利用開始日時</label><input id="pn-start" type="datetime-local"></div>
+            <div class="form-field"><label>利用終了日時</label><input id="pn-end" type="datetime-local"></div>
+            <div class="form-field"><label>車両ナンバー</label><input id="pn-car" placeholder="未定時は仮ナンバー(例:0000)"></div>
+            <div class="form-field"><label>支払い方法</label>
+              <select id="pn-payment">
+                <option value="現地支払">現地支払</option>
+                <option value="クレジットカード">クレジットカード</option>
+              </select>
+            </div>
+            <div class="form-field" style="grid-column:1/-1"><label>備考（当日バス運行会社）</label><input id="pn-remarks" placeholder="未定時は予定社情報"></div>
+          </div>
+          <div style="margin-top:14px;display:flex;gap:8px;align-items:center">
+            <button class="btn btn-p" onclick="saveParkingNowReservation()">📤 即時実行待ちとして登録</button>
+            <button class="btn" onclick="closeParkingNowModal()">閉じる</button>
+          </div>
+          <div class="msg-ok" id="pn-modal-msg" style="display:none">✓ 登録しました。PCで book-parking-now.js を実行してください</div>
+          <div id="pn-modal-err" style="display:none;color:var(--red);font-size:11px;margin-top:8px"></div>
+
+          <div style="margin-top:18px;border-top:1px solid var(--border);padding-top:12px">
+            <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px">直近の登録・実行結果</div>
+            <div id="pn-history-list" style="font-size:11px;color:var(--text3)">読み込み中...</div>
           </div>
         </div>
       </div>
@@ -6277,6 +6318,113 @@ async function saveBusItems(){
     memo: it.memo||''
   }));
   await safeReplaceBookingRows('booking_buses', bookingId, rows, 'バス明細');
+}
+
+// ─── 駐車場 今すぐ予約(parking_reservations / モーダル) ─────────
+// 実際の予約実行はこの画面からは行わない（VercelのWeb画面からPlaywrightを直接実行できないため）。
+// ここではSupabaseにstatus="即時実行待ち"でレコードを保存するのみで、
+// 実行はJUNさんのPCで parking-automation/book-parking-now.js を手動実行することで行う。
+function openParkingNowModal(){
+  document.getElementById('pn-ref').value='';
+  document.getElementById('pn-start').value='';
+  document.getElementById('pn-end').value='';
+  document.getElementById('pn-car').value='';
+  document.getElementById('pn-remarks').value='';
+  document.getElementById('pn-payment').value='現地支払';
+  document.getElementById('pn-modal-msg').style.display='none';
+  document.getElementById('pn-modal-err').style.display='none';
+  document.getElementById('parking-now-modal').classList.add('open');
+  loadParkingNowHistory();
+}
+
+function closeParkingNowModal(){
+  document.getElementById('parking-now-modal').classList.remove('open');
+}
+
+function parkingNowStatusColor(status){
+  if(status==='完了') return {bg:'var(--green-lt)', fg:'var(--green)'};
+  if(status==='失敗') return {bg:'var(--red-lt)', fg:'var(--red)'};
+  return {bg:'var(--amber-lt)', fg:'var(--amber)'};
+}
+
+async function loadParkingNowHistory(){
+  const el = document.getElementById('pn-history-list');
+  el.textContent = '読み込み中...';
+  const {data, error} = await sb.from('parking_reservations').select('*').order('created_at', {ascending:false}).limit(10);
+  if(error){
+    if(/relation .* does not exist|schema cache/i.test(error.message||'')){
+      el.innerHTML = '<span style="color:var(--red)">parking_reservationsテーブルが未作成です。管理者にSupabase側でのテーブル作成を依頼してください。</span>';
+    }else{
+      el.innerHTML = '<span style="color:var(--red)">読み込みエラー: '+escHtml(error.message)+'</span>';
+    }
+    return;
+  }
+  if(!data || data.length===0){ el.textContent = '登録履歴はまだありません'; return; }
+  el.innerHTML = data.map(r=>{
+    const c = parkingNowStatusColor(r.status);
+    return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">
+      <span class="pill" style="background:${c.bg};color:${c.fg}">${escHtml(r.status||'')}</span>
+      <span style="flex:1;min-width:0">
+        REF#${escHtml(r.ref_number||'')} ${escHtml((r.start_datetime||'').replace('T',' ').slice(0,16))}〜${escHtml((r.end_datetime||'').replace('T',' ').slice(0,16))}
+        ${r.result_message ? '<br><span style="color:var(--text3)">'+escHtml(r.result_message)+'</span>' : ''}
+      </span>
+    </div>`;
+  }).join('');
+}
+
+async function saveParkingNowReservation(){
+  const errEl = document.getElementById('pn-modal-err');
+  const msgEl = document.getElementById('pn-modal-msg');
+  errEl.style.display='none'; msgEl.style.display='none';
+
+  const ref = document.getElementById('pn-ref').value.trim();
+  const facility = document.getElementById('pn-facility').value;
+  const startRaw = document.getElementById('pn-start').value;
+  const endRaw = document.getElementById('pn-end').value;
+  const car = document.getElementById('pn-car').value.trim();
+  const remarks = document.getElementById('pn-remarks').value.trim();
+  const payment = document.getElementById('pn-payment').value;
+
+  if(!ref || !startRaw || !endRaw || !car || !remarks){
+    errEl.textContent = 'REF#・利用開始/終了日時・車両ナンバー・備考はすべて必須です';
+    errEl.style.display='block';
+    return;
+  }
+  if(new Date(endRaw) <= new Date(startRaw)){
+    errEl.textContent = '利用終了日時は利用開始日時より後にしてください';
+    errEl.style.display='block';
+    return;
+  }
+
+  const payload = {
+    ref_number: ref,
+    facility_area: facility,
+    start_datetime: startRaw + ':00',
+    end_datetime: endRaw + ':00',
+    car_number: car,
+    remarks: remarks,
+    payment_method: payment,
+    status: '即時実行待ち',
+    created_by: (currentUser && (currentUser.name||currentUser.email)) || null
+  };
+  const {error} = await sb.from('parking_reservations').insert(payload);
+  if(error){
+    if(/relation .* does not exist|schema cache/i.test(error.message||'')){
+      errEl.textContent = 'parking_reservationsテーブルが未作成です。管理者にSupabase側でのテーブル作成を依頼してください。';
+    }else{
+      errEl.textContent = '登録エラー: '+error.message;
+    }
+    errEl.style.display='block';
+    return;
+  }
+  msgEl.style.display='block';
+  setTimeout(()=>msgEl.style.display='none', 3000);
+  document.getElementById('pn-ref').value='';
+  document.getElementById('pn-start').value='';
+  document.getElementById('pn-end').value='';
+  document.getElementById('pn-car').value='';
+  document.getElementById('pn-remarks').value='';
+  loadParkingNowHistory();
 }
 
 // ─── Outlookメール半自動取り込み(email_import_queue / メール受信箱ページ) ─────────

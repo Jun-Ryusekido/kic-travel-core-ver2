@@ -141,6 +141,22 @@ async function setEndDateTime(page, endDateTime) {
   await page.selectOption('#reservations-add-reservations-usage-time-minute', String(roundMinuteToSiteOption(parts.minute)));
 }
 
+// 「確認」ページの支払方法（クレジットカード/現地支払）はラジオボタンに正式な<label for>が
+// 付与されているのを確認済み（<input type="radio" id="payment_method_id-N"><label for="payment_method_id-N">）。
+// 決済方法のテキストはページ上部の料金表にも重複して出現するため、getByTextではなく
+// label.cmn-radio 要素に絞ってから選択する。
+// ラジオ本体(<input type="radio">)はCSSで非表示化されたカスタムスタイルのため
+// （エリア選択のラジオと同様）、input自体ではなく紐づく<label>をクリックして選択する。
+async function selectPaymentMethod(page, paymentMethodLabel) {
+  const label = page.locator('label.cmn-radio', { hasText: paymentMethodLabel }).first();
+  try {
+    await label.waitFor({ state: 'visible', timeout: 10000 });
+  } catch (e) {
+    throw new Error(`支払い方法が見つかりませんでした（${paymentMethodLabel}）`);
+  }
+  await label.click();
+}
+
 async function clickByText(page, text) {
   const el = page.getByText(text, { exact: false }).first();
   if ((await el.count()) === 0) {
@@ -157,7 +173,7 @@ async function fillReservationForm(page, reservation) {
   await fillByLabel(page, /車両ナンバー|車番/, reservation.carNumber);
   await fillByLabel(page, /備考/, reservation.remarks);
   await clickByText(page, '内容確認へ進む');
-  await clickByText(page, reservation.paymentMethod);
+  await selectPaymentMethod(page, reservation.paymentMethod);
   await clickByText(page, '予約を登録する');
 }
 
