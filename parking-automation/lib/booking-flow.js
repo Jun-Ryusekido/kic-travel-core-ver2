@@ -8,17 +8,23 @@
 //   - カレンダーの予約可能な枠: div.calender_list.js_can_reserve[data-usage-timestamp="YYYY/MM/DD HH:MM"]
 //   - カレンダーは "?date=YYYY/MM/DD" パラメータで直接対象日へ遷移できることを確認済み
 //
-// 一方、ログイン後にのみ表示される「予約登録フォーム」（車両ナンバー・備考欄・
-// 内容確認へ進む・支払い方法・予約を登録する、のあたり）は、ログイン認証が必要なため
-// 実際の画面を確認できていない。JUNさんから伝えられた画面上の文言（ボタン名等）を
-// そのまま使い、Playwrightのテキスト一致セレクタ（多少のマークアップ変更に強い）で
-// 探すようにしている。もし要素が見つからない場合は、原因を明示したエラーで
-// 即座に失敗させる（誤った欄に入力する事故を防ぐため）。実際にログインしての
-// 動作確認時に、ここのセレクタが合っているか必ず確認すること。
+// ログイン後にのみ表示される「予約登録フォーム」（車両ナンバー・備考欄・
+// 内容確認へ進む・支払い方法・予約を登録する、のあたり）は、実際にログインして
+// HTML構造を確認済み（2026年8月時点、_explore-form.jsによる調査）。
+// このフォームはテーブル(表)レイアウトで、ラベルと入力欄が正式な<label for>要素で
+// 結びついていない（<tr class="field-input"><th class="ttl-input">ラベル文字列</th>
+// <td>...<input>/<textarea>...</td></tr> という構造）。そのため fillByLabel は
+// ラベル文字列を含むth要素を持つtr行を特定し、その行内のinput/textareaを取得する方式にしている。
+// 「利用終了日時」は年/月/日/時/分のセレクトボックスで、こちらは
+// id="reservations-add-reservations-usage-time-{year|month|day|hour|minute}" という
+// 汎用的（施設固有ではない）で安定したidが付与されているため、idを直接指定している。
+// なお車両ナンバー・備考のinput/textareaのid（reservations-add-reservations-addition-values-NN）は
+// 施設ごとにカスタム設定される可能性のある番号のため、あえてidではなくラベル文字列ベースの
+// 行特定方式を採用している。
 
 const fs = require('fs');
 const path = require('path');
-const { toSiteDateFormat, toSiteTimestampFormat, timestampForFilename, dateForFilename } = require('./date-utils');
+const { toSiteDateFormat, toSiteTimestampFormat, timestampForFilename, dateForFilename, toSiteTimeParts, roundMinuteToSiteOption } = require('./date-utils');
 
 const BASE_URL = 'https://revn.jrbusparkingyoyaku.jp';
 const LOGS_DIR = path.join(__dirname, '..', 'logs');
@@ -108,18 +114,31 @@ async function findSlot(page, targetTimestamp) {
   return best;
 }
 
+// 「車両ナンバー」「備考」等のラベル文字列を含む<tr class="field-input">行を特定し、
+// その行内(td)のinput/textareaに入力する（実際のフォームには<label for>が無いため）。
 async function fillByLabel(page, labelPattern, value) {
-  const label = page.locator('label').filter({ hasText: labelPattern }).first();
-  if ((await label.count()) === 0) {
+  const row = page.locator('tr.field-input', {
+    has: page.locator('th.ttl-input', { hasText: labelPattern }),
+  }).first();
+  if ((await row.count()) === 0) {
     throw new Error(`入力欄が見つかりませんでした（ラベル: ${labelPattern}）`);
   }
-  const forAttr = await label.getAttribute('for');
-  if (forAttr) {
-    await page.fill(`#${forAttr}`, value);
-    return;
+  const field = row.locator('td input[type="text"], td textarea').first();
+  if ((await field.count()) === 0) {
+    throw new Error(`入力欄が見つかりませんでした（ラベル: ${labelPattern} の行にinput/textareaがありません）`);
   }
-  const input = label.locator('xpath=following::input[1] | following::textarea[1]').first();
-  await input.fill(value);
+  await field.fill(value);
+}
+
+// 「利用終了日時」の年/月/日/時/分セレクトボックスに値を設定する。
+// これらのidは施設ごとに変わらない汎用的なidであることを確認済みのため、直接指定する。
+async function setEndDateTime(page, endDateTime) {
+  const parts = toSiteTimeParts(endDateTime);
+  await page.selectOption('#reservations-add-reservations-usage-time-year', String(parts.year));
+  await page.selectOption('#reservations-add-reservations-usage-time-month', String(parts.month));
+  await page.selectOption('#reservations-add-reservations-usage-time-day', String(parts.day));
+  await page.selectOption('#reservations-add-reservations-usage-time-hour', String(parts.hour));
+  await page.selectOption('#reservations-add-reservations-usage-time-minute', String(roundMinuteToSiteOption(parts.minute)));
 }
 
 async function clickByText(page, text) {
@@ -134,6 +153,7 @@ async function clickByText(page, text) {
 }
 
 async function fillReservationForm(page, reservation) {
+  await setEndDateTime(page, reservation.endDateTime);
   await fillByLabel(page, /車両ナンバー|車番/, reservation.carNumber);
   await fillByLabel(page, /備考/, reservation.remarks);
   await clickByText(page, '内容確認へ進む');

@@ -41,4 +41,24 @@ function dateForFilename() {
   return timestampForFilename().slice(0, 8);
 }
 
-module.exports = { getTodayJST, subtractDays, toSiteDateFormat, toSiteTimestampFormat, timestampForFilename, dateForFilename };
+// "2026-08-12T11:00:00" -> { year:2026, month:8, day:12, hour:11, minute:0 }
+// （予約フォームの利用終了日時セレクトボックスへの入力用。文字列スライスで解析するため
+// 実行環境のタイムゾーンに影響されない）
+function toSiteTimeParts(isoDateTime) {
+  return {
+    year: Number(isoDateTime.slice(0, 4)),
+    month: Number(isoDateTime.slice(5, 7)),
+    day: Number(isoDateTime.slice(8, 10)),
+    hour: Number(isoDateTime.slice(11, 13)),
+    minute: Number(isoDateTime.slice(14, 16)),
+  };
+}
+
+// 利用終了日時の「分」セレクトは 0/20/40 の3択のみのため、直近の選択肢に切り下げる
+function roundMinuteToSiteOption(minute) {
+  if (minute >= 40) return 40;
+  if (minute >= 20) return 20;
+  return 0;
+}
+
+module.exports = { getTodayJST, subtractDays, toSiteDateFormat, toSiteTimestampFormat, timestampForFilename, dateForFilename, toSiteTimeParts, roundMinuteToSiteOption };
