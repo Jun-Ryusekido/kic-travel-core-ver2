@@ -1176,10 +1176,24 @@ input[type=number]{-moz-appearance:textfield}
           <div class="card-title">📥 メール受信箱（Outlookから半自動取り込み）</div>
           <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Outlookから取り込まれた未処理のメールです。各メールにREF#とカテゴリを指定して「📤 送る」を押すと、該当予約の該当タブにメール本文が読み込まれます。同一の件名・送信者・受信日時のメールはまとめて1件のみ表示しています。</div>
           <input id="email-inbox-search" type="text" placeholder="🔍 件名・送信者・本文で検索..." oninput="filterEmailInboxList()" style="width:100%;max-width:420px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;margin-bottom:10px">
-          <label style="display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:10px;cursor:pointer;width:fit-content">
-            <input type="checkbox" id="email-inbox-postponed-toggle" onchange="toggleEmailInboxPostponedView()">
-            ⏸ 保留中のメールを表示
-          </label>
+          <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:10px">
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
+              <input type="checkbox" id="email-inbox-postponed-toggle" onchange="toggleEmailInboxPostponedView()">
+              ⏸ 保留中のメールを表示
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
+              <input type="checkbox" id="email-inbox-autofilter-toggle" onchange="toggleEmailInboxAutoFilterView()">
+              🚫 自動除外されたメールを表示
+            </label>
+          </div>
+          <div id="email-inbox-autofilter-summary" style="font-size:11px;color:var(--text3);margin-bottom:8px"></div>
+          <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:10px">
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
+              <input type="checkbox" id="email-inbox-select-all" onchange="toggleEmailInboxSelectAll()">
+              すべて選択/すべて解除
+            </label>
+            <button class="btn" id="email-inbox-bulk-ignore-btn" style="font-size:12px;color:var(--red)" disabled onclick="bulkIgnoreEmailInboxItems()">🗑 選択したメールを一括無視</button>
+          </div>
           <div id="email-inbox-list"></div>
           <div id="email-inbox-pagination" style="display:flex;align-items:center;gap:10px;margin-top:12px;font-size:12px"></div>
         </div>
@@ -6280,10 +6294,10 @@ const EMAIL_INBOX_CATEGORY_MAP = {
 // ・本文(body)は表示中のページ分（最大50件）だけ都度取得
 // ・検索はサーバー側(ilike)で subject/sender/body を対象に行い、結果のみをクライアントに渡す
 // という構成にして、重複除外・検索・ページ送りは常に「重複除外後の一覧」に対して行われるようにしている。
-let emailInboxIndex = [];  // 現在の一覧（検索・保留表示のON/OFFを反映したもの）。重複除外済み
+let emailInboxIndex = [];  // 現在の一覧（検索・表示モードを反映したもの）。重複除外済み
 let emailInboxPage = 1;
 let emailInboxSearchDebounceTimer = null;
-let emailInboxShowPostponed = false; // false: 通常一覧(postponed=false) / true: 保留一覧(postponed=true)
+let emailInboxViewMode = 'normal'; // 'normal' | 'postponed' | 'autofiltered'
 const EMAIL_INBOX_PAGE_SIZE = 50;
 
 function dedupeEmailInboxRows(rows){
@@ -6300,8 +6314,81 @@ function dedupeEmailInboxRows(rows){
   return deduped;
 }
 
-let emailInboxRawList = []; // 未取込・無視されていないメールの軽量一覧（imported=false かつ ignored=false。postponedの値は問わず両方含む）。重複除外済み。ページ表示中はDBに再取得しない
+let emailInboxRawList = []; // 未取込・無視されていないメールの軽量一覧（imported=false かつ ignored=false。postponed/自動除外判定の値は問わず両方含む）。重複除外済み。ページ表示中はDBに再取得しない
 let emailInboxSearchToken = 0; // 検索中に別の検索が走った場合、古い検索結果を無視するためのトークン
+let emailInboxSelectedIds = new Set(); // 一括無視用に選択中のメールID
+
+// ─── 広告・メルマガの自動フィルタ ─────────────────────────────────────────────
+// データそのものは削除・変更せず（ignoredはtrueにしない）、表示ロジック側で除外するだけに留める。
+// 将来ルールを調整したくなった場合に、誤って除外したメールを「自動除外されたメールを表示」から
+// 見分けて元に戻せるようにするため。
+//
+// ・強いキーワード（配信停止/セミナー等）は件名または本文のいずれかに含まれていれば即座に広告とみなす。
+//   本文側の判定は、12,000件超の本文を毎回クライアントに転送すると重くなるため、id単位で小さく
+//   分割したILIKEクエリ（検索機能と同じチャンク方式）で「該当キーワードを含むid一覧」を
+//   一覧読み込み時に一度だけ取得してキャッシュする。
+// ・弱いキーワード（DX/業務効率化等）は単独では誤判定しやすいため、
+//   (a) 2語以上組み合わさっている、または (b) 送信者アドレスがpr@/marketing@/info@等を含む
+//   場合のみ広告とみなす。件名・送信者のみで判定する（本文までは見ない軽量判定）。
+const EMAIL_INBOX_PROMO_HARD_KEYWORDS = ['配信停止','配信を停止','unsubscribe','セミナー','ウェビナー','無料モニター','資料請求','メルマガ'];
+const EMAIL_INBOX_PROMO_SOFT_KEYWORDS = ['導入事例','業務効率化','DX','システム導入'];
+const EMAIL_INBOX_PROMO_SENDER_PATTERNS = ['pr@','marketing@','info@'];
+
+function isPromoEmailBySubjectSender(subject, sender){
+  const lowerSubject = String(subject||'').toLowerCase();
+  if(EMAIL_INBOX_PROMO_HARD_KEYWORDS.some(k=>lowerSubject.includes(k.toLowerCase()))) return true;
+
+  const softHits = EMAIL_INBOX_PROMO_SOFT_KEYWORDS.filter(k=>lowerSubject.includes(k.toLowerCase())).length;
+  const senderMatches = EMAIL_INBOX_PROMO_SENDER_PATTERNS.some(p=>String(sender||'').toLowerCase().includes(p));
+  if(softHits>=2) return true;
+  if(softHits>=1 && senderMatches) return true;
+  return false;
+}
+
+// 本文中に強いキーワードを含むメールのidを、id単位のチャンクに分けてサーバー側(ilike)で検索する
+async function fetchPromoBodyMatchIds(ids){
+  const matchIds = new Set();
+  if(!ids.length) return matchIds;
+  const orFilter = EMAIL_INBOX_PROMO_HARD_KEYWORDS.map(k=>`body.ilike.%${k.replace(/[%_,()]/g,'\\$&')}%`).join(',');
+  const chunkSize = 500;
+  const chunkPromises = [];
+  for(let i=0;i<ids.length;i+=chunkSize){
+    const chunk = ids.slice(i, i+chunkSize);
+    chunkPromises.push(sb.from('email_import_queue').select('id').in('id', chunk).or(orFilter));
+  }
+  const results = await Promise.all(chunkPromises);
+  for(const {data, error} of results){
+    if(error) continue; // 本文側の補助判定なので、失敗しても致命的ではない（件名側の判定のみ有効になる）
+    (data||[]).forEach(r=>matchIds.add(r.id));
+  }
+  return matchIds;
+}
+
+// subject+senderの組み合わせで「これは広告ではない」と一時的に除外指定したメールを保持する。
+// ページリロードで解除されて構わない一時的なものなのでセッション内のみ（sessionStorage等には保存しない）。
+let emailInboxAutoFilterOverrides = new Set();
+function emailInboxOverrideKey(row){
+  return (row.subject||'')+' '+(row.sender||'');
+}
+
+function isRowAutoPromo(row){
+  return !!row.isAutoPromo && !emailInboxAutoFilterOverrides.has(emailInboxOverrideKey(row));
+}
+
+function isRowVisibleForMode(row, mode){
+  const promo = isRowAutoPromo(row);
+  if(mode === 'autofiltered') return promo;
+  if(promo) return false;
+  return mode === 'postponed' ? !!row.postponed : !row.postponed;
+}
+
+function markEmailInboxNotPromo(emailId){
+  const row = emailInboxRawList.find(m=>m.id===emailId);
+  if(!row) return;
+  emailInboxAutoFilterOverrides.add(emailInboxOverrideKey(row));
+  const searchEl = document.getElementById('email-inbox-search');
+  applyEmailInboxSearch(searchEl ? searchEl.value.trim() : '');
+}
 
 // ─── REF#候補の提示用インデックス（bookings / booking_hotels から一度だけ構築してキャッシュ） ───
 let emailInboxSuggestIndex = null; // {hotels:[{ref_no,hotel_name,check_in,check_out}], bookings:[{ref_no,tour_name,in_date,out_date}]}
@@ -6400,7 +6487,11 @@ async function renderEmailInboxList(){
   if(searchEl) searchEl.value = '';
   const postponedToggle = document.getElementById('email-inbox-postponed-toggle');
   if(postponedToggle) postponedToggle.checked = false;
-  emailInboxShowPostponed = false;
+  const autoFilterToggle = document.getElementById('email-inbox-autofilter-toggle');
+  if(autoFilterToggle) autoFilterToggle.checked = false;
+  emailInboxViewMode = 'normal';
+  emailInboxAutoFilterOverrides = new Set();
+  emailInboxSelectedIds = new Set();
 
   const el = document.getElementById('email-inbox-list');
   const pager = document.getElementById('email-inbox-pagination');
@@ -6420,10 +6511,28 @@ async function renderEmailInboxList(){
     return;
   }
 
-  emailInboxRawList = dedupeEmailInboxRows(rows);
-  emailInboxIndex = emailInboxRawList.filter(m=>!!m.postponed === emailInboxShowPostponed);
+  const deduped = dedupeEmailInboxRows(rows);
+  // 件名・送信者ベースの軽量判定はここで即座に確定。本文ベースの判定は非同期で後追い反映する
+  deduped.forEach(m=>{ m.isAutoPromo = isPromoEmailBySubjectSender(m.subject, m.sender); });
+  emailInboxRawList = deduped;
+  emailInboxIndex = emailInboxRawList.filter(m=>isRowVisibleForMode(m, emailInboxViewMode));
   emailInboxPage = 1;
   await renderEmailInboxPage();
+
+  // 本文に強い広告キーワードを含むメールを後追いで検出し、該当すれば一覧から除外する
+  try{
+    const bodyPromoIds = await fetchPromoBodyMatchIds(deduped.map(m=>m.id));
+    if(bodyPromoIds.size){
+      let changed = false;
+      emailInboxRawList.forEach(m=>{
+        if(!m.isAutoPromo && bodyPromoIds.has(m.id)){ m.isAutoPromo = true; changed = true; }
+      });
+      if(changed){
+        const searchEl2 = document.getElementById('email-inbox-search');
+        await applyEmailInboxSearch(searchEl2 ? searchEl2.value.trim() : '');
+      }
+    }
+  }catch(e){ /* 本文側の補助判定なので失敗しても致命的ではない */ }
 }
 
 // 1000件制限を回避するため全件ページングして取得（本文は含めない軽量取得。postponedの状態は問わず全件取得し、表示は画面側のトグルで絞り込む）
@@ -6450,10 +6559,64 @@ function filterEmailInboxList(){
 }
 
 function toggleEmailInboxPostponedView(){
-  const toggle = document.getElementById('email-inbox-postponed-toggle');
-  emailInboxShowPostponed = !!(toggle && toggle.checked);
+  const postponedToggle = document.getElementById('email-inbox-postponed-toggle');
+  const autoFilterToggle = document.getElementById('email-inbox-autofilter-toggle');
+  const on = !!(postponedToggle && postponedToggle.checked);
+  if(on && autoFilterToggle) autoFilterToggle.checked = false;
+  emailInboxViewMode = on ? 'postponed' : 'normal';
+  emailInboxSelectedIds = new Set();
   const searchEl = document.getElementById('email-inbox-search');
   applyEmailInboxSearch(searchEl ? searchEl.value.trim() : '');
+}
+
+function toggleEmailInboxAutoFilterView(){
+  const postponedToggle = document.getElementById('email-inbox-postponed-toggle');
+  const autoFilterToggle = document.getElementById('email-inbox-autofilter-toggle');
+  const on = !!(autoFilterToggle && autoFilterToggle.checked);
+  if(on && postponedToggle) postponedToggle.checked = false;
+  emailInboxViewMode = on ? 'autofiltered' : 'normal';
+  emailInboxSelectedIds = new Set();
+  const searchEl = document.getElementById('email-inbox-search');
+  applyEmailInboxSearch(searchEl ? searchEl.value.trim() : '');
+}
+
+function toggleEmailInboxRowSelection(emailId, checked){
+  if(checked) emailInboxSelectedIds.add(emailId);
+  else emailInboxSelectedIds.delete(emailId);
+  updateEmailInboxBulkIgnoreButton();
+}
+
+function toggleEmailInboxSelectAll(){
+  const selectAllEl = document.getElementById('email-inbox-select-all');
+  const checked = !!(selectAllEl && selectAllEl.checked);
+  const startIdx = (emailInboxPage-1)*EMAIL_INBOX_PAGE_SIZE;
+  const pageIds = emailInboxIndex.slice(startIdx, startIdx+EMAIL_INBOX_PAGE_SIZE).map(m=>m.id);
+  pageIds.forEach(id=>{
+    if(checked) emailInboxSelectedIds.add(id);
+    else emailInboxSelectedIds.delete(id);
+  });
+  document.querySelectorAll('.email-inbox-row-checkbox').forEach(cb=>{ cb.checked = checked; });
+  updateEmailInboxBulkIgnoreButton();
+}
+
+function updateEmailInboxBulkIgnoreButton(){
+  const btn = document.getElementById('email-inbox-bulk-ignore-btn');
+  if(btn) btn.disabled = emailInboxSelectedIds.size===0;
+}
+
+async function bulkIgnoreEmailInboxItems(){
+  const ids = Array.from(emailInboxSelectedIds);
+  if(!ids.length) return;
+  if(!confirm(`選択した${ids.length}件のメールを一覧から除外しますか？`)) return;
+
+  const {error} = await sb.from('email_import_queue').update({ignored:true}).in('id', ids);
+  if(error){ alert('一括無視の更新に失敗しました: '+error.message); return; }
+
+  const idSet = new Set(ids);
+  emailInboxRawList = emailInboxRawList.filter(m=>!idSet.has(m.id));
+  emailInboxIndex = emailInboxIndex.filter(m=>!idSet.has(m.id));
+  emailInboxSelectedIds = new Set();
+  renderEmailInboxPage();
 }
 
 // 件名・送信者はキャッシュ済み一覧からクライアント側で絞り込み、本文はDB側でILIKE検索する。
@@ -6465,7 +6628,7 @@ async function applyEmailInboxSearch(term){
   if(!el) return;
 
   if(!term){
-    emailInboxIndex = emailInboxRawList.filter(m=>!!m.postponed === emailInboxShowPostponed);
+    emailInboxIndex = emailInboxRawList.filter(m=>isRowVisibleForMode(m, emailInboxViewMode));
     emailInboxPage = 1;
     await renderEmailInboxPage();
     return;
@@ -6503,7 +6666,7 @@ async function applyEmailInboxSearch(term){
   if(myToken !== emailInboxSearchToken) return; // より新しい検索が既に走っている場合は結果を無視
 
   const matchedIds = new Set([...subjectOrSenderMatchIds, ...bodyMatchIds]);
-  emailInboxIndex = emailInboxRawList.filter(m=>matchedIds.has(m.id) && !!m.postponed === emailInboxShowPostponed);
+  emailInboxIndex = emailInboxRawList.filter(m=>matchedIds.has(m.id) && isRowVisibleForMode(m, emailInboxViewMode));
   emailInboxPage = 1;
   await renderEmailInboxPage();
 }
@@ -6512,11 +6675,25 @@ async function renderEmailInboxPage(){
   const el = document.getElementById('email-inbox-list');
   const pager = document.getElementById('email-inbox-pagination');
   if(!el) return;
+
+  const summaryEl = document.getElementById('email-inbox-autofilter-summary');
+  if(summaryEl){
+    const promoCount = emailInboxRawList.filter(m=>isRowAutoPromo(m)).length;
+    summaryEl.textContent = promoCount>0 ? `🚫 ${promoCount}件の広告・メルマガを自動的に除外しています` : '';
+  }
+
+  const selectAllEl = document.getElementById('email-inbox-select-all');
+  if(selectAllEl) selectAllEl.checked = false;
+  updateEmailInboxBulkIgnoreButton();
+
   const searchEl = document.getElementById('email-inbox-search');
   const hasSearch = !!(searchEl && searchEl.value.trim());
   const total = emailInboxIndex.length;
   if(total===0){
-    const emptyMsg = hasSearch ? '該当するメールが見つかりません。' : (emailInboxShowPostponed ? '保留中のメールはありません。' : '未処理のメールはありません。');
+    let emptyMsg = '未処理のメールはありません。';
+    if(hasSearch) emptyMsg = '該当するメールが見つかりません。';
+    else if(emailInboxViewMode==='postponed') emptyMsg = '保留中のメールはありません。';
+    else if(emailInboxViewMode==='autofiltered') emptyMsg = '自動除外されたメールはありません。';
     el.innerHTML = '<div style="font-size:12px;color:var(--text3);padding:8px 0">'+emptyMsg+'</div>';
     if(pager) pager.innerHTML = '';
     return;
@@ -6537,28 +6714,48 @@ async function renderEmailInboxPage(){
     }
   }
 
-  const suggestIndex = await ensureEmailInboxSuggestIndex();
+  const suggestIndex = emailInboxViewMode==='autofiltered' ? null : await ensureEmailInboxSuggestIndex();
   const catOptions = Object.keys(EMAIL_INBOX_CATEGORY_MAP).map(c=>`<option value="${escAttr(c)}">${escHtml(c)}</option>`).join('');
   el.innerHTML = pageItems.map(m=>{
     const preview = String(m.body||'').replace(/\s+/g,' ').trim().slice(0,80);
     const received = m.received_at ? new Date(m.received_at).toLocaleString('ja-JP') : '';
+    const checked = emailInboxSelectedIds.has(m.id) ? 'checked' : '';
+
+    if(emailInboxViewMode==='autofiltered'){
+      return `<div id="email-inbox-row-${m.id}" style="display:flex;gap:8px;padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px">
+        <input type="checkbox" class="email-inbox-row-checkbox" ${checked} onchange="toggleEmailInboxRowSelection('${m.id}', this.checked)" style="margin-top:2px;flex-shrink:0">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12px;font-weight:600;margin-bottom:2px">${escHtml(m.subject||'(件名なし)')}</div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:2px">${escHtml(m.sender||'')} ・ ${escHtml(received)}</div>
+          <div style="font-size:11px;color:var(--text2);margin-bottom:8px">${escHtml(preview)}${preview.length>=80?'…':''}</div>
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            <button class="btn btn-p" style="font-size:11px" onclick="markEmailInboxNotPromo('${m.id}')">✅ これはホテル等の予約メールです</button>
+            <button class="btn" style="font-size:11px;color:var(--red)" onclick="if(confirm('このメールを一覧から除外しますか？')){ignoreEmailInboxItem('${m.id}')}">🗑 無視</button>
+          </div>
+        </div>
+      </div>`;
+    }
+
     const suggestions = computeRefSuggestions(m.subject, m.body, suggestIndex);
     const suggestHtml = suggestions.length ? `<div style="font-size:10px;color:var(--text3);margin-top:4px;display:flex;align-items:center;gap:4px;flex-wrap:wrap">候補:${suggestions.map(s=>`<button type="button" class="btn" style="font-size:10px;padding:2px 6px" onclick="applyRefSuggestion('${m.id}','${s.ref_no}')">${escHtml(s.ref_no)} (${escHtml(s.label)})</button>`).join('')}</div>` : '';
-    const postponeBtn = emailInboxShowPostponed
+    const postponeBtn = emailInboxViewMode==='postponed'
       ? `<button class="btn" style="font-size:11px" onclick="unpostponeEmailInboxItem('${m.id}')">▶ 保留を解除</button>`
       : `<button class="btn" style="font-size:11px" onclick="postponeEmailInboxItem('${m.id}')">⏸ 保留</button>`;
-    return `<div id="email-inbox-row-${m.id}" style="padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px">
-      <div style="font-size:12px;font-weight:600;margin-bottom:2px">${escHtml(m.subject||'(件名なし)')}</div>
-      <div style="font-size:11px;color:var(--text3);margin-bottom:2px">${escHtml(m.sender||'')} ・ ${escHtml(received)}</div>
-      <div style="font-size:11px;color:var(--text2);margin-bottom:8px">${escHtml(preview)}${preview.length>=80?'…':''}</div>
-      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-        <input id="email-inbox-ref-${m.id}" placeholder="REF# 例: #1374" style="font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px;width:140px">
-        <select id="email-inbox-cat-${m.id}" style="font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px">${catOptions}</select>
-        <button class="btn btn-p" style="font-size:11px" onclick="sendEmailToBooking('${m.id}')">📤 送る</button>
-        <button class="btn" style="font-size:11px;color:var(--red)" onclick="if(confirm('このメールを一覧から除外しますか？')){ignoreEmailInboxItem('${m.id}')}">🗑 無視</button>
-        ${postponeBtn}
+    return `<div id="email-inbox-row-${m.id}" style="display:flex;gap:8px;padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px">
+      <input type="checkbox" class="email-inbox-row-checkbox" ${checked} onchange="toggleEmailInboxRowSelection('${m.id}', this.checked)" style="margin-top:2px;flex-shrink:0">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12px;font-weight:600;margin-bottom:2px">${escHtml(m.subject||'(件名なし)')}</div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:2px">${escHtml(m.sender||'')} ・ ${escHtml(received)}</div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:8px">${escHtml(preview)}${preview.length>=80?'…':''}</div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <input id="email-inbox-ref-${m.id}" placeholder="REF# 例: #1374" style="font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px;width:140px">
+          <select id="email-inbox-cat-${m.id}" style="font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px">${catOptions}</select>
+          <button class="btn btn-p" style="font-size:11px" onclick="sendEmailToBooking('${m.id}')">📤 送る</button>
+          <button class="btn" style="font-size:11px;color:var(--red)" onclick="if(confirm('このメールを一覧から除外しますか？')){ignoreEmailInboxItem('${m.id}')}">🗑 無視</button>
+          ${postponeBtn}
+        </div>
+        ${suggestHtml}
       </div>
-      ${suggestHtml}
     </div>`;
   }).join('');
 
