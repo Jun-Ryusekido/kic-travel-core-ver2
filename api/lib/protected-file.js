@@ -11,9 +11,18 @@
 // パスワードそのものは絶対にログ出力しないこと（呼び出し側も含め、catchしたエラーの
 // メッセージにパスワードの値を含めないよう注意する）。
 
-import * as mupdf from 'mupdf';
 import officeCrypto from 'officecrypto-tool';
 import XLSX from 'xlsx';
+
+// mupdf(WASMベース)はトップレベルでimportすると、Vercelのサーバーレス環境で
+// 関数の初期化自体が失敗するケースが確認されたため、実際にPDFのパスワード処理が
+// 必要になった時点でのみ動的importする（PDF/Excelのパスワード関連処理を一切
+// 使わないリクエスト＝大半のリクエストは、この重いWASMモジュールを読み込まない）。
+let mupdfModulePromise = null;
+function loadMupdf() {
+  if (!mupdfModulePromise) mupdfModulePromise = import('mupdf');
+  return mupdfModulePromise;
+}
 
 // エラーに立てるマーカー。呼び出し側はこれを見て password_required / invalid_password を判定する。
 export class PasswordRequiredError extends Error {
@@ -23,8 +32,9 @@ export class InvalidPasswordError extends Error {
   constructor() { super('invalid_password'); this.code = 'invalid_password'; }
 }
 
-export function isPdfEncrypted(pdfBuffer) {
+export async function isPdfEncrypted(pdfBuffer) {
   try {
+    const mupdf = await loadMupdf();
     const doc = mupdf.Document.openDocument(pdfBuffer, 'application/pdf');
     return doc.needsPassword();
   } catch (e) {
@@ -36,7 +46,8 @@ export function isPdfEncrypted(pdfBuffer) {
 
 // パスワードで復号し、暗号化を解除したPDFのBase64文字列を返す。
 // password未指定・不一致の場合はそれぞれ PasswordRequiredError / InvalidPasswordError を投げる。
-export function decryptPdfToBase64(pdfBuffer, password) {
+export async function decryptPdfToBase64(pdfBuffer, password) {
+  const mupdf = await loadMupdf();
   const doc = mupdf.PDFDocument.openDocument(pdfBuffer, 'application/pdf');
   if (doc.needsPassword()) {
     if (!password) throw new PasswordRequiredError();

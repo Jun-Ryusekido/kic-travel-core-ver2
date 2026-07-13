@@ -9,10 +9,10 @@ const DATE_FILTER_TOLERANCE_DAYS = 3;
 // PDFがパスワード保護されている場合はpasswordで復号したBase64を返す（保護されていなければそのまま返す）。
 // パスワード関連のエラー(PasswordRequiredError/InvalidPasswordError、lib/protected-file.js参照)は
 // そのまま呼び出し元(ハンドラ末尾のcatch)に伝播させ、そこで{error:'password_required'}等に変換する。
-function resolvePdfBase64(pdfBase64, password) {
+async function resolvePdfBase64(pdfBase64, password) {
   const buffer = Buffer.from(pdfBase64, 'base64');
-  if (!isPdfEncrypted(buffer)) return pdfBase64;
-  return decryptPdfToBase64(buffer, password);
+  if (!(await isPdfEncrypted(buffer))) return pdfBase64;
+  return await decryptPdfToBase64(buffer, password);
 }
 
 // クライアント側(SheetJS)でExcelのパスワード保護を検知して解析できなかった場合、
@@ -99,7 +99,7 @@ ${resolvedHotelText}`
     }
 // ホテルPDF解析モード
     if (hotelPdfBase64) {
-      const resolvedHotelPdfBase64 = resolvePdfBase64(hotelPdfBase64, password);
+      const resolvedHotelPdfBase64 = await resolvePdfBase64(hotelPdfBase64, password);
       const data = await callClaude([
         { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: resolvedHotelPdfBase64 } },
 { type: 'text', text: `このPDFからホテル予約情報を抽出してJSON配列で返してください。
@@ -147,7 +147,7 @@ ${resolvedFacilityText}`
 
     // 観光施設PDF解析モード
     if (facilityPdfBase64) {
-      const resolvedFacilityPdfBase64 = resolvePdfBase64(facilityPdfBase64, password);
+      const resolvedFacilityPdfBase64 = await resolvePdfBase64(facilityPdfBase64, password);
       const data = await callClaude([
         { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: resolvedFacilityPdfBase64 } },
         { type: 'text', text: `このPDFから観光施設・バス駐車場等の手配情報を抽出してJSON配列で返してください。
@@ -193,7 +193,7 @@ ${resolvedRestaurantText}`
 
     // レストランPDF解析モード
     if (restaurantPdfBase64) {
-      const resolvedRestaurantPdfBase64 = resolvePdfBase64(restaurantPdfBase64, password);
+      const resolvedRestaurantPdfBase64 = await resolvePdfBase64(restaurantPdfBase64, password);
       const data = await callClaude([
         { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: resolvedRestaurantPdfBase64 } },
         { type: 'text', text: `このPDFからレストラン手配情報を抽出してJSON配列で返してください。
@@ -263,7 +263,7 @@ ${resolvedBusText}`
 
     // バスPDF解析モード
     if (busPdfBase64) {
-      const resolvedBusPdfBase64 = resolvePdfBase64(busPdfBase64, password);
+      const resolvedBusPdfBase64 = await resolvePdfBase64(busPdfBase64, password);
       const data = await callClaude([
         { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: resolvedBusPdfBase64 } },
         { type: 'text', text: `このPDFからバス手配情報を抽出してJSON配列で返してください（バス手配とドライバー宿泊予約の両方が含まれる場合があります）。
