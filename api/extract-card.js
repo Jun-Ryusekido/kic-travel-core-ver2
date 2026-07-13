@@ -1,9 +1,27 @@
-﻿export default async function handler(req, res) {
+﻿// 1通のメールに複数日程・複数ツアー分の予約情報が混在しているケースで、今開いている予約と
+// 無関係な行まで抽出されてしまうのを防ぐための日付絞り込み許容日数。
+// 日付のズレ・表記ゆれを考慮した仮の値。調整する場合はこの値を変更する。
+const DATE_FILTER_TOLERANCE_DAYS = 3;
+
+// targetCheckIn/targetCheckOut（今開いている予約のIn-Date/Out-Date）が渡された場合、
+// プロンプトに追記する絞り込み指示を組み立てる。どちらも空ならフィルタなし（従来通り全件抽出）。
+function buildDateFilterInstruction(fieldLabel, targetCheckIn, targetCheckOut) {
+  if (!targetCheckIn && !targetCheckOut) return '';
+  const refDate = targetCheckIn || targetCheckOut;
+  const periodNote = (targetCheckIn && targetCheckOut && targetCheckIn !== targetCheckOut)
+    ? `（参考：この予約の対象期間は ${targetCheckIn} 〜 ${targetCheckOut} です）`
+    : '';
+  return `
+
+重要（日程の絞り込み）: メール本文に複数の日程・複数の予約情報が含まれる場合、${fieldLabel}が${refDate}の前後${DATE_FILTER_TOLERANCE_DAYS}日以内に該当する行のみを抽出してください。それ以外の日程の行は無視してください。${periodNote}該当する行が1件も見つからない場合は、空のJSON配列 [] だけを返してください。`;
+}
+
+export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
   try {
-    const { variants, mediaType, base64, hotelText, hotelPdfBase64, hotelImageBase64, hotelImageMediaType, facilityText, facilityPdfBase64, facilityImageBase64, facilityImageMediaType, busText, busPdfBase64, busImageBase64, busImageMediaType, restaurantText, restaurantPdfBase64, restaurantImageBase64, restaurantImageMediaType, invoiceText, invoicePdfBase64, invoiceImageBase64, invoiceImageMediaType } = req.body;
+    const { variants, mediaType, base64, hotelText, hotelPdfBase64, hotelImageBase64, hotelImageMediaType, facilityText, facilityPdfBase64, facilityImageBase64, facilityImageMediaType, busText, busPdfBase64, busImageBase64, busImageMediaType, restaurantText, restaurantPdfBase64, restaurantImageBase64, restaurantImageMediaType, invoiceText, invoicePdfBase64, invoiceImageBase64, invoiceImageMediaType, targetCheckIn, targetCheckOut } = req.body;
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
       return res.status(500).json({ error: 'サーバー側にAPIキーが設定されていません' });
@@ -46,7 +64,7 @@ text: `以下のホテル予約確認メールや文書からホテル情報を�
 ref_noは文書中のツアーコード・予約番号・REF#・KICから始まる番号等を探してください。見つからない場合は空文字にしてください。
 金額が不明な場合は0、部屋数不明は1としてください。
 statusは「手配OK」または「問い合わせ中」のいずれかを入れてください。予約確定・確認番号あり・手配完了等の表現があれば「手配OK」、見積もり・問い合わせ・検討中等であれば「問い合わせ中」としてください。
-重要: 出力は必ずJSON配列そのものだけにしてください。前置き・説明文・注釈・補足・コードブロック記号(\`\`\`)は一切含めないでください。日付形式の説明や注意書きなどの文章も絶対に出力しないでください。出力の最初の文字は必ず[、最後の文字は必ず]にしてください。
+重要: 出力は必ずJSON配列そのものだけにしてください。前置き・説明文・注釈・補足・コードブロック記号(\`\`\`)は一切含めないでください。日付形式の説明や注意書きなどの文章も絶対に出力しないでください。出力の最初の文字は必ず[、最後の文字は必ず]にしてください。${buildDateFilterInstruction('チェックイン日(check_in)', targetCheckIn, targetCheckOut)}
 
 ${hotelText}`
       }], 8000);
@@ -91,7 +109,7 @@ text: `以下の観光施設・バス駐車場等の手配確認書やメール�
 フィールド：facility_name(施設名・駐車場名等), date(YYYY-MM-DD), pax(人数・数値), amount(金額・数値・円), status, confirmation_no(確認番号), memo(備考)
 statusは「手配OK」または「問い合わせ中」のいずれかを入れてください。予約確定・確認番号あり・手配完了等の表現があれば「手配OK」、見積もり・問い合わせ・検討中等であれば「問い合わせ中」としてください。
 金額が不明な場合は0、人数不明は0としてください。
-JSONのみ返し、説明文・コードブロック記号は不要です。
+JSONのみ返し、説明文・コードブロック記号は不要です。${buildDateFilterInstruction('日付(date)', targetCheckIn, targetCheckOut)}
 
 ${facilityText}`
       }], 8000);
@@ -135,7 +153,7 @@ text: `以下のレストラン手配確認書やメールからレストラン�
 フィールド：restaurant_name(店名), meal_type(食事種別：「朝食」「昼食」「夕食」のいずれか), date(日付・YYYY-MM-DD), reservation_time(予約時刻・HH:MM形式、不明は空文字), pax(人数・数値), amount(金額・数値・円), status, memo(備考)
 statusは「手配OK」または「問い合わせ中」のいずれかを入れてください。予約確定・手配完了等の表現があれば「手配OK」、見積もり・問い合わせ・検討中等であれば「問い合わせ中」としてください。
 金額が不明な場合は0、人数不明は0としてください。日付が不明な場合は空文字にしてください。
-JSONのみ返し、説明文・コードブロック記号は不要です。
+JSONのみ返し、説明文・コードブロック記号は不要です。${buildDateFilterInstruction('日付(date)', targetCheckIn, targetCheckOut)}
 
 ${restaurantText}`
       }], 8000);
@@ -203,7 +221,7 @@ text: `以下のバス手配確認書やメール（バス手配とドライバ�
 
 statusは予約確定・確認番号あり・手配完了等の表現があれば「手配OK」、見積もり・問い合わせ・検討中等であれば「問い合わせ中」としてください。
 金額が不明な場合は0、台数不明は1としてください。
-JSONのみ返し、説明文・コードブロック記号は不要です。
+JSONのみ返し、説明文・コードブロック記号は不要です。${buildDateFilterInstruction('バスの運行開始日(start_date)', targetCheckIn, targetCheckOut)}
 
 ${busText}`
       }], 8000);

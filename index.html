@@ -6900,7 +6900,8 @@ async function extractBusFromText(){
   statusEl.textContent='⏳ 読み取り中...'; statusEl.classList.add('ocr-loading'); statusEl.style.color='';
   showGlobalOcrBanner();
   try{
-    const resp=await fetch('/api/extract-card',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({busText:text.trim()})});
+    const {targetCheckIn, targetCheckOut} = getEmailOcrTargetDates();
+    const resp=await fetch('/api/extract-card',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({busText:text.trim(), targetCheckIn, targetCheckOut})});
     if(!resp.ok){const e=await resp.json();throw new Error(e.error||'サーバーエラー');}
     const data=await resp.json();
     const tb=data.content.find(b=>b.type==='text');
@@ -6908,6 +6909,13 @@ async function extractBusFromText(){
     const parsed=JSON.parse(cleaned);
     let buses=Array.isArray(parsed)?parsed:[parsed];
     buses = fillMissingDriverHotelDates(buses, text);
+    if(buses.length===0 && (targetCheckIn||targetCheckOut)){
+      statusEl.textContent = `対象日程（チェックイン: ${targetCheckIn||'未設定'}）に一致する内容が見つかりませんでした。メール内容をご確認ください。`;
+      statusEl.classList.remove('ocr-loading');
+      hideGlobalOcrBanner();
+      statusEl.style.color = 'var(--amber)';
+      return;
+    }
     statusEl.textContent=`✓ ${buses.length}件を読み取りました。内容を確認してください。`;
     statusEl.classList.remove('ocr-loading');
     hideGlobalOcrBanner();
@@ -7154,13 +7162,21 @@ async function extractRestaurantFromText(){
   statusEl.textContent='⏳ 読み取り中...'; statusEl.classList.add('ocr-loading'); statusEl.style.color='';
   showGlobalOcrBanner();
   try{
-    const resp=await fetch('/api/extract-card',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurantText:text.trim()})});
+    const {targetCheckIn, targetCheckOut} = getEmailOcrTargetDates();
+    const resp=await fetch('/api/extract-card',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurantText:text.trim(), targetCheckIn, targetCheckOut})});
     if(!resp.ok){const e=await resp.json();throw new Error(e.error||'サーバーエラー');}
     const data=await resp.json();
     const tb=data.content.find(b=>b.type==='text');
     const cleaned=(tb.text||'').replace(/```json|```/g,'').trim();
     const parsed=JSON.parse(cleaned);
     const restaurants=Array.isArray(parsed)?parsed:[parsed];
+    if(restaurants.length===0 && (targetCheckIn||targetCheckOut)){
+      statusEl.textContent = `対象日程（チェックイン: ${targetCheckIn||'未設定'}）に一致する内容が見つかりませんでした。メール内容をご確認ください。`;
+      statusEl.classList.remove('ocr-loading');
+      hideGlobalOcrBanner();
+      statusEl.style.color = 'var(--amber)';
+      return;
+    }
     statusEl.textContent=`✓ ${restaurants.length}件を読み取りました。内容を確認してください。`;
     statusEl.classList.remove('ocr-loading');
     hideGlobalOcrBanner();
@@ -7440,13 +7456,21 @@ async function extractFacilityFromText(){
   statusEl.textContent='⏳ 読み取り中...'; statusEl.classList.add('ocr-loading'); statusEl.style.color='';
   showGlobalOcrBanner();
   try{
-    const resp=await fetch('/api/extract-card',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({facilityText:text.trim()})});
+    const {targetCheckIn, targetCheckOut} = getEmailOcrTargetDates();
+    const resp=await fetch('/api/extract-card',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({facilityText:text.trim(), targetCheckIn, targetCheckOut})});
     if(!resp.ok){const e=await resp.json();throw new Error(e.error||'サーバーエラー');}
     const data=await resp.json();
     const tb=data.content.find(b=>b.type==='text');
     const cleaned=(tb.text||'').replace(/```json|```/g,'').trim();
     const parsed=JSON.parse(cleaned);
     const facilities=Array.isArray(parsed)?parsed:[parsed];
+    if(facilities.length===0 && (targetCheckIn||targetCheckOut)){
+      statusEl.textContent = `対象日程（チェックイン: ${targetCheckIn||'未設定'}）に一致する内容が見つかりませんでした。メール内容をご確認ください。`;
+      statusEl.classList.remove('ocr-loading');
+      hideGlobalOcrBanner();
+      statusEl.style.color = 'var(--amber)';
+      return;
+    }
     statusEl.textContent=`✓ ${facilities.length}件を読み取りました。内容を確認してください。`;
     statusEl.classList.remove('ocr-loading');
     hideGlobalOcrBanner();
@@ -7891,6 +7915,15 @@ async function extractHotelFromFile(event, mode){
   }
   event.target.value = '';
 }
+// 今開いている予約(booking)のIn-Date/Out-Dateを取得する。メール/テキストOCRの読み取り時に
+// AI側へ渡し、1通のメールに複数日程・複数ツアー分の情報が混在している場合の絞り込みに使う。
+function getEmailOcrTargetDates(){
+  return {
+    targetCheckIn: (document.getElementById('bd-in')||{}).value || '',
+    targetCheckOut: (document.getElementById('bd-out')||{}).value || ''
+  };
+}
+
 async function extractHotelFromText(){
   const text = document.getElementById('hotel-ocr-text').value.trim();
   if(!text){ alert('テキストを入力してください'); return; }
@@ -7899,11 +7932,12 @@ async function extractHotelFromText(){
   statusEl.classList.add('ocr-loading');
   showGlobalOcrBanner();
   statusEl.style.color = '';
+  const {targetCheckIn, targetCheckOut} = getEmailOcrTargetDates();
   try{
     const response = await fetch('/api/extract-card', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ hotelText: text })
+      body: JSON.stringify({ hotelText: text, targetCheckIn, targetCheckOut })
     });
     if(!response.ok){ const e = await response.json(); throw new Error(e.error||'サーバーエラー'); }
     const data = await response.json();
@@ -7911,6 +7945,13 @@ async function extractHotelFromText(){
     const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
     const parsed = JSON.parse(cleaned);
     const hotels = Array.isArray(parsed) ? parsed : [parsed];
+    if(hotels.length===0 && (targetCheckIn||targetCheckOut)){
+      statusEl.textContent = `対象日程（チェックイン: ${targetCheckIn||'未設定'}）に一致する内容が見つかりませんでした。メール内容をご確認ください。`;
+      statusEl.classList.remove('ocr-loading');
+      hideGlobalOcrBanner();
+      statusEl.style.color = 'var(--amber)';
+      return;
+    }
     if(!checkBulkReadSanity(hotels, 'check_in')){
       statusEl.textContent = '読み取りをキャンセルしました（件数・日付範囲が不自然なため）';
       statusEl.classList.remove('ocr-loading');
