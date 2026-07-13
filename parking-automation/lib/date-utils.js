@@ -94,4 +94,9 @@ function subtractMonths(dateStr, months) {
   return `${ry}-${String(rm).padStart(2, '0')}-${String(clampedDay).padStart(2, '0')}`;
 }
 
-module.exports = { getTodayJST, subtractDays, toSiteDateFormat, toSiteTimestampFormat, timestampForFilename, dateForFilename, toSiteTimeParts, roundMinuteToSiteOption, addMonthsToTodayJST, daysInMonth, allDatesInMonth, subtractMonths };
+// dateStr: "YYYY-MM-DD"。指定months分だけ先の年月日を返す（同じ日付。存在しない場合は月末に丸まる）
+function addMonths(dateStr, months) {
+  return subtractMonths(dateStr, -months);
+}
+
+module.exports = { getTodayJST, subtractDays, toSiteDateFormat, toSiteTimestampFormat, timestampForFilename, dateForFilename, toSiteTimeParts, roundMinuteToSiteOption, addMonthsToTodayJST, daysInMonth, allDatesInMonth, subtractMonths, addMonths };

@@ -41,7 +41,7 @@ const RETRY_INTERVAL_MS = 2500; // 解禁待ちリトライの間隔（回線負
 const RETRY_MAX_WAIT_MS = 20 * 60 * 1000; // 解禁待ちの最大待機時間（20分）
 
 function parseArgs(argv) {
-  const args = { vehicles: 1, waitUntilAvailable: false };
+  const args = { vehicles: 2, waitUntilAvailable: false };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--date' && argv[i + 1]) { args.date = argv[i + 1]; i++; }
     else if (argv[i] === '--vehicles' && argv[i + 1]) { args.vehicles = Number(argv[i + 1]); i++; }
@@ -84,7 +84,7 @@ async function recordResult(sb, { dateISO, vehicleIndex, totalVehicles, status, 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (!args.date || !/^\d{4}-\d{2}-\d{2}$/.test(args.date)) {
-    console.error('使い方: node parking-kyoto-terrsa.js --date YYYY-MM-DD [--vehicles N] [--wait-until-available]');
+    console.error('使い方: node parking-kyoto-terrsa.js --date YYYY-MM-DD [--vehicles N（省略時2）] [--wait-until-available]');
     process.exit(1);
   }
   if (!Number.isInteger(args.vehicles) || args.vehicles < 1) {
@@ -156,6 +156,7 @@ async function main() {
     try {
       const result = await processKyotoTerrsaReservation(page, dateISO, UTILIZATION_GROUP, BUS_COMPANY_NAME, totalVehicles > 1 ? v : undefined);
       console.log(`✓ [${v}/${totalVehicles}台目] ${dateISO} 予約完了。確認番号: ${result.confirmationNumber || '(画面上に見つかりませんでした)'}（${elapsed()}秒経過）`);
+      if (v > 1) console.log(`  重複予約確認モーダル: ${result.duplicateModalHandled ? '検出して「予約を進める」をクリックしました' : '表示されませんでした（想定外）'}`);
       console.log(`  スクリーンショット: ${result.screenshotPath}`);
       results.push({ vehicleIndex: v, status: '完了', confirmationNumber: result.confirmationNumber, screenshotPath: result.screenshotPath });
       await recordResult(sb, {

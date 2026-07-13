@@ -175,7 +175,41 @@ async function submitInputForm(page) {
 // 含んでいる構造のため、Playwrightの通常のclick()だとクリック座標がリンク側に解釈されて
 // しまい状態が変化しないことを確認した。要素自体は非表示ではないため、
 // page.evaluateで直接.click()を発火させることで確実にチェックする。
-async function agreeAndComplete(page) {
+// 「既に同じ日時で予約しています。さらに同じ日時に別予約を追加しますか。」モーダルが
+// 表示されたら「予約を進める」を押す。実際のDOMを確認したところ、このボタンは
+// <button>や<a>ではなく <input type="button" class="continue_btn" value="予約を進める"> で、
+// モーダル自体は <div id="modal_alert" class="modal full duplicated"> であることを確認済み。
+// page.evaluateで「実際に画面に表示されている（offsetParentがnullでない）」ものだけを
+// 対象にポーリングしながらクリックする。見つかってクリックできればtrue、
+// timeoutMs内に見つからなければfalseを返す。
+async function clickDuplicateModalIfPresent(page, { timeoutMs = 12000, pollIntervalMs = 200 } = {}) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    let clicked = false;
+    try {
+      clicked = await page.evaluate(() => {
+        const el = document.querySelector('#modal_alert input.continue_btn')
+          || Array.from(document.querySelectorAll('input[type="button"], button, a'))
+            .find((e) => (e.value || e.textContent || '').trim() === '予約を進める' && e.offsetParent !== null);
+        if (el && el.offsetParent !== null) { el.click(); return true; }
+        return false;
+      });
+    } catch (e) {
+      // モーダルが出ず、そのまま完了画面へページ遷移した場合、遷移の途中で
+      // evaluateの実行コンテキストが破棄されてエラーになることがある。
+      // これはモーダルが無かった（=1台目等、正常に直接完了へ進んだ）ことを意味するため無視する。
+      return false;
+    }
+    if (clicked) return true;
+    await page.waitForTimeout(pollIntervalMs);
+  }
+  return false;
+}
+
+// 確認画面で利用規約チェックボックスにチェックし、「完了する」を押して確定する。
+// expectDuplicateModal=trueの場合（2台目以降の予約）、重複予約確認モーダルが出るのが
+// 正常系のため、出なかった場合はコンソールに警告を出す（それでも処理は続行する）。
+async function agreeAndComplete(page, { expectDuplicateModal = false } = {}) {
   const isChecked = await page.isChecked('#agree_terms').catch(() => false);
   if (!isChecked) {
     await page.evaluate(() => { document.querySelector('#agree_terms').click(); });
@@ -188,20 +222,19 @@ async function agreeAndComplete(page) {
   const completeBtn = page.locator('#contact-btn__rsv');
   await completeBtn.click();
 
-  // 同一日時に2台目以降を予約する際、「既に同じ日時で予約しています。さらに同じ日時に
-  // 別予約を追加しますか。」という確認モーダルが割り込むことを確認済み。表示された場合は
-  // モーダル内の「予約を進める」ボタンをクリックして続行する（正規の追加予約のため）。
-  await page.waitForTimeout(500);
-  await page.evaluate(() => {
-    const el = Array.from(document.querySelectorAll('button, a'))
-      .find((e) => e.textContent.trim() === '予約を進める' && e.offsetParent !== null);
-    if (el) el.click();
-  });
+  const duplicateModalHandled = await clickDuplicateModalIfPresent(page);
+  if (expectDuplicateModal && !duplicateModalHandled) {
+    console.warn('警告: 2台目以降の予約のはずですが、重複予約確認モーダル（「既に同じ日時で予約しています」）が表示されませんでした。処理は続行します。');
+  } else if (!expectDuplicateModal && duplicateModalHandled) {
+    console.warn('警告: 1台目の予約のはずですが、重複予約確認モーダルが表示されました（想定外）。「予約を進める」をクリックして続行しました。');
+  }
 
   await page.waitForFunction(
     () => /予約完了|ご予約が完了いたしました|ご予約いただき、誠にありがとうございます/.test(document.body.innerText),
     { timeout: 20000 },
   ).catch(() => null);
+
+  return { duplicateModalHandled };
 }
 
 // 完了画面から確認番号らしき文字列を探す（見つからなければnull）。
@@ -238,7 +271,9 @@ async function processKyotoTerrsaReservation(page, dateISO, utilizationGroup, bu
   await submitInputForm(page);
   shots.push(screenshotStep(page, label, '4-review'));
 
-  await agreeAndComplete(page);
+  // 2台目以降（vehicleIndexが2以上）は、同一日時への追加予約となるため
+  // 「既に同じ日時で予約しています」の重複確認モーダルが出るのが正常系。
+  const { duplicateModalHandled } = await agreeAndComplete(page, { expectDuplicateModal: vehicleIndex > 1 });
   const finalShot = screenshotStep(page, label, '5-complete');
   shots.push(finalShot);
 
@@ -249,7 +284,7 @@ async function processKyotoTerrsaReservation(page, dateISO, utilizationGroup, bu
   }
   const confirmationNumber = await extractConfirmationNumber(page);
   await Promise.all(shots.map((s) => s.promise)); // 結果を返す前に保存だけは完了させる
-  return { confirmationNumber, screenshotPath: finalShot.path };
+  return { confirmationNumber, screenshotPath: finalShot.path, duplicateModalHandled };
 }
 
 // 対象日程がカレンダー上で選択可能になるまで、指定間隔でリトライしながら待つ
