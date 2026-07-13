@@ -101,7 +101,7 @@ td{padding:8px 8px;border-bottom:1px solid var(--border);vertical-align:middle}
 tr:last-child td{border:none}
 tr:hover td{background:var(--bg)}
 .tbl-wrap{overflow-x:auto}
-.arrtab-bar{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.arrtab-bar{flex-wrap:wrap}
 .arrtab-btn.active{background:var(--blue) !important;color:#fff !important;border-color:var(--blue) !important;font-weight:700;border-bottom:2px solid var(--blue) !important;margin-bottom:-2px !important}
 .pill{display:inline-flex;align-items:center;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;white-space:nowrap}
 .s-open{background:var(--green-lt);color:#3B6D11}
@@ -1350,7 +1350,7 @@ input[type=number]{-moz-appearance:textfield}
     <div id="bd-reflect-history" style="display:none;margin-bottom:12px"></div>
 
     <div class="modal-section-title">手配管理</div>
-    <div style="display:flex;align-items:center;gap:8px">
+    <div style="display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap">
       <div class="arrtab-bar" style="display:flex;gap:2px;margin-bottom:8px;border-bottom:2px solid var(--border);padding-bottom:0;flex:0 1 auto;min-width:0">
         <button id="arrtab-btn-hotel" onclick="switchArrangTab('hotel')" class="btn arrtab-btn active" style="font-size:11px;border-radius:6px 6px 0 0;flex-shrink:0">🏨 ホテル</button>
         <button id="arrtab-btn-bus" onclick="switchArrangTab('bus')" class="btn arrtab-btn" style="font-size:11px;border-radius:6px 6px 0 0;flex-shrink:0">🚌 バス</button>
