@@ -1194,7 +1194,7 @@ input[type=number]{-moz-appearance:textfield}
             </label>
           </div>
           <div id="email-inbox-list"></div>
-          <div id="email-inbox-pagination" style="display:flex;align-items:center;gap:10px;margin-top:12px;font-size:12px"></div>
+          <div id="email-inbox-pagination" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:12px;font-size:12px"></div>
         </div>
         <button id="email-inbox-bulk-ignore-btn" class="btn" style="display:none;position:fixed;right:20px;bottom:20px;z-index:60;background:var(--red);border-color:var(--red);color:#fff;padding:12px 18px;border-radius:24px;font-size:13px;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,.25);max-width:calc(100vw - 40px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" onclick="bulkIgnoreEmailInboxItems()">🗑 選択した0件を無視</button>
       </div>
@@ -6767,16 +6767,25 @@ async function renderEmailInboxPage(){
   }).join('');
 
   if(pager){
+    const atFirst = emailInboxPage<=1;
+    const atLast = emailInboxPage>=totalPages;
     pager.innerHTML = `
-      <button class="btn" style="font-size:11px" ${emailInboxPage<=1?'disabled':''} onclick="changeEmailInboxPage(-1)">← 前へ</button>
+      <button class="btn" style="font-size:11px" ${atFirst?'disabled':''} onclick="goToEmailInboxPage(1)">⏮ 最初へ</button>
+      <button class="btn" style="font-size:11px" ${atFirst?'disabled':''} onclick="changeEmailInboxPage(-1)">← 前へ</button>
       <span>${emailInboxPage} / ${totalPages} ページ（全${total}件）</span>
-      <button class="btn" style="font-size:11px" ${emailInboxPage>=totalPages?'disabled':''} onclick="changeEmailInboxPage(1)">次へ →</button>
+      <button class="btn" style="font-size:11px" ${atLast?'disabled':''} onclick="changeEmailInboxPage(1)">次へ →</button>
+      <button class="btn" style="font-size:11px" ${atLast?'disabled':''} onclick="goToEmailInboxPage(${totalPages})">⏭ 最後へ</button>
     `;
   }
 }
 
 function changeEmailInboxPage(delta){
   emailInboxPage += delta;
+  renderEmailInboxPage();
+}
+
+function goToEmailInboxPage(page){
+  emailInboxPage = page;
   renderEmailInboxPage();
 }
 
