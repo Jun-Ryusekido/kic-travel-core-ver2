@@ -29,7 +29,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { dateForFilename } = require('./date-utils');
+const { dateForFilename, timestampForFilename } = require('./date-utils');
 
 const LOGIN_URL = 'https://id-sso.reserva.be/login/consumer';
 const RESERVE_TOP_URL = 'https://reserva.be/kyototerrsaparking';
@@ -42,9 +42,11 @@ function logError(message) {
 }
 
 // スクリーンショット保存はawaitせず呼び出し元に返す（本流の待ち時間に含めない）。
+// ファイル名にはtimestampForFilename()（秒まで含む）を使い、同一日に複数台分を連続実行しても
+// ファイルが上書きされないようにしている。
 function screenshotStep(page, refLabel, stepName) {
   fs.mkdirSync(LOGS_DIR, { recursive: true });
-  const p = path.join(LOGS_DIR, `kyoto-terrsa-${refLabel}-${stepName}-${dateForFilename()}.png`);
+  const p = path.join(LOGS_DIR, `kyoto-terrsa-${refLabel}-${stepName}-${timestampForFilename()}.png`);
   const promise = page.screenshot({ path: p, fullPage: true }).catch(() => null);
   return { path: p, promise };
 }
@@ -185,6 +187,17 @@ async function agreeAndComplete(page) {
   }
   const completeBtn = page.locator('#contact-btn__rsv');
   await completeBtn.click();
+
+  // 同一日時に2台目以降を予約する際、「既に同じ日時で予約しています。さらに同じ日時に
+  // 別予約を追加しますか。」という確認モーダルが割り込むことを確認済み。表示された場合は
+  // モーダル内の「予約を進める」ボタンをクリックして続行する（正規の追加予約のため）。
+  await page.waitForTimeout(500);
+  await page.evaluate(() => {
+    const el = Array.from(document.querySelectorAll('button, a'))
+      .find((e) => e.textContent.trim() === '予約を進める' && e.offsetParent !== null);
+    if (el) el.click();
+  });
+
   await page.waitForFunction(
     () => /予約完了|ご予約が完了いたしました|ご予約いただき、誠にありがとうございます/.test(document.body.innerText),
     { timeout: 20000 },
@@ -205,26 +218,28 @@ async function isCompletionPage(page) {
 
 // 1件分の予約処理（ログイン後の状態のpageを渡すこと）。成功時は確認番号・スクリーンショットのパスを返す。
 // ログインから完了まで、すべて同一ページ・同一セッション内で連続実行する（再ログイン・再読み込みなし）。
-async function processKyotoTerrsaReservation(page, dateISO, utilizationGroup, busCompanyName) {
+// vehicleIndexはログ・スクリーンショットのファイル名の重複を避けるための識別子（省略可）。
+async function processKyotoTerrsaReservation(page, dateISO, utilizationGroup, busCompanyName, vehicleIndex) {
+  const label = vehicleIndex ? `${dateISO}-v${vehicleIndex}` : dateISO;
   const shots = [];
 
   await openReservationFlow(page);
   await selectDate(page, dateISO);
-  shots.push(screenshotStep(page, dateISO, '1-date-selected'));
+  shots.push(screenshotStep(page, label, '1-date-selected'));
 
   await selectOvernightSlot(page);
   await confirmDateTimeSelection(page);
-  shots.push(screenshotStep(page, dateISO, '2-time-confirmed'));
+  shots.push(screenshotStep(page, label, '2-time-confirmed'));
 
   await proceedToInputForm(page);
   await fillGroupAndBusCompany(page, utilizationGroup, busCompanyName);
-  shots.push(screenshotStep(page, dateISO, '3-form-filled'));
+  shots.push(screenshotStep(page, label, '3-form-filled'));
 
   await submitInputForm(page);
-  shots.push(screenshotStep(page, dateISO, '4-review'));
+  shots.push(screenshotStep(page, label, '4-review'));
 
   await agreeAndComplete(page);
-  const finalShot = screenshotStep(page, dateISO, '5-complete');
+  const finalShot = screenshotStep(page, label, '5-complete');
   shots.push(finalShot);
 
   const completed = await isCompletionPage(page);
@@ -235,6 +250,25 @@ async function processKyotoTerrsaReservation(page, dateISO, utilizationGroup, bu
   const confirmationNumber = await extractConfirmationNumber(page);
   await Promise.all(shots.map((s) => s.promise)); // 結果を返す前に保存だけは完了させる
   return { confirmationNumber, screenshotPath: finalShot.path };
+}
+
+// 対象日程がカレンダー上で選択可能になるまで、指定間隔でリトライしながら待つ
+// （予約受付開始時刻ちょうどにカレンダーがまだ更新されていない場合等に使う）。
+// 毎回openReservationFlowからやり直す（ログインセッションはpageに残ったままなので再ログインは不要）。
+async function waitForDateAvailable(page, dateISO, { intervalMs = 2500, maxWaitMs = 15 * 60 * 1000, onTick } = {}) {
+  const startedAt = Date.now();
+  const [y, m] = dateISO.split('-').map(Number);
+  let attempt = 0;
+  while (true) {
+    attempt++;
+    await openReservationFlow(page);
+    await goToMonth(page, y, m);
+    const available = await isDateAvailable(page, dateISO);
+    if (onTick) onTick({ attempt, available, elapsedMs: Date.now() - startedAt });
+    if (available) return true;
+    if (Date.now() - startedAt > maxWaitMs) return false;
+    await page.waitForTimeout(intervalMs);
+  }
 }
 
 module.exports = {
@@ -255,6 +289,7 @@ module.exports = {
   extractConfirmationNumber,
   isCompletionPage,
   processKyotoTerrsaReservation,
+  waitForDateAvailable,
   logError,
   screenshotStep,
 };
