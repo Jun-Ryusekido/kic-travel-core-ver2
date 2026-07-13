@@ -153,12 +153,14 @@ async function main() {
 
   const results = [];
   for (let v = 1; v <= totalVehicles; v++) {
+    const vehicleStartedAt = Date.now();
+    const vehicleElapsed = () => ((Date.now() - vehicleStartedAt) / 1000).toFixed(1);
     try {
       const result = await processKyotoTerrsaReservation(page, dateISO, UTILIZATION_GROUP, BUS_COMPANY_NAME, totalVehicles > 1 ? v : undefined);
-      console.log(`✓ [${v}/${totalVehicles}台目] ${dateISO} 予約完了。確認番号: ${result.confirmationNumber || '(画面上に見つかりませんでした)'}（${elapsed()}秒経過）`);
+      console.log(`✓ [${v}/${totalVehicles}台目] ${dateISO} 予約完了。確認番号: ${result.confirmationNumber || '(画面上に見つかりませんでした)'}（この台: ${vehicleElapsed()}秒 / 累計: ${elapsed()}秒）`);
       if (v > 1) console.log(`  重複予約確認モーダル: ${result.duplicateModalHandled ? '検出して「予約を進める」をクリックしました' : '表示されませんでした（想定外）'}`);
       console.log(`  スクリーンショット: ${result.screenshotPath}`);
-      results.push({ vehicleIndex: v, status: '完了', confirmationNumber: result.confirmationNumber, screenshotPath: result.screenshotPath });
+      results.push({ vehicleIndex: v, status: '完了', confirmationNumber: result.confirmationNumber, screenshotPath: result.screenshotPath, durationSec: vehicleElapsed() });
       await recordResult(sb, {
         dateISO,
         vehicleIndex: v,
@@ -168,12 +170,12 @@ async function main() {
         screenshotPath: result.screenshotPath,
       });
     } catch (e) {
-      console.error(`✗ [${v}/${totalVehicles}台目] ${dateISO} 予約失敗: ${e.message}（${elapsed()}秒経過）`);
+      console.error(`✗ [${v}/${totalVehicles}台目] ${dateISO} 予約失敗: ${e.message}（この台: ${vehicleElapsed()}秒 / 累計: ${elapsed()}秒）`);
       logError(`${dateISO} (${v}/${totalVehicles}) 予約失敗: ${e.message}\n${e.stack || ''}`);
       fs.mkdirSync(LOGS_DIR, { recursive: true });
       const errShot = path.join(LOGS_DIR, `kyoto-terrsa-${dateISO}-v${v}-error-${Date.now()}.png`);
       await page.screenshot({ path: errShot, fullPage: true }).catch(() => null);
-      results.push({ vehicleIndex: v, status: '失敗', resultMessage: e.message, screenshotPath: errShot });
+      results.push({ vehicleIndex: v, status: '失敗', resultMessage: e.message, screenshotPath: errShot, durationSec: vehicleElapsed() });
       await recordResult(sb, { dateISO, vehicleIndex: v, totalVehicles, status: '失敗', resultMessage: e.message, screenshotPath: errShot });
     }
   }
@@ -184,9 +186,9 @@ async function main() {
   console.log('\n===== 結果まとめ =====');
   console.log(`対象日: ${dateISO} / 台数: ${totalVehicles} / 成功: ${successCount} / 失敗: ${totalVehicles - successCount}`);
   results.forEach((r) => {
-    console.log(`  ${r.vehicleIndex}台目: [${r.status}] ${r.confirmationNumber ? '確認番号=' + r.confirmationNumber : r.resultMessage || ''}`);
+    console.log(`  ${r.vehicleIndex}台目: [${r.status}] ${r.durationSec}秒 ${r.confirmationNumber ? '確認番号=' + r.confirmationNumber : r.resultMessage || ''}`);
   });
-  console.log(`総実行時間: ${elapsed()}秒`);
+  console.log(`総実行時間（ログイン含む）: ${elapsed()}秒`);
 
   if (successCount < totalVehicles) process.exit(1);
 }

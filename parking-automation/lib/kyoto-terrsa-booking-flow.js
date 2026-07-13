@@ -175,35 +175,36 @@ async function submitInputForm(page) {
 // 含んでいる構造のため、Playwrightの通常のclick()だとクリック座標がリンク側に解釈されて
 // しまい状態が変化しないことを確認した。要素自体は非表示ではないため、
 // page.evaluateで直接.click()を発火させることで確実にチェックする。
-// 「既に同じ日時で予約しています。さらに同じ日時に別予約を追加しますか。」モーダルが
-// 表示されたら「予約を進める」を押す。実際のDOMを確認したところ、このボタンは
-// <button>や<a>ではなく <input type="button" class="continue_btn" value="予約を進める"> で、
-// モーダル自体は <div id="modal_alert" class="modal full duplicated"> であることを確認済み。
-// page.evaluateで「実際に画面に表示されている（offsetParentがnullでない）」ものだけを
-// 対象にポーリングしながらクリックする。見つかってクリックできればtrue、
-// timeoutMs内に見つからなければfalseを返す。
-async function clickDuplicateModalIfPresent(page, { timeoutMs = 12000, pollIntervalMs = 200 } = {}) {
+const COMPLETION_TEXT_RE = /予約完了|ご予約が完了いたしました|ご予約いただき、誠にありがとうございます/;
+
+// 「完了する」クリック後の分岐を1本のポーリングで検知する。
+// ・そのまま完了画面へ遷移した場合（1台目等）→ 'completed'
+// ・「既に同じ日時で予約しています。さらに同じ日時に別予約を追加しますか。」モーダル
+//   （<div id="modal_alert" class="modal full duplicated">、ボタンは<button>/<a>ではなく
+//   <input type="button" class="continue_btn" value="予約を進める">であることを実DOMで確認済み）
+//   が出た場合→ 'modal'
+// のどちらが先に起きるかを短い間隔（150ms）でポーリングし、待ち時間を最小限にする
+// （固定sleepではなく「状態が変わった瞬間」で即座に次の処理へ進むため速い）。
+async function waitForModalOrCompletion(page, { timeoutMs = 15000, pollIntervalMs = 150 } = {}) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
-    let clicked = false;
+    let state = null;
     try {
-      clicked = await page.evaluate(() => {
-        const el = document.querySelector('#modal_alert input.continue_btn')
-          || Array.from(document.querySelectorAll('input[type="button"], button, a'))
-            .find((e) => (e.value || e.textContent || '').trim() === '予約を進める' && e.offsetParent !== null);
-        if (el && el.offsetParent !== null) { el.click(); return true; }
-        return false;
-      });
+      state = await page.evaluate((completionPattern) => {
+        const modalBtn = document.querySelector('#modal_alert input.continue_btn');
+        const modalVisible = !!(modalBtn && modalBtn.offsetParent !== null);
+        const completed = new RegExp(completionPattern).test(document.body.innerText);
+        return { modalVisible, completed };
+      }, COMPLETION_TEXT_RE.source);
     } catch (e) {
-      // モーダルが出ず、そのまま完了画面へページ遷移した場合、遷移の途中で
-      // evaluateの実行コンテキストが破棄されてエラーになることがある。
-      // これはモーダルが無かった（=1台目等、正常に直接完了へ進んだ）ことを意味するため無視する。
-      return false;
+      // ページ遷移の途中で実行コンテキストが破棄されエラーになることがある。
+      // 次のポーリングで新しいページのDOMを読み直せば済むため、ここでは無視して継続する。
     }
-    if (clicked) return true;
+    if (state && state.completed) return 'completed';
+    if (state && state.modalVisible) return 'modal';
     await page.waitForTimeout(pollIntervalMs);
   }
-  return false;
+  return 'timeout';
 }
 
 // 確認画面で利用規約チェックボックスにチェックし、「完了する」を押して確定する。
@@ -222,17 +223,34 @@ async function agreeAndComplete(page, { expectDuplicateModal = false } = {}) {
   const completeBtn = page.locator('#contact-btn__rsv');
   await completeBtn.click();
 
-  const duplicateModalHandled = await clickDuplicateModalIfPresent(page);
+  const outcome = await waitForModalOrCompletion(page);
+  let duplicateModalHandled = false;
+  if (outcome === 'modal') {
+    duplicateModalHandled = await page.evaluate(() => {
+      const el = document.querySelector('#modal_alert input.continue_btn');
+      if (el && el.offsetParent !== null) { el.click(); return true; }
+      return false;
+    }).catch(() => false);
+    // モーダルの「予約を進める」を押した後、実際に完了画面へ遷移するまで待つ
+    await page.waitForFunction(
+      (pattern) => new RegExp(pattern).test(document.body.innerText),
+      COMPLETION_TEXT_RE.source,
+      { timeout: 15000 },
+    ).catch(() => null);
+  } else if (outcome === 'timeout') {
+    // どちらの状態も検知できなかった場合のみ、念のため少し長めに完了画面を待つ
+    await page.waitForFunction(
+      (pattern) => new RegExp(pattern).test(document.body.innerText),
+      COMPLETION_TEXT_RE.source,
+      { timeout: 10000 },
+    ).catch(() => null);
+  }
+
   if (expectDuplicateModal && !duplicateModalHandled) {
     console.warn('警告: 2台目以降の予約のはずですが、重複予約確認モーダル（「既に同じ日時で予約しています」）が表示されませんでした。処理は続行します。');
   } else if (!expectDuplicateModal && duplicateModalHandled) {
     console.warn('警告: 1台目の予約のはずですが、重複予約確認モーダルが表示されました（想定外）。「予約を進める」をクリックして続行しました。');
   }
-
-  await page.waitForFunction(
-    () => /予約完了|ご予約が完了いたしました|ご予約いただき、誠にありがとうございます/.test(document.body.innerText),
-    { timeout: 20000 },
-  ).catch(() => null);
 
   return { duplicateModalHandled };
 }

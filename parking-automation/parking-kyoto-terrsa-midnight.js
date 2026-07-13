@@ -210,23 +210,25 @@ async function main() {
 
   const results = [];
   for (let v = 1; v <= totalVehicles; v++) {
+    const vehicleStartedAt = Date.now();
+    const vehicleElapsed = () => ((Date.now() - vehicleStartedAt) / 1000).toFixed(1);
     try {
       const result = await processKyotoTerrsaReservation(page, dateISO, UTILIZATION_GROUP, BUS_COMPANY_NAME, totalVehicles > 1 ? v : undefined);
-      console.log(`✓ [${v}/${totalVehicles}台目] 予約完了。確認番号: ${result.confirmationNumber || '(画面上に見つかりませんでした)'}（${elapsed()}秒経過）`);
+      console.log(`✓ [${v}/${totalVehicles}台目] 予約完了。確認番号: ${result.confirmationNumber || '(画面上に見つかりませんでした)'}（この台: ${vehicleElapsed()}秒 / 累計: ${elapsed()}秒）`);
       if (v > 1) console.log(`  重複予約確認モーダル: ${result.duplicateModalHandled ? '検出して続行しました' : '表示されませんでした（想定外）'}`);
-      results.push({ vehicleIndex: v, status: '完了', confirmationNumber: result.confirmationNumber, screenshotPath: result.screenshotPath });
+      results.push({ vehicleIndex: v, status: '完了', confirmationNumber: result.confirmationNumber, screenshotPath: result.screenshotPath, durationSec: vehicleElapsed() });
       await recordResult(sb, {
         dateISO, vehicleIndex: v, totalVehicles, status: '完了',
         resultMessage: result.confirmationNumber ? `確認番号: ${result.confirmationNumber}` : '予約完了（確認番号は画面上に見つかりませんでした）',
         screenshotPath: result.screenshotPath,
       });
     } catch (e) {
-      console.error(`✗ [${v}/${totalVehicles}台目] 予約失敗: ${e.message}（${elapsed()}秒経過）`);
+      console.error(`✗ [${v}/${totalVehicles}台目] 予約失敗: ${e.message}（この台: ${vehicleElapsed()}秒 / 累計: ${elapsed()}秒）`);
       logError(`[深夜自動実行] ${dateISO} (${v}/${totalVehicles}) 予約失敗: ${e.message}\n${e.stack || ''}`);
       fs.mkdirSync(LOGS_DIR, { recursive: true });
       const errShot = path.join(LOGS_DIR, `kyoto-terrsa-midnight-${dateISO}-v${v}-error-${Date.now()}.png`);
       await page.screenshot({ path: errShot, fullPage: true }).catch(() => null);
-      results.push({ vehicleIndex: v, status: '失敗', resultMessage: e.message, screenshotPath: errShot });
+      results.push({ vehicleIndex: v, status: '失敗', resultMessage: e.message, screenshotPath: errShot, durationSec: vehicleElapsed() });
       await recordResult(sb, { dateISO, vehicleIndex: v, totalVehicles, status: '失敗', resultMessage: e.message, screenshotPath: errShot });
     }
   }
@@ -237,8 +239,8 @@ async function main() {
   const summaryLines = [
     `===== 京都テルサ 深夜自動予約 結果 =====`,
     `対象日: ${dateISO} / 台数: ${totalVehicles} / 成功: ${successCount} / 失敗: ${totalVehicles - successCount}`,
-    `総実行時間: ${elapsed()}秒`,
-    ...results.map((r) => `  ${r.vehicleIndex}台目: [${r.status}] ${r.confirmationNumber ? '確認番号=' + r.confirmationNumber : r.resultMessage || ''}`),
+    `総実行時間（ログイン含む）: ${elapsed()}秒`,
+    ...results.map((r) => `  ${r.vehicleIndex}台目: [${r.status}] ${r.durationSec}秒 ${r.confirmationNumber ? '確認番号=' + r.confirmationNumber : r.resultMessage || ''}`),
   ];
   console.log('\n' + summaryLines.join('\n'));
   const summaryPath = writeSummaryLog(summaryLines);
