@@ -7129,8 +7129,7 @@ async function renderEmailInboxPage(){
         <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
           <input id="email-inbox-ref-${m.id}" placeholder="REF# 例: #1374" style="font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px;width:140px">
           <select id="email-inbox-cat-${m.id}" style="font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px">${catOptions}</select>
-          <button class="btn btn-p" style="font-size:11px" onclick="sendEmailToBooking('${m.id}')">📤 送る</button>
-          <button class="btn" style="font-size:11px" onclick="openEmailSplitModal('${m.id}')">🔀 複数件に分割</button>
+          <button class="btn btn-p" id="email-inbox-send-${m.id}" style="font-size:11px" onclick="sendEmailToBooking('${m.id}')">📤 送る</button>
           <button class="btn" style="font-size:11px;color:var(--red)" onclick="if(confirm('このメールを一覧から除外しますか？')){ignoreEmailInboxItem('${m.id}')}">🗑 無視</button>
           ${postponeBtn}
         </div>
@@ -7162,7 +7161,37 @@ function goToEmailInboxPage(page){
   renderEmailInboxPage();
 }
 
-// 指定されたメールを、入力されたREF#の予約・指定カテゴリのタブに送り込む
+// 1通に複数のREF#/ツアー番号が混在していそうかどうかの軽量事前チェック（AI呼び出し前のフィルタ）。
+// 「①②③」等の丸数字の番号付けが2つ以上、または「KIC+数字」らしき文字列が2種類以上あれば
+// 複数混在の可能性ありと判定する。無駄なAI呼び出しを避けるためのヒューリスティックなので、
+// ここでtrueにならなくても実際には単一送信に進むだけで動作上の問題はない。
+function mightHaveMultipleRefs(text){
+  const t = text||'';
+  const circled = t.match(/[①②③④⑤⑥⑦⑧⑨⑩]/g) || [];
+  const kicMatches = t.match(/KIC[-_]?\d{3,}/gi) || [];
+  const uniqueKic = new Set(kicMatches.map(s=>s.toUpperCase()));
+  return circled.length>=2 || uniqueKic.size>=2;
+}
+
+// AIにメール本文を渡し、REF#/ツアー番号ごとの候補（{ref_no, excerpt}の配列）を取得する。
+async function fetchEmailSplitCandidates(subject, body){
+  const resp = await fetch('/api/extract-email-refs', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({subject, body})
+  });
+  const data = await resp.json();
+  if(!resp.ok || data.error){ throw new Error(data.error || 'AI解析でエラーが発生しました'); }
+  let parsed;
+  try{
+    const cleaned = (data.text||'').replace(/```json|```/g,'').trim();
+    parsed = JSON.parse(cleaned);
+  }catch(e){ throw new Error('AIの応答を解析できませんでした'); }
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+// 指定されたメールを送る。まず軽量な事前チェックで複数REF#混在の可能性があるかを見て、
+// 可能性がある場合のみAIに本文を渡して最終判定させる（「送る」ボタンにローディング表示を出す）。
+// AIが複数件と判定した場合は分割確認モーダルを表示し、それ以外は入力されたREF#へそのまま送る。
 async function sendEmailToBooking(emailId){
   const refInput = document.getElementById('email-inbox-ref-'+emailId);
   const catSelect = document.getElementById('email-inbox-cat-'+emailId);
@@ -7172,17 +7201,42 @@ async function sendEmailToBooking(emailId){
   const map = EMAIL_INBOX_CATEGORY_MAP[category];
   if(!map){ alert('カテゴリを選択してください'); return; }
 
+  const {data: emailRow, error: eErr} = await sb.from('email_import_queue').select('subject,body').eq('id', emailId).single();
+  if(eErr){ alert('メール本文の取得に失敗しました: '+eErr.message); return; }
+  const subject = emailRow.subject||'';
+  const body = emailRow.body||'';
+
+  if(mightHaveMultipleRefs(subject+' '+body)){
+    const sendBtn = document.getElementById('email-inbox-send-'+emailId);
+    const origLabel = sendBtn ? sendBtn.innerHTML : '';
+    if(sendBtn){ sendBtn.disabled = true; sendBtn.innerHTML = '⏳ 判定中...'; }
+    try{
+      const candidates = await fetchEmailSplitCandidates(subject, body);
+      if(sendBtn){ sendBtn.disabled = false; sendBtn.innerHTML = origLabel; }
+      if(candidates.length>=2){
+        await showEmailSplitModal(emailId, candidates);
+        return;
+      }
+    }catch(e){
+      // 判定自体に失敗した場合は、安全側として通常の単一送信にフォールバックする
+      console.warn('複数REF#判定に失敗したため、通常送信で続行します:', e.message);
+      if(sendBtn){ sendBtn.disabled = false; sendBtn.innerHTML = origLabel; }
+    }
+  }
+
+  await performSingleEmailSend(emailId, refNo, map, body);
+}
+
+// 通常の単一送信（従来の「送る」ボタンの処理そのもの）。
+async function performSingleEmailSend(emailId, refNo, map, body){
   const {data: booking, error: bErr} = await sb.from('bookings').select('id,ref_no').eq('ref_no', refNo).maybeSingle();
   if(bErr){ alert('予約検索でエラーが発生しました: '+bErr.message); return; }
   if(!booking){ alert('REF# "'+refNo+'" の予約が見つかりませんでした。'); return; }
 
-  const {data: emailRow, error: eErr} = await sb.from('email_import_queue').select('body').eq('id', emailId).single();
-  if(eErr){ alert('メール本文の取得に失敗しました: '+eErr.message); return; }
-
   await openBookingDetail(booking.id);
   switchArrangTab(map.tab);
   const textEl = document.getElementById(map.textId);
-  if(textEl) textEl.value = emailRow.body||'';
+  if(textEl) textEl.value = body||'';
   const areaEl = document.getElementById(map.areaId);
   if(areaEl) areaEl.style.display = '';
 
@@ -7198,59 +7252,28 @@ async function sendEmailToBooking(emailId){
 let emailSplitEmailId = null;
 let emailSplitCandidates = []; // [{rawRef, excerpt, refNo, category, checked, unresolved}]
 
-async function openEmailSplitModal(emailId){
+// AIが返した候補配列を受け取り、既存bookingへの解決を行った上で分割確認モーダルを表示する。
+async function showEmailSplitModal(emailId, parsed){
   emailSplitEmailId = emailId;
-  emailSplitCandidates = [];
   document.getElementById('email-split-modal').classList.add('open');
-  document.getElementById('email-split-status').textContent = 'AIで解析中...';
-  document.getElementById('email-split-candidates').innerHTML = '';
+  document.getElementById('email-split-status').textContent = '';
   document.getElementById('email-split-err').style.display = 'none';
 
-  let row = emailInboxRawList.find(m=>m.id===emailId);
-  let subject = row ? row.subject : '';
-  let body = row ? row.body : '';
-  if(body===undefined || body===null){
-    const {data, error} = await sb.from('email_import_queue').select('subject,body').eq('id', emailId).single();
-    if(error){ document.getElementById('email-split-status').textContent = ''; showEmailSplitErr('本文取得エラー: '+error.message); return; }
-    subject = data.subject; body = data.body;
-  }
-
-  try{
-    const resp = await fetch('/api/extract-email-refs', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({subject, body})
-    });
-    const data = await resp.json();
-    if(!resp.ok || data.error){ throw new Error(data.error || 'AI解析でエラーが発生しました'); }
-    let parsed;
-    try{
-      const cleaned = (data.text||'').replace(/```json|```/g,'').trim();
-      parsed = JSON.parse(cleaned);
-    }catch(e){ throw new Error('AIの応答を解析できませんでした'); }
-    if(!Array.isArray(parsed) || parsed.length===0){
-      document.getElementById('email-split-status').textContent = '複数件の候補は見つかりませんでした。通常の「送る」ボタンをご利用ください。';
-      return;
-    }
-
-    if(!allBookingsCache.length) allBookingsCache = await fetchAllBookings();
-    emailSplitCandidates = parsed.map(c=>{
-      const rawRef = String(c.ref_no||'').trim();
-      const resolved = resolveEmailSplitRef(rawRef);
-      return {
-        rawRef,
-        excerpt: c.excerpt||'',
-        refNo: resolved || '',
-        category: guessEmailSplitCategory(c.excerpt||''),
-        checked: true,
-        unresolved: !resolved
-      };
-    });
-    document.getElementById('email-split-status').textContent = `${emailSplitCandidates.length}件の候補が見つかりました`;
-    renderEmailSplitCandidates();
-  }catch(e){
-    document.getElementById('email-split-status').textContent = '';
-    showEmailSplitErr(e.message);
-  }
+  if(!allBookingsCache.length) allBookingsCache = await fetchAllBookings();
+  emailSplitCandidates = parsed.map(c=>{
+    const rawRef = String(c.ref_no||'').trim();
+    const resolved = resolveEmailSplitRef(rawRef);
+    return {
+      rawRef,
+      excerpt: c.excerpt||'',
+      refNo: resolved || '',
+      category: guessEmailSplitCategory(c.excerpt||''),
+      checked: true,
+      unresolved: !resolved
+    };
+  });
+  document.getElementById('email-split-status').textContent = `${emailSplitCandidates.length}件の候補が見つかりました`;
+  renderEmailSplitCandidates();
 }
 
 function showEmailSplitErr(msg){
