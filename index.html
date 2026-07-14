@@ -1251,6 +1251,24 @@ input[type=number]{-moz-appearance:textfield}
         </div>
       </div>
 
+      <!-- メール受信箱: 複数件に分割 モーダル -->
+      <div class="modal-overlay" id="email-split-modal">
+        <div class="modal-box" style="max-width:720px">
+          <div class="modal-header">
+            <div class="modal-title">🔀 複数件に分割</div>
+            <div class="modal-close" onclick="closeEmailSplitModal()">✕</div>
+          </div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:10px">AIがメール本文からREF#・ツアー番号ごとの該当箇所を抽出します。内容を確認・必要であれば修正してから送信してください。「不明」の候補はREF#を手動入力しないと送信できません。</div>
+          <div id="email-split-status" style="font-size:12px;color:var(--text3);margin-bottom:10px">読み込み中...</div>
+          <div id="email-split-candidates"></div>
+          <div style="margin-top:14px;display:flex;gap:8px;align-items:center">
+            <button class="btn btn-p" onclick="submitEmailSplit()">📤 送信</button>
+            <button class="btn" onclick="closeEmailSplitModal()">キャンセル</button>
+          </div>
+          <div id="email-split-err" style="display:none;color:var(--red);font-size:11px;margin-top:8px"></div>
+        </div>
+      </div>
+
       <!-- メール受信箱 -->
       <div id="pg-email-inbox" class="page" style="display:none">
         <div class="card">
@@ -7112,6 +7130,7 @@ async function renderEmailInboxPage(){
           <input id="email-inbox-ref-${m.id}" placeholder="REF# 例: #1374" style="font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px;width:140px">
           <select id="email-inbox-cat-${m.id}" style="font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px">${catOptions}</select>
           <button class="btn btn-p" style="font-size:11px" onclick="sendEmailToBooking('${m.id}')">📤 送る</button>
+          <button class="btn" style="font-size:11px" onclick="openEmailSplitModal('${m.id}')">🔀 複数件に分割</button>
           <button class="btn" style="font-size:11px;color:var(--red)" onclick="if(confirm('このメールを一覧から除外しますか？')){ignoreEmailInboxItem('${m.id}')}">🗑 無視</button>
           ${postponeBtn}
         </div>
@@ -7173,6 +7192,164 @@ async function sendEmailToBooking(emailId){
   emailInboxRawList = emailInboxRawList.filter(m=>m.id!==emailId);
   emailInboxIndex = emailInboxIndex.filter(m=>m.id!==emailId);
   renderEmailInboxPage();
+}
+
+// ─── メール受信箱: 1通に複数REF#が混在する場合の自動振り分け ─────────
+let emailSplitEmailId = null;
+let emailSplitCandidates = []; // [{rawRef, excerpt, refNo, category, checked, unresolved}]
+
+async function openEmailSplitModal(emailId){
+  emailSplitEmailId = emailId;
+  emailSplitCandidates = [];
+  document.getElementById('email-split-modal').classList.add('open');
+  document.getElementById('email-split-status').textContent = 'AIで解析中...';
+  document.getElementById('email-split-candidates').innerHTML = '';
+  document.getElementById('email-split-err').style.display = 'none';
+
+  let row = emailInboxRawList.find(m=>m.id===emailId);
+  let subject = row ? row.subject : '';
+  let body = row ? row.body : '';
+  if(body===undefined || body===null){
+    const {data, error} = await sb.from('email_import_queue').select('subject,body').eq('id', emailId).single();
+    if(error){ document.getElementById('email-split-status').textContent = ''; showEmailSplitErr('本文取得エラー: '+error.message); return; }
+    subject = data.subject; body = data.body;
+  }
+
+  try{
+    const resp = await fetch('/api/extract-email-refs', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({subject, body})
+    });
+    const data = await resp.json();
+    if(!resp.ok || data.error){ throw new Error(data.error || 'AI解析でエラーが発生しました'); }
+    let parsed;
+    try{
+      const cleaned = (data.text||'').replace(/```json|```/g,'').trim();
+      parsed = JSON.parse(cleaned);
+    }catch(e){ throw new Error('AIの応答を解析できませんでした'); }
+    if(!Array.isArray(parsed) || parsed.length===0){
+      document.getElementById('email-split-status').textContent = '複数件の候補は見つかりませんでした。通常の「送る」ボタンをご利用ください。';
+      return;
+    }
+
+    if(!allBookingsCache.length) allBookingsCache = await fetchAllBookings();
+    emailSplitCandidates = parsed.map(c=>{
+      const rawRef = String(c.ref_no||'').trim();
+      const resolved = resolveEmailSplitRef(rawRef);
+      return {
+        rawRef,
+        excerpt: c.excerpt||'',
+        refNo: resolved || '',
+        category: guessEmailSplitCategory(c.excerpt||''),
+        checked: true,
+        unresolved: !resolved
+      };
+    });
+    document.getElementById('email-split-status').textContent = `${emailSplitCandidates.length}件の候補が見つかりました`;
+    renderEmailSplitCandidates();
+  }catch(e){
+    document.getElementById('email-split-status').textContent = '';
+    showEmailSplitErr(e.message);
+  }
+}
+
+function showEmailSplitErr(msg){
+  const el = document.getElementById('email-split-err');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+// AIが抽出した生の表記（"KIC0879_TC"等）を、実在するbookings.ref_noに解決する。
+// 完全一致→ツアー名に含まれる→番号部分だけの一致、の順に緩めていく。見つからなければ空文字（不明）。
+function resolveEmailSplitRef(rawRef){
+  if(!rawRef) return '';
+  const norm = s => (s||'').toUpperCase().replace(/[^A-Z0-9#]/g,'');
+  const target = norm(rawRef);
+  if(!target) return '';
+  let b = allBookingsCache.find(x=>norm(x.ref_no)===target);
+  if(b) return b.ref_no;
+  b = allBookingsCache.find(x=>norm(x.ref_no)===('#'+target) || ('#'+norm(x.ref_no))===target);
+  if(b) return b.ref_no;
+  b = allBookingsCache.find(x=>x.tour_name && norm(x.tour_name).includes(target));
+  if(b) return b.ref_no;
+  const digits = rawRef.match(/\d{3,}/);
+  if(digits){
+    const d = digits[0];
+    b = allBookingsCache.find(x=>norm(x.ref_no).includes(d) || (x.tour_name && x.tour_name.includes(d)));
+    if(b) return b.ref_no;
+  }
+  return '';
+}
+
+function guessEmailSplitCategory(excerpt){
+  const t = excerpt||'';
+  if(/ホテル|宿泊|泊/.test(t)) return 'ホテル';
+  if(/バス|送迎|車両/.test(t)) return 'バス';
+  if(/レストラン|食事|昼食|夕食/.test(t)) return 'レストラン';
+  if(/施設|駐車場|拝観|入場/.test(t)) return '観光施設・バス駐車場等';
+  return 'ホテル';
+}
+
+function renderEmailSplitCandidates(){
+  document.getElementById('email-split-candidates').innerHTML = emailSplitCandidates.map((c,i)=>`
+    <div style="border:1px solid ${c.unresolved?'var(--red)':'var(--border)'};border-radius:8px;padding:10px;margin-bottom:8px">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+        <input type="checkbox" ${c.checked?'checked':''} onchange="emailSplitCandidates[${i}].checked=this.checked">
+        <label style="font-size:11px;color:var(--text3)">REF#</label>
+        <input value="${escAttr(c.refNo)}" placeholder="${c.unresolved?'不明・手動入力してください':''}" oninput="emailSplitCandidates[${i}].refNo=this.value;emailSplitCandidates[${i}].unresolved=!this.value.trim();renderEmailSplitCandidates()" style="font-size:11px;padding:4px 7px;border:1px solid ${c.unresolved?'var(--red)':'var(--border)'};border-radius:6px;width:140px">
+        <label style="font-size:11px;color:var(--text3)">カテゴリ</label>
+        <select onchange="emailSplitCandidates[${i}].category=this.value" style="font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px">
+          ${Object.keys(EMAIL_INBOX_CATEGORY_MAP).map(cat=>`<option value="${escAttr(cat)}" ${c.category===cat?'selected':''}>${escHtml(cat)}</option>`).join('')}
+        </select>
+        ${c.unresolved
+          ? `<span style="font-size:11px;color:var(--red);font-weight:600">⚠ 不明（元の表記: ${escHtml(c.rawRef)}）</span>`
+          : `<span style="font-size:10px;color:var(--text3)">元の表記: ${escHtml(c.rawRef)}</span>`}
+      </div>
+      <textarea style="width:100%;font-size:11px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;resize:vertical" rows="3" oninput="emailSplitCandidates[${i}].excerpt=this.value">${escHtml(c.excerpt)}</textarea>
+    </div>
+  `).join('');
+}
+
+// チェック済みの候補それぞれについて、該当予約を開いて該当タブのOCR貼り付け欄に転記する。
+// 対象が複数の異なる予約にまたがる場合、予約詳細モーダルは1つしか開けないため、
+// 最後に処理した予約のみ画面に表示されたまま残る（他は転記処理自体は行われるが、
+// 既存の「送る」ボタンと同様、その場でAI読み取り・保存まで行わないと表示上は残らない点に注意）。
+async function submitEmailSplit(){
+  const errEl = document.getElementById('email-split-err');
+  errEl.style.display='none';
+  const checked = emailSplitCandidates.filter(c=>c.checked);
+  if(checked.length===0){ showEmailSplitErr('送信する候補にチェックを入れてください'); return; }
+  const missingRef = checked.filter(c=>!c.refNo || !c.refNo.trim());
+  if(missingRef.length>0){ showEmailSplitErr('REF#が未入力の候補があります。すべて入力してください。'); return; }
+
+  for(const c of checked){
+    const refNo = c.refNo.trim();
+    const {data: booking, error: bErr} = await sb.from('bookings').select('id,ref_no').eq('ref_no', refNo).maybeSingle();
+    if(bErr || !booking){ showEmailSplitErr(`REF# "${refNo}" の予約が見つかりませんでした`); return; }
+    const map = EMAIL_INBOX_CATEGORY_MAP[c.category];
+    if(!map){ showEmailSplitErr('カテゴリが不正です'); return; }
+
+    await openBookingDetail(booking.id);
+    switchArrangTab(map.tab);
+    const textEl = document.getElementById(map.textId);
+    if(textEl) textEl.value = c.excerpt||'';
+    const areaEl = document.getElementById(map.areaId);
+    if(areaEl) areaEl.style.display = '';
+  }
+
+  const {error: updErr} = await sb.from('email_import_queue').update({imported:true}).eq('id', emailSplitEmailId);
+  if(updErr){ showEmailSplitErr('取り込み済みへの更新に失敗しました: '+updErr.message); return; }
+
+  emailInboxRawList = emailInboxRawList.filter(m=>m.id!==emailSplitEmailId);
+  emailInboxIndex = emailInboxIndex.filter(m=>m.id!==emailSplitEmailId);
+  closeEmailSplitModal();
+  renderEmailInboxPage();
+}
+
+function closeEmailSplitModal(){
+  document.getElementById('email-split-modal').classList.remove('open');
+  emailSplitEmailId = null;
+  emailSplitCandidates = [];
 }
 
 // ニュースレター等、予約に紐付ける必要のないメールを一覧から除外する（データ自体は削除せず、ignored=trueにするだけ）
