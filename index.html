@@ -7331,18 +7331,51 @@ function renderEmailSplitCandidates(){
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
         <input type="checkbox" ${c.checked?'checked':''} onchange="emailSplitCandidates[${i}].checked=this.checked">
         <label style="font-size:11px;color:var(--text3)">REF#</label>
-        <input value="${escAttr(c.refNo)}" placeholder="${c.unresolved?'不明・手動入力してください':''}" oninput="emailSplitCandidates[${i}].refNo=this.value;emailSplitCandidates[${i}].unresolved=!this.value.trim();renderEmailSplitCandidates()" style="font-size:11px;padding:4px 7px;border:1px solid ${c.unresolved?'var(--red)':'var(--border)'};border-radius:6px;width:140px">
+        <span style="display:inline-flex;align-items:center;gap:0;border:1px solid ${c.unresolved?'var(--red)':'var(--border)'};border-radius:6px;overflow:hidden" id="email-split-ref-wrap-${i}">
+          <span style="font-size:11px;color:var(--text3);padding:4px 0 4px 7px;user-select:none">#</span>
+          <input id="email-split-ref-${i}" inputmode="numeric" value="${escAttr((c.refNo||'').replace(/^\D+/,''))}" placeholder="${c.unresolved?'不明・数字で入力':''}" oninput="onEmailSplitRefInput(${i}, this)" style="font-size:11px;padding:4px 7px 4px 3px;border:none;outline:none;width:110px">
+        </span>
         <label style="font-size:11px;color:var(--text3)">カテゴリ</label>
         <select onchange="emailSplitCandidates[${i}].category=this.value" style="font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px">
           ${Object.keys(EMAIL_INBOX_CATEGORY_MAP).map(cat=>`<option value="${escAttr(cat)}" ${c.category===cat?'selected':''}>${escHtml(cat)}</option>`).join('')}
         </select>
-        ${c.unresolved
-          ? `<span style="font-size:11px;color:var(--red);font-weight:600">⚠ 不明（元の表記: ${escHtml(c.rawRef)}）</span>`
-          : `<span style="font-size:10px;color:var(--text3)">元の表記: ${escHtml(c.rawRef)}</span>`}
+        <span id="email-split-warn-${i}" style="font-size:${c.unresolved?'11px':'10px'};color:${c.unresolved?'var(--red)':'var(--text3)'};font-weight:${c.unresolved?'600':'normal'}">${
+          c.unresolved ? `⚠ 不明（元の表記: ${escHtml(c.rawRef)}）` : `元の表記: ${escHtml(c.rawRef)}`
+        }</span>
       </div>
       <textarea style="width:100%;font-size:11px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;resize:vertical" rows="3" oninput="emailSplitCandidates[${i}].excerpt=this.value">${escHtml(c.excerpt)}</textarea>
     </div>
   `).join('');
+}
+
+// REF#入力欄はキー入力のたびにrenderEmailSplitCandidates()（innerHTML全体の再構築）を
+// 呼んでいたため、入力欄自体が毎回作り直されてフォーカスが外れ、1文字ずつしか入力できない
+// 不具合があった。ここでは数字だけを許容しつつ、状態更新と見た目の更新（枠線・警告文言）を
+// このinput/該当span要素に対して直接行うだけにとどめ、全体の再描画は行わない。
+function onEmailSplitRefInput(i, el){
+  const digits = el.value.replace(/[^0-9]/g,'');
+  if(digits !== el.value){
+    const pos = el.selectionStart;
+    el.value = digits;
+    // 数字以外の文字を除去した際、カーソル位置がずれないようできる範囲で復元する
+    const newPos = Math.max(0, (pos||digits.length) - 1);
+    el.setSelectionRange(newPos, newPos);
+  }
+  const fullRef = digits ? ('#'+digits) : '';
+  emailSplitCandidates[i].refNo = fullRef;
+  const nowUnresolved = !digits;
+  emailSplitCandidates[i].unresolved = nowUnresolved;
+
+  const wrapEl = document.getElementById('email-split-ref-wrap-'+i);
+  if(wrapEl) wrapEl.style.borderColor = nowUnresolved ? 'var(--red)' : 'var(--border)';
+  const warnEl = document.getElementById('email-split-warn-'+i);
+  if(warnEl){
+    const rawRef = emailSplitCandidates[i].rawRef;
+    warnEl.innerHTML = nowUnresolved ? `⚠ 不明（元の表記: ${escHtml(rawRef)}）` : `元の表記: ${escHtml(rawRef)}`;
+    warnEl.style.color = nowUnresolved ? 'var(--red)' : 'var(--text3)';
+    warnEl.style.fontWeight = nowUnresolved ? '600' : 'normal';
+    warnEl.style.fontSize = nowUnresolved ? '11px' : '10px';
+  }
 }
 
 // 抜粋テキストを、金額等は空欄・備考欄だけに抜粋を持つ新規の空行として該当タブに追加し、
@@ -7384,9 +7417,20 @@ async function submitEmailSplit(){
   const missingRef = checked.filter(c=>!c.refNo || !c.refNo.trim());
   if(missingRef.length>0){ showEmailSplitErr('REF#が未入力の候補があります。すべて入力してください。'); return; }
 
+  if(!allBookingsCache.length) allBookingsCache = await fetchAllBookings();
+
   for(const c of checked){
-    const refNo = c.refNo.trim();
-    const {data: booking, error: bErr} = await sb.from('bookings').select('id,ref_no').eq('ref_no', refNo).maybeSingle();
+    let refNo = c.refNo.trim();
+    let {data: booking, error: bErr} = await sb.from('bookings').select('id,ref_no').eq('ref_no', refNo).maybeSingle();
+    if(!booking && !bErr){
+      // 「#+数字」の完全一致で見つからない場合（実際のref_noが#以外のプレフィックスの場合など）、
+      // 既存の緩めのマッチング（ツアー名一致・数字部分一致等）でも探してみる
+      const fallbackRef = resolveEmailSplitRef(refNo);
+      if(fallbackRef && fallbackRef!==refNo){
+        const r2 = await sb.from('bookings').select('id,ref_no').eq('ref_no', fallbackRef).maybeSingle();
+        if(r2.data){ booking = r2.data; refNo = fallbackRef; }
+      }
+    }
     if(bErr || !booking){ showEmailSplitErr(`REF# "${refNo}" の予約が見つかりませんでした`); return; }
     const map = EMAIL_INBOX_CATEGORY_MAP[c.category];
     if(!map){ showEmailSplitErr('カテゴリが不正です'); return; }
