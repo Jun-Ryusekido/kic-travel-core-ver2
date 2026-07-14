@@ -3698,6 +3698,18 @@ async function openBookingDetail(id){
   }
   currentDetailId = id;
 
+  // 手配管理タブのOCR貼り付け欄は予約に紐づかない共有DOM要素のため、前に開いていた別予約の
+  // 内容が残ったまま見えてしまうことがあった（メール一括送信機能で実際に発生を確認）。
+  // 新しい予約を開くたびに必ずクリアする。
+  ['hotel','bus','rest','fac'].forEach(tab=>{
+    const map = EMAIL_INBOX_CATEGORY_MAP[Object.keys(EMAIL_INBOX_CATEGORY_MAP).find(k=>EMAIL_INBOX_CATEGORY_MAP[k].tab===tab)];
+    if(!map) return;
+    const textEl = document.getElementById(map.textId);
+    if(textEl) textEl.value = '';
+    const areaEl = document.getElementById(map.areaId);
+    if(areaEl) areaEl.style.display = 'none';
+  });
+
   document.getElementById('bd-ref').textContent = b.ref_no;
   document.getElementById('bd-ref-input').value = b.ref_no;
   document.getElementById('bd-agent').value = b.agent_name||'';
@@ -7333,10 +7345,37 @@ function renderEmailSplitCandidates(){
   `).join('');
 }
 
-// チェック済みの候補それぞれについて、該当予約を開いて該当タブのOCR貼り付け欄に転記する。
+// 抜粋テキストを、金額等は空欄・備考欄だけに抜粋を持つ新規の空行として該当タブに追加し、
+// その場でSupabaseに保存する。日付や金額をAIに推測させず備考として残すだけなので、
+// 誤ったデータが自動的に確定してしまうリスクを避けつつ、複数の予約にまたがって送信しても
+// 各予約ごとに抜粋が確実に残るようにする（OCR貼り付け欄は共有DOMのため、次の予約を開くと
+// 消えてしまうことを実際のバグとして確認済み。この保存が本当の転記手段）。
+async function appendEmailExcerptAsDraftRow(tab, excerpt){
+  if(!excerpt) return;
+  if(tab==='hotel'){
+    bdHotelItems.push({hotel_name:'', check_in:'', check_out:'', room_type:'', rooms:1, breakfast:false, unit_price:0, amount:0, confirmation_no:'', memo:excerpt});
+    renderHotelTable();
+    await saveHotelItems();
+  }else if(tab==='bus'){
+    bdBusItems.push({bus_company:'', bus_type:'', buses:1, start_date:'', end_date:'', amount:0, status:'問い合わせ中', confirmation_no:'', driver_hotel_name:'', driver_hotel_phone:'', driver_hotel_address:'', driver_check_in:'', driver_check_out:'', driver_hotel_amount:0, memo:excerpt});
+    renderBusTable();
+    await saveBusItems();
+  }else if(tab==='rest'){
+    bdRestaurantItems.push({restaurant_name:'', meal_type:'昼食', date:'', reservation_time:'', pax:0, amount:0, status:'問い合わせ中', payment_method:'', memo:excerpt});
+    renderRestaurantTable();
+    await saveRestaurantItems();
+  }else if(tab==='fac'){
+    bdFacilityItems.push({facility_name:'', date:'', pax:0, amount:0, status:'問い合わせ中', confirmation_no:'', deadline_date:'', payment_method:'', memo:excerpt});
+    renderFacilityTable();
+    await saveFacilityItems();
+  }
+}
+
+// チェック済みの候補それぞれについて、該当予約を開いて該当タブに転記・保存する。
 // 対象が複数の異なる予約にまたがる場合、予約詳細モーダルは1つしか開けないため、
-// 最後に処理した予約のみ画面に表示されたまま残る（他は転記処理自体は行われるが、
-// 既存の「送る」ボタンと同様、その場でAI読み取り・保存まで行わないと表示上は残らない点に注意）。
+// 画面に表示されたまま残るのは最後に処理した予約のみだが、appendEmailExcerptAsDraftRowで
+// 各予約ごとに備考付きの空行として確実に保存しているため、後で予約を開き直しても
+// 正しい抜粋が残っている。
 async function submitEmailSplit(){
   const errEl = document.getElementById('email-split-err');
   errEl.style.display='none';
@@ -7358,6 +7397,12 @@ async function submitEmailSplit(){
     if(textEl) textEl.value = c.excerpt||'';
     const areaEl = document.getElementById(map.areaId);
     if(areaEl) areaEl.style.display = '';
+
+    // 複数件をまとめて処理する都合上、この後すぐ別の予約を開くとOCR貼り付け欄（共有DOM）の
+    // 内容は失われてしまう。抜粋を備考欄に持つ空行として該当タブに追加し、その場でこの予約に
+    // 保存することで、後で予約を開き直しても正しい抜粋が残るようにする
+    // （openBookingDetailを再度呼ぶ前に必ずawaitで保存を完了させる）。
+    await appendEmailExcerptAsDraftRow(map.tab, c.excerpt||'');
   }
 
   const {error: updErr} = await sb.from('email_import_queue').update({imported:true}).eq('id', emailSplitEmailId);
