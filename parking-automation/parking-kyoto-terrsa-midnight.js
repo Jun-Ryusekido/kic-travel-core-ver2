@@ -4,11 +4,19 @@
 // 実行方法:
 //   node parking-kyoto-terrsa-midnight.js
 //   node parking-kyoto-terrsa-midnight.js --date 2026-10-14
+//   node parking-kyoto-terrsa-midnight.js --dates 2026-10-14,2026-10-15,2026-10-16
 //   node parking-kyoto-terrsa-midnight.js --vehicles 1
 //   node parking-kyoto-terrsa-midnight.js --dry-run
 //   node parking-kyoto-terrsa-midnight.js --date 2026-10-14 --dry-run
 //
 // 【注意】--dry-run を付けない場合、実際に駐車場の予約枠を確定させます（既定で2台分）。
+//
+// --dates で複数日を優先順位付きで指定した場合（--dateは1件版のエイリアス）:
+//   最初の日付だけを「本日深夜0:00に新規解禁される日」として解禁待ちリトライ（最大10分）の対象にする。
+//   台数分の予約が埋まるまで、先頭の日付から順に予約を試みる。ある日付で満車等により
+//   これ以上予約できなくなったら、残り台数を次の候補日で試す（2件目以降の候補日は解禁待ちをせず、
+//   その時点の空き状況を1回だけ確認してすぐ予約を試みる）。すでに目標台数を確保できたら、
+//   残りの候補日には進まない。
 //
 // 対象日の自動判定について:
 //   予約受付開始はサイトの表記上「利用日の3ヶ月前の00:00から」。したがって「本日の深夜0:00
@@ -52,6 +60,7 @@ function parseArgs(argv) {
   const args = { vehicles: 2, dryRun: false };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--date' && argv[i + 1]) { args.date = argv[i + 1]; i++; }
+    else if (argv[i] === '--dates' && argv[i + 1]) { args.dates = argv[i + 1]; i++; }
     else if (argv[i] === '--vehicles' && argv[i + 1]) { args.vehicles = Number(argv[i + 1]); i++; }
     else if (argv[i] === '--dry-run') { args.dryRun = true; }
   }
@@ -111,13 +120,17 @@ async function recordResult(sb, { dateISO, vehicleIndex, totalVehicles, status, 
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const dateISO = args.date || autoDetectTargetDate();
+  const dates = args.dates
+    ? args.dates.split(',').map((s) => s.trim()).filter(Boolean)
+    : [args.date || autoDetectTargetDate()];
   const totalVehicles = args.vehicles;
 
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateISO)) {
-    console.error(`対象日の形式が不正です: ${dateISO}`);
-    process.exitCode = 1;
-    return;
+  for (const d of dates) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+      console.error(`対象日の形式が不正です: ${d}`);
+      process.exitCode = 1;
+      return;
+    }
   }
   if (!Number.isInteger(totalVehicles) || totalVehicles < 1) {
     console.error('--vehicles には1以上の整数を指定してください');
@@ -126,7 +139,7 @@ async function main() {
   }
 
   console.log(`===== 京都テルサ 深夜自動予約 =====`);
-  console.log(`対象日: ${dateISO}${args.date ? '（指定）' : '（自動判定：明日の3ヶ月後）'} / 台数: ${totalVehicles} / dry-run: ${args.dryRun}`);
+  console.log(`候補日（優先順）: ${dates.join(' → ')}${args.dates ? '（指定）' : args.date ? '（指定・1件）' : '（自動判定：明日の3ヶ月後）'} / 台数: ${totalVehicles} / dry-run: ${args.dryRun}`);
 
   const loginId = process.env.KYOTO_TERRSA_LOGIN_ID;
   const password = process.env.KYOTO_TERRSA_PASSWORD;
@@ -149,11 +162,13 @@ async function main() {
     console.error('ログインに失敗したため、処理を中止します:', e.message);
     logError(`[深夜自動実行] ログイン失敗: ${e.message}`);
     if (!args.dryRun) {
-      for (let v = 1; v <= totalVehicles; v++) {
-        await recordResult(sb, { dateISO, vehicleIndex: v, totalVehicles, status: '失敗', resultMessage: `ログイン失敗: ${e.message}` });
+      for (const d of dates) {
+        for (let v = 1; v <= totalVehicles; v++) {
+          await recordResult(sb, { dateISO: d, vehicleIndex: v, totalVehicles, status: '失敗', resultMessage: `ログイン失敗: ${e.message}` });
+        }
       }
     }
-    writeSummaryLog([`対象日: ${dateISO}`, `結果: ログイン失敗`, `エラー: ${e.message}`]);
+    writeSummaryLog([`候補日: ${dates.join(', ')}`, `結果: ログイン失敗`, `エラー: ${e.message}`]);
     await browser.close();
     process.exitCode = 1;
     return;
@@ -161,16 +176,21 @@ async function main() {
 
   if (args.dryRun) {
     console.log('--dry-run のため、カレンダーの空き状況チェックのみ行います（予約は実行しません）。');
+    const lines = ['[dry-run] 候補日の空き状況'];
     try {
-      await openReservationFlow(page);
-      const [y, m] = dateISO.split('-').map(Number);
-      await goToMonth(page, y, m);
-      const available = await isDateAvailable(page, dateISO);
-      console.log(`対象日(${dateISO})は現在${available ? '選択可能です' : 'まだ選択できません'}（${elapsed()}秒経過）`);
-      writeSummaryLog([`[dry-run] 対象日: ${dateISO}`, `選択可能: ${available}`]);
+      for (const d of dates) {
+        await openReservationFlow(page);
+        const [y, m] = d.split('-').map(Number);
+        await goToMonth(page, y, m);
+        const available = await isDateAvailable(page, d);
+        const line = `対象日(${d})は現在${available ? '選択可能です' : 'まだ選択できません'}（${elapsed()}秒経過）`;
+        console.log(line);
+        lines.push(`${d}: 選択可能=${available}`);
+      }
+      writeSummaryLog(lines);
     } catch (e) {
       console.error('チェック中にエラーが発生しました:', e.message);
-      logError(`[深夜自動実行/dry-run] ${dateISO}: ${e.message}`);
+      logError(`[深夜自動実行/dry-run] ${dates.join(',')}: ${e.message}`);
       await browser.close();
       process.exitCode = 1;
       return;
@@ -179,57 +199,80 @@ async function main() {
     return;
   }
 
-  console.log(`対象日(${dateISO})が選択可能になるまで${RETRY_INTERVAL_MS / 1000}秒間隔でリトライします（最大${RETRY_MAX_WAIT_MS / 60000}分）...`);
-  let available = false;
-  try {
-    available = await waitForDateAvailable(page, dateISO, {
-      intervalMs: RETRY_INTERVAL_MS,
-      maxWaitMs: RETRY_MAX_WAIT_MS,
-      onTick: ({ attempt, available, elapsedMs }) => {
-        console.log(`  [試行${attempt}] ${(elapsedMs / 1000).toFixed(1)}秒経過 - ${available ? '選択可能になりました' : 'まだ選択できません'}`);
-      },
-    });
-  } catch (e) {
-    console.error('解禁待ちリトライ中にエラーが発生しました:', e.message);
-    logError(`[深夜自動実行] リトライ中エラー: ${e.message}`);
-  }
-
-  if (!available) {
-    const msg = `対象日(${dateISO})が制限時間内（${RETRY_MAX_WAIT_MS / 60000}分）に選択可能になりませんでした`;
-    console.error(msg);
-    logError(`[深夜自動実行] ${msg}`);
-    for (let v = 1; v <= totalVehicles; v++) {
-      await recordResult(sb, { dateISO, vehicleIndex: v, totalVehicles, status: '失敗', resultMessage: msg });
-    }
-    writeSummaryLog([`対象日: ${dateISO}`, `結果: 解禁待ちタイムアウト`, msg]);
-    await browser.close();
-    process.exitCode = 1;
-    return;
-  }
-  console.log(`対象日(${dateISO})が選択可能になりました（${elapsed()}秒経過）。予約処理を開始します。`);
-
   const results = [];
-  for (let v = 1; v <= totalVehicles; v++) {
-    const vehicleStartedAt = Date.now();
-    const vehicleElapsed = () => ((Date.now() - vehicleStartedAt) / 1000).toFixed(1);
-    try {
-      const result = await processKyotoTerrsaReservation(page, dateISO, UTILIZATION_GROUP, BUS_COMPANY_NAME, totalVehicles > 1 ? v : undefined);
-      console.log(`✓ [${v}/${totalVehicles}台目] 予約完了。確認番号: ${result.confirmationNumber || '(画面上に見つかりませんでした)'}（この台: ${vehicleElapsed()}秒 / 累計: ${elapsed()}秒）`);
-      if (v > 1) console.log(`  重複予約確認モーダル: ${result.duplicateModalHandled ? '検出して続行しました' : '表示されませんでした（想定外）'}`);
-      results.push({ vehicleIndex: v, status: '完了', confirmationNumber: result.confirmationNumber, screenshotPath: result.screenshotPath, durationSec: vehicleElapsed() });
-      await recordResult(sb, {
-        dateISO, vehicleIndex: v, totalVehicles, status: '完了',
-        resultMessage: result.confirmationNumber ? `確認番号: ${result.confirmationNumber}` : '予約完了（確認番号は画面上に見つかりませんでした）',
-        screenshotPath: result.screenshotPath,
-      });
-    } catch (e) {
-      console.error(`✗ [${v}/${totalVehicles}台目] 予約失敗: ${e.message}（この台: ${vehicleElapsed()}秒 / 累計: ${elapsed()}秒）`);
-      logError(`[深夜自動実行] ${dateISO} (${v}/${totalVehicles}) 予約失敗: ${e.message}\n${e.stack || ''}`);
-      fs.mkdirSync(LOGS_DIR, { recursive: true });
-      const errShot = path.join(LOGS_DIR, `kyoto-terrsa-midnight-${dateISO}-v${v}-error-${Date.now()}.png`);
-      await page.screenshot({ path: errShot, fullPage: true }).catch(() => null);
-      results.push({ vehicleIndex: v, status: '失敗', resultMessage: e.message, screenshotPath: errShot, durationSec: vehicleElapsed() });
-      await recordResult(sb, { dateISO, vehicleIndex: v, totalVehicles, status: '失敗', resultMessage: e.message, screenshotPath: errShot });
+  let vehiclesBooked = 0;
+
+  for (let dateIdx = 0; dateIdx < dates.length && vehiclesBooked < totalVehicles; dateIdx++) {
+    const dateISO = dates[dateIdx];
+    const isPrimaryDate = dateIdx === 0;
+
+    let available;
+    if (isPrimaryDate) {
+      console.log(`対象日(${dateISO})が選択可能になるまで${RETRY_INTERVAL_MS / 1000}秒間隔でリトライします（最大${RETRY_MAX_WAIT_MS / 60000}分）...`);
+      try {
+        available = await waitForDateAvailable(page, dateISO, {
+          intervalMs: RETRY_INTERVAL_MS,
+          maxWaitMs: RETRY_MAX_WAIT_MS,
+          onTick: ({ attempt, available, elapsedMs }) => {
+            console.log(`  [試行${attempt}] ${(elapsedMs / 1000).toFixed(1)}秒経過 - ${available ? '選択可能になりました' : 'まだ選択できません'}`);
+          },
+        });
+      } catch (e) {
+        console.error('解禁待ちリトライ中にエラーが発生しました:', e.message);
+        logError(`[深夜自動実行] リトライ中エラー: ${e.message}`);
+        available = false;
+      }
+    } else {
+      // 2件目以降の候補日は解禁待ちをせず、その時点の空き状況を1回だけ確認する
+      console.log(`次点候補日(${dateISO})の空き状況を確認します...（${elapsed()}秒経過）`);
+      try {
+        await openReservationFlow(page);
+        const [y, m] = dateISO.split('-').map(Number);
+        await goToMonth(page, y, m);
+        available = await isDateAvailable(page, dateISO);
+      } catch (e) {
+        console.error(`候補日(${dateISO})の確認中にエラーが発生しました:`, e.message);
+        available = false;
+      }
+    }
+
+    if (!available) {
+      const msg = isPrimaryDate
+        ? `対象日(${dateISO})が制限時間内（${RETRY_MAX_WAIT_MS / 60000}分）に選択可能になりませんでした`
+        : `候補日(${dateISO})は現在選択できません`;
+      console.error(msg);
+      logError(`[深夜自動実行] ${msg}`);
+      continue; // 次の候補日へ
+    }
+    console.log(`対象日(${dateISO})は選択可能です（${elapsed()}秒経過）。予約処理を開始します。`);
+
+    // この日付にまだ必要な台数分を、満車等で失敗するまで続けて予約する
+    let localIndex = 0;
+    while (vehiclesBooked < totalVehicles) {
+      localIndex++;
+      const vehicleStartedAt = Date.now();
+      const vehicleElapsed = () => ((Date.now() - vehicleStartedAt) / 1000).toFixed(1);
+      try {
+        const result = await processKyotoTerrsaReservation(page, dateISO, UTILIZATION_GROUP, BUS_COMPANY_NAME, localIndex);
+        vehiclesBooked++;
+        console.log(`✓ [${vehiclesBooked}/${totalVehicles}台目・${dateISO}] 予約完了。確認番号: ${result.confirmationNumber || '(画面上に見つかりませんでした)'}（この台: ${vehicleElapsed()}秒 / 累計: ${elapsed()}秒）`);
+        if (localIndex > 1) console.log(`  重複予約確認モーダル: ${result.duplicateModalHandled ? '検出して続行しました' : '表示されませんでした（想定外）'}`);
+        results.push({ dateISO, vehicleIndex: localIndex, status: '完了', confirmationNumber: result.confirmationNumber, screenshotPath: result.screenshotPath, durationSec: vehicleElapsed() });
+        await recordResult(sb, {
+          dateISO, vehicleIndex: localIndex, totalVehicles, status: '完了',
+          resultMessage: result.confirmationNumber ? `確認番号: ${result.confirmationNumber}` : '予約完了（確認番号は画面上に見つかりませんでした）',
+          screenshotPath: result.screenshotPath,
+        });
+      } catch (e) {
+        console.error(`✗ [${dateISO} ${localIndex}台目] 予約失敗: ${e.message}（この台: ${vehicleElapsed()}秒 / 累計: ${elapsed()}秒）`);
+        logError(`[深夜自動実行] ${dateISO} (${localIndex}台目) 予約失敗: ${e.message}\n${e.stack || ''}`);
+        fs.mkdirSync(LOGS_DIR, { recursive: true });
+        const errShot = path.join(LOGS_DIR, `kyoto-terrsa-midnight-${dateISO}-v${localIndex}-error-${Date.now()}.png`);
+        await page.screenshot({ path: errShot, fullPage: true }).catch(() => null);
+        results.push({ dateISO, vehicleIndex: localIndex, status: '失敗', resultMessage: e.message, screenshotPath: errShot, durationSec: vehicleElapsed() });
+        await recordResult(sb, { dateISO, vehicleIndex: localIndex, totalVehicles, status: '失敗', resultMessage: e.message, screenshotPath: errShot });
+        break; // この日付はこれ以上予約できないとみなし、次の候補日へ
+      }
     }
   }
 
@@ -238,10 +281,13 @@ async function main() {
   const successCount = results.filter((r) => r.status === '完了').length;
   const summaryLines = [
     `===== 京都テルサ 深夜自動予約 結果 =====`,
-    `対象日: ${dateISO} / 台数: ${totalVehicles} / 成功: ${successCount} / 失敗: ${totalVehicles - successCount}`,
+    `候補日（優先順）: ${dates.join(' → ')} / 目標台数: ${totalVehicles} / 成功: ${successCount} / 失敗: ${results.length - successCount}`,
     `総実行時間（ログイン含む）: ${elapsed()}秒`,
-    ...results.map((r) => `  ${r.vehicleIndex}台目: [${r.status}] ${r.durationSec}秒 ${r.confirmationNumber ? '確認番号=' + r.confirmationNumber : r.resultMessage || ''}`),
+    ...results.map((r) => `  ${r.dateISO} ${r.vehicleIndex}台目: [${r.status}] ${r.durationSec}秒 ${r.confirmationNumber ? '確認番号=' + r.confirmationNumber : r.resultMessage || ''}`),
   ];
+  if (successCount < totalVehicles) {
+    summaryLines.push(`※ 目標台数(${totalVehicles})に対し${successCount}台のみ確保できました。`);
+  }
   console.log('\n' + summaryLines.join('\n'));
   const summaryPath = writeSummaryLog(summaryLines);
   console.log(`\nサマリーを保存しました: ${summaryPath}`);
