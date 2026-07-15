@@ -7,6 +7,15 @@
 //   - ログイン画面(id-sso.reserva.be/login/consumer)はCloudflareのボット対策(Turnstile)があり、
 //     headless:trueだと"Just a moment..."の検証ページで止まってしまうことを確認済み。
 //     このモジュールを使うスクリプトは必ずheadless:falseで実行すること。
+//   - ID/パスワード入力・Cloudflareのロボット確認への対応は一切自動化しない方針
+//     （実機検証の結果、Cloudflareの検証がPlaywright操作のセッションでは自動完了せず
+//     "検証に成功しました。応答を待っています"のまま無限に止まり続けるケースを確認したため）。
+//     代わりに chromium.launchPersistentContext で永続化したChromeプロファイルを使い、
+//     人間が事前（またはスクリプト起動直後）に手動でログインを済ませたセッションを
+//     以降のスクリプト実行で再利用する方式にしている。ensureLoggedIn()が、既にログイン済み
+//     かどうかをマイページ要素の有無で判定し、未ログインならログイン画面を開いた状態で
+//     処理を一時停止し、人間が手動でログイン（ロボット確認含む）を完了するのを
+//     ポーリングで検知して自動的に処理を再開する。
 //   - ログインフォーム: #mem_id（メールアドレス） / #mem_pass（パスワード） /
 //     input[type=submit][value="ログイン"]。成功するとURLが https://reserva.be/mypage になる。
 //   - 予約ページ(https://reserva.be/kyototerrsaparking)の「大型バス　夜間駐車」タイル
@@ -35,6 +44,11 @@ const LOGIN_URL = 'https://id-sso.reserva.be/login/consumer';
 const RESERVE_TOP_URL = 'https://reserva.be/kyototerrsaparking';
 const LOGS_DIR = path.join(__dirname, '..', 'logs');
 
+// ログイン済みかどうかの判定に使うマイページ側の要素（ログアウトリンク等のテキスト）。
+const MYPAGE_INDICATOR_SELECTOR = 'text=ログアウト, text=マイページ';
+// 手動ログイン待ちのデフォルト最大時間。
+const DEFAULT_LOGIN_WAIT_MAX_MS = 10 * 60 * 1000;
+
 function logError(message) {
   fs.mkdirSync(LOGS_DIR, { recursive: true });
   const logPath = path.join(LOGS_DIR, `kyoto-terrsa-error-${dateForFilename()}.log`);
@@ -51,20 +65,50 @@ function screenshotStep(page, refLabel, stepName) {
   return { path: p, promise };
 }
 
-async function login(page, loginId, loginPassword) {
-  await page.goto(LOGIN_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
-  // CloudflareのTurnstile検証を経てログインフォームが操作可能になるまで待つ
-  // （固定sleepではなく、フォーム自体の出現を待つことで検証が早く終われば即座に次へ進む）
-  await page.waitForSelector('#mem_id', { state: 'visible', timeout: 20000 });
-  await page.fill('#mem_id', loginId);
-  await page.fill('#mem_pass', loginPassword);
-  await Promise.all([
-    page.waitForURL(/\/mypage/, { timeout: 20000 }).catch(() => null),
-    page.click('input[type=submit][value="ログイン"]'),
-  ]);
-  if (!/\/mypage/.test(page.url())) {
-    throw new Error('ログインに失敗しました（マイページに遷移しませんでした。.envのKYOTO_TERRSA_LOGIN_ID/KYOTO_TERRSA_PASSWORDをご確認ください）');
+// 現在ログイン済みかどうかを、実際に/mypageへ遷移してURL・要素の両方で判定する。
+// このチェックは自分でnavigateするため、人間がログイン画面を操作している最中に
+// 呼び出すと画面が奪われてしまう。ensureLoggedIn()の冒頭（ログイン画面を開く前）
+// でのみ使うこと。
+async function isLoggedInFresh(page) {
+  try {
+    await page.goto('https://reserva.be/mypage', { waitUntil: 'domcontentloaded', timeout: 30000 });
+  } catch (e) {
+    return false;
   }
+  if (!/\/mypage/.test(page.url())) return false;
+  return await page.locator(MYPAGE_INDICATOR_SELECTOR).first().isVisible({ timeout: 5000 }).catch(() => false);
+}
+
+// 永続化されたブラウザプロファイル(launchPersistentContext)が既にログイン済みセッションを
+// 保持していればそのまま予約フローに進む。未ログインの場合は、ID/パスワード入力や
+// Cloudflareのロボット確認への操作は一切自動化せず、ログイン画面を開いた状態で処理を
+// 一時停止し、その場にいる人間が手動でログインを完了するのを待つ。
+// 人間の操作を妨げないよう、待機中はページへ能動的にnavigateせず、現在のページが
+// 実際にマイページへ遷移するのを受動的にポーリング検知する（固定時間待機はしない）。
+async function ensureLoggedIn(page, { maxWaitMs = DEFAULT_LOGIN_WAIT_MAX_MS } = {}) {
+  if (await isLoggedInFresh(page)) {
+    console.log('既にログイン済みのセッションを検出しました。ログイン処理をスキップします。');
+    return;
+  }
+
+  console.log('\n' + '!'.repeat(60));
+  console.log('!! ログインしていません。');
+  console.log('!! 手動でログイン（ID/パスワード入力・ロボット確認含む）を完了してください。');
+  console.log('!'.repeat(60) + '\n');
+  await page.goto(LOGIN_URL, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => null);
+
+  try {
+    await page.waitForURL(/\/mypage/, { timeout: maxWaitMs });
+  } catch (e) {
+    throw new Error(`手動ログインが制限時間内（${maxWaitMs / 60000}分）に完了しませんでした`);
+  }
+  // マイページ要素の出現もあわせて確認する（固定時間待機ではなくwaitForで検知）。
+  const hasIndicator = await page.locator(MYPAGE_INDICATOR_SELECTOR).first()
+    .waitFor({ state: 'visible', timeout: 10000 }).then(() => true).catch(() => false);
+  if (!hasIndicator) {
+    console.warn('警告: マイページのURLへの遷移は確認できましたが、想定した要素が見つかりませんでした。処理は続行します。');
+  }
+  console.log('ログインを検出しました。予約フローを自動で再開します。');
 }
 
 async function openReservationFlow(page) {
@@ -328,7 +372,8 @@ module.exports = {
   LOGIN_URL,
   RESERVE_TOP_URL,
   LOGS_DIR,
-  login,
+  isLoggedInFresh,
+  ensureLoggedIn,
   openReservationFlow,
   goToMonth,
   isDateAvailable,

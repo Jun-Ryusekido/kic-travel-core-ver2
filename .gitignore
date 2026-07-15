@@ -5,3 +5,4 @@ parking-automation/config.json
 parking-automation/nagoya-config.json
 parking-automation/.env
 parking-automation/logs/
+parking-automation/chrome-profile-kyoto-terrsa/

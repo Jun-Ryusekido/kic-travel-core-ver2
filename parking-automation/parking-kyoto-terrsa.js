@@ -6,8 +6,11 @@
 //
 // 【注意】このスクリプトを実行すると実際に駐車場の予約枠を確定させます（--vehicles分の台数）。
 //
-// ログイン情報は .env の KYOTO_TERRSA_LOGIN_ID / KYOTO_TERRSA_PASSWORD から読み込みます
-// （.env はgit管理外。.env.example を参考に自分で作成してください）。
+// ログインは自動化していません。chromium.launchPersistentContext で永続化した
+// Chromeプロファイル（PROFILE_DIR）を使い、人間が事前またはスクリプト起動直後に手動で
+// ログイン（ID/パスワード入力・Cloudflareのロボット確認含む）を済ませたセッションを
+// 再利用します。未ログインの場合はログイン画面を開いた状態で自動的に一時停止し、
+// 手動ログインの完了を検知したら予約フローを自動再開します。
 // 予約サイトはCloudflareのボット対策があり、headless:trueだと検証ページで止まってしまうため
 // 必ずheadless:falseで実行してください（下記のHEADLESSは変更しないこと）。
 //
@@ -24,7 +27,7 @@ const { chromium } = require('playwright');
 const { createClient } = require('@supabase/supabase-js');
 const { getTodayJST, subtractMonths } = require('./lib/date-utils');
 const {
-  login,
+  ensureLoggedIn,
   processKyotoTerrsaReservation,
   waitForDateAvailable,
   logError,
@@ -33,6 +36,10 @@ const {
 
 const SUPABASE_URL = 'https://nzdygjlnzvtdezslnuoy.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Cnloaxzb2Ati8gmCa-1o3Q_t3uy6_mB';
+
+// 人間が手動でログイン（Cloudflareのロボット確認含む）したセッションを保持し続ける
+// 永続化Chromeプロファイル。このスクリプト専用のプロファイルで、通常使うChromeとは別。
+const PROFILE_DIR = path.join(__dirname, 'chrome-profile-kyoto-terrsa');
 
 const BOOKING_WINDOW_MONTHS = 3; // 予約受付開始：利用日の3ヶ月前の00:00から
 const UTILIZATION_GROUP = 'KIC0000';
@@ -94,13 +101,6 @@ async function main() {
   const dateISO = args.date;
   const totalVehicles = args.vehicles;
 
-  const loginId = process.env.KYOTO_TERRSA_LOGIN_ID;
-  const password = process.env.KYOTO_TERRSA_PASSWORD;
-  if (!loginId || !password) {
-    console.error('.envにKYOTO_TERRSA_LOGIN_ID / KYOTO_TERRSA_PASSWORDを設定してください（.env.exampleを参照）。');
-    process.exit(1);
-  }
-
   // 予約受付開始（3ヶ月前の00:00）のチェック
   const today = getTodayJST();
   const openDate = subtractMonths(dateISO, BOOKING_WINDOW_MONTHS);
@@ -111,21 +111,21 @@ async function main() {
   }
 
   const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
-  const browser = await chromium.launch({ headless: HEADLESS, slowMo: HEADLESS ? 200 : 0 });
-  const page = await browser.newPage();
+  const context = await chromium.launchPersistentContext(PROFILE_DIR, { headless: HEADLESS, slowMo: HEADLESS ? 200 : 0 });
+  const page = context.pages()[0] || await context.newPage();
   const startedAt = Date.now();
   const elapsed = () => ((Date.now() - startedAt) / 1000).toFixed(1);
 
   try {
-    await login(page, loginId, password);
-    console.log(`ログイン成功（${elapsed()}秒経過）`);
+    await ensureLoggedIn(page);
+    console.log(`ログイン確認完了（${elapsed()}秒経過）`);
   } catch (e) {
-    console.error('ログインに失敗したため、処理を中止します:', e.message);
+    console.error('ログイン確認に失敗したため、処理を中止します:', e.message);
     logError(`ログイン失敗: ${e.message}`);
     for (let v = 1; v <= totalVehicles; v++) {
       await recordResult(sb, { dateISO, vehicleIndex: v, totalVehicles, status: '失敗', resultMessage: e.message });
     }
-    await browser.close();
+    await context.close();
     process.exit(1);
   }
 
@@ -145,7 +145,7 @@ async function main() {
       for (let v = 1; v <= totalVehicles; v++) {
         await recordResult(sb, { dateISO, vehicleIndex: v, totalVehicles, status: '失敗', resultMessage: msg });
       }
-      await browser.close();
+      await context.close();
       process.exit(1);
     }
     console.log(`対象日(${dateISO})が選択可能になりました（${elapsed()}秒経過）。予約処理を開始します。`);
@@ -180,7 +180,7 @@ async function main() {
     }
   }
 
-  await browser.close();
+  await context.close();
 
   const successCount = results.filter((r) => r.status === '完了').length;
   console.log('\n===== 結果まとめ =====');

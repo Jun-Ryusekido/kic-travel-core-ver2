@@ -1,5 +1,9 @@
 // 京都テルサ 大型バス駐車場：深夜0:00の新規解禁日を狙って自動的に2台分予約するスクリプト。
-// Windowsタスクスケジューラから「23:59台に起動」するような使い方を想定している。
+// Windowsタスクスケジューラから「23:57に起動」する運用を想定している（タスク名:
+// KIC_KyotoTerrsaMidnight）。起動直後にensureLoggedIn()がログイン状態を確認し、
+// 未ログインならログイン画面を開いて一時停止する。人間は23:57〜0:00の間に手動で
+// ログイン（ID/パスワード入力・Cloudflareのロボット確認含む）を済ませればよく、
+// それ以降の0:00の解禁待ち〜予約実行は自動で進む。
 //
 // 実行方法:
 //   node parking-kyoto-terrsa-midnight.js
@@ -25,8 +29,10 @@
 //   --date を指定しない場合はこの計算で自動的に対象日を決定する。
 //   ただし実際のカレンダーの解禁挙動は運用上この通りとは限らないため、--dateで明示指定する方が確実。
 //
-// ログイン情報は .env の KYOTO_TERRSA_LOGIN_ID / KYOTO_TERRSA_PASSWORD から読み込む。
-// このサイトはCloudflareのボット対策(Turnstile)がありheadless:trueだと動作しないため、
+// ログインは自動化していません。chromium.launchPersistentContext で永続化した
+// Chromeプロファイル（PROFILE_DIR）を使い、人間が23:57〜0:00の間に手動でログイン
+// （ID/パスワード入力・Cloudflareのロボット確認含む）を済ませたセッションを再利用します。
+// このサイトはCloudflareのボット対策があり、headless:trueだと検証ページで止まってしまうため
 // 常にheadless:falseで実行する（下記のHEADLESSは変更しないこと）。
 const HEADLESS = false;
 
@@ -37,7 +43,7 @@ const { chromium } = require('playwright');
 const { createClient } = require('@supabase/supabase-js');
 const { getTodayJST, subtractDays, addMonths } = require('./lib/date-utils');
 const {
-  login,
+  ensureLoggedIn,
   openReservationFlow,
   goToMonth,
   isDateAvailable,
@@ -50,11 +56,20 @@ const {
 const SUPABASE_URL = 'https://nzdygjlnzvtdezslnuoy.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Cnloaxzb2Ati8gmCa-1o3Q_t3uy6_mB';
 
+// 人間が手動でログイン（Cloudflareのロボット確認含む）したセッションを保持し続ける
+// 永続化Chromeプロファイル。parking-kyoto-terrsa.js（通常実行版）と同じプロファイルを
+// 共有し、どちらかで一度ログインすればもう片方でも再利用できるようにする。
+const PROFILE_DIR = path.join(__dirname, 'chrome-profile-kyoto-terrsa');
+
 const UTILIZATION_GROUP = 'KIC0000';
 const BUS_COMPANY_NAME = 'KICトラベル';
 const RETRY_INTERVAL_MS = 2500; // 解禁待ちリトライの間隔（回線負荷を抑えるため2〜3秒程度）
 const RETRY_MAX_WAIT_MS = 10 * 60 * 1000; // 解禁待ちの最大待機時間（10分。要件通り）
-const HARD_WATCHDOG_MS = 15 * 60 * 1000; // 何が起きても必ずプロセスを終了させる安全装置（15分）
+// 23:57起動から0:00の解禁までの間に、人間が手動ログインを終える猶予（最大6分）。
+const LOGIN_WAIT_MAX_MS = 6 * 60 * 1000;
+// 何が起きても必ずプロセスを終了させる安全装置。ログイン待ち最大6分＋
+// 解禁待ちリトライ最大10分が重なっても十分に収まるよう30分に設定。
+const HARD_WATCHDOG_MS = 30 * 60 * 1000;
 
 function parseArgs(argv) {
   const args = { vehicles: 2, dryRun: false };
@@ -141,25 +156,17 @@ async function main() {
   console.log(`===== 京都テルサ 深夜自動予約 =====`);
   console.log(`候補日（優先順）: ${dates.join(' → ')}${args.dates ? '（指定）' : args.date ? '（指定・1件）' : '（自動判定：明日の3ヶ月後）'} / 台数: ${totalVehicles} / dry-run: ${args.dryRun}`);
 
-  const loginId = process.env.KYOTO_TERRSA_LOGIN_ID;
-  const password = process.env.KYOTO_TERRSA_PASSWORD;
-  if (!loginId || !password) {
-    console.error('.envにKYOTO_TERRSA_LOGIN_ID / KYOTO_TERRSA_PASSWORDを設定してください（.env.exampleを参照）。');
-    process.exitCode = 1;
-    return;
-  }
-
   const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
-  const browser = await chromium.launch({ headless: HEADLESS, slowMo: HEADLESS ? 200 : 0 });
-  const page = await browser.newPage();
+  const context = await chromium.launchPersistentContext(PROFILE_DIR, { headless: HEADLESS, slowMo: HEADLESS ? 200 : 0 });
+  const page = context.pages()[0] || await context.newPage();
   const startedAt = Date.now();
   const elapsed = () => ((Date.now() - startedAt) / 1000).toFixed(1);
 
   try {
-    await login(page, loginId, password);
-    console.log(`ログイン成功（${elapsed()}秒経過）`);
+    await ensureLoggedIn(page, { maxWaitMs: LOGIN_WAIT_MAX_MS });
+    console.log(`ログイン確認完了（${elapsed()}秒経過）`);
   } catch (e) {
-    console.error('ログインに失敗したため、処理を中止します:', e.message);
+    console.error('ログイン確認に失敗したため、処理を中止します:', e.message);
     logError(`[深夜自動実行] ログイン失敗: ${e.message}`);
     if (!args.dryRun) {
       for (const d of dates) {
@@ -169,7 +176,7 @@ async function main() {
       }
     }
     writeSummaryLog([`候補日: ${dates.join(', ')}`, `結果: ログイン失敗`, `エラー: ${e.message}`]);
-    await browser.close();
+    await context.close();
     process.exitCode = 1;
     return;
   }
@@ -191,11 +198,11 @@ async function main() {
     } catch (e) {
       console.error('チェック中にエラーが発生しました:', e.message);
       logError(`[深夜自動実行/dry-run] ${dates.join(',')}: ${e.message}`);
-      await browser.close();
+      await context.close();
       process.exitCode = 1;
       return;
     }
-    await browser.close();
+    await context.close();
     return;
   }
 
@@ -276,7 +283,7 @@ async function main() {
     }
   }
 
-  await browser.close();
+  await context.close();
 
   const successCount = results.filter((r) => r.status === '完了').length;
   const summaryLines = [
