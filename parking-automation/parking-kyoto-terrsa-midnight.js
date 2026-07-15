@@ -2,11 +2,10 @@
 // Windowsタスクスケジューラから「23:57に起動」する運用を想定している（タスク名:
 // KIC_KyotoTerrsaMidnight）。起動直後にensureLoggedIn()がログイン状態（永続化Chrome
 // プロファイルに保存されたセッション）を確認する。ログイン済みならそのまま自動で
-// 解禁待ち〜予約実行まで進む。未ログインの場合はログイン画面を開くだけにとどめて
-// 処理を中止する（Cloudflareのロボット確認はこの自動化セッションでは人間が手動で
-// チェックしても実際にはログインが成立しないことを確認済みのため、待機はしない方針。
-// ログインは別途 parking-kyoto-terrsa.js 等を手動実行して人間が完了させ、同じ
-// 永続化プロファイルにセッションを保存しておく運用とする）。
+// 解禁待ち〜予約実行まで進む。未ログインの場合はログイン画面を自動で開き、人間が
+// 23:57〜0:00の間に手動でログイン（ID/パスワード入力・Cloudflareのロボット確認含む）を
+// 完了するのをポーリングで待機し（最大LOGIN_TIMEOUT_MS＝10分）、検知でき次第自動で
+// 解禁待ち〜予約実行に進む。詳細は lib/kyoto-terrsa-booking-flow.js の ensureLoggedIn() を参照。
 //
 // 実行方法:
 //   node parking-kyoto-terrsa-midnight.js
@@ -35,10 +34,10 @@
 //   --date / --dates を明示指定した場合は、これまで通りその指定日を優先する（手動テスト用）。
 //
 // ログインは自動化していません。chromium.launchPersistentContext で永続化した
-// Chromeプロファイル（PROFILE_DIR）を使い、人間が別途（このスクリプトの外で）手動で
-// ログイン（ID/パスワード入力・Cloudflareのロボット確認含む）を済ませたセッションを
-// 再利用します。未ログインの場合、このスクリプトはログイン画面を開くだけで待たずに
-// 終了します（詳細は lib/kyoto-terrsa-booking-flow.js の ensureLoggedIn() を参照）。
+// Chromeプロファイル（PROFILE_DIR）を使い、既にログイン済みならそのセッションを再利用します。
+// 未ログインの場合、このスクリプトはログイン画面を自動で開き、人間が手動でログインを
+// 完了するのをポーリングで待機します（詳細は lib/kyoto-terrsa-booking-flow.js の
+// ensureLoggedIn() を参照）。
 // このサイトはCloudflareのボット対策があり、headless:trueだと検証ページで止まってしまうため
 // 常にheadless:falseで実行する（下記のHEADLESSは変更しないこと）。
 const HEADLESS = false;
@@ -72,9 +71,9 @@ const UTILIZATION_GROUP = 'KIC0000';
 const BUS_COMPANY_NAME = 'KICトラベル';
 const RETRY_INTERVAL_MS = 2500; // 解禁待ちリトライの間隔（回線負荷を抑えるため2〜3秒程度）
 const RETRY_MAX_WAIT_MS = 10 * 60 * 1000; // 解禁待ちの最大待機時間（10分。要件通り）
-// 何が起きても必ずプロセスを終了させる安全装置。ログインは待たずに即エラーになるため、
-// 実質的には解禁待ちリトライ最大10分＋予約処理時間が収まればよいが、余裕を見て20分に設定。
-const HARD_WATCHDOG_MS = 20 * 60 * 1000;
+// 何が起きても必ずプロセスを終了させる安全装置。ログイン待ち最大10分（lib側の
+// LOGIN_TIMEOUT_MS）＋解禁待ちリトライ最大10分が重なっても十分に収まるよう30分に設定。
+const HARD_WATCHDOG_MS = 30 * 60 * 1000;
 
 function parseArgs(argv) {
   const args = { vehicles: 2, dryRun: false };

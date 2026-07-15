@@ -7,17 +7,14 @@
 //   - ログイン画面(id-sso.reserva.be/login/consumer)はCloudflareのボット対策(Turnstile)があり、
 //     headless:trueだと"Just a moment..."の検証ページで止まってしまうことを確認済み。
 //     このモジュールを使うスクリプトは必ずheadless:falseで実行すること。
-//   - ID/パスワード入力・Cloudflareのロボット確認への対応は一切自動化しない方針
-//     （実機検証の結果、Cloudflareの検証がPlaywright操作のセッションでは、人間が手動で
-//     チェックを入れても実際にはログインが成立せず"検証に成功しました。応答を待っています"
-//     のまま無期限に止まり続けるケースを確認したため。ログイン完了を待ち続けること自体に
-//     意味がないと判断し、待機は行わない方針にした）。
+//   - ID/パスワード入力・Cloudflareのロボット確認への対応は一切自動化しない方針。
 //     代わりに chromium.launchPersistentContext で永続化したChromeプロファイルを使い、
-//     人間が別途（このスクリプトの外で）手動でログインを済ませたセッションを
-//     以降のスクリプト実行で再利用する方式にしている。ensureLoggedIn()が、既にログイン済み
-//     かどうかをマイページ要素の有無で判定し、ログイン済みならそのまま予約フローに進む。
-//     未ログインの場合はログイン画面を開くだけにとどめ、待たずにエラーとしてその回の
-//     実行を中止する（次回実行時、人間が別途ログインを済ませていればセッションが有効になる）。
+//     ログイン済みセッションを以降のスクリプト実行でも再利用する。ensureLoggedIn()が、
+//     既にログイン済みかどうかをマイページ要素の有無で判定し、ログイン済みならそのまま
+//     予約フローに進む。未ログインの場合はログイン画面を自動で開き、その場にいる人間が
+//     手動でログイン（ロボット確認含む）を完了するのを、POLL_INTERVAL_MS間隔でポーリング
+//     待機する（LOGIN_TIMEOUT_MS＝10分でタイムアウト）。23:57起動〜0:00の予約実行までの
+//     間に人間がログインを済ませる運用を想定している。
 //   - ログインフォーム: #mem_id（メールアドレス） / #mem_pass（パスワード） /
 //     input[type=submit][value="ログイン"]。成功するとURLが https://reserva.be/mypage になる。
 //   - 予約ページ(https://reserva.be/kyototerrsaparking)の「大型バス　夜間駐車」タイル
@@ -48,6 +45,11 @@ const LOGS_DIR = path.join(__dirname, '..', 'logs');
 
 // ログイン済みかどうかの判定に使うマイページ側の要素（ログアウトリンク等のテキスト）。
 const MYPAGE_INDICATOR_SELECTOR = 'text=ログアウト, text=マイページ';
+// 未ログイン時、ログイン完了をポーリングで確認する間隔。
+const POLL_INTERVAL_MS = 3000;
+// 手動ログイン完了を待つ最大時間。23:57起動〜0:00の予約実行までに人間がログインを
+// 終える想定のため、余裕を持って10分に設定。
+const LOGIN_TIMEOUT_MS = 10 * 60 * 1000;
 
 function logError(message) {
   fs.mkdirSync(LOGS_DIR, { recursive: true });
@@ -81,14 +83,11 @@ async function isLoggedInFresh(page) {
 
 // 永続化されたブラウザプロファイル(launchPersistentContext)が既にログイン済みセッションを
 // 保持していればそのまま予約フローに進む。未ログインの場合、ID/パスワード入力や
-// Cloudflareのロボット確認への操作は一切自動化しない。
-// 【重要】実機検証の結果、Cloudflareのロボット確認はこの自動化ブラウザのセッションでは
-// 人間が手動でチェックを入れても実際にはログインが成立せず（"検証に成功しました。
-// 応答を待っています"の表示のまま無期限に進まなくなるケースを確認済み）、ログイン完了を
-// 待ち続けること自体に意味がない。そのため、未ログインの場合はログイン画面を開くだけに
-// とどめ、以降の待機・自動再開は行わない（呼び出し元はエラーとして扱い、その回の実行は
-// 中止する）。ログインは、別途 parking-kyoto-terrsa.js 等を手動実行して人間が完了させ、
-// 同じ永続化プロファイルにセッションを保存しておく運用とする。
+// Cloudflareのロボット確認への操作は一切自動化しない（ログイン画面を自動で開くのみ）。
+// その場にいる人間が手動でログイン（ロボット確認含む）を完了するのを、ページへ能動的に
+// navigateし直すことなく（人間の操作の妨げにならないよう）ポーリングで検知し、
+// ログイン完了が確認でき次第、待機ループを抜けて即座に後続の予約フローへ進む。
+// タイムアウトした場合のみエラーを投げて処理を中止する。
 async function ensureLoggedIn(page) {
   if (await isLoggedInFresh(page)) {
     console.log('既にログイン済みのセッションを検出しました。ログイン処理をスキップします。');
@@ -97,12 +96,23 @@ async function ensureLoggedIn(page) {
 
   console.log('\n' + '!'.repeat(60));
   console.log('!! ログインしていません。');
-  console.log('!! ログイン画面を開きました。手動でログインを完了してください。');
-  console.log('!! （このスクリプトはログイン完了を待たずに終了します）');
+  console.log('!! ログイン画面を開きました。手動でログイン（ID/パスワード入力・');
+  console.log('!! ロボット確認含む）を完了してください。');
   console.log('!'.repeat(60) + '\n');
   await page.goto(LOGIN_URL, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => null);
 
-  throw new Error('ログインしていないため処理を中止しました（ログイン画面は開いたままです。手動でログインを完了し、次回実行時にセッションが再利用されます）');
+  const deadline = Date.now() + LOGIN_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (/\/mypage/.test(page.url())) {
+      const visible = await page.locator(MYPAGE_INDICATOR_SELECTOR).first().isVisible().catch(() => false);
+      if (visible) {
+        console.log('ログインを検出しました。予約フローを自動で再開します。');
+        return;
+      }
+    }
+    await page.waitForTimeout(POLL_INTERVAL_MS);
+  }
+  throw new Error(`手動ログインが制限時間内（${LOGIN_TIMEOUT_MS / 60000}分）に完了しませんでした`);
 }
 
 async function openReservationFlow(page) {
