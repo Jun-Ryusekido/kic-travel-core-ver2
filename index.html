@@ -1014,7 +1014,7 @@ input[type=number]{-moz-appearance:textfield}
           <!-- 日付順タブ -->
           <div id="hm-tab-date">
             <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr 1fr">
-              <div class="form-field"><label>ホテル名で絞り込み</label><input id="hm-search" placeholder="例: 京王プラザ" oninput="filterHotelManagement()"></div>
+              <div class="form-field"><label>ホテル名 / REF#で絞り込み</label><input id="hm-search" placeholder="例: 京王プラザ / 762 / #762" oninput="filterHotelManagement()"></div>
               <div class="form-field"><label>チェックイン(From)</label><input id="hm-from" type="date" min="1900-01-01" max="9999-12-31" onblur="filterHotelManagement()"></div>
               <div class="form-field"><label>チェックイン(To)</label><input id="hm-to" type="date" min="1900-01-01" max="9999-12-31" onblur="filterHotelManagement()"></div>
               <div class="form-field" style="align-self:end"><button class="btn" onclick="resetHotelManagementFilter()">条件クリア</button></div>
@@ -11433,8 +11433,14 @@ function filterHotelManagement(){
   const q = toHalfWidth((document.getElementById('hm-search')?.value||'').trim().toLowerCase());
   const from = document.getElementById('hm-from')?.value||'';
   const to = document.getElementById('hm-to')?.value||'';
+  const qRef = q.replace(/^#/,''); // REF#比較用: 入力・データ双方の先頭#の有無を問わず一致させる
   let filtered = hotelManagementCache;
-  if(q) filtered = filtered.filter(r=>(r.hotel_name||'').toLowerCase().includes(q));
+  if(q) filtered = filtered.filter(r=>{
+    const nameMatch = (r.hotel_name||'').toLowerCase().includes(q);
+    const refNo = toHalfWidth((r.bookings?.ref_no||'').toLowerCase()).replace(/^#/,'');
+    const refMatch = !!qRef && refNo.includes(qRef);
+    return nameMatch || refMatch;
+  });
   if(from) filtered = filtered.filter(r=>r.check_in && r.check_in>=from);
   if(to) filtered = filtered.filter(r=>r.check_in && r.check_in<=to);
   if(!q && !from && !to){
