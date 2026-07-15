@@ -10586,6 +10586,10 @@ function toggleHmCancelFilter(key){
 }
 
 function hmSort(key){ if(hmSortKey===key){hmSortDir*=-1;}else{hmSortKey=key;hmSortDir=1;} filterHotelManagement(); }
+function hmLocalTodayStr(){
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
 function filterHotelManagement(){
   const q = toHalfWidth((document.getElementById('hm-search')?.value||'').trim().toLowerCase());
   const from = document.getElementById('hm-from')?.value||'';
@@ -10594,6 +10598,10 @@ function filterHotelManagement(){
   if(q) filtered = filtered.filter(r=>(r.hotel_name||'').toLowerCase().includes(q));
   if(from) filtered = filtered.filter(r=>r.check_in && r.check_in>=from);
   if(to) filtered = filtered.filter(r=>r.check_in && r.check_in<=to);
+  if(!q && !from && !to){
+    const todayStr = hmLocalTodayStr();
+    filtered = filtered.filter(r=>!r.check_out || r.check_out>=todayStr);
+  }
   if(hmCancelAlertFilter!==null){
     const today = new Date(); today.setHours(0,0,0,0);
     const todayStr = today.toISOString().slice(0,10);
