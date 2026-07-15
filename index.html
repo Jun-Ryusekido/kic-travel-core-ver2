@@ -9757,6 +9757,181 @@ function saveHotelConfirmNew(){
     saveHotelConfirm(hotels);
   }
 
+// ===== ホテル一括読み取りの重複チェック（テキスト/Excel/PDF/画像/カメラ・手動追加、
+// いずれもsaveHotelConfirm()という単一の保存経路を通るため、ここに一本化している）=====
+//
+// 一致キー: ホテル名 + REF# + チェックイン日 + チェックアウト日 + 部屋タイプ。
+// REF#はbookingsテーブルのref_noで、booking_idと1:1対応するため、表記ゆれ
+// （"#1154" と "1154" 等）の影響を受けないbooking_idで比較する。
+// 金額・ステータス・確認番号など変化しうる項目はキーに含めない。
+function hmDupNormStr(v){ return (v==null?'':String(v)).trim(); }
+function hmDupNormNum(v){ if(v===null||v===undefined||v==='') return 0; const n=Number(v); return Number.isNaN(n)?0:n; }
+
+function hmDupMatchKeyEqual(a,b){
+  return hmDupNormStr(a.booking_id)===hmDupNormStr(b.booking_id) &&
+    hmDupNormStr(a.hotel_name)===hmDupNormStr(b.hotel_name) &&
+    hmDupNormStr(a.check_in)===hmDupNormStr(b.check_in) &&
+    hmDupNormStr(a.check_out)===hmDupNormStr(b.check_out) &&
+    hmDupNormStr(a.room_type)===hmDupNormStr(b.room_type);
+}
+
+// キーが一致するレコード同士について、それ以外の内容（変化しうる項目）まで
+// 完全に同じかどうかを判定する。完全一致なら「同じ読み取りの重複」とみなして無視する。
+function hmDupContentEqual(a,b){
+  return hmDupNormStr(a.status)===hmDupNormStr(b.status) &&
+    hmDupNormNum(a.amount)===hmDupNormNum(b.amount) &&
+    hmDupNormNum(a.unit_price)===hmDupNormNum(b.unit_price) &&
+    hmDupNormStr(a.confirmation_no)===hmDupNormStr(b.confirmation_no) &&
+    hmDupNormNum(a.rooms)===hmDupNormNum(b.rooms) &&
+    !!a.breakfast===!!b.breakfast &&
+    hmDupNormStr(a.memo)===hmDupNormStr(b.memo);
+}
+
+async function hmFetchExistingForDupCheck(rows){
+  const bookingIds = [...new Set(rows.map(r=>r.booking_id).filter(Boolean))];
+  if(bookingIds.length===0) return [];
+  const {data, error} = await sb.from('booking_hotels').select('*').in('booking_id', bookingIds);
+  if(error) throw new Error('重複チェックに失敗しました: '+error.message);
+  return data||[];
+}
+
+// 保存しようとしている行群を、既存レコードとの一致状況で3種に分類する。
+//   toInsert  : 一致する既存レコードがない → 通常通り新規insertしてよい
+//   conflicts : 一致キーは同じだが内容が異なる → 人間の確認が必要
+//   (どちらにも入らないもの) : 一致キー・内容とも完全一致 → 何もせず無視する
+async function hmClassifyForDuplicates(rows){
+  const existing = await hmFetchExistingForDupCheck(rows);
+  const toInsert = [];
+  const conflicts = [];
+  rows.forEach(newRow=>{
+    const match = existing.find(e=>hmDupMatchKeyEqual(e, newRow));
+    if(!match){ toInsert.push(newRow); return; }
+    if(hmDupContentEqual(match, newRow)) return;
+    conflicts.push({ newRow, existingRow: match });
+  });
+  return { toInsert, conflicts };
+}
+
+function hmRefNoForBookingId(bookingId){
+  const b = (window._hmConfirmBookings||[]).find(x=>String(x.id)===String(bookingId));
+  return b ? (b.ref_no||'(REF#なし)') : String(bookingId||'');
+}
+
+// 内容が異なる重複候補を、人間が「更新／新規追加／破棄」から選べる確認モーダルで表示する。
+// 全行の選択が完了して「適用」されるとonDone()を呼ぶ。
+function showHmDupConflictModal(conflicts, onDone){
+  window._hmDupConflicts = conflicts;
+  window._hmDupOnDone = onDone;
+
+  const diffCell = (ev, nv, fmt) => {
+    const changed = hmDupNormStr(ev)!==hmDupNormStr(nv);
+    const f = fmt || (v=>escHtml(v==null?'':String(v)));
+    return { evHtml: f(ev), nvHtml: f(nv), changed };
+  };
+
+  const rowsHtml = conflicts.map((c,i)=>{
+    const e = c.existingRow, n = c.newRow;
+    const fields = [
+      ['ステータス', e.status, n.status],
+      ['金額', e.amount, n.amount, v=>yen(v||0)],
+      ['単価', e.unit_price, n.unit_price, v=>yen(v||0)],
+      ['確認番号', e.confirmation_no, n.confirmation_no],
+      ['部屋数', e.rooms, n.rooms],
+      ['朝食', e.breakfast?'あり':'なし', n.breakfast?'あり':'なし'],
+      ['メモ', e.memo, n.memo],
+    ];
+    const tableRows = fields.map(([label, ev, nv, fmt])=>{
+      const d = diffCell(ev, nv, fmt);
+      return `<tr><td style="color:var(--text3);padding:3px 6px">${label}</td>
+        <td style="padding:3px 6px${d.changed?';background:#fff3cd':''}">${d.evHtml}</td>
+        <td style="padding:3px 6px${d.changed?';background:#d4edda':''}">${d.nvHtml}</td></tr>`;
+    }).join('');
+    return `<div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:12px">
+      <div style="font-weight:700;font-size:12px;margin-bottom:4px">${escHtml(n.hotel_name||'')} ／ REF#: ${escHtml(hmRefNoForBookingId(n.booking_id))}</div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:8px">IN: ${n.check_in||''} ／ OUT: ${n.check_out||''} ／ 部屋: ${escHtml(n.room_type||'')}</div>
+      <table style="width:100%;font-size:11px;border-collapse:collapse;margin-bottom:8px">
+        <thead><tr><td></td><td style="font-weight:600;padding:3px 6px">既存レコード</td><td style="font-weight:600;padding:3px 6px">今回読み取った内容</td></tr></thead>
+        <tbody>${tableRows}</tbody>
+      </table>
+      <div style="font-size:10px;color:var(--text3);margin-bottom:6px">既存レコード作成日時: ${e.created_at?new Date(e.created_at).toLocaleString('ja-JP'):''}</div>
+      <div style="display:flex;gap:14px;font-size:11px;flex-wrap:wrap">
+        <label><input type="radio" name="hm-dup-choice-${i}" value="update"> 既存レコードを更新する（新しい内容で上書き）</label>
+        <label><input type="radio" name="hm-dup-choice-${i}" value="insert"> 別予約として新規追加する</label>
+        <label><input type="radio" name="hm-dup-choice-${i}" value="discard"> 今回の読み取り内容を破棄する</label>
+      </div>
+    </div>`;
+  }).join('');
+
+  const modal = document.createElement('div');
+  modal.id = 'hotel-dup-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:210;display:flex;align-items:center;justify-content:center;padding:20px';
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:12px;padding:20px;width:100%;max-width:900px;max-height:90vh;overflow-y:auto">
+      <div style="font-size:14px;font-weight:700;margin-bottom:6px">⚠ 既存レコードと一致キーは同じですが内容が異なります</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:12px">ホテル名・REF#・チェックイン/アウト・部屋タイプが同じ既存レコードが見つかりましたが、ステータスや金額などの内容が異なります。各行について対応を選択してください。</div>
+      ${rowsHtml}
+      <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+        <button class="btn btn-p" onclick="applyHmDupResolutions()">選択した内容で適用</button>
+        <button class="btn" onclick="document.getElementById('hotel-dup-modal').remove()">後で判断する（未選択分は保留）</button>
+        <span id="hotel-dup-status" style="font-size:11px;color:var(--text3)"></span>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+async function applyHmDupResolutions(){
+  const conflicts = window._hmDupConflicts||[];
+  const statusEl = document.getElementById('hotel-dup-status');
+  const unresolved = conflicts.filter((c,i)=>!document.querySelector(`input[name="hm-dup-choice-${i}"]:checked`));
+  if(unresolved.length>0){
+    statusEl.textContent = `未選択の行が${unresolved.length}件あります。すべて選択してください。`;
+    statusEl.style.color = 'var(--red)';
+    return;
+  }
+  statusEl.textContent = '適用中...'; statusEl.style.color = 'var(--text3)';
+
+  const toInsert = [];
+  const toUpdate = [];
+  conflicts.forEach((c,i)=>{
+    const choice = document.querySelector(`input[name="hm-dup-choice-${i}"]:checked`).value;
+    if(choice==='update') toUpdate.push(c);
+    else if(choice==='insert') toInsert.push(c.newRow);
+    // discardの場合は何もしない
+  });
+
+  try{
+    for(const c of toUpdate){
+      const { error } = await sb.from('booking_hotels').update({
+        status: c.newRow.status,
+        status_updated_at: new Date().toISOString(),
+        amount: c.newRow.amount,
+        unit_price: c.newRow.unit_price,
+        confirmation_no: c.newRow.confirmation_no,
+        rooms: c.newRow.rooms,
+        breakfast: c.newRow.breakfast,
+        memo: c.newRow.memo,
+      }).eq('id', c.existingRow.id);
+      if(error) throw new Error('更新に失敗しました: '+error.message);
+    }
+    if(toInsert.length>0){
+      const { error } = await sb.from('booking_hotels').insert(toInsert);
+      if(error) throw new Error('新規追加に失敗しました: '+error.message);
+    }
+  }catch(e){
+    statusEl.textContent = e.message;
+    statusEl.style.color = 'var(--red)';
+    return;
+  }
+
+  statusEl.textContent = '✓ 適用しました';
+  statusEl.style.color = 'var(--green)';
+  const onDone = window._hmDupOnDone;
+  window._hmDupConflicts = null;
+  window._hmDupOnDone = null;
+  setTimeout(()=>{ document.getElementById('hotel-dup-modal')?.remove(); }, 1000);
+  if(onDone) await onDone();
+}
+
 async function saveHotelConfirm(hotels){
   const statusEl = document.getElementById('hotel-confirm-status');
   statusEl.textContent = '保存中...';
@@ -9796,19 +9971,42 @@ async function saveHotelConfirm(hotels){
     if(!confirm(`${unmatched.length}行はツアーREF#が未選択のため保存されません。\n残り${validRows.length}行を保存しますか？`)) return;
   }
 
-  statusEl.textContent = '保存中...'; statusEl.style.color = 'var(--text3)';
-
-  const {error} = await sb.from('booking_hotels').insert(validRows);
-  if(error){
-    statusEl.textContent = '保存エラー: ' + error.message;
+  statusEl.textContent = '重複チェック中...'; statusEl.style.color = 'var(--text3)';
+  let classified;
+  try{
+    classified = await hmClassifyForDuplicates(validRows);
+  }catch(e){
+    statusEl.textContent = e.message;
     statusEl.style.color = 'var(--red)';
     return;
   }
-  const savedCount = validRows.length;
-  statusEl.textContent = `✓ ${savedCount}件を保存しました`;
-  statusEl.style.color = 'var(--green)';
-  setTimeout(()=>{ document.getElementById('hotel-confirm-modal')?.remove(); }, 1500);
+  const { toInsert, conflicts } = classified;
+  const skippedCount = validRows.length - toInsert.length - conflicts.length;
+
+  statusEl.textContent = '保存中...'; statusEl.style.color = 'var(--text3)';
+  if(toInsert.length>0){
+    const {error} = await sb.from('booking_hotels').insert(toInsert);
+    if(error){
+      statusEl.textContent = '保存エラー: ' + error.message;
+      statusEl.style.color = 'var(--red)';
+      return;
+    }
+  }
+
+  let msg = `✓ ${toInsert.length}件を保存しました`;
+  if(skippedCount>0) msg += `（既存と完全一致のため${skippedCount}件はスキップ）`;
+  if(conflicts.length>0) msg += `。${conflicts.length}件は既存レコードと内容が異なるため確認してください。`;
+  statusEl.textContent = msg;
+  statusEl.style.color = conflicts.length>0 ? 'var(--orange, #d97706)' : 'var(--green)';
+
   await loadHotelManagement();
+
+  if(conflicts.length>0){
+    document.getElementById('hotel-confirm-modal')?.remove();
+    showHmDupConflictModal(conflicts, loadHotelManagement);
+  } else {
+    setTimeout(()=>{ document.getElementById('hotel-confirm-modal')?.remove(); }, 1500);
+  }
 }
 async function extractHotelFromFileHm(event, mode){
   const file = event.target.files[0];
