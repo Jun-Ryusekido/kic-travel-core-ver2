@@ -6395,7 +6395,7 @@ function renderHotelTable(){
         <td data-label="確認番号"><input value="${escAttr(it.confirmation_no)}" oninput="bdHotelItems[${i}].confirmation_no=this.value" style="width:100%"></td>
         <td data-label="ステータス"><select onchange="bdHotelItems[${i}].status=this.value;this.style.background=statusBg(this.value);this.style.color=statusFg(this.value)" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px;${statusSelectStyle(it.status||'回答待ち')}"><option value="未予約" ${it.status==='未予約'?'selected':''}>未予約</option><option value="回答待ち" ${!it.status||it.status==='回答待ち'?'selected':''}>回答待ち</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option><option value="FNL済" ${it.status==='FNL済'?'selected':''}>FNL済</option><option value="NG回答" ${it.status==='NG回答'?'selected':''}>NG回答</option><option value="キャンセル" ${it.status==='キャンセル'?'selected':''}>キャンセル</option></select></td>
         <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdHotelItems[${i}].memo=this.value" style="width:100%"></td>
-        ${arrDelBtnHtml('bdHotelItems', i, 'renderHotelTable')}
+        ${arrDelBtnHtml('bdHotelItems', i, 'renderHotelTable', escAttr([it.hotel_name, it.room_type, [it.check_in, it.check_out].filter(Boolean).join('〜')].filter(Boolean).join(' '))+' の行を削除しますか？')}
       </tr>`;
     }).join('');
   }
@@ -6484,7 +6484,7 @@ function renderBusTable(){
       <td data-label="ステータス"><select onchange="bdBusItems[${i}].status=this.value;this.style.background=statusBg(this.value);this.style.color=statusFg(this.value)" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px;${statusSelectStyle(it.status||'問い合わせ中')}"><option value="未予約" ${it.status==='未予約'?'selected':''}>未予約</option><option value="問い合わせ中" ${(it.status||'問い合わせ中')==='問い合わせ中'?'selected':''}>問い合わせ中</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option><option value="FNL済" ${it.status==='FNL済'?'selected':''}>FNL済</option><option value="NG回答" ${it.status==='NG回答'?'selected':''}>NG回答</option><option value="キャンセル" ${it.status==='キャンセル'?'selected':''}>キャンセル</option></select></td>
       <td data-label="確認番号"><input value="${escAttr(it.confirmation_no)}" oninput="bdBusItems[${i}].confirmation_no=this.value" style="width:100%"></td>
       <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdBusItems[${i}].memo=this.value" style="width:100%"></td>
-      ${arrDelBtnHtml('bdBusItems', i, 'renderBusTable')}
+      ${arrDelBtnHtml('bdBusItems', i, 'renderBusTable', escAttr([it.bus_company, it.bus_type, [it.start_date, it.end_date].filter(Boolean).join('〜')].filter(Boolean).join(' '))+' の行を削除しますか？')}
     </tr>`).join('');
   }
   document.getElementById('bd-buses-total').textContent = yen(total);
@@ -8055,7 +8055,7 @@ function renderFacilityTable(){
       <td data-label="期限日"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.deadline_date||''}" onchange="bdFacilityItems[${i}].deadline_date=this.value"></td>
       <td data-label="支払方法"><select onchange="bdFacilityItems[${i}].payment_method=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px"><option value="" ${!it.payment_method?'selected':''}></option>${LOCAL_EXPENSE_PAYMENT_METHODS.map(m=>`<option value="${m}" ${it.payment_method===m?'selected':''}>${m}</option>`).join('')}</select></td>
       <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdFacilityItems[${i}].memo=this.value" style="width:100%"></td>
-      ${arrDelBtnHtml('bdFacilityItems', i, 'renderFacilityTable')}
+      ${arrDelBtnHtml('bdFacilityItems', i, 'renderFacilityTable', escAttr([it.facility_name, it.date].filter(Boolean).join(' '))+' の行を削除しますか？')}
     </tr>`).join('');
   }
   document.getElementById('bd-facilities-total').textContent = yen(total);
@@ -8136,7 +8136,7 @@ function renderWaterTable(){
       <td data-label="金額" style="text-align:right;white-space:nowrap" data-water-amount="${i}">${yen(it.amount||0)}</td>
       <td data-label="ステータス"><select onchange="bdWaterItems[${i}].status=this.value;this.style.background=statusBg(this.value);this.style.color=statusFg(this.value)" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px;${statusSelectStyle(it.status||'問い合わせ中')}"><option value="未予約" ${it.status==='未予約'?'selected':''}>未予約</option><option value="問い合わせ中" ${(it.status||'問い合わせ中')==='問い合わせ中'?'selected':''}>問い合わせ中</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option><option value="FNL済" ${it.status==='FNL済'?'selected':''}>FNL済</option><option value="NG回答" ${it.status==='NG回答'?'selected':''}>NG回答</option><option value="予約不要" ${it.status==='予約不要'?'selected':''}>予約不要</option><option value="キャンセル" ${it.status==='キャンセル'?'selected':''}>キャンセル</option></select></td>
       <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdWaterItems[${i}].memo=this.value" style="width:100%"></td>
-      ${arrDelBtnHtml('bdWaterItems', i, 'renderWaterTable')}
+      ${arrDelBtnHtml('bdWaterItems', i, 'renderWaterTable', escAttr([it.item_name, it.date].filter(Boolean).join(' '))+' の行を削除しますか？')}
     </tr>`).join('');
   }
   document.getElementById('bd-water-total').textContent = yen(total);
@@ -8365,7 +8365,7 @@ function renderBulletTrainTable(){
       <option value="キャンセル" ${it.status==='キャンセル'?'selected':''}>キャンセル</option>
     </select></td>
     <td><input value="${escAttr(it.memo)}" oninput="bdBulletTrainItems[${i}].memo=this.value" style="width:100%"></td>
-    ${arrDelBtnHtml('bdBulletTrainItems', i, 'renderBulletTrainTable')}
+    ${arrDelBtnHtml('bdBulletTrainItems', i, 'renderBulletTrainTable', escAttr([it.ride_date, it.train_name, it.train_number, [it.departure_station, it.arrival_station].filter(Boolean).join('→')].filter(Boolean).join(' '))+' の行を削除しますか？')}
   </tr>`).join('');
 }
 
