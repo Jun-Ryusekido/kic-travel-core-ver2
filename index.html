@@ -1455,6 +1455,7 @@ input[type=number]{-moz-appearance:textfield}
         <button id="arrtab-btn-fac" onclick="switchArrangTab('fac')" class="btn arrtab-btn" style="font-size:11px;border-radius:6px 6px 0 0;flex-shrink:0">🎡 観光施設・バス駐車場等</button>
         <button id="arrtab-btn-water" onclick="switchArrangTab('water')" class="btn arrtab-btn" style="font-size:11px;border-radius:6px 6px 0 0;flex-shrink:0">💧 ミネラルウォーター</button>
         <button id="arrtab-btn-bullet" onclick="switchArrangTab('bullet')" class="btn arrtab-btn" style="font-size:11px;border-radius:6px 6px 0 0;flex-shrink:0">🚅 新幹線</button>
+        <button id="arrtab-btn-guide" onclick="switchArrangTab('guide')" class="btn arrtab-btn" style="font-size:11px;border-radius:6px 6px 0 0;flex-shrink:0">🧑‍💼 担当ガイド</button>
       </div>
       <button class="btn" style="font-size:10px;background:#F0F6FF;border-color:#7CB3E8;color:#004A9F;flex-shrink:0" onclick="printArrangementSummaryList()">🖨 手配一覧PDF出力</button>
     </div>
@@ -1658,6 +1659,21 @@ input[type=number]{-moz-appearance:textfield}
       </table></div>
       <button class="btn" style="font-size:10px;margin-top:4px" onclick="addBulletTrainRow()">＋ 行追加</button>
       <button class="btn" style="font-size:10px;margin-top:4px" onclick="openArrCopyModal('bullet')">📋 REF#からコピー</button>
+    </div>
+
+    <div id="arrtab-guide" style="display:none">
+      <div class="tbl-wrap"><table class="li-table" style="min-width:760px">
+        <thead><tr>
+          <th style="width:220px">ガイド</th>
+          <th style="width:110px">担当日(From)</th>
+          <th style="width:110px">担当日(To)</th>
+          <th style="width:90px">ステータス</th>
+          <th>備考</th>
+          <th class="li-del"></th>
+        </tr></thead>
+        <tbody id="bd-guides-tbody"></tbody>
+      </table></div>
+      <button class="btn" style="font-size:10px;margin-top:4px" onclick="addGuideRow()">＋ 行追加</button>
     </div>
 
     <div class="modal-section-title">手配書</div>
@@ -1957,7 +1973,7 @@ function _positionDropdownNearInput(input, dd){
   dd.style.width = rect.width + 'px';
 }
 function _hideAllSearchDropdownsOnScroll(){
-  document.querySelectorAll('[id^="hm-confirm-dd-"], [id^="inv-confirm-dd-"], [id^="inv-supplier-dd-"]').forEach(dd=>{
+  document.querySelectorAll('[id^="hm-confirm-dd-"], [id^="inv-confirm-dd-"], [id^="inv-supplier-dd-"], [id^="guide-dd-"]').forEach(dd=>{
     if(dd.style.display !== 'none') dd.style.display = 'none';
   });
 }
@@ -2739,7 +2755,7 @@ let bdCostItems = [];
 let _bdReflections = []; // 反映履歴キャッシュ（decided_unit_price の即時保存用）
 let originalSalesCount = 0;
 let originalCostsCount = 0;
-let originalHotelCount = 0, originalBusCount = 0, originalRestaurantCount = 0, originalFacilityCount = 0, originalLocalExpenseCount = 0, originalWaterCount = 0;
+let originalHotelCount = 0, originalBusCount = 0, originalRestaurantCount = 0, originalFacilityCount = 0, originalLocalExpenseCount = 0, originalWaterCount = 0, originalGuideCount = 0;
 // 全削除→再挿入の事故(#782でbooking_facilities 9件が消失)を防ぐための安全な差分保存ヘルパー。
 // 「新規データのINSERTに成功してから、既存の旧行だけをidで指定してDELETEする」順序にすることで、
 // INSERTが何らかの理由で失敗しても旧データは一切削除されない（失敗時は例外を投げてDELETEに進まない）。
@@ -3779,6 +3795,19 @@ async function openBookingDetail(id){
   // ガイド登録一覧プルダウンを読み込み
   await populateGuideRegistrySelects([document.getElementById('bd-new-guide-select')]);
   bdNewGuideList = [];  renderBdNewGuideList();
+
+  // 担当ガイドを読み込み（guideRegistryCacheは直前のpopulateGuideRegistrySelects()で読み込み済み）
+  const {data: guideRows, error: guideFetchErr} = await sb.from('booking_guides').select('*').eq('booking_id', id).order('created_at');
+  // booking_guidesはDDL未実行の環境ではテーブルが存在せずエラーになるため、他の明細と異なり
+  // alert()では出さずconsole.warnに留める（新規テーブルのため既存データ消失リスクがない）。
+  if(guideFetchErr){ console.warn('担当ガイド明細の読み込みに失敗しました:', guideFetchErr.message); }
+  bdGuideItems = (guideRows||[]).map(r=>({
+    id: r.id, guide_id: r.guide_id||null, guide_name_freetext: r.guide_name_freetext||'',
+    start_date: r.start_date||'', end_date: r.end_date||'', status: r.status||'回答待ち', memo: r.memo||'',
+    _freetextMode: !r.guide_id && !!r.guide_name_freetext
+  }));
+  originalGuideCount = bdGuideItems.length;
+  renderGuideTable();
 
 // ホテル割り当てを読み込み
   const {data: hotelRows, error: hotelFetchErr} = await sb.from('booking_hotels').select('*').eq('booking_id', id).order('sort_order');
@@ -6239,6 +6268,7 @@ let bdHotelItems = [];
 let bdBusItems = [], bdRestaurantItems = [], bdFacilityItems = [];
 let bdBulletTrainItems = [];
 let bdWaterItems = [];
+let bdGuideItems = [];
 
 // ─── 手配管理タブ共通: 他のREF#から手配内容をコピー ─────────
 // 名称・日付・人数・単価などの「内容」はコピーするが、確認番号・ステータスは
@@ -6359,7 +6389,7 @@ async function confirmArrCopy(){
 }
 
 function switchArrangTab(tab){
-  ['hotel','bus','rest','fac','water','bullet'].forEach(t=>{
+  ['hotel','bus','rest','fac','water','bullet','guide'].forEach(t=>{
     document.getElementById('arrtab-'+t).style.display = t===tab ? '' : 'none';
     const btn = document.getElementById('arrtab-btn-'+t);
     btn.classList.toggle('active', t===tab);
@@ -8403,6 +8433,172 @@ async function saveBulletTrainItems(){
   }
 }
 
+// ─── 担当ガイド ─────────────────────────────────────────────────────────────
+// guidesマスタからの検索付き選択、または「その他（自由入力）」でguide_idなしの
+// 氏名テキストのみを保存する2モードを行ごとに切り替えられるようにしている。
+// guidesマスタの読み込みは、booking detail読み込み時に呼ばれるpopulateGuideRegistrySelects()が
+// 既にguideRegistryCacheへキャッシュしているため、ここでは新たにfetchしない（使い回す）。
+function guideDisplayLabel(g){
+  return (g.name||'') + (g.phone ? `（${g.phone}）` : '');
+}
+function guideRowDisplayName(it){
+  if(it.guide_id){
+    const g = guideRegistryCache.find(x=>String(x.id)===String(it.guide_id));
+    return g ? g.name : '';
+  }
+  return it.guide_name_freetext || '';
+}
+
+function renderGuideTable(){
+  const tbody = document.getElementById('bd-guides-tbody');
+  if(!tbody) return;
+  if(bdGuideItems.length===0){
+    tbody.innerHTML = '<tr><td colspan="6" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
+    return;
+  }
+  tbody.innerHTML = bdGuideItems.map((it,i)=>{
+    const selectedGuide = it.guide_id ? guideRegistryCache.find(g=>String(g.id)===String(it.guide_id)) : null;
+    const freetextMode = !!it._freetextMode || (!it.guide_id && !!it.guide_name_freetext);
+    const guideCell = freetextMode
+      ? `<td data-label="ガイド">
+          <input type="text" value="${escAttr(it.guide_name_freetext)}" placeholder="氏名を入力" oninput="bdGuideItems[${i}].guide_name_freetext=this.value" style="width:100%">
+          <div style="font-size:9px;margin-top:2px"><span class="lnk" onclick="switchGuideRowToSearchMode(${i})">🔍 マスタから選ぶ</span></div>
+        </td>`
+      : `<td data-label="ガイド" style="position:relative">
+          <input type="text" id="guide-search-${i}" value="${escAttr(selectedGuide ? guideDisplayLabel(selectedGuide) : '')}" placeholder="氏名で検索..." autocomplete="off"
+                 oninput="filterGuideSuggest(${i})" onfocus="showGuideSuggest(${i})" onblur="setTimeout(()=>hideGuideSuggest(${i}),200)" style="width:100%">
+          <div id="guide-dd-${i}" style="display:none;position:fixed;background:var(--card,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:99999;max-height:220px;overflow-y:auto"></div>
+        </td>`;
+    return `<tr>
+      ${guideCell}
+      <td data-label="担当日(From)"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.start_date||''}" onchange="bdGuideItems[${i}].start_date=this.value"></td>
+      <td data-label="担当日(To)"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.end_date||''}" onchange="bdGuideItems[${i}].end_date=this.value"></td>
+      <td data-label="ステータス"><select onchange="bdGuideItems[${i}].status=this.value;this.style.background=statusBg(this.value);this.style.color=statusFg(this.value)" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px;${statusSelectStyle(it.status||'回答待ち')}"><option value="未予約" ${it.status==='未予約'?'selected':''}>未予約</option><option value="回答待ち" ${!it.status||it.status==='回答待ち'?'selected':''}>回答待ち</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option><option value="FNL済" ${it.status==='FNL済'?'selected':''}>FNL済</option><option value="NG回答" ${it.status==='NG回答'?'selected':''}>NG回答</option><option value="キャンセル" ${it.status==='キャンセル'?'selected':''}>キャンセル</option></select></td>
+      <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdGuideItems[${i}].memo=this.value" style="width:100%"></td>
+      ${arrDelBtnHtml('bdGuideItems', i, 'renderGuideTable', escAttr([guideRowDisplayName(it), [it.start_date, it.end_date].filter(Boolean).join('〜')].filter(Boolean).join(' '))+' の行を削除しますか？')}
+    </tr>`;
+  }).join('');
+}
+
+function filterGuideSuggest(i){
+  const q = document.getElementById('guide-search-'+i)?.value||'';
+  if(!q.trim()) bdGuideItems[i].guide_id = null;
+  renderGuideDropdown(i, q);
+}
+function showGuideSuggest(i){
+  renderGuideDropdown(i, document.getElementById('guide-search-'+i)?.value||'');
+}
+function hideGuideSuggest(i){
+  const dd = document.getElementById('guide-dd-'+i);
+  if(dd) dd.style.display = 'none';
+}
+function renderGuideDropdown(i, q){
+  const dd = document.getElementById('guide-dd-'+i);
+  if(!dd) return;
+  const query = toHalfWidth(q.trim().toLowerCase());
+  const filtered = query
+    ? guideRegistryCache.filter(g=>{
+        const hay = `${g.name||''} ${g.name_kana||''} ${g.phone||''}`.toLowerCase();
+        return toHalfWidth(hay).includes(query);
+      })
+    : guideRegistryCache.slice(0,50);
+  const listHtml = filtered.length
+    ? filtered.slice(0,100).map(g=>`<div data-id="${g.id}" onmousedown="selectGuideItem(${i},this.dataset.id)" style="padding:8px 10px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''"><b>${escHtml(g.name||'')}</b>${g.phone?` <span style="color:var(--text3);font-size:10px">${escHtml(g.phone)}</span>`:''}</div>`).join('')
+    : `<div style="padding:8px 10px;font-size:11px;color:var(--text3)">該当なし</div>`;
+  dd.innerHTML = listHtml +
+    `<div onmousedown="switchGuideRowToFreetext(${i})" style="padding:8px 10px;font-size:12px;cursor:pointer;color:var(--blue);border-top:1px solid var(--border)">✏️ その他（自由入力）</div>` +
+    `<div onmousedown="openNewGuideModal(${i})" style="padding:8px 10px;font-size:12px;cursor:pointer;color:var(--green)">＋ 新規ガイドを登録</div>`;
+  _positionDropdownNearInput(document.getElementById('guide-search-'+i), dd);
+  dd.style.display = 'block';
+}
+function selectGuideItem(i, guideId){
+  const g = guideRegistryCache.find(x=>String(x.id)===String(guideId));
+  if(!g) return;
+  bdGuideItems[i].guide_id = g.id;
+  bdGuideItems[i].guide_name_freetext = '';
+  bdGuideItems[i]._freetextMode = false;
+  hideGuideSuggest(i);
+  renderGuideTable();
+}
+function switchGuideRowToFreetext(i){
+  bdGuideItems[i].guide_id = null;
+  bdGuideItems[i]._freetextMode = true;
+  hideGuideSuggest(i);
+  renderGuideTable();
+}
+function switchGuideRowToSearchMode(i){
+  bdGuideItems[i]._freetextMode = false;
+  bdGuideItems[i].guide_name_freetext = '';
+  renderGuideTable();
+}
+
+// マスタに存在しないガイドをその場で登録し、登録後は呼び出し元の行にそのまま選択状態で反映する。
+// 既存の「ガイド登録」管理画面(openGuideEditor/saveGuide)は氏名・カナ・年齢等の項目が多く
+// 予約編集モーダルの中からの簡易登録には過剰なため、氏名・携帯電話番号のみの専用の
+// 軽量モーダルとして別に用意している（登録先のguidesテーブル・guideRegistryCacheは共通）。
+function openNewGuideModal(i){
+  hideGuideSuggest(i);
+  window._newGuideForRowIndex = i;
+  const modal = document.createElement('div');
+  modal.id = 'new-guide-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:220;display:flex;align-items:center;justify-content:center;padding:20px';
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:12px;padding:20px;width:100%;max-width:360px">
+      <div style="font-size:14px;font-weight:700;margin-bottom:12px">＋ 新規ガイド登録</div>
+      <div class="form-field" style="margin-bottom:10px"><label>氏名</label><input id="new-guide-name" style="width:100%;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:12px;box-sizing:border-box"></div>
+      <div class="form-field" style="margin-bottom:12px"><label>携帯電話番号</label><input id="new-guide-phone" style="width:100%;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:12px;box-sizing:border-box" placeholder="090-XXXX-XXXX"></div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn btn-p" onclick="submitNewGuide()">登録</button>
+        <button class="btn" onclick="document.getElementById('new-guide-modal').remove()">キャンセル</button>
+        <span id="new-guide-status" style="font-size:11px;color:var(--text3)"></span>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  document.getElementById('new-guide-name').focus();
+}
+async function submitNewGuide(){
+  const i = window._newGuideForRowIndex;
+  const name = document.getElementById('new-guide-name').value.trim();
+  const phone = document.getElementById('new-guide-phone').value.trim();
+  const statusEl = document.getElementById('new-guide-status');
+  if(!name){ statusEl.textContent = '氏名を入力してください'; statusEl.style.color = 'var(--red)'; return; }
+  const dupName = guideRegistryCache.find(g=>g.name===name);
+  const dupPhone = phone && guideRegistryCache.find(g=>g.phone===phone);
+  if(dupName && !confirm(`「${name}」と同じ氏名のガイドが既に登録されています。続けて登録しますか？`)) return;
+  if(!dupName && dupPhone && !confirm(`「${phone}」と同じ携帯番号のガイドが既に登録されています。続けて登録しますか？`)) return;
+  statusEl.textContent = '登録中...'; statusEl.style.color = 'var(--text3)';
+  const {data, error} = await sb.from('guides').insert({name, phone: phone||null}).select().single();
+  if(error){ statusEl.textContent = '登録に失敗しました: '+error.message; statusEl.style.color = 'var(--red)'; return; }
+  guideRegistryCache.push(data);
+  if(i!=null && bdGuideItems[i]){
+    bdGuideItems[i].guide_id = data.id;
+    bdGuideItems[i].guide_name_freetext = '';
+    bdGuideItems[i]._freetextMode = false;
+    renderGuideTable();
+  }
+  document.getElementById('new-guide-modal')?.remove();
+}
+
+function addGuideRow(){
+  bdGuideItems.push({guide_id:null, guide_name_freetext:'', start_date:'', end_date:'', status:'回答待ち', memo:'', _freetextMode:false});
+  renderGuideTable();
+}
+
+async function saveGuideItems(){
+  if(!currentDetailId) return;
+  const bookingId = currentDetailId; // await中のcurrentDetailId変更に影響されないようスナップショットを保持
+  const rows = bdGuideItems.filter(it=>it.guide_id||it.guide_name_freetext||it.start_date||it.end_date||it.memo).map(it=>({
+    booking_id: bookingId,
+    guide_id: it.guide_id||null,
+    guide_name_freetext: it.guide_id ? '' : (it.guide_name_freetext||''),
+    start_date: sanitizeDateField(it.start_date),
+    end_date: sanitizeDateField(it.end_date),
+    status: it.status||'回答待ち',
+    memo: it.memo||''
+  }));
+  await safeReplaceBookingRows('booking_guides', bookingId, rows, '担当ガイド明細');
+}
+
 function checkBulkReadSanity(items, dateField){
   if(!items.length) return true;
   if(items.length <= 5) return true; // 少数なら確認不要
@@ -8639,6 +8835,9 @@ async function saveBookingDetail(){
   if(originalWaterCount > 0 && bdWaterItems.length === 0){
     if(!confirm('ミネラルウォーターの明細が0件になっています。本当に保存しますか？')) return;
   }
+  if(originalGuideCount > 0 && bdGuideItems.length === 0){
+    if(!confirm('担当ガイドの明細が0件になっています。本当に保存しますか？')) return;
+  }
   if(originalLocalExpenseCount > 0 && bdLocalExpenses.length === 0){
     if(!confirm('現地費用明細が0件になっています。本当に保存しますか？')) return;
   }
@@ -8729,6 +8928,9 @@ async function saveBookingDetail(){
     await saveFacilityItems();
     await saveWaterItems();
     await saveBulletTrainItems();
+    // booking_guidesは新設テーブルのため、DDL未実行の環境ではここで例外になりうる。
+    // 他の明細の保存を先に完了させておくため、この呼び出しは意図的に最後に置いている。
+    await saveGuideItems();
     const b = findBookingById(bookingId);
     await logAction('予約編集', b ? b.ref_no : bookingId);
 
