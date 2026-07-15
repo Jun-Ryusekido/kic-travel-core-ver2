@@ -1,9 +1,12 @@
 // 京都テルサ 大型バス駐車場：深夜0:00の新規解禁日を狙って自動的に2台分予約するスクリプト。
 // Windowsタスクスケジューラから「23:57に起動」する運用を想定している（タスク名:
-// KIC_KyotoTerrsaMidnight）。起動直後にensureLoggedIn()がログイン状態を確認し、
-// 未ログインならログイン画面を開いて一時停止する。人間は23:57〜0:00の間に手動で
-// ログイン（ID/パスワード入力・Cloudflareのロボット確認含む）を済ませればよく、
-// それ以降の0:00の解禁待ち〜予約実行は自動で進む。
+// KIC_KyotoTerrsaMidnight）。起動直後にensureLoggedIn()がログイン状態（永続化Chrome
+// プロファイルに保存されたセッション）を確認する。ログイン済みならそのまま自動で
+// 解禁待ち〜予約実行まで進む。未ログインの場合はログイン画面を開くだけにとどめて
+// 処理を中止する（Cloudflareのロボット確認はこの自動化セッションでは人間が手動で
+// チェックしても実際にはログインが成立しないことを確認済みのため、待機はしない方針。
+// ログインは別途 parking-kyoto-terrsa.js 等を手動実行して人間が完了させ、同じ
+// 永続化プロファイルにセッションを保存しておく運用とする）。
 //
 // 実行方法:
 //   node parking-kyoto-terrsa-midnight.js
@@ -26,12 +29,16 @@
 //   予約受付開始はサイトの表記上「利用日の3ヶ月前の00:00から」。したがって「本日の深夜0:00
 //   （＝明日0:00）」に新しく解禁される日は、理論上「明日の日付の3ヶ月後」になる
 //   （例: 実行日が2026-07-13なら、明日2026-07-14の3ヶ月後＝2026-10-14）。
-//   --date を指定しない場合はこの計算で自動的に対象日を決定する。
-//   ただし実際のカレンダーの解禁挙動は運用上この通りとは限らないため、--dateで明示指定する方が確実。
+//   --date / --dates を指定しない場合はこの計算で自動的に対象日を決定し、念のため前後1日分
+//   （前日・当日・翌日）も候補に含める（当日を最優先候補として解禁待ちリトライの対象にし、
+//   前日・翌日は当日で目標台数に届かなかった場合のみ次点候補として試す）。
+//   --date / --dates を明示指定した場合は、これまで通りその指定日を優先する（手動テスト用）。
 //
 // ログインは自動化していません。chromium.launchPersistentContext で永続化した
-// Chromeプロファイル（PROFILE_DIR）を使い、人間が23:57〜0:00の間に手動でログイン
-// （ID/パスワード入力・Cloudflareのロボット確認含む）を済ませたセッションを再利用します。
+// Chromeプロファイル（PROFILE_DIR）を使い、人間が別途（このスクリプトの外で）手動で
+// ログイン（ID/パスワード入力・Cloudflareのロボット確認含む）を済ませたセッションを
+// 再利用します。未ログインの場合、このスクリプトはログイン画面を開くだけで待たずに
+// 終了します（詳細は lib/kyoto-terrsa-booking-flow.js の ensureLoggedIn() を参照）。
 // このサイトはCloudflareのボット対策があり、headless:trueだと検証ページで止まってしまうため
 // 常にheadless:falseで実行する（下記のHEADLESSは変更しないこと）。
 const HEADLESS = false;
@@ -65,11 +72,9 @@ const UTILIZATION_GROUP = 'KIC0000';
 const BUS_COMPANY_NAME = 'KICトラベル';
 const RETRY_INTERVAL_MS = 2500; // 解禁待ちリトライの間隔（回線負荷を抑えるため2〜3秒程度）
 const RETRY_MAX_WAIT_MS = 10 * 60 * 1000; // 解禁待ちの最大待機時間（10分。要件通り）
-// 23:57起動から0:00の解禁までの間に、人間が手動ログインを終える猶予（最大6分）。
-const LOGIN_WAIT_MAX_MS = 6 * 60 * 1000;
-// 何が起きても必ずプロセスを終了させる安全装置。ログイン待ち最大6分＋
-// 解禁待ちリトライ最大10分が重なっても十分に収まるよう30分に設定。
-const HARD_WATCHDOG_MS = 30 * 60 * 1000;
+// 何が起きても必ずプロセスを終了させる安全装置。ログインは待たずに即エラーになるため、
+// 実質的には解禁待ちリトライ最大10分＋予約処理時間が収まればよいが、余裕を見て20分に設定。
+const HARD_WATCHDOG_MS = 20 * 60 * 1000;
 
 function parseArgs(argv) {
   const args = { vehicles: 2, dryRun: false };
@@ -87,6 +92,13 @@ function autoDetectTargetDate() {
   const today = getTodayJST();
   const tomorrow = subtractDays(today, -1);
   return addMonths(tomorrow, 3);
+}
+
+// --date / --dates の指定がない場合の候補日リストを自動計算する。
+// 自動計算した対象日を最優先候補にし、念のため前後1日分（前日・翌日）も次点候補に含める。
+function autoDetectCandidateDates() {
+  const target = autoDetectTargetDate();
+  return [target, subtractDays(target, 1), subtractDays(target, -1)];
 }
 
 function nextDateISO(dateISO) {
@@ -135,9 +147,19 @@ async function recordResult(sb, { dateISO, vehicleIndex, totalVehicles, status, 
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const dates = args.dates
-    ? args.dates.split(',').map((s) => s.trim()).filter(Boolean)
-    : [args.date || autoDetectTargetDate()];
+  let dates;
+  let dateSource;
+  if (args.dates) {
+    dates = args.dates.split(',').map((s) => s.trim()).filter(Boolean);
+    dateSource = '（指定）';
+  } else if (args.date) {
+    dates = [args.date];
+    dateSource = '（指定・1件）';
+  } else {
+    dates = autoDetectCandidateDates();
+    dateSource = '（自動計算：3ヶ月後ルール＋前後1日）';
+    console.log(`本日の自動計算による対象日: ${dates[0]}（次点候補: ${dates[1]}, ${dates[2]}）`);
+  }
   const totalVehicles = args.vehicles;
 
   for (const d of dates) {
@@ -154,7 +176,7 @@ async function main() {
   }
 
   console.log(`===== 京都テルサ 深夜自動予約 =====`);
-  console.log(`候補日（優先順）: ${dates.join(' → ')}${args.dates ? '（指定）' : args.date ? '（指定・1件）' : '（自動判定：明日の3ヶ月後）'} / 台数: ${totalVehicles} / dry-run: ${args.dryRun}`);
+  console.log(`候補日（優先順）: ${dates.join(' → ')}${dateSource} / 台数: ${totalVehicles} / dry-run: ${args.dryRun}`);
 
   const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
   const context = await chromium.launchPersistentContext(PROFILE_DIR, { headless: HEADLESS, slowMo: HEADLESS ? 200 : 0 });
@@ -163,7 +185,7 @@ async function main() {
   const elapsed = () => ((Date.now() - startedAt) / 1000).toFixed(1);
 
   try {
-    await ensureLoggedIn(page, { maxWaitMs: LOGIN_WAIT_MAX_MS });
+    await ensureLoggedIn(page);
     console.log(`ログイン確認完了（${elapsed()}秒経過）`);
   } catch (e) {
     console.error('ログイン確認に失敗したため、処理を中止します:', e.message);
