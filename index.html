@@ -9358,9 +9358,17 @@ async function saveBookingDetail(){
     await saveWaterItems();
     await saveBulletTrainItems();
     // booking_guides/tour_arrangement_*は新設テーブルのため、DDL未実行の環境ではここで
-    // 例外になりうる。他の明細の保存を先に完了させておくため、この2つは意図的に最後に置いている。
-    await saveGuideItems();
-    await saveArrDoc();
+    // 例外になりうる。他の明細（上記まで）は既に保存が完了しているため、この2つだけは
+    // 個別にtry/catchし、失敗してもそれ以降の保存完了処理（キャッシュ更新・成功表示・
+    // Invoice自動更新等）が丸ごとスキップされないようにしている。
+    let newTableSaveWarning = '';
+    try{
+      await saveGuideItems();
+      await saveArrDoc();
+    }catch(e){
+      console.error('担当ガイド/手配書タブの保存に失敗（他の明細は保存済みです）:', e);
+      newTableSaveWarning = '\n\n※「担当ガイド」「手配書」タブは保存できませんでした（DB側のテーブル未作成の可能性があります）。それ以外の内容は保存されています。\n'+e.message;
+    }
     const b = findBookingById(bookingId);
     await logAction('予約編集', b ? b.ref_no : bookingId);
 
@@ -9373,6 +9381,7 @@ async function saveBookingDetail(){
       document.getElementById('bd-msg').style.display='none';
       document.getElementById('bd-msg-top').style.display='none';
     }, 2500);
+    if(newTableSaveWarning) alert('予約情報を保存しました。'+newTableSaveWarning);
 
     ['db','bl'].forEach(p=>{
       if(document.getElementById(p+'-tbody')) filterBookingListGeneric(p);
