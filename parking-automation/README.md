@@ -148,6 +148,14 @@ Windowsタスクスケジューラ等で「毎月1日 00:00」に `node book-nag
 
 ## 京都テルサ 大型バス駐車場（RESERVA / reserva.be/kyototerrsaparking）
 
+> ⚠️ **使用禁止（2026年時点）**: reserva.beの利用規約（第4条禁止事項）で「ロボット、クローラー、
+> スパイダー及びこれらに類するプログラムを用いて、機械的なデータ取得及び操作を行う行為」が
+> 明確に禁止されていることが判明したため、`parking-kyoto-terrsa.js` /
+> `parking-kyoto-terrsa-midnight.js` による自動予約は中止しました。Windowsタスクスケジューラの
+> 起動タスク（`KIC_KyotoTerrsaMidnight`）は無効化済みです。今後は人間が毎晩0:00前後に手動で
+> reserva.beにログインし、手動で予約操作を行う運用に切り替えています。以下の説明は参考のため
+> 残していますが、**絶対にこれらのスクリプトを再実行・再スケジュール登録しないでください。**
+
 ### 設定 (.env)
 
 ログイン情報は `config.json`/`nagoya-config.json` とは異なり、`.env` ファイル（**gitで管理されません**）
