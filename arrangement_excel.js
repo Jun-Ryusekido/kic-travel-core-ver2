@@ -235,6 +235,56 @@
     return lines.join('\n');
   }
 
+  // 注意文言(tour_arrangement_notes)をフッターブロック内の対応セルに差し込むための
+  // 上書きマップを作る。値は文字列または文字列配列(display_order順)を受け付け、
+  // 配列は改行結合してから行単位で割り当てる。
+  // フッター(元ファイル77〜85行目)のセル役割:
+  //   A77〜A80 … 標準注意文言(fixed_template)。データが無ければテンプレートの文言を残す
+  //   B81/J81/Q81/B82 … バス会社・ドライバー連絡先(driver_info)
+  //   A83 … ツアー固有の申し送り(tour_specific)。元テンプレートに専用枠がないため空きセルを使用
+  //   A84/A85 … ミネラルウォーター配布指示(mineral_water)
+  //   W82/W83(お茶代・食事代)とAE85(KIC TRAVEL)はテンプレート固定文言のまま
+  // データが存在しないnote_typeのセルには上書きキー自体を作らない(=テンプレートの値のまま)。
+  function noteToLines(v){
+    const joined = Array.isArray(v) ? v.filter(Boolean).join('\n') : String(v||'');
+    return joined ? joined.split(/\r?\n/).filter(line=>line.trim()!=='') : [];
+  }
+
+  function buildFooterCellValues(notes){
+    const n = notes || {};
+    const v = {};
+
+    const fixedLines = noteToLines(n.fixed_template);
+    if(fixedLines.length){
+      // A77〜A80の4行に行単位で配置。4行を超える分は最終行にまとめる。余った行は空欄にする
+      const rows = fixedLines.slice(0,3);
+      if(fixedLines.length>3) rows.push(fixedLines.slice(3).join(' '));
+      for(let i=0;i<4;i++) v[key(i,1)] = rows[i] || '';
+    }
+
+    const driverLines = noteToLines(n.driver_info);
+    if(driverLines.length){
+      // 1〜3行目は81行目の3枠(B81/J81/Q81)、4行目以降はB82にまとめる
+      v[key(4,2)]  = driverLines[0] || '';
+      v[key(4,10)] = driverLines[1] || '';
+      v[key(4,17)] = driverLines[2] || '';
+      if(driverLines.length>3) v[key(5,2)] = driverLines.slice(3).join(' / ');
+    }
+
+    const specificLines = noteToLines(n.tour_specific);
+    if(specificLines.length){
+      v[key(6,1)] = specificLines.join('\n'); // A83
+    }
+
+    const waterLines = noteToLines(n.mineral_water);
+    if(waterLines.length){
+      v[key(7,1)] = waterLines[0];                                  // A84
+      if(waterLines.length>1) v[key(8,1)] = waterLines.slice(1).join(' '); // A85
+    }
+
+    return v;
+  }
+
   function buildHeaderCellValues(refNo, header, guides){
     const h = header||{};
     const v = {};
@@ -288,7 +338,7 @@
       placeBlock(ws, finalBlock, row, values);
       row += FINAL_BLOCK_ROWS;
     }
-    placeBlock(ws, footerBlock, row, {});
+    placeBlock(ws, footerBlock, row, buildFooterCellValues(payload.notes));
     row += FOOTER_ROWS;
 
     // ヘッダー(1〜10行目)
@@ -306,7 +356,7 @@
     // テスト用に内部関数も公開
     _internal: {
       extractBlock, placeBlock, unmergeRowRange, clearRowRange,
-      buildDayCellValues, buildHeaderCellValues, buildFlightLine, buildPaxText, weekdayJP,
+      buildDayCellValues, buildHeaderCellValues, buildFooterCellValues, buildFlightLine, buildPaxText, weekdayJP,
       NORMAL_BLOCK_START, NORMAL_BLOCK_ROWS, FINAL_BLOCK_START, FINAL_BLOCK_ROWS, FOOTER_START, FOOTER_ROWS, HEADER_ROWS, MAX_COL,
     }
   };

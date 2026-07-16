@@ -33,9 +33,21 @@ function makeDays(n, startDate){
   return days;
 }
 
+// 3日ツアーはnotesなし(空欄のまま崩れないことの確認)、11/14日はnotesあり
+function makeNotes(n){
+  if(n===3) return { fixed_template:'', mineral_water:'', driver_info:'', tour_specific:'' };
+  return {
+    fixed_template: '※テスト注意文言1行目\n※テスト注意文言2行目\n※テスト注意文言3行目\n※テスト注意文言4行目',
+    mineral_water: '※テストバス: ミネラルウォーター60本積込み\n配送分120本はホテルに在庫あり',
+    driver_info: 'テストバスA 090-0000-1111\nテストバスB 080-0000-2222\nテストバスC 070-0000-3333\nドライバー: テスト運転手 090-9999-8888',
+    tour_specific: '前泊: テストホテル成田 7/14 IN\n夜間駐車場: テスト駐車場(要事前連絡)',
+  };
+}
+
 function makePayload(n){
   return {
     refNo: `TEST${n}D_KK`,
+    notes: makeNotes(n),
     header: {
       bus_signage_name: `TEST GROUP ${n}DAYS`,
       nationality: 'テスト国',

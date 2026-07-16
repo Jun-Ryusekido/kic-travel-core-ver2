@@ -9189,6 +9189,12 @@ async function exportArrDocExcel(){
     },
     guides: bdArrGuideItems.map(it=>({ guide_name: arrDocResolveGuideName(it), phone: it.phone||'' }))
       .filter(g=>g.guide_name||g.phone),
+    notes: {
+      fixed_template: bdArrNotes.fixed_template||'',
+      mineral_water: bdArrNotes.mineral_water||'',
+      driver_info: bdArrNotes.driver_info||'',
+      tour_specific: bdArrNotes.tour_specific||'',
+    },
     days: bdArrDayItems.map((it,i)=>({
       day_no: i+1,
       date: it.date||'',
