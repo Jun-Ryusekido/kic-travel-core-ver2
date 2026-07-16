@@ -6909,10 +6909,23 @@ function isRowAutoPromo(row){
   return !!row.isAutoPromo && !emailInboxAutoFilterOverrides.has(emailInboxOverrideKey(row));
 }
 
+// 広告・メルマガ判定(isAutoPromo)またはAIによる「手配業務と無関係」判定(aiIrrelevant)の
+// いずれかに該当すれば自動除外扱いとする。ユーザーが「これは予約メールです」で戻した行は除く。
+function isRowAutoExcluded(row){
+  if(emailInboxAutoFilterOverrides.has(emailInboxOverrideKey(row))) return false;
+  return !!row.isAutoPromo || !!row.aiIrrelevant;
+}
+
+function emailInboxExcludeReason(row){
+  if(row.isAutoPromo) return '広告・メルマガ判定';
+  if(row.aiIrrelevant) return row.autoExcludeReason || 'REF#/ツアーコードなし、AI判定：無関係';
+  return '';
+}
+
 function isRowVisibleForMode(row, mode){
-  const promo = isRowAutoPromo(row);
-  if(mode === 'autofiltered') return promo;
-  if(promo) return false;
+  const excluded = isRowAutoExcluded(row);
+  if(mode === 'autofiltered') return excluded;
+  if(excluded) return false;
   return mode === 'postponed' ? !!row.postponed : !row.postponed;
 }
 
@@ -6920,8 +6933,97 @@ function markEmailInboxNotPromo(emailId){
   const row = emailInboxRawList.find(m=>m.id===emailId);
   if(!row) return;
   emailInboxAutoFilterOverrides.add(emailInboxOverrideKey(row));
+  // AI判定による除外を戻した場合は、次回以降も除外されないようキャッシュにも「関連あり」を記録する
+  if(row.aiIrrelevant){
+    row.aiIrrelevant = false;
+    setEmailRelevanceCacheEntry(row.id, true);
+  }
   const searchEl = document.getElementById('email-inbox-search');
   applyEmailInboxSearch(searchEl ? searchEl.value.trim() : '');
+}
+
+// ─── 手配業務関連メールかどうかの判定 ─────────────────────────────────────────
+// 手順:
+//  1. 件名または本文にREF#(例: #1374, REF1374)またはツアーコード(KIC0000形式、英数字+
+//     アンダースコアの表記ゆれ含む)が含まれていれば「予約関連」と即断する(AI呼び出し不要)。
+//  2. 含まれていない場合のみ、表示中ページの該当メールをまとめてAIに渡し、手配業務に関する
+//     実務メールかどうかをバッチ判定する(/api/classify-email-relevance)。
+//  3. AIが「無関係」と判定したメールは、広告・メルマガと同じ自動除外枠に入れる(削除はしない)。
+// 判定結果はlocalStorageにid単位でキャッシュし、同じメールを何度もAIに渡さないようにする。
+// 判定に失敗した場合は除外しない(誤除外より一覧に残る方が安全)。
+const EMAIL_REF_TOURCODE_RE = /(#\s*\d{3,})|(REF\s*#?\s*\d{3,})|(KIC[-_]?\d{3,4}(?:_[A-Za-z0-9]+)*)/i;
+function emailHasRefOrTourCode(subject, body){
+  return EMAIL_REF_TOURCODE_RE.test(String(subject||'')+' '+String(body||''));
+}
+
+const EMAIL_RELEVANCE_CACHE_KEY = 'kicEmailRelevanceCache_v1';
+function loadEmailRelevanceCache(){
+  try{
+    return JSON.parse(localStorage.getItem(EMAIL_RELEVANCE_CACHE_KEY)||'{}') || {};
+  }catch(e){ return {}; }
+}
+function saveEmailRelevanceCache(cache){
+  try{
+    const keys = Object.keys(cache);
+    // 際限なく増えないよう上限を設ける(古い順の管理はせず、超過時は全消去して作り直す)
+    if(keys.length > 20000){ localStorage.removeItem(EMAIL_RELEVANCE_CACHE_KEY); return; }
+    localStorage.setItem(EMAIL_RELEVANCE_CACHE_KEY, JSON.stringify(cache));
+  }catch(e){ /* localStorage不可の環境では毎回AI判定になるだけで動作は継続する */ }
+}
+function setEmailRelevanceCacheEntry(emailId, related){
+  const cache = loadEmailRelevanceCache();
+  cache[emailId] = related ? 1 : 0;
+  saveEmailRelevanceCache(cache);
+}
+
+const EMAIL_AI_EXCLUDE_REASON = 'REF#/ツアーコードなし、AI判定：無関係';
+let emailRelevanceInFlight = new Set(); // 同じメールへの同時多重AI呼び出しを防ぐ
+
+// 表示中ページのメール(本文取得済み)について関連判定を行い、新たに除外対象が出たらtrueを返す
+async function classifyEmailRelevanceForRows(rows){
+  const cache = loadEmailRelevanceCache();
+  let changed = false;
+  const needAI = [];
+  for(const m of rows){
+    if(m.aiIrrelevant !== undefined) continue;      // このセッションで判定済み
+    if(isRowAutoPromo(m)) continue;                 // 広告判定済みの行は二重に判定しない
+    if(emailHasRefOrTourCode(m.subject, m.body)){   // 番号あり→予約関連と即断
+      m.aiIrrelevant = false;
+      continue;
+    }
+    if(cache[m.id] !== undefined){
+      m.aiIrrelevant = (cache[m.id] === 0);
+      if(m.aiIrrelevant){ m.autoExcludeReason = EMAIL_AI_EXCLUDE_REASON; changed = true; }
+      continue;
+    }
+    if(!emailRelevanceInFlight.has(m.id)) needAI.push(m);
+  }
+  if(needAI.length){
+    needAI.forEach(m=>emailRelevanceInFlight.add(m.id));
+    try{
+      const resp = await fetch('/api/classify-email-relevance', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({emails: needAI.map(m=>({id:m.id, subject:m.subject||'', excerpt:String(m.body||'').slice(0,600)}))})
+      });
+      const data = await resp.json();
+      if(resp.ok && Array.isArray(data.results)){
+        const resultMap = new Map(data.results.map(r=>[String(r.id), !!r.related]));
+        for(const m of needAI){
+          if(!resultMap.has(String(m.id))) continue; // AIが返さなかった行は未判定のまま(次回再判定)
+          const related = resultMap.get(String(m.id));
+          cache[m.id] = related ? 1 : 0;
+          m.aiIrrelevant = !related;
+          if(!related){ m.autoExcludeReason = EMAIL_AI_EXCLUDE_REASON; changed = true; }
+        }
+        saveEmailRelevanceCache(cache);
+      }
+    }catch(e){
+      console.warn('メール関連判定(AI)に失敗しました。該当メールは一覧に残します:', e.message);
+    }finally{
+      needAI.forEach(m=>emailRelevanceInFlight.delete(m.id));
+    }
+  }
+  return changed;
 }
 
 // ─── REF#候補の提示用インデックス（bookings / booking_hotels から一度だけ構築してキャッシュ） ───
@@ -7219,8 +7321,13 @@ async function renderEmailInboxPage(){
 
   const summaryEl = document.getElementById('email-inbox-autofilter-summary');
   if(summaryEl){
-    const promoCount = emailInboxRawList.filter(m=>isRowAutoPromo(m)).length;
-    summaryEl.textContent = promoCount>0 ? `🚫 ${promoCount}件の広告・メルマガを自動的に除外しています` : '';
+    const excludedRows = emailInboxRawList.filter(m=>isRowAutoExcluded(m));
+    const promoCount = excludedRows.filter(m=>m.isAutoPromo).length;
+    const aiCount = excludedRows.length - promoCount;
+    const parts = [];
+    if(promoCount>0) parts.push(`広告・メルマガ ${promoCount}件`);
+    if(aiCount>0) parts.push(`業務無関係(AI判定) ${aiCount}件`);
+    summaryEl.textContent = excludedRows.length>0 ? `🚫 ${excludedRows.length}件のメールを自動的に除外しています（${parts.join('、')}）` : '';
   }
 
   const selectAllEl = document.getElementById('email-inbox-select-all');
@@ -7263,12 +7370,14 @@ async function renderEmailInboxPage(){
     const checked = emailInboxSelectedIds.has(m.id) ? 'checked' : '';
 
     if(emailInboxViewMode==='autofiltered'){
+      const reason = emailInboxExcludeReason(m);
       return `<div id="email-inbox-row-${m.id}" style="display:flex;gap:8px;padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px">
         <input type="checkbox" class="email-inbox-row-checkbox" ${checked} onchange="toggleEmailInboxRowSelection('${m.id}', this.checked)" style="margin-top:2px;flex-shrink:0">
         <div style="flex:1;min-width:0">
           <div style="font-size:12px;font-weight:600;margin-bottom:2px">${escHtml(m.subject||'(件名なし)')}</div>
           <div style="font-size:11px;color:var(--text3);margin-bottom:2px">${escHtml(m.sender||'')} ・ ${escHtml(received)}</div>
-          <div style="font-size:11px;color:var(--text2);margin-bottom:8px">${escHtml(preview)}${preview.length>=80?'…':''}</div>
+          <div style="font-size:11px;color:var(--text2);margin-bottom:4px">${escHtml(preview)}${preview.length>=80?'…':''}</div>
+          ${reason ? `<div style="font-size:10px;color:var(--amber);margin-bottom:8px">除外理由: ${escHtml(reason)}</div>` : ''}
           <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
             <button class="btn btn-p" style="font-size:11px" onclick="markEmailInboxNotPromo('${m.id}')">✅ これはホテル等の予約メールです</button>
             <button class="btn" style="font-size:11px;color:var(--red)" onclick="if(confirm('このメールを一覧から除外しますか？')){ignoreEmailInboxItem('${m.id}')}">🗑 無視</button>
@@ -7310,6 +7419,18 @@ async function renderEmailInboxPage(){
       <button class="btn" style="font-size:11px" ${atLast?'disabled':''} onclick="changeEmailInboxPage(1)">次へ →</button>
       <button class="btn" style="font-size:11px" ${atLast?'disabled':''} onclick="goToEmailInboxPage(${totalPages})">⏭ 最後へ</button>
     `;
+  }
+
+  // 表示したページのメールについて「手配業務関連かどうか」を後追いで判定し、
+  // 無関係と判定されたメールがあれば一覧から自動除外枠へ移す(通常表示のときのみ)。
+  // 除外で空いた分は次の行が繰り上がり、その行も次回の再描画時に判定される。
+  if(emailInboxViewMode==='normal'){
+    classifyEmailRelevanceForRows(pageItems).then(changed=>{
+      if(changed && emailInboxViewMode==='normal'){
+        const searchEl3 = document.getElementById('email-inbox-search');
+        applyEmailInboxSearch(searchEl3 ? searchEl3.value.trim() : '');
+      }
+    }).catch(()=>{ /* 判定失敗時は何もしない(一覧に残る) */ });
   }
 }
 

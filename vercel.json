@@ -14,6 +14,7 @@
     { "src": "/api/extract-receipt", "dest": "/api/extract-receipt.js" },
     { "src": "/api/extract-bankbook", "dest": "/api/extract-bankbook.js" },
     { "src": "/api/extract-email-refs", "dest": "/api/extract-email-refs.js" },
+    { "src": "/api/classify-email-relevance", "dest": "/api/classify-email-relevance.js" },
     { "src": "/guide_settlement_jp.pdf", "dest": "/public/guide_settlement_jp.pdf" },
     { "src": "/guide_settlement_en.pdf", "dest": "/public/guide_settlement_en.pdf" },
     { "src": "/kic-logo.png", "dest": "/public/kic-logo.png" },
