@@ -61,6 +61,7 @@ create table if not exists public.tour_day_itinerary (
   day_no integer not null,
   date date,
   bus_company_text text,
+  bus_booking_id uuid references public.booking_buses(id) on delete set null,
   itinerary_text text,
   others_text text,
   hotel_booking_id uuid references public.booking_hotels(id) on delete set null,
@@ -80,6 +81,7 @@ create table if not exists public.tour_day_itinerary (
   created_at timestamptz not null default now()
 );
 create index if not exists tour_day_itinerary_booking_id_idx on public.tour_day_itinerary(booking_id);
+create index if not exists tour_day_itinerary_bus_booking_id_idx on public.tour_day_itinerary(bus_booking_id);
 create index if not exists tour_day_itinerary_hotel_booking_id_idx on public.tour_day_itinerary(hotel_booking_id);
 create index if not exists tour_day_itinerary_lunch_restaurant_booking_id_idx on public.tour_day_itinerary(lunch_restaurant_booking_id);
 create index if not exists tour_day_itinerary_dinner_restaurant_booking_id_idx on public.tour_day_itinerary(dinner_restaurant_booking_id);

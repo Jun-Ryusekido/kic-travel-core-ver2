@@ -3952,7 +3952,7 @@ async function openBookingDetail(id){
   }));
   originalArrGuideCount = bdArrGuideItems.length;
   bdArrDayItems = (arrDayRows||[]).map(r=>({
-    id:r.id, day_no:r.day_no, date:r.date||'', bus_company_text:r.bus_company_text||'',
+    id:r.id, day_no:r.day_no, date:r.date||'', bus_company_text:r.bus_company_text||'', bus_booking_id:r.bus_booking_id||null,
     itinerary_text:r.itinerary_text||'', others_text:r.others_text||'',
     hotel_booking_id:r.hotel_booking_id||null, hotel_note:r.hotel_note||'',
     breakfast_text:r.breakfast_text||'', breakfast_time:r.breakfast_time||'', breakfast_phone:r.breakfast_phone||'',
@@ -9234,16 +9234,26 @@ function renderArrDayList(){
     });
     return opts.join('');
   };
+  const busOptions = (selectedId) => {
+    const opts = ['<option value="">-- 自由記述 --</option>'];
+    bdBusItems.filter(x=>x.id).forEach(x=>{
+      opts.push(`<option value="${x.id}" ${String(selectedId)===String(x.id)?'selected':''}>${escHtml(x.bus_company||'(名称未入力)')} ${x.start_date||''}〜${x.end_date||''}</option>`);
+    });
+    return opts.join('');
+  };
   container.innerHTML = bdArrDayItems.map((it,i)=>`
     <div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <div style="font-weight:700;font-size:12px">Day ${i+1}</div>
         ${arrDayDelBtnHtml(i)}
       </div>
-      <div class="form-grid" style="grid-template-columns:repeat(3,1fr)">
+      <div class="form-grid" style="grid-template-columns:repeat(2,1fr)">
         <div class="form-field"><label>日付</label><input type="date" min="1900-01-01" max="9999-12-31" value="${it.date||''}" onchange="bdArrDayItems[${i}].date=this.value"></div>
-        <div class="form-field"><label>バス会社</label><input value="${escAttr(it.bus_company_text)}" oninput="bdArrDayItems[${i}].bus_company_text=this.value" style="width:100%"></div>
         <div class="form-field"><label>出発時刻</label><input type="time" value="${it.departure_time||''}" onchange="bdArrDayItems[${i}].departure_time=this.value"></div>
+      </div>
+      <div class="form-grid" style="grid-template-columns:repeat(2,1fr);margin-top:6px">
+        <div class="form-field"><label>バス選択</label><select onchange="bdArrDayItems[${i}].bus_booking_id=this.value||null" style="width:100%">${busOptions(it.bus_booking_id)}</select></div>
+        <div class="form-field"><label>バス会社名(自由記述時)</label><input value="${escAttr(it.bus_company_text)}" oninput="bdArrDayItems[${i}].bus_company_text=this.value" style="width:100%"></div>
       </div>
       <div class="form-field" style="margin-top:6px"><label>行程(ITINERARY)</label><textarea rows="3" style="width:100%;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:12px;font-family:inherit;box-sizing:border-box" oninput="bdArrDayItems[${i}].itinerary_text=this.value">${escHtml(it.itinerary_text)}</textarea></div>
       <div class="form-field" style="margin-top:6px"><label>OTHERS</label><textarea rows="2" style="width:100%;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:12px;font-family:inherit;box-sizing:border-box" oninput="bdArrDayItems[${i}].others_text=this.value">${escHtml(it.others_text)}</textarea></div>
@@ -9275,7 +9285,7 @@ function renderArrDayList(){
 }
 function addArrDayRow(){
   bdArrDayItems.push({
-    day_no:0, date:'', bus_company_text:'', itinerary_text:'', others_text:'',
+    day_no:0, date:'', bus_company_text:'', bus_booking_id:null, itinerary_text:'', others_text:'',
     hotel_booking_id:null, hotel_note:'',
     breakfast_text:'', breakfast_time:'', breakfast_phone:'',
     lunch_restaurant_booking_id:null, lunch_text:'', lunch_time:'', lunch_phone:'',
@@ -9334,6 +9344,7 @@ async function saveArrDoc(){
     day_no: i+1,
     date: sanitizeDateField(it.date),
     bus_company_text: it.bus_company_text||'',
+    bus_booking_id: it.bus_booking_id||null,
     itinerary_text: it.itinerary_text||'',
     others_text: it.others_text||'',
     hotel_booking_id: it.hotel_booking_id||null,
@@ -9366,6 +9377,13 @@ function arrDocResolveHotelName(it){
     if(h) return h.hotel_name||'';
   }
   return '';
+}
+function arrDocResolveBusName(it){
+  if(it.bus_booking_id){
+    const b = bdBusItems.find(x=>String(x.id)===String(it.bus_booking_id));
+    if(b) return b.bus_company||'';
+  }
+  return it.bus_company_text||'';
 }
 function arrDocResolveRestaurantName(bookingId){
   if(!bookingId) return '';
@@ -9406,7 +9424,7 @@ async function exportArrDocExcel(){
     days: bdArrDayItems.map((it,i)=>({
       day_no: i+1,
       date: it.date||'',
-      bus_company_text: it.bus_company_text||'',
+      bus_company_text: arrDocResolveBusName(it),
       itinerary_text: it.itinerary_text||'',
       others_text: it.others_text||'',
       hotel_name: arrDocResolveHotelName(it),
@@ -9503,7 +9521,7 @@ async function syncArrangementDocumentsFromDraft(bookingId){
   const daySnapshots = bdArrDayItems.map((it,i)=>({
     day_no: i+1,
     date: sanitizeDateField(it.date),
-    bus_company_text: it.bus_company_text||'',
+    bus_company_text: arrDocResolveBusName(it),
     itinerary_text: it.itinerary_text||'',
     others_text: it.others_text||'',
     hotel_name: arrDocResolveHotelName(it),
