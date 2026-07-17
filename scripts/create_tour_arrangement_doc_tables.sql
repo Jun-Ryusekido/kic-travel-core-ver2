@@ -62,6 +62,9 @@ create table if not exists public.tour_day_itinerary (
   date date,
   bus_company_text text,
   bus_booking_id uuid references public.booking_buses(id) on delete set null,
+  -- 新幹線区間を挟む日は乗車前後でバス会社が乗り換わるのが通常のため、後半用も持てるようにする。
+  bus_company_text_2 text default '',
+  bus_booking_id_2 uuid references public.booking_buses(id) on delete set null,
   itinerary_text text,
   others_text text,
   hotel_booking_id uuid references public.booking_hotels(id) on delete set null,
@@ -82,6 +85,7 @@ create table if not exists public.tour_day_itinerary (
 );
 create index if not exists tour_day_itinerary_booking_id_idx on public.tour_day_itinerary(booking_id);
 create index if not exists tour_day_itinerary_bus_booking_id_idx on public.tour_day_itinerary(bus_booking_id);
+create index if not exists tour_day_itinerary_bus_booking_id_2_idx on public.tour_day_itinerary(bus_booking_id_2);
 create index if not exists tour_day_itinerary_hotel_booking_id_idx on public.tour_day_itinerary(hotel_booking_id);
 create index if not exists tour_day_itinerary_lunch_restaurant_booking_id_idx on public.tour_day_itinerary(lunch_restaurant_booking_id);
 create index if not exists tour_day_itinerary_dinner_restaurant_booking_id_idx on public.tour_day_itinerary(dinner_restaurant_booking_id);
