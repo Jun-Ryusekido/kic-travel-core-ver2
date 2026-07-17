@@ -6962,13 +6962,39 @@ function markEmailInboxNotPromo(emailId){
 // に誤マッチして無関係メールを「予約関連」と即断してしまうため、直前の文字が
 // 英数字・&・URL構成文字(/ = % . : ~ - #)の場合はマッチさせない(負の後読み)。
 // 「【#1374】」「(#1374)」「 #1374」のような通常のREF#表記は全角括弧・空白始まりなので影響しない。
-const EMAIL_REF_TOURCODE_RE = /((?<![&\w\/=%.:~#-])#\s*\d{3,})|(\bREF\s*#?\s*\d{3,})|(\bKIC[-_]?\d{3,4}(?:_[A-Za-z0-9]+)*)/i;
-function emailHasRefOrTourCode(subject, body){
-  return EMAIL_REF_TOURCODE_RE.test(String(subject||'')+' '+String(body||''));
+//
+// KICコード(KIC0000形式)は表記自体がほぼ一意でこのシステム固有のため、マッチしたら無条件で
+// 「予約関連」と即断してよい。一方「#数字」「REF数字」は海外パートナー・現地旅行社(ランドオペレーター等)
+// 自身の社内参照番号(例:#1205170)とも衝突しうるため、実在するREF#(bookings.ref_no)と一致した
+// 場合のみ即断し、一致しない場合はAI判定に回す(emailHasKnownRefNumberで判定)。
+const EMAIL_KIC_CODE_RE = /\bKIC[-_]?\d{3,4}(?:_[A-Za-z0-9]+)*/i;
+const EMAIL_REF_NUMBER_RE = /(?:(?<![&\w\/=%.:~#-])#\s*(\d{3,}))|(?:\bREF\s*#?\s*(\d{3,}))/gi;
+
+function emailHasKicCode(subject, body){
+  return EMAIL_KIC_CODE_RE.test(String(subject||'')+' '+String(body||''));
+}
+// text中の#数字/REF数字候補のうち、knownRefNumbers(実在するbookings.ref_noの数字集合)に
+// 実際に一致するものが1つでもあれば true。knownRefNumbersが未取得(nullやサイズ0)の場合は、
+// 誤って全除外してしまわないよう安全側でtrue(判定不能=予約関連扱い)にフォールバックする。
+function emailHasKnownRefNumber(subject, body, knownRefNumbers){
+  const text = String(subject||'')+' '+String(body||'');
+  const candidates = [];
+  let m;
+  EMAIL_REF_NUMBER_RE.lastIndex = 0;
+  while((m = EMAIL_REF_NUMBER_RE.exec(text))){
+    candidates.push(m[1] || m[2]);
+  }
+  if(!candidates.length) return false;
+  if(!knownRefNumbers || knownRefNumbers.size===0) return true; // マスタ未取得時は誤除外を避ける
+  return candidates.some(c=>knownRefNumbers.has(c));
+}
+function emailHasRefOrTourCode(subject, body, knownRefNumbers){
+  return emailHasKicCode(subject, body) || emailHasKnownRefNumber(subject, body, knownRefNumbers);
 }
 
-// v2: 正規表現の誤マッチ修正・AIプロンプト強化前の判定結果を引き継がないようキーを更新
-const EMAIL_RELEVANCE_CACHE_KEY = 'kicEmailRelevanceCache_v2';
+// v3: REF#実在チェック追加(海外パートナーの自社参照番号による誤マッチ修正)に伴い、
+// 過去の判定結果を引き継がないようキーを更新
+const EMAIL_RELEVANCE_CACHE_KEY = 'kicEmailRelevanceCache_v3';
 function loadEmailRelevanceCache(){
   try{
     return JSON.parse(localStorage.getItem(EMAIL_RELEVANCE_CACHE_KEY)||'{}') || {};
@@ -6991,15 +7017,28 @@ function setEmailRelevanceCacheEntry(emailId, related){
 const EMAIL_AI_EXCLUDE_REASON = 'REF#/ツアーコードなし、AI判定：無関係';
 let emailRelevanceInFlight = new Set(); // 同じメールへの同時多重AI呼び出しを防ぐ
 
+// 実在するbookings.ref_noのうち数字のみのもの(例:"1374")の集合。#1374のようなREF#表記の
+// 実在チェックに使う。KIC0000形式のツアーコードはEMAIL_KIC_CODE_REで別途判定するため含めない。
+let emailInboxKnownRefNumbers = null;
+async function ensureEmailInboxKnownRefNumbers(){
+  if(emailInboxKnownRefNumbers) return emailInboxKnownRefNumbers;
+  const idx = await ensureEmailInboxSuggestIndex();
+  emailInboxKnownRefNumbers = new Set(
+    (idx.bookings||[]).map(b=>b.ref_no).filter(r=>/^\d+$/.test(r))
+  );
+  return emailInboxKnownRefNumbers;
+}
+
 // 表示中ページのメール(本文取得済み)について関連判定を行い、新たに除外対象が出たらtrueを返す
 async function classifyEmailRelevanceForRows(rows){
   const cache = loadEmailRelevanceCache();
+  const knownRefNumbers = await ensureEmailInboxKnownRefNumbers();
   let changed = false;
   const needAI = [];
   for(const m of rows){
     if(m.aiIrrelevant !== undefined) continue;      // このセッションで判定済み
     if(isRowAutoPromo(m)) continue;                 // 広告判定済みの行は二重に判定しない
-    if(emailHasRefOrTourCode(m.subject, m.body)){   // 番号あり→予約関連と即断
+    if(emailHasRefOrTourCode(m.subject, m.body, knownRefNumbers)){   // 実在するREF#/ツアーコードあり→予約関連と即断
       m.aiIrrelevant = false;
       continue;
     }
@@ -7015,7 +7054,7 @@ async function classifyEmailRelevanceForRows(rows){
     try{
       const resp = await fetch('/api/classify-email-relevance', {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({emails: needAI.map(m=>({id:m.id, subject:m.subject||'', excerpt:String(m.body||'').slice(0,600)}))})
+        body: JSON.stringify({emails: needAI.map(m=>({id:m.id, subject:m.subject||'', sender:m.sender||'', excerpt:String(m.body||'').slice(0,600)}))})
       });
       const data = await resp.json();
       if(resp.ok && Array.isArray(data.results)){
@@ -7293,6 +7332,12 @@ function toggleEmailInboxSelectAll(){
 function updateEmailInboxBulkIgnoreButton(){
   const btn = document.getElementById('email-inbox-bulk-ignore-btn');
   if(!btn) return;
+  // 選択後に該当行が検索条件変更・自動除外判定(AI)・送信/無視等で一覧から消えることがある。
+  // その場合チェックボックス自体が描画されなくなり見た目は「何も選択されていない」のに、
+  // 内部のSetにはidが残り続けてボタンだけ「選択したN件」を表示し続けてしまうため、
+  // 表示更新のたびに現在の一覧に存在しないidを選択状態から取り除く。
+  const visibleIds = new Set(emailInboxIndex.map(m=>m.id));
+  Array.from(emailInboxSelectedIds).forEach(id=>{ if(!visibleIds.has(id)) emailInboxSelectedIds.delete(id); });
   const count = emailInboxSelectedIds.size;
   if(count===0){
     btn.style.display = 'none';

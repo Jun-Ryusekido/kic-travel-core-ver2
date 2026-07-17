@@ -3,7 +3,7 @@ export const config = { runtime: 'edge' };
 // メール受信箱: 「このメールは宿泊/バス/レストラン等の手配業務に関する実務メールか」を
 // バッチでAI判定する。REF#/ツアーコードを含むメールはクライアント側の正規表現で
 // 判定済みのため、ここに来るのは番号を含まないメールのみ。
-// 入力: {emails: [{id, subject, excerpt}]}（最大50件程度）
+// 入力: {emails: [{id, subject, sender, excerpt}]}（最大50件程度）
 // 出力: {results: [{id, related: true|false}]}
 export default async function handler(req) {
   if(req.method !== 'POST') return new Response('Method Not Allowed', {status:405});
@@ -13,7 +13,7 @@ export default async function handler(req) {
       return new Response(JSON.stringify({results: []}), {headers:{'Content-Type':'application/json'}});
     }
     const list = emails.slice(0, 60).map((m,i)=>
-      `--- メール${i+1} (id: ${m.id}) ---\n件名: ${String(m.subject||'').slice(0,200)}\n本文冒頭: ${String(m.excerpt||'').slice(0,600)}`
+      `--- メール${i+1} (id: ${m.id}) ---\n送信者: ${String(m.sender||'').slice(0,120)}\n件名: ${String(m.subject||'').slice(0,200)}\n本文冒頭: ${String(m.excerpt||'').slice(0,600)}`
     ).join('\n\n');
 
     const response = await fetch('https://api.anthropic.com/v1/messages',{
@@ -29,7 +29,9 @@ export default async function handler(req) {
         messages:[{
           role:'user',
           content:[
-            {type:'text', text: `あなたは訪日団体ツアーを扱う旅行会社の手配担当アシスタントです。
+            {type:'text', text: `あなたは訪日団体ツアーを扱う旅行会社(KIC Travel)の手配担当アシスタントです。
+KICは、日本国内のホテル・バス会社・レストラン・観光施設等に対して「手配を依頼する側」です。
+この受信箱は、その国内サプライヤーとのやりとりだけを対象としています。
 以下の各メールが「手配業務に関する実務メール」かどうかを判定してください。
 
 「手配業務に関する実務メール」(related: true) の例:
@@ -39,6 +41,7 @@ export default async function handler(req) {
 - 観光施設・駐車場・新幹線等の手配に関するやりとり
 - ガイド・添乗員の手配ややりとり
 - 上記に関する請求書・支払い・予約確認番号の連絡
+（いずれも、KICが日本国内のサプライヤーに依頼し、サプライヤー側から回答が来る、またはKICから依頼するという関係）
 
 「無関係」(related: false) の例:
 - 社内の他部署とのやりとり・一般的な業務連絡
@@ -50,8 +53,9 @@ export default async function handler(req) {
 - ゴルフコンペ・懇親会・親睦会等のイベント案内
 - 観光協会・業界団体等からの一般的なお知らせ・ニュースレター（特定の予約に紐づかないもの）
 - 個人的な連絡
+- 海外の現地旅行社・ランドオペレーター・OTA等の海外パートナーから、KICに対して見積り依頼・予約確認依頼・コスティング依頼が来ているメール（送信者ドメインが海外の旅行会社らしいもの、"Booking Confirmation Required"「Please share cost」等でKICに対して依頼・要求してくる内容のもの）。これはKICが「手配を依頼される側」の営業・パートナー間のやりとりであり、この受信箱が対象とする「KICが国内サプライヤーに手配を依頼するやりとり」とは方向が逆であるため無関係として扱う
 
-重要: 「観光」「ホテル」「旅行」等の単語が含まれていても、それが特定のツアー・予約の手配のやりとりでなければ無関係です。判断基準は「このメールに対応しないと、実際のツアー運行に支障が出るか」です。
+重要: 「観光」「ホテル」「旅行」等の単語が含まれていても、それが日本国内サプライヤーとの具体的な手配のやりとりでなければ無関係です。判断基準は「このメールに対応しないと、実際のツアー運行に支障が出るか」、かつ「KICが国内サプライヤーに依頼する/サプライヤーから回答が来る、という向きのやりとりか」です。
 
 迷った場合はrelated: trueにしてください（誤って実務メールを除外するより、無関係メールが一覧に残る方が安全です）。
 
