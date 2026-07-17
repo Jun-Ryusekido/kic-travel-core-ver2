@@ -1676,6 +1676,7 @@ input[type=number]{-moz-appearance:textfield}
         </tr></thead>
         <tbody id="bd-guides-tbody"></tbody>
       </table></div>
+      <div id="bd-guides-warnings" style="margin-top:6px"></div>
       <button class="btn" style="font-size:10px;margin-top:4px" onclick="addGuideRow()">＋ 行追加</button>
     </div>
 
@@ -3866,6 +3867,8 @@ async function openBookingDetail(id){
   }));
   originalGuideCount = bdGuideItems.length;
   renderGuideTable();
+  // 既存データの表示時点で二重アサイン警告を出しておく(タブを開いた瞬間に見えるように)
+  checkGuideDoubleBookings().catch(e=>console.warn('ガイド二重アサインチェックに失敗:', e.message));
 
 // ホテル割り当てを読み込み
   const {data: hotelRows, error: hotelFetchErr} = await sb.from('booking_hotels').select('*').eq('booking_id', id).order('sort_order');
@@ -6510,6 +6513,8 @@ function switchArrangTab(tab){
     btn.classList.toggle('active', t===tab);
   });
   if(tab==='rest' && restaurantPartnersCache.length===0) loadRestaurantPartnersCache().then(renderRestaurantTable);
+  // 担当ガイドタブを開いたとき、保存前から他予約との二重アサイン警告が見えるようにする
+  if(tab==='guide') checkGuideDoubleBookings().catch(e=>console.warn('ガイド二重アサインチェックに失敗:', e.message));
   // 手配書タブの日毎明細はホテル/レストランのプルダウンをbdHotelItems/bdRestaurantItemsから
   // 都度組み立てているため、他タブで行を追加/削除した後にこのタブへ切り替えた際に
   // 選択肢が最新化されるよう、切り替えのたびに再描画する。
@@ -8848,6 +8853,78 @@ async function saveGuideItems(){
     memo: it.memo||''
   }));
   await safeReplaceBookingRows('booking_guides', bookingId, rows, '担当ガイド明細');
+  // 保存後に他予約との二重アサインを再チェックする(警告表示のみで、保存自体はブロックしない)
+  checkGuideDoubleBookings().catch(e=>console.warn('ガイド二重アサインチェックに失敗:', e.message));
+}
+
+// ─── ガイドのダブルブッキング(二重アサイン)チェック ─────────────────────────
+// booking_guidesを軸に、guide_idが設定されている行のみを対象として、同じガイドが
+// 別の予約(booking_id)に重複する期間でアサインされていないかを確認する。
+// guide_name_freetextのみの行は表記ゆれ・同姓同名での誤検知リスクが高いため対象外。
+// 重複が見つかっても保存はブロックせず、担当ガイドタブ内に警告を表示するだけに留める。
+
+// 期間の重複判定: end_dateが無い行はstart_dateの1日だけの担当とみなす。
+// 2つの期間が1日でも重なっていれば重複(aStart <= bEnd かつ bStart <= aEnd)。
+function guideDatePeriod(startDate, endDate){
+  const s = startDate || endDate;
+  const e = endDate || startDate;
+  if(!s) return null; // 日付が全く無い行は判定不能のため対象外
+  return { s, e: e < s ? s : e };
+}
+function guidePeriodsOverlap(p1, p2){
+  return p1.s <= p2.e && p2.s <= p1.e;
+}
+function guideFmtDate(d){
+  if(!d) return '';
+  const m = String(d).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${Number(m[2])}/${Number(m[3])}` : d;
+}
+
+async function checkGuideDoubleBookings(){
+  const container = document.getElementById('bd-guides-warnings');
+  if(!container || !currentDetailId) return;
+  container.innerHTML = '';
+
+  const targets = bdGuideItems
+    .map(it=>({ guide_id: it.guide_id, period: guideDatePeriod(it.start_date, it.end_date) }))
+    .filter(t=>t.guide_id && t.period);
+  if(!targets.length) return;
+
+  const guideIds = Array.from(new Set(targets.map(t=>String(t.guide_id))));
+  const {data: others, error} = await sb.from('booking_guides')
+    .select('guide_id,booking_id,start_date,end_date,bookings(ref_no,tour_name)')
+    .in('guide_id', guideIds)
+    .neq('booking_id', currentDetailId);
+  if(error){ console.warn('ガイド二重アサインチェックの検索に失敗:', error.message); return; }
+  if(!others || !others.length) return;
+
+  const warnings = [];
+  const seen = new Set();
+  for(const t of targets){
+    for(const o of others){
+      if(String(o.guide_id) !== String(t.guide_id)) continue;
+      const op = guideDatePeriod(o.start_date, o.end_date);
+      if(!op || !guidePeriodsOverlap(t.period, op)) continue;
+      const g = guideRegistryCache.find(x=>String(x.id)===String(t.guide_id));
+      const guideName = g ? g.name : '(ガイド名不明)';
+      const refNo = o.bookings?.ref_no || '(REF#不明)';
+      const tourName = o.bookings?.tour_name || 'ツアー名未設定';
+      // 実際に重なっている期間(遅い方の開始〜早い方の終了)を具体的に示す
+      const ovS = t.period.s > op.s ? t.period.s : op.s;
+      const ovE = t.period.e < op.e ? t.period.e : op.e;
+      const range = ovS === ovE ? guideFmtDate(ovS) : `${guideFmtDate(ovS)}〜${guideFmtDate(ovE)}`;
+      const key = `${t.guide_id}|${o.booking_id}|${ovS}|${ovE}`;
+      if(seen.has(key)) continue;
+      seen.add(key);
+      warnings.push(`${guideName}さんは、#${refNo}（${tourName}）と${range}が重複しています`);
+    }
+  }
+  if(!warnings.length) return;
+  container.innerHTML = `
+    <div style="background:var(--amber-lt);border:1px solid var(--amber);border-radius:8px;padding:8px 10px">
+      <div style="font-size:11px;font-weight:700;color:var(--amber);margin-bottom:4px">⚠ ガイドの二重アサインの可能性があります</div>
+      ${warnings.map(w=>`<div style="font-size:11px;color:var(--amber);line-height:1.6">・${escHtml(w)}</div>`).join('')}
+    </div>`;
 }
 
 // ─── 手配書(tour_arrangement_headers / tour_guides / tour_day_itinerary / tour_arrangement_notes) ───
