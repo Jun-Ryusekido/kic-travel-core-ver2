@@ -365,6 +365,7 @@ input[type=number]{-moz-appearance:textfield}
   .confirm-table td::before{content:attr(data-label);font-weight:600;flex:0 0 76px;font-size:10px;color:var(--text3)}
   .confirm-table td input,.confirm-table td select{flex:1;width:auto!important}
   .confirm-table td[data-label="追加"]::before{display:none}
+  .confirm-table tr.cost-sort-row{display:none}
 }
 /* 請求書読み取り確認モーダル：スマホはカード形式（縦積み） */
 @media (max-width: 599px) {
@@ -1641,7 +1642,7 @@ input[type=number]{-moz-appearance:textfield}
     </div>
 
     <div id="arrtab-bullet" style="display:none">
-      <div class="tbl-wrap"><table class="li-table" style="min-width:1200px">
+      <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:1200px">
         <thead><tr>
           <th style="width:90px;cursor:pointer;user-select:none" onclick="sortBulletTrainTable('ride_date')">乗車日 <span id="bullet-ride-date-sort-arrow"></span></th>
           <th style="width:80px">列車名</th>
@@ -1665,7 +1666,7 @@ input[type=number]{-moz-appearance:textfield}
     </div>
 
     <div id="arrtab-guide" style="display:none">
-      <div class="tbl-wrap"><table class="li-table" style="min-width:760px">
+      <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:760px">
         <thead><tr>
           <th style="width:220px">ガイド</th>
           <th style="width:110px">担当日(From)</th>
@@ -1712,7 +1713,7 @@ input[type=number]{-moz-appearance:textfield}
       <div id="ad-last-revised" style="font-size:10px;color:var(--text3);margin-top:4px"></div>
 
       <div class="modal-section-title">担当ガイド</div>
-      <div class="tbl-wrap"><table class="li-table" style="min-width:640px">
+      <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:640px">
         <thead><tr>
           <th style="width:220px">ガイド</th>
           <th style="width:130px">携帯電話番号</th>
@@ -1754,7 +1755,7 @@ input[type=number]{-moz-appearance:textfield}
         <div id="bd-invoice-actions" style="margin-bottom:4px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
           <button class="btn" id="bd-agent-toggle-btn" style="font-size:10px" onclick="toggleBdAgentColumn()">＋ 請求先を分ける</button>
         </div>
-        <div class="tbl-wrap"><table class="li-table">
+        <div class="tbl-wrap"><table class="li-table confirm-table">
           <thead><tr><th style="width:11%">項目名</th><th style="width:35%">追記事項</th><th style="width:7%;text-align:right">単価</th><th style="width:4%;text-align:right">数量</th><th class="li-amt" style="width:7%;text-align:right">金額</th><th style="width:7%">入金日</th><th style="width:9%" class="li-amt">入金金額</th><th style="width:10%">入金先銀行</th><th style="width:7%" class="li-amt">未収</th><th class="bd-agent-col" style="width:120px;display:none">請求先</th><th class="li-del" style="width:3%"></th></tr></thead>
           <tbody id="bd-sales-tbody"></tbody>
         </table></div>
@@ -1768,7 +1769,7 @@ input[type=number]{-moz-appearance:textfield}
           <button class="btn" style="font-size:10px;background:var(--green-lt);border-color:var(--green);color:var(--green)" onclick="approveCheckedCostItems()">✓ 選択した行を承認</button>
         </div>
         <input id="bd-cost-search" placeholder="仕入先・備考で絞り込み" style="width:100%;padding:5px 8px;border-radius:6px;border:1px solid var(--border);font-size:11px;margin-bottom:4px;box-sizing:border-box" oninput="bdCostSearch=this.value;renderCostTable()">
-        <div class="tbl-wrap"><table class="li-table">
+        <div class="tbl-wrap"><table class="li-table confirm-table">
           <thead></thead>
           <tbody id="bd-cost-tbody"></tbody>
         </table></div>
@@ -1784,7 +1785,7 @@ input[type=number]{-moz-appearance:textfield}
       <button class="btn" style="font-size:10px" onclick="printLocalExpenses()">🖨 印刷</button>
     </div>
     <div id="local-expenses-print-area">
-    <div class="tbl-wrap"><table class="li-table" style="min-width:800px">
+    <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:800px">
       <thead><tr>
         <th style="width:100px">日付</th>
         <th style="width:90px">費用種類</th>
@@ -3063,13 +3064,13 @@ function renderSalesTable(){
   }else{
     tbody.innerHTML = bdSalesItems.map((it,i)=>`
       <tr>
-        <td><input ${dis} value="${(it.item_name||'').replace(/"/g,'&quot;')}" title="${(it.item_name||'').replace(/"/g,'&quot;')}" onchange="bdSalesItems[${i}].item_name=this.value"></td>
-        <td><input ${dis} value="${(it.memo||'').replace(/"/g,'&quot;')}" title="${(it.memo||'').replace(/"/g,'&quot;')}" onchange="bdSalesItems[${i}].memo=this.value"></td>
-        <td style="text-align:right"><input ${dis} type="text" inputmode="numeric" value="${Number(it.unit_price||0).toLocaleString('ja-JP')}" onchange="bdSalesRowCalc(${i},this,'unit_price')" style="text-align:right"></td>
-        <td style="text-align:right"><input ${dis} type="number" value="${it.qty||1}" onchange="bdSalesRowCalc(${i},this,'qty')" style="text-align:right"></td>
-        <td id="bd-sales-amt-${i}" class="li-amt" style="text-align:right">${yen(it.amount||0)}</td>
-        <td>${renderSalesPaymentDates(it,i,dis)}</td>         <td>${renderSalesPaymentAmounts(it,i,dis)}</td>         <td>${renderSalesPaymentBanks(it,i,dis)}</td>         <td class="li-amt" style="${(Number(it.amount||0)-salesPaymentsTotal(it))>0?'color:var(--red)':'color:var(--green)'}">${yen(Number(it.amount||0)-salesPaymentsTotal(it))}</td>
-        <td class="bd-agent-col" style="display:none"><input class="bd-agent-col" style="display:none" ${dis} value="${(it.agent_name||'').replace(/"/g,'&quot;')}" title="${(it.agent_name||'').replace(/"/g,'&quot;')}" placeholder="(予約のAgent)" onchange="bdSalesItems[${i}].agent_name=this.value;renderInvoiceActions()"></td></td>
+        <td data-label="項目名"><input ${dis} value="${(it.item_name||'').replace(/"/g,'&quot;')}" title="${(it.item_name||'').replace(/"/g,'&quot;')}" onchange="bdSalesItems[${i}].item_name=this.value"></td>
+        <td data-label="追記事項"><input ${dis} value="${(it.memo||'').replace(/"/g,'&quot;')}" title="${(it.memo||'').replace(/"/g,'&quot;')}" onchange="bdSalesItems[${i}].memo=this.value"></td>
+        <td data-label="単価" style="text-align:right"><input ${dis} type="text" inputmode="numeric" value="${Number(it.unit_price||0).toLocaleString('ja-JP')}" onchange="bdSalesRowCalc(${i},this,'unit_price')" style="text-align:right"></td>
+        <td data-label="数量" style="text-align:right"><input ${dis} type="number" value="${it.qty||1}" onchange="bdSalesRowCalc(${i},this,'qty')" style="text-align:right"></td>
+        <td data-label="金額" id="bd-sales-amt-${i}" class="li-amt" style="text-align:right">${yen(it.amount||0)}</td>
+        <td data-label="入金日">${renderSalesPaymentDates(it,i,dis)}</td>         <td data-label="入金金額">${renderSalesPaymentAmounts(it,i,dis)}</td>         <td data-label="入金先銀行">${renderSalesPaymentBanks(it,i,dis)}</td>         <td data-label="未収" class="li-amt" style="${(Number(it.amount||0)-salesPaymentsTotal(it))>0?'color:var(--red)':'color:var(--green)'}">${yen(Number(it.amount||0)-salesPaymentsTotal(it))}</td>
+        <td class="bd-agent-col" data-label="請求先" style="display:none"><input class="bd-agent-col" style="display:none" ${dis} value="${(it.agent_name||'').replace(/"/g,'&quot;')}" title="${(it.agent_name||'').replace(/"/g,'&quot;')}" placeholder="(予約のAgent)" onchange="bdSalesItems[${i}].agent_name=this.value;renderInvoiceActions()"></td></td>
         <td class="li-del">${bdLocked?'':`<span class="lnk" style="font-size:10px" onclick="removeSalesRow(${i})">削除</span>`}</td>
       </tr>`).join('');
   }
@@ -3126,7 +3127,7 @@ function renderCostTable(){
   const searchEl = document.getElementById('bd-cost-search');
   if(searchEl && searchEl.value !== bdCostSearch) searchEl.value = bdCostSearch;
 
-  const searchHtml = `<tr>
+  const searchHtml = `<tr class="cost-sort-row">
     <th style="width:24px"></th>
     ${[['item_name','仕入先','28%',''],['amount','仕入額','10%','text-align:right'],['payment_date','出金日','8%','text-align:center'],['memo','備考','','']].map(([f,l,w,a])=>{
       const arrow = bdCostSortField===f ? (bdCostSortDir===1?'▲':'▼') : '';
@@ -3162,11 +3163,11 @@ function renderCostTable(){
       const i = it._i;
       return `<tr>
         <td style="text-align:center">${bdLocked?'':`<input type="checkbox" class="cost-check" data-i="${i}">`}</td>
-        <td><input ${dis} value="${(it.item_name||'').replace(/"/g,'&quot;')}" title="${(it.item_name||'').replace(/"/g,'&quot;')}" oninput="bdCostItems[${i}].item_name=this.value;showSupplierSuggestions(this,${i})" onblur="setTimeout(hideSupplierSuggestions,150)" onfocus="showSupplierSuggestions(this,${i})"></td>
-        <td style="text-align:right"><input ${dis} type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="bdCostRowCalc(${i},this)" style="text-align:right"></td>
-        <td style="text-align:center"><input ${dis} type="date" min="1900-01-01" max="9999-12-31" value="${_safeDate(it.payment_date)}" onchange="bdCostItems[${i}].payment_date=this.value" style="text-align:center"></td>
-        <td><input ${dis} value="${(it.memo||'').replace(/"/g,'&quot;')}" title="${(it.memo||'').replace(/"/g,'&quot;')}" onchange="bdCostItems[${i}].memo=this.value"></td>
-        <td><span style="font-size:9px;padding:2px 6px;border-radius:8px;background:${it.status==='approved'?'var(--green-lt)':'var(--bg)'};color:${it.status==='approved'?'var(--green)':'var(--text3)'}">${it.status==='approved'?'承認済':'未承認'}</span></td>
+        <td data-label="仕入先"><input ${dis} value="${(it.item_name||'').replace(/"/g,'&quot;')}" title="${(it.item_name||'').replace(/"/g,'&quot;')}" oninput="bdCostItems[${i}].item_name=this.value;showSupplierSuggestions(this,${i})" onblur="setTimeout(hideSupplierSuggestions,150)" onfocus="showSupplierSuggestions(this,${i})"></td>
+        <td data-label="仕入額" style="text-align:right"><input ${dis} type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="bdCostRowCalc(${i},this)" style="text-align:right"></td>
+        <td data-label="出金日" style="text-align:center"><input ${dis} type="date" min="1900-01-01" max="9999-12-31" value="${_safeDate(it.payment_date)}" onchange="bdCostItems[${i}].payment_date=this.value" style="text-align:center"></td>
+        <td data-label="備考"><input ${dis} value="${(it.memo||'').replace(/"/g,'&quot;')}" title="${(it.memo||'').replace(/"/g,'&quot;')}" onchange="bdCostItems[${i}].memo=this.value"></td>
+        <td data-label="状態"><span style="font-size:9px;padding:2px 6px;border-radius:8px;background:${it.status==='approved'?'var(--green-lt)':'var(--bg)'};color:${it.status==='approved'?'var(--green)':'var(--text3)'}">${it.status==='approved'?'承認済':'未承認'}</span></td>
         <td class="li-del">${bdLocked?'':`<span class="lnk" style="font-size:10px" onclick="removeCostRow(${i})">削除</span>`}</td>
       </tr>`;
     }).join('');
@@ -3709,19 +3710,19 @@ function renderLocalExpenses(){
   }else{
     tbody.innerHTML = bdLocalExpenses.map((it,i)=>`
       <tr>
-        <td><input type="date" min="1900-01-01" max="9999-12-31" value="${_safeDate(it.expense_date)}" onchange="bdLocalExpenses[${i}].expense_date=this.value" style="width:100%"></td>
-        <td><select onchange="bdLocalExpenses[${i}].expense_type=this.value" style="width:100%">
+        <td data-label="日付"><input type="date" min="1900-01-01" max="9999-12-31" value="${_safeDate(it.expense_date)}" onchange="bdLocalExpenses[${i}].expense_date=this.value" style="width:100%"></td>
+        <td data-label="費用種類"><select onchange="bdLocalExpenses[${i}].expense_type=this.value" style="width:100%">
           <option value=""></option>
           ${LOCAL_EXPENSE_TYPES.map(t=>`<option value="${t}" ${it.expense_type===t?'selected':''}>${t}</option>`).join('')}
         </select></td>
-        <td><input value="${(it.content||'').replace(/"/g,'&quot;')}" onchange="bdLocalExpenses[${i}].content=this.value" style="width:100%"></td>
-        <td><select onchange="bdLocalExpenses[${i}].category=this.value" style="width:100%">
+        <td data-label="内容"><input value="${(it.content||'').replace(/"/g,'&quot;')}" onchange="bdLocalExpenses[${i}].content=this.value" style="width:100%"></td>
+        <td data-label="区分"><select onchange="bdLocalExpenses[${i}].category=this.value" style="width:100%">
           ${LOCAL_EXPENSE_CATEGORIES.map(c=>`<option value="${c}" ${it.category===c?'selected':''}>${c}</option>`).join('')}
         </select></td>
-        <td><input type="text" inputmode="numeric" value="${Number(it.unit_price||0).toLocaleString('ja-JP')}" onchange="localExpenseCalc(${i},this)" style="width:70px;text-align:right"></td>
-        <td><input type="number" value="${it.qty||1}" onchange="bdLocalExpenses[${i}].qty=Number(this.value);bdLocalExpenses[${i}].amount=Math.round(Number(bdLocalExpenses[${i}].unit_price||0)*Number(this.value||1));renderLocalExpenses()" style="width:45px"></td>
-        <td style="text-align:right;white-space:nowrap">${yen(it.amount||0)}</td>
-        <td><select onchange="bdLocalExpenses[${i}].payment_method=this.value" style="width:100%">
+        <td data-label="単価"><input type="text" inputmode="numeric" value="${Number(it.unit_price||0).toLocaleString('ja-JP')}" onchange="localExpenseCalc(${i},this)" style="width:70px;text-align:right"></td>
+        <td data-label="数量"><input type="number" value="${it.qty||1}" onchange="bdLocalExpenses[${i}].qty=Number(this.value);bdLocalExpenses[${i}].amount=Math.round(Number(bdLocalExpenses[${i}].unit_price||0)*Number(this.value||1));renderLocalExpenses()" style="width:45px"></td>
+        <td data-label="金額" style="text-align:right;white-space:nowrap">${yen(it.amount||0)}</td>
+        <td data-label="支払方法"><select onchange="bdLocalExpenses[${i}].payment_method=this.value" style="width:100%">
           ${LOCAL_EXPENSE_PAYMENT_METHODS.map(m=>`<option value="${m}" ${it.payment_method===m?'selected':''}>${m}</option>`).join('')}
         </select></td>
         <td class="li-del"><span class="lnk" style="font-size:10px" onclick="if(confirm('この行を削除しますか？')){bdLocalExpenses.splice(${i},1);renderLocalExpenses()}">削除</span></td>
@@ -8721,18 +8722,18 @@ function renderBulletTrainTable(){
       ? `background:var(--red-lt);color:var(--red)`
       : `background:var(--amber-lt);color:var(--amber)`;
   tbody.innerHTML = bdBulletTrainItems.map((it,i)=>`<tr>
-    <td><input type="date" min="1900-01-01" max="9999-12-31" value="${it.ride_date||''}" onchange="bdBulletTrainItems[${i}].ride_date=this.value"></td>
-    <td><input value="${escAttr(it.train_name)}" oninput="bdBulletTrainItems[${i}].train_name=this.value" style="width:100%" placeholder="のぞみ"></td>
-    <td><input value="${escAttr(it.train_number)}" oninput="bdBulletTrainItems[${i}].train_number=this.value" style="width:100%" placeholder="123号"></td>
-    <td><input value="${escAttr(it.departure_station)}" oninput="bdBulletTrainItems[${i}].departure_station=this.value" style="width:100%" placeholder="東京"></td>
-    <td><input type="time" value="${it.departure_time||''}" onchange="bdBulletTrainItems[${i}].departure_time=this.value" style="width:100%"></td>
-    <td><input value="${escAttr(it.arrival_station)}" oninput="bdBulletTrainItems[${i}].arrival_station=this.value" style="width:100%" placeholder="新大阪"></td>
-    <td><input type="time" value="${it.arrival_time||''}" onchange="bdBulletTrainItems[${i}].arrival_time=this.value" style="width:100%"></td>
-    <td><input type="number" value="${it.pax_adult||0}" onchange="bdBulletTrainItems[${i}].pax_adult=Number(this.value)" style="width:100%;text-align:right"></td>
-    <td><input type="number" value="${it.pax_child||0}" onchange="bdBulletTrainItems[${i}].pax_child=Number(this.value)" style="width:100%;text-align:right"></td>
-    <td><input type="number" value="${it.pax_free||0}" onchange="bdBulletTrainItems[${i}].pax_free=Number(this.value)" style="width:100%;text-align:right"></td>
-    <td><input type="number" value="${it.discount_rate||0}" onchange="bdBulletTrainItems[${i}].discount_rate=Number(this.value)" style="width:100%;text-align:right"></td>
-    <td><select style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px;font-weight:600;${stStyle(it.status||'回答待ち')}"
+    <td data-label="乗車日"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.ride_date||''}" onchange="bdBulletTrainItems[${i}].ride_date=this.value"></td>
+    <td data-label="列車名"><input value="${escAttr(it.train_name)}" oninput="bdBulletTrainItems[${i}].train_name=this.value" style="width:100%" placeholder="のぞみ"></td>
+    <td data-label="号数"><input value="${escAttr(it.train_number)}" oninput="bdBulletTrainItems[${i}].train_number=this.value" style="width:100%" placeholder="123号"></td>
+    <td data-label="出発駅"><input value="${escAttr(it.departure_station)}" oninput="bdBulletTrainItems[${i}].departure_station=this.value" style="width:100%" placeholder="東京"></td>
+    <td data-label="出発時刻"><input type="time" value="${it.departure_time||''}" onchange="bdBulletTrainItems[${i}].departure_time=this.value" style="width:100%"></td>
+    <td data-label="到着駅"><input value="${escAttr(it.arrival_station)}" oninput="bdBulletTrainItems[${i}].arrival_station=this.value" style="width:100%" placeholder="新大阪"></td>
+    <td data-label="到着時刻"><input type="time" value="${it.arrival_time||''}" onchange="bdBulletTrainItems[${i}].arrival_time=this.value" style="width:100%"></td>
+    <td data-label="大人"><input type="number" value="${it.pax_adult||0}" onchange="bdBulletTrainItems[${i}].pax_adult=Number(this.value)" style="width:100%;text-align:right"></td>
+    <td data-label="小人"><input type="number" value="${it.pax_child||0}" onchange="bdBulletTrainItems[${i}].pax_child=Number(this.value)" style="width:100%;text-align:right"></td>
+    <td data-label="無賃"><input type="number" value="${it.pax_free||0}" onchange="bdBulletTrainItems[${i}].pax_free=Number(this.value)" style="width:100%;text-align:right"></td>
+    <td data-label="割引率(%)"><input type="number" value="${it.discount_rate||0}" onchange="bdBulletTrainItems[${i}].discount_rate=Number(this.value)" style="width:100%;text-align:right"></td>
+    <td data-label="ステータス"><select style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px;font-weight:600;${stStyle(it.status||'回答待ち')}"
       onchange="bdBulletTrainItems[${i}].status=this.value;renderBulletTrainTable()">
       <option value="未予約" ${it.status==='未予約'?'selected':''}>未予約</option>
       <option value="回答待ち" ${(it.status||'回答待ち')==='回答待ち'?'selected':''}>回答待ち</option>
@@ -8741,7 +8742,7 @@ function renderBulletTrainTable(){
       <option value="NG回答" ${it.status==='NG回答'?'selected':''}>NG回答</option>
       <option value="キャンセル" ${it.status==='キャンセル'?'selected':''}>キャンセル</option>
     </select></td>
-    <td><input value="${escAttr(it.memo)}" oninput="bdBulletTrainItems[${i}].memo=this.value" style="width:100%"></td>
+    <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdBulletTrainItems[${i}].memo=this.value" style="width:100%"></td>
     ${arrDelBtnHtml('bdBulletTrainItems', i, 'renderBulletTrainTable', escAttr([it.ride_date, it.train_name, it.train_number, [it.departure_station, it.arrival_station].filter(Boolean).join('→')].filter(Boolean).join(' '))+' の行を削除しますか？')}
   </tr>`).join('');
 }
@@ -9098,19 +9099,19 @@ function renderArrGuideTable(){
     const selectedGuide = it.guide_id ? guideRegistryCache.find(g=>String(g.id)===String(it.guide_id)) : null;
     const freetextMode = !!it._freetextMode || (!it.guide_id && !!it.guide_name_freetext);
     const guideCell = freetextMode
-      ? `<td>
+      ? `<td data-label="ガイド">
           <input type="text" value="${escAttr(it.guide_name_freetext)}" placeholder="氏名を入力" oninput="bdArrGuideItems[${i}].guide_name_freetext=this.value" style="width:100%">
           <div style="font-size:9px;margin-top:2px"><span class="lnk" onclick="switchArrGuideRowToSearchMode(${i})">🔍 マスタから選ぶ</span></div>
         </td>`
-      : `<td style="position:relative">
+      : `<td data-label="ガイド" style="position:relative">
           <input type="text" id="ad-guide-search-${i}" value="${escAttr(selectedGuide ? guideDisplayLabel(selectedGuide) : '')}" placeholder="氏名で検索..." autocomplete="off"
                  oninput="filterArrGuideSuggest(${i})" onfocus="showArrGuideSuggest(${i})" onblur="setTimeout(()=>hideArrGuideSuggest(${i}),200)" style="width:100%">
           <div id="ad-guide-dd-${i}" style="display:none;position:fixed;background:var(--card,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:99999;max-height:220px;overflow-y:auto"></div>
         </td>`;
     return `<tr>
       ${guideCell}
-      <td><input value="${escAttr(it.phone)}" oninput="bdArrGuideItems[${i}].phone=this.value" style="width:100%"></td>
-      <td><input type="date" min="1900-01-01" max="9999-12-31" value="${it.start_date||''}" onchange="bdArrGuideItems[${i}].start_date=this.value"></td>
+      <td data-label="携帯電話番号"><input value="${escAttr(it.phone)}" oninput="bdArrGuideItems[${i}].phone=this.value" style="width:100%"></td>
+      <td data-label="担当開始日"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.start_date||''}" onchange="bdArrGuideItems[${i}].start_date=this.value"></td>
       ${arrDelBtnHtml('bdArrGuideItems', i, 'renderArrGuideTable', escAttr([guideRowDisplayName(it), it.start_date].filter(Boolean).join(' '))+' の行を削除しますか？')}
     </tr>`;
   }).join('');
