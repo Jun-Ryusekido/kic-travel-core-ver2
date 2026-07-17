@@ -98,3 +98,11 @@ create index if not exists arrangement_document_notes_doc_id_idx on public.arran
 alter table public.arrangement_documents disable row level security;
 alter table public.arrangement_document_days disable row level security;
 alter table public.arrangement_document_notes disable row level security;
+
+-- RLS無効化だけではPostgREST(anon/authenticatedキー)からテーブルが一切見えない
+-- (エラーではなく完全に非表示になる)ため、明示的に権限を付与する。
+grant select, insert, update, delete on public.arrangement_documents to anon, authenticated, service_role;
+grant select, insert, update, delete on public.arrangement_document_days to anon, authenticated, service_role;
+grant select, insert, update, delete on public.arrangement_document_notes to anon, authenticated, service_role;
+
+notify pgrst, 'reload schema';
