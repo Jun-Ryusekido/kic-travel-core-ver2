@@ -6956,12 +6956,19 @@ function markEmailInboxNotPromo(emailId){
 //  3. AIが「無関係」と判定したメールは、広告・メルマガと同じ自動除外枠に入れる(削除はしない)。
 // 判定結果はlocalStorageにid単位でキャッシュし、同じメールを何度もAIに渡さないようにする。
 // 判定に失敗した場合は除外しない(誤除外より一覧に残る方が安全)。
-const EMAIL_REF_TOURCODE_RE = /(#\s*\d{3,})|(REF\s*#?\s*\d{3,})|(KIC[-_]?\d{3,4}(?:_[A-Za-z0-9]+)*)/i;
+// #数字 のパターンは、HTMLメール由来の本文に大量に含まれる
+//  ・HTML文字参照(&#12354; 等)
+//  ・URLのフラグメント(https://.../page#20260701 等)
+// に誤マッチして無関係メールを「予約関連」と即断してしまうため、直前の文字が
+// 英数字・&・URL構成文字(/ = % . : ~ - #)の場合はマッチさせない(負の後読み)。
+// 「【#1374】」「(#1374)」「 #1374」のような通常のREF#表記は全角括弧・空白始まりなので影響しない。
+const EMAIL_REF_TOURCODE_RE = /((?<![&\w\/=%.:~#-])#\s*\d{3,})|(\bREF\s*#?\s*\d{3,})|(\bKIC[-_]?\d{3,4}(?:_[A-Za-z0-9]+)*)/i;
 function emailHasRefOrTourCode(subject, body){
   return EMAIL_REF_TOURCODE_RE.test(String(subject||'')+' '+String(body||''));
 }
 
-const EMAIL_RELEVANCE_CACHE_KEY = 'kicEmailRelevanceCache_v1';
+// v2: 正規表現の誤マッチ修正・AIプロンプト強化前の判定結果を引き継がないようキーを更新
+const EMAIL_RELEVANCE_CACHE_KEY = 'kicEmailRelevanceCache_v2';
 function loadEmailRelevanceCache(){
   try{
     return JSON.parse(localStorage.getItem(EMAIL_RELEVANCE_CACHE_KEY)||'{}') || {};
@@ -7121,6 +7128,49 @@ function computeRefSuggestions(subject, body, index){
 function applyRefSuggestion(emailId, refNo){
   const input = document.getElementById('email-inbox-ref-'+emailId);
   if(input) input.value = refNo;
+}
+
+// ─── メールのカテゴリ推定(ホテル/バス/レストラン/観光施設・バス駐車場等) ─────────
+// 件名・送信者・本文のキーワードからカテゴリを推定する。従来はselectの先頭オプション
+// (ホテル)が常にデフォルト表示されるだけで判定ロジックが存在せず、ほぼ全件が
+// 「ホテル」に見えてしまっていた。推定に自信が持てない場合(手がかりなし・
+// 複数カテゴリが同点)は「未分類」とし、人間が選ぶまで送信できない形にする。
+// 判定根拠(マッチしたキーワード)は行内に表示する。
+const EMAIL_CATEGORY_KEYWORDS = {
+  'ホテル': ['ホテル', 'hotel', '宿泊', 'チェックイン', 'チェックアウト', 'check-in', '客室', '部屋割', 'ルーミング', 'rooming', 'ツイン', 'シングル', 'トリプル', '旅館', '御宿泊', 'ご宿泊', '泊'],
+  'バス': ['バス', 'bus', '配車', '乗務員', 'ドライバー', '運転手', '回送', '貸切', '号車', '運行', '車両', '送迎'],
+  'レストラン': ['レストラン', 'restaurant', '昼食', '夕食', 'ランチ', 'ディナー', '会食', 'お食事', 'ご来店', 'メニュー', 'ハラール', 'ハラル', 'ベジタリアン', 'コース料理', '御膳'],
+  '観光施設・バス駐車場等': ['駐車場', '入場', '拝観', '見学', '入園', '入館', 'チケット', '観光施設', '体験', '乗船', 'ロープウェイ', 'ケーブルカー', '美術館', '博物館', '城', '神社', '寺'],
+};
+
+function guessEmailCategory(subject, body, sender){
+  const subj = String(subject||'').toLowerCase();
+  const text = String(body||'').slice(0, 2000).toLowerCase();
+  const from = String(sender||'').toLowerCase();
+  const scores = {};
+  const hits = {};
+  for(const [cat, keywords] of Object.entries(EMAIL_CATEGORY_KEYWORDS)){
+    let score = 0;
+    const matched = [];
+    for(const kw of keywords){
+      const k = kw.toLowerCase();
+      let s = 0;
+      if(subj.includes(k)) s += 2;       // 件名ヒットは本文より強い手がかり
+      else if(from.includes(k)) s += 2;  // 送信者名/ドメインのヒットも同様
+      else if(text.includes(k)) s += 1;
+      if(s > 0){ score += s; matched.push(kw); }
+    }
+    scores[cat] = score;
+    hits[cat] = matched;
+  }
+  const sorted = Object.entries(scores).sort((a,b)=>b[1]-a[1]);
+  const [topCat, topScore] = sorted[0];
+  const secondScore = sorted[1][1];
+  // 手がかりが無い、または首位が同点(複数カテゴリにまたがる)場合は決め打ちしない
+  if(topScore === 0 || topScore === secondScore){
+    return { category: null, reasons: [] };
+  }
+  return { category: topCat, reasons: hits[topCat].slice(0, 4) };
 }
 
 async function renderEmailInboxList(){
@@ -7368,7 +7418,6 @@ async function renderEmailInboxPage(){
   }
 
   const suggestIndex = emailInboxViewMode==='autofiltered' ? null : await ensureEmailInboxSuggestIndex();
-  const catOptions = Object.keys(EMAIL_INBOX_CATEGORY_MAP).map(c=>`<option value="${escAttr(c)}">${escHtml(c)}</option>`).join('');
   el.innerHTML = pageItems.map(m=>{
     const preview = String(m.body||'').replace(/\s+/g,' ').trim().slice(0,80);
     const received = m.received_at ? new Date(m.received_at).toLocaleString('ja-JP') : '';
@@ -7393,6 +7442,13 @@ async function renderEmailInboxPage(){
 
     const suggestions = computeRefSuggestions(m.subject, m.body, suggestIndex);
     const suggestHtml = suggestions.length ? `<div style="font-size:10px;color:var(--text3);margin-top:4px;display:flex;align-items:center;gap:4px;flex-wrap:wrap">候補:${suggestions.map(s=>`<button type="button" class="btn" style="font-size:10px;padding:2px 6px" onclick="applyRefSuggestion('${m.id}','${s.ref_no}')">${escHtml(s.ref_no)} (${escHtml(s.label)})</button>`).join('')}</div>` : '';
+    const catGuess = guessEmailCategory(m.subject, m.body, m.sender);
+    const catOptions = ['<option value=""'+(catGuess.category?'':' selected')+'>-- 未分類 --</option>']
+      .concat(Object.keys(EMAIL_INBOX_CATEGORY_MAP).map(c=>`<option value="${escAttr(c)}" ${catGuess.category===c?'selected':''}>${escHtml(c)}</option>`))
+      .join('');
+    const catReasonHtml = catGuess.category
+      ? `<span style="font-size:10px;color:var(--text3)" title="件名・送信者・本文のキーワードから推定">カテゴリ根拠: ${escHtml(catGuess.reasons.join('・'))}</span>`
+      : `<span style="font-size:10px;color:var(--text3)">カテゴリ手がかりなし(選択してください)</span>`;
     const postponeBtn = emailInboxViewMode==='postponed'
       ? `<button class="btn" style="font-size:11px" onclick="unpostponeEmailInboxItem('${m.id}')">▶ 保留を解除</button>`
       : `<button class="btn" style="font-size:11px" onclick="postponeEmailInboxItem('${m.id}')">⏸ 保留</button>`;
@@ -7405,6 +7461,7 @@ async function renderEmailInboxPage(){
         <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
           <input id="email-inbox-ref-${m.id}" placeholder="REF# 例: #1374" style="font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px;width:140px">
           <select id="email-inbox-cat-${m.id}" style="font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px">${catOptions}</select>
+          ${catReasonHtml}
           <button class="btn btn-p" id="email-inbox-send-${m.id}" style="font-size:11px" onclick="sendEmailToBooking('${m.id}')">📤 送る</button>
           <button class="btn" style="font-size:11px;color:var(--red)" onclick="if(confirm('このメールを一覧から除外しますか？')){ignoreEmailInboxItem('${m.id}')}">🗑 無視</button>
           ${postponeBtn}
