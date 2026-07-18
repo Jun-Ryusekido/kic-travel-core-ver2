@@ -194,6 +194,11 @@ th.sortable:hover{color:var(--blue)}
 @media(max-width:768px){
   .modal-overlay{padding:0}
   .modal-box,#detail-modal .modal-box{width:100%;max-width:100%!important;border-radius:0;padding:12px;max-height:100vh}
+  /* 対応期限日バナー(position:fixed;z-index:150)はモーダル(z-index:100)より前面にあるため、
+     バナー表示中はモーダルをバナーの高さ(34px)ぶん押し下げ、ヘッダー(保存/閉じるボタン)が
+     隠れないようにする */
+  body.has-deadline-banner .modal-overlay{padding-top:34px}
+  body.has-deadline-banner .modal-box,body.has-deadline-banner #detail-modal .modal-box{max-height:calc(100vh - 34px)}
 }
 .pax-row{display:flex;gap:8px;align-items:flex-end}
 .pax-row .form-field{flex:0 0 70px}
