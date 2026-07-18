@@ -2,6 +2,30 @@
 
 このファイルは、このリポジトリで作業する際に守るべきルールを記載する。
 
+## テーブルのモバイル対応（標準パターン）
+
+複数列のテーブル/グリッドを新規に追加する場合は、**必ず**共通コンポーネントの
+`confirm-table` パターンを使い、768px未満でカード形式の縦積みに切り替えること
+（運用者はスマホ中心。横スクロールが必要な画面を作らない）。
+
+使い方（CSSは `index.html` の `@media(max-width:768px)` ブロックに定義済み）:
+
+1. `<table class="confirm-table">` を付ける
+2. 各 `<td>` に `data-label="列名"` を付ける（カード表示時のラベルになる）
+3. チェックボックス・削除ボタン等ラベル不要のtdは data-label を付けない
+4. セクション見出し行（colspanの帯）は `<tr class="section-row">` を付ける
+5. tbody内にソート用ヘッダ行を持つ場合は `<tr class="cost-sort-row">` で モバイル時非表示
+
+例外パターン（既存画面で使用中。新規では原則confirm-tableを使う）:
+- `bl-table` + nth-child非表示: ダッシュボード/予約一覧（重要列のみ残す方式）
+- `pt-desktop-only`/`pt-mobile-only`: 取引先マスタ（専用カードUI）
+- `bt-desktop-only`/`bt-mobile-only`: 新幹線手配（専用カードUI）
+- 印刷用プレビュー（Invoice/手配書/精算書等）: A4レイアウト再現のためカード化しない。
+  `.tbl-wrap`（overflow-x:auto）で囲み、ページ全体の横スクロールは発生させないこと
+
+変更後は Chrome DevTools のiPhone SE幅(375px)で対象画面に横スクロールが
+発生しないことを確認すること。
+
 ## ミールバウチャーテンプレートの変更ルール
 
 `index.html` の `_buildVoucherHtml` / `generateMealVoucher` （ミールバウチャーPDF生成ロジック）

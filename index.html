@@ -356,16 +356,28 @@ input[type=number]{-moz-appearance:textfield}
   /* PC用のカメラセクションのdashed枠をスマホでは消す */
   #pt-card-upload-section { border-top: 1px solid var(--border) }
 }
-@media(max-width:640px){
+/* ===== 共通レスポンシブテーブル（標準パターン） =====
+   768px未満で複数列テーブルをカード形式の縦積みに切り替える共通コンポーネント。
+   使い方: <table class="confirm-table"> + 各<td>に data-label="列名" を付けるだけ。
+   - thead は自動的に非表示、1行(tr)が1枚のカードになる
+   - data-labelのないtd(チェックボックス・削除ボタン等)はラベルなしで表示
+   - セクション見出し行(colspan)は tr に class="section-row" を付けると
+     カード枠なしの帯として表示される
+   - ソート用ヘッダ行を行内に持つ場合は tr に class="cost-sort-row" で非表示化 */
+@media(max-width:768px){
   .confirm-table{min-width:0!important}
+  .confirm-table colgroup{display:none}
   .confirm-table thead{display:none}
   .confirm-table, .confirm-table tbody{display:block;width:100%}
   .confirm-table tr{display:block;border:1px solid var(--border);border-radius:8px;margin-bottom:10px;padding:8px}
-  .confirm-table td{display:flex!important;align-items:center;gap:8px;border:none!important;padding:4px 0!important;min-width:0!important}
+  .confirm-table td{display:flex!important;align-items:center;gap:8px;border:none!important;padding:4px 0!important;min-width:0!important;width:auto!important;white-space:normal!important}
   .confirm-table td::before{content:attr(data-label);font-weight:600;flex:0 0 76px;font-size:10px;color:var(--text3)}
+  .confirm-table td:not([data-label])::before{display:none}
   .confirm-table td input,.confirm-table td select{flex:1;width:auto!important}
   .confirm-table td[data-label="追加"]::before{display:none}
   .confirm-table tr.cost-sort-row{display:none}
+  .confirm-table tr.section-row{border:none;border-radius:6px;padding:0;margin:12px 0 8px}
+  .confirm-table tr.section-row td{display:block!important;padding:6px 8px!important}
 }
 /* ===== エラートースト（画面右下、スマホは下部中央） ===== */
 #error-toast-container{position:fixed;right:16px;bottom:16px;z-index:9999;display:flex;flex-direction:column;gap:8px;max-width:360px;width:calc(100vw - 32px)}
@@ -2532,7 +2544,7 @@ function renderDbArrivalAlert(){
   }
 
   const tbodyRows = buckets.map(b => {
-    const sectionHd = `<tr>
+    const sectionHd = `<tr class="section-row">
       <td colspan="6" style="padding:6px 8px 4px;background:${b.bg};border-top:2px solid ${b.border}">
         <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:${b.fg}">
           ${b.label} <span style="background:rgba(0,0,0,.09);padding:1px 7px;border-radius:10px">${b.items.length}件</span>
@@ -2540,23 +2552,23 @@ function renderDbArrivalAlert(){
       </td>
     </tr>`;
     if(b.items.length === 0){
-      return sectionHd + `<tr><td colspan="6" style="padding:4px 8px 8px;font-size:11px;color:var(--text3)">該当する予約はありません</td></tr>`;
+      return sectionHd + `<tr class="section-row"><td colspan="6" style="padding:4px 8px 8px;font-size:11px;color:var(--text3)">該当する予約はありません</td></tr>`;
     }
     const rows = b.items.map(bk => {
       const d = inDays(bk.in_date);
       return `<tr onclick="openBookingDetail('${bk.id}')" style="cursor:pointer" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''">
-        <td class="lnk" style="padding:5px 8px;white-space:nowrap">${escHtml(bk.ref_no||'')}</td>
-        <td style="padding:5px 8px">${escHtml(bk.tour_name||'')}</td>
-        <td style="padding:5px 8px;color:var(--text3)">${escHtml(bk.agent_name||'')}</td>
-        <td style="padding:5px 8px">${statusPill(bk.status)}</td>
-        <td style="padding:5px 8px;white-space:nowrap">${bk.in_date||''}</td>
-        <td style="padding:5px 8px;text-align:center;font-weight:700;color:${b.fg}">${d}日</td>
+        <td data-label="REF#" class="lnk" style="padding:5px 8px;white-space:nowrap">${escHtml(bk.ref_no||'')}</td>
+        <td data-label="ツアー名" style="padding:5px 8px">${escHtml(bk.tour_name||'')}</td>
+        <td data-label="Agent" style="padding:5px 8px;color:var(--text3)">${escHtml(bk.agent_name||'')}</td>
+        <td data-label="Status" style="padding:5px 8px">${statusPill(bk.status)}</td>
+        <td data-label="到着日" style="padding:5px 8px;white-space:nowrap">${bk.in_date||''}</td>
+        <td data-label="残り" style="padding:5px 8px;text-align:center;font-weight:700;color:${b.fg}">${d}日</td>
       </tr>`;
     }).join('');
     return sectionHd + rows;
   }).join('');
 
-  el.innerHTML = `<div class="tbl-wrap"><table style="width:100%;border-collapse:collapse;font-size:12px">
+  el.innerHTML = `<div class="tbl-wrap"><table class="confirm-table" style="width:100%;border-collapse:collapse;font-size:12px">
     <colgroup>
       <col style="width:8%">
       <col style="width:18%">
@@ -2638,7 +2650,7 @@ async function fetchFacilityDeadlineItems(maxDays){
 function facilityDeadlineRowsHtml(buckets){
   return buckets.map(b=>{
     if(b.items.length === 0) return '';
-    const sectionHd = `<tr>
+    const sectionHd = `<tr class="section-row">
       <td colspan="5" style="padding:6px 8px 4px;background:${b.bg};border-top:2px solid ${b.border}">
         <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:${b.fg}">
           ${b.label} <span style="background:rgba(0,0,0,.09);padding:1px 7px;border-radius:10px">${b.items.length}件</span>
@@ -2649,11 +2661,11 @@ function facilityDeadlineRowsHtml(buckets){
       const bk = f._booking || {};
       const dLabel = f._days < 0 ? `${-f._days}日超過` : (f._days===0 ? '本日' : `${f._days}日`);
       return `<tr onclick="openBookingDetail('${f.booking_id}')" style="cursor:pointer" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''">
-        <td class="lnk" style="padding:5px 8px;white-space:nowrap">${escHtml(bk.ref_no||'')}</td>
-        <td style="padding:5px 8px">${escHtml(bk.tour_name||'')}</td>
-        <td style="padding:5px 8px">${escHtml(f.facility_name||'（名称未設定）')}</td>
-        <td style="padding:5px 8px;white-space:nowrap">${escHtml(f.deadline_date||'')}</td>
-        <td style="padding:5px 8px;text-align:center;font-weight:700;color:${b.fg};white-space:nowrap">${dLabel}</td>
+        <td data-label="REF#" class="lnk" style="padding:5px 8px;white-space:nowrap">${escHtml(bk.ref_no||'')}</td>
+        <td data-label="ツアー名" style="padding:5px 8px">${escHtml(bk.tour_name||'')}</td>
+        <td data-label="施設名" style="padding:5px 8px">${escHtml(f.facility_name||'（名称未設定）')}</td>
+        <td data-label="対応期限日" style="padding:5px 8px;white-space:nowrap">${escHtml(f.deadline_date||'')}</td>
+        <td data-label="残り" style="padding:5px 8px;text-align:center;font-weight:700;color:${b.fg};white-space:nowrap">${dLabel}</td>
       </tr>`;
     }).join('');
     return sectionHd + rows;
@@ -2661,7 +2673,7 @@ function facilityDeadlineRowsHtml(buckets){
 }
 
 function facilityDeadlineTableHtml(buckets){
-  return `<div class="tbl-wrap"><table style="width:100%;border-collapse:collapse;font-size:12px">
+  return `<div class="tbl-wrap"><table class="confirm-table" style="width:100%;border-collapse:collapse;font-size:12px">
     <colgroup>
       <col style="width:10%">
       <col style="width:25%">
@@ -2699,18 +2711,18 @@ async function renderDashboardTodoList(){
     const dLabel = done ? '' : (f._days < 0 ? `期限超過${-f._days}日` : (f._days===0 ? '本日' : `あと${f._days}日`));
     const nameStyle = done ? 'text-decoration:line-through;color:var(--text3)' : '';
     return `<tr style="${done?'opacity:.7':''}">
-      <td style="padding:5px 6px;text-align:center"><input type="checkbox" ${done?'checked':''} onclick="event.stopPropagation();toggleFacilityTodoComplete('${f.id}', ${!done})" style="cursor:pointer;width:16px;height:16px"></td>
-      <td class="lnk" style="padding:5px 8px;white-space:nowrap;cursor:pointer" onclick="openBookingDetail('${f.booking_id}')">${escHtml(bk.ref_no||'')}</td>
-      <td style="padding:5px 8px;cursor:pointer" onclick="openBookingDetail('${f.booking_id}')">${escHtml(bk.tour_name||'')}</td>
-      <td style="padding:5px 8px;cursor:pointer;${nameStyle}" onclick="openBookingDetail('${f.booking_id}')">${escHtml(f.facility_name||'（名称未設定）')}</td>
-      <td style="padding:5px 8px;white-space:nowrap;cursor:pointer" onclick="openBookingDetail('${f.booking_id}')">${escHtml(f.deadline_date||'')}</td>
-      <td style="padding:5px 8px;text-align:center;font-weight:700;color:${done?'var(--text3)':tierFg};white-space:nowrap;cursor:pointer" onclick="openBookingDetail('${f.booking_id}')">${done?'✓ 完了':dLabel}</td>
+      <td data-label="完了" style="padding:5px 6px;text-align:center"><input type="checkbox" ${done?'checked':''} onclick="event.stopPropagation();toggleFacilityTodoComplete('${f.id}', ${!done})" style="cursor:pointer;width:16px;height:16px"></td>
+      <td data-label="REF#" class="lnk" style="padding:5px 8px;white-space:nowrap;cursor:pointer" onclick="openBookingDetail('${f.booking_id}')">${escHtml(bk.ref_no||'')}</td>
+      <td data-label="ツアー名" style="padding:5px 8px;cursor:pointer" onclick="openBookingDetail('${f.booking_id}')">${escHtml(bk.tour_name||'')}</td>
+      <td data-label="施設名" style="padding:5px 8px;cursor:pointer;${nameStyle}" onclick="openBookingDetail('${f.booking_id}')">${escHtml(f.facility_name||'（名称未設定）')}</td>
+      <td data-label="対応期限日" style="padding:5px 8px;white-space:nowrap;cursor:pointer" onclick="openBookingDetail('${f.booking_id}')">${escHtml(f.deadline_date||'')}</td>
+      <td data-label="残り" style="padding:5px 8px;text-align:center;font-weight:700;color:${done?'var(--text3)':tierFg};white-space:nowrap;cursor:pointer" onclick="openBookingDetail('${f.booking_id}')">${done?'✓ 完了':dLabel}</td>
     </tr>`;
   };
 
   const bucketRows = bucketsFull.map(b=>{
     if(b.items.length === 0) return '';
-    const sectionHd = `<tr>
+    const sectionHd = `<tr class="section-row">
       <td colspan="6" style="padding:6px 8px 4px;background:${b.bg};border-top:2px solid ${b.border}">
         <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:${b.fg}">
           ${b.label} <span style="background:rgba(0,0,0,.09);padding:1px 7px;border-radius:10px">${b.items.length}件</span>
@@ -2720,7 +2732,7 @@ async function renderDashboardTodoList(){
     return sectionHd + b.items.map(f=>todoRow(f, b.fg, false)).join('');
   }).join('');
 
-  const completedRows = completed.length ? `<tr>
+  const completedRows = completed.length ? `<tr class="section-row">
       <td colspan="6" style="padding:6px 8px 4px;background:#f2f2f2;border-top:2px solid #ddd">
         <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:#666">
           ✅ 完了済み <span style="background:rgba(0,0,0,.09);padding:1px 7px;border-radius:10px">${completed.length}件</span>
@@ -2728,7 +2740,7 @@ async function renderDashboardTodoList(){
       </td>
     </tr>` + completed.map(f=>todoRow(f, '#666', true)).join('') : '';
 
-  el.innerHTML = `<div class="tbl-wrap"><table style="width:100%;border-collapse:collapse;font-size:12px">
+  el.innerHTML = `<div class="tbl-wrap"><table class="confirm-table" style="width:100%;border-collapse:collapse;font-size:12px">
     <colgroup>
       <col style="width:5%"><col style="width:9%"><col style="width:23%">
       <col style="width:26%"><col style="width:14%"><col style="width:13%">
