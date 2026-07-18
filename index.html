@@ -54,7 +54,18 @@ body.has-deadline-banner .app{margin-top:34px}
 .sb-logout:hover{background:var(--red-lt);color:var(--red)}
 .main{flex:1;display:flex;flex-direction:column;min-width:0}
 .topbar{background:var(--card);border-bottom:1px solid var(--border);padding:0 20px;height:50px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;position:sticky;top:0;z-index:5}
-.tb-title{font-size:14px;font-weight:600}
+.tb-title{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* スマホ幅のヘッダー: ボタンが収まらない場合は折り返し、優先度の低いものは縮小・アイコン化。
+   ページ全体(html/body)には overflow-x を発生させない(clipはhiddenと違いposition:stickyを壊さない) */
+html,body{overflow-x:clip}
+@media(max-width:768px){
+  .topbar{flex-wrap:wrap;height:auto;min-height:50px;padding:6px 12px;gap:4px 8px}
+  .ver-badge{display:none}
+  .topbar .btn{font-size:11px;padding:5px 9px;white-space:nowrap}
+}
+@media(max-width:480px){
+  .tb-label{display:none}
+}
 .ver-badge{background:var(--blue-lt);color:var(--blue);font-size:9px;padding:2px 7px;border-radius:8px;font-weight:600;margin-left:8px}
 .btn{display:inline-flex;align-items:center;gap:5px;padding:6px 12px;border-radius:8px;border:1px solid var(--border);background:#fff;color:var(--text);font-size:12px;cursor:pointer}
 .btn:hover{background:var(--bg)}
@@ -537,13 +548,15 @@ input[type=number]{-moz-appearance:textfield}
 
   <div class="main">
     <div class="topbar">
-      <div style="display:flex;align-items:center">
+      <div class="tb-left" style="display:flex;align-items:center;min-width:0">
         <div class="menu-btn" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</div>
         <span class="tb-title" id="pg-title">Dashboard</span>
         <span class="ver-badge">KIC Ver 2.0</span>
       </div>
-      <span id="backup-btn-wrap" style="display:none"><button class="btn" onclick="exportFullBackup()" style="margin-right:8px">📦 バックアップ</button></span>
-      <button class="btn btn-p" onclick="go('new-booking')">＋ New Booking</button>
+      <div class="tb-actions" style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+        <span id="backup-btn-wrap" style="display:none"><button class="btn" onclick="exportFullBackup()">📦<span class="tb-label"> バックアップ</span></button></span>
+        <button class="btn btn-p" onclick="go('new-booking')">＋<span class="tb-label"> New Booking</span></button>
+      </div>
     </div>
 
     <div class="content">
