@@ -1882,6 +1882,7 @@ input[type=number]{-moz-appearance:textfield}
       <button class="btn" style="font-size:10px" onclick="addLocalExpenseRow()">＋ 行追加</button>
       <button class="btn" style="font-size:10px" onclick="generateLocalExpensesFromArrangements()">＋ 手配内容から概算行を生成</button>
       <button class="btn" style="font-size:10px" onclick="addCommonLocalExpenseRows()">＋ よく使う項目を追加</button>
+      <button class="btn" style="font-size:10px" onclick="duplicateAllLocalExpenseRows()" title="2班体制等で、現在の内容一式をもう1セット複製したい場合に使用します">⧉ この内容を一括複製</button>
     </div>
     <div class="li-total">仮払い合計: <span id="bd-local-total">¥0</span></div>
     </div>
@@ -4032,6 +4033,40 @@ function addLocalExpenseRow(){
 function duplicateLocalExpenseRow(i){
   const copy = JSON.parse(JSON.stringify(bdLocalExpenses[i]));
   bdLocalExpenses.splice(i+1, 0, copy);
+  renderLocalExpenses();
+}
+
+// 「内容」欄末尾の「(N班)」ラベルを検出する正規表現。既にラベルが付いている行を
+// 複製する際、まずこのラベルを取り除いてから新しい班番号を付け直すために使う。
+const LOCAL_EXPENSE_BAND_LABEL_RE = /\((\d+)班\)\s*$/;
+
+// 2班・3班以上の体制のツアーで、仮払い一覧表の内容一式(お茶代・食事代・通信費等)を
+// まとめて複製するためのショートカット。1班のみの通常のツアーではこのボタンを
+// 使わない限り一切影響しない(既存の行・レイアウトに変化なし)。
+// その時点で存在する全行をJSON.parse(JSON.stringify(...))で値コピーし、末尾に追加する。
+// 各行の「内容」欄には、既存の「(N班)」ラベルがあれば一旦取り除いた上で、
+// 現時点で最大のN(無ければ1班とみなす)+1 の新しい班番号を付け直す。
+// (例: 1回目クリック→全行に「(2班)」を付与、2回目クリック→その時点の全行を
+//  対象にラベルを付け直して「(3班)」を付与)。複製後の行は通常の手動追加行と
+// 全く同じ扱いで、保存・削除・編集とも通常通り行える。
+function duplicateAllLocalExpenseRows(){
+  if(!bdLocalExpenses.length){
+    alert('複製する行がありません。先に行を追加してください。');
+    return;
+  }
+  let maxBand = 1;
+  bdLocalExpenses.forEach(it=>{
+    const m = (it.content||'').match(LOCAL_EXPENSE_BAND_LABEL_RE);
+    if(m) maxBand = Math.max(maxBand, Number(m[1]));
+  });
+  const nextBand = maxBand + 1;
+  const copies = bdLocalExpenses.map(it=>{
+    const copy = JSON.parse(JSON.stringify(it));
+    const baseContent = (copy.content||'').replace(LOCAL_EXPENSE_BAND_LABEL_RE, '').trim();
+    copy.content = baseContent ? `${baseContent}(${nextBand}班)` : `(${nextBand}班)`;
+    return copy;
+  });
+  bdLocalExpenses.push(...copies);
   renderLocalExpenses();
 }
 
