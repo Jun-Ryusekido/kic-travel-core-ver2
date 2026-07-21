@@ -3107,10 +3107,11 @@ let bdLocalExpenses = [];
 const LOCAL_EXPENSE_CATEGORIES = ['D（ドライバー）','ゲスト','ゲスト・TG','その他'];
 const LOCAL_EXPENSE_PAYMENT_METHODS = ['現地払い','事前決済','後請求','全旅クーポン','無料(FREE)'];
 // 手配管理タブ(ホテル・バス・ミネラルウォーター・新幹線・ガイド)共通の支払方法選択肢。
-// 「現地払い」のものだけが実際に現金の仮払いが必要な対象、それ以外(後請求/全旅クーポン/前振込み)は
-// 今回のツアー中の現金仮払いは不要、という仮払い一覧表側の自動判定にそのまま使えるよう、
-// 表記ゆれが起きないようこの一覧を共通で参照する。
-const ARRANGEMENT_PAYMENT_METHODS = ['現地払い','後請求','全旅クーポン','前振込み'];
+// 「現地払い」のものだけが実際に現金の仮払いが必要な対象、それ以外(事前決済/後請求/
+// 全旅クーポン/無料(FREE))は今回のツアー中の現金仮払いは不要、という仮払い一覧表側の
+// 自動判定にそのまま使えるよう、仮払い一覧表側(LOCAL_EXPENSE_PAYMENT_METHODS)と
+// 完全に同じ選択肢を参照する(表記ゆれ防止のため別々の配列にせず、同一の配列を共用する)。
+const ARRANGEMENT_PAYMENT_METHODS = LOCAL_EXPENSE_PAYMENT_METHODS;
 function arrPaymentMethodSelectHtml(arrName, i, value){
   return `<td data-label="支払方法"><select onchange="${arrName}[${i}].payment_method=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px">
     <option value="" ${!value?'selected':''}></option>
