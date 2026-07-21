@@ -4136,11 +4136,6 @@ function addCommonLocalExpenseRows(){
 // 金額を集計し、local_expensesの概算行として一括追加する。あくまで初期値の複製であり、
 // 生成後はlocal_expenses側で自由に編集・削除でき、元の仕入明細等の計算には一切影響しない。
 
-// レストラン/観光施設の支払方法のうち、明らかに現金の仮払いが不要（請求書払い・事前決済・
-// 後請求・全旅クーポン・無料）なものは概算生成の対象外にする。空欄・現金払い・現地払い・
-// その他(判断できないもの)は対象に含め、支払方法が空欄/不明なものは内容欄に「（要確認）」を付記する。
-const LOCAL_EXPENSE_GEN_SKIP_PAYMENT_METHODS = ['請求書払い','事前決済','後請求','全旅クーポン','無料(FREE)'];
-
 // 元データの支払方法表記(テーブルごとに選択肢が異なる)を、local_expenses側の
 // LOCAL_EXPENSE_PAYMENT_METHODS（現地払い/事前決済/後請求/全旅クーポン/無料(FREE)）に寄せる。
 // 一致するものが無ければ空欄にする(生成後にプルダウンで選び直してもらう)。
@@ -4162,16 +4157,18 @@ async function generateLocalExpensesFromArrangements(){
     {data: facRows, error: facErr},
     {data: waterRows, error: waterErr},
     {data: dayRows, error: dayErr},
+    {data: hotelRows, error: hotelErr},
   ] = await Promise.all([
     sb.from('booking_buses').select('*').eq('booking_id', bookingId),
     sb.from('booking_restaurants').select('*').eq('booking_id', bookingId),
     sb.from('booking_facilities').select('*').eq('booking_id', bookingId),
     sb.from('booking_water_items').select('*').eq('booking_id', bookingId),
     sb.from('tour_day_itinerary').select('date,bus_booking_id,bus_company_text,bus_booking_id_2,bus_company_text_2').eq('booking_id', bookingId),
+    sb.from('booking_hotels').select('*').eq('booking_id', bookingId),
   ]);
-  if(busErr||restErr||facErr||waterErr||dayErr){
-    logError('仮払い概算行の生成(手配データ取得)', busErr||restErr||facErr||waterErr||dayErr);
-    alert('手配データの取得に失敗しました: '+(busErr||restErr||facErr||waterErr||dayErr).message);
+  if(busErr||restErr||facErr||waterErr||dayErr||hotelErr){
+    logError('仮払い概算行の生成(手配データ取得)', busErr||restErr||facErr||waterErr||dayErr||hotelErr);
+    alert('手配データの取得に失敗しました: '+(busErr||restErr||facErr||waterErr||dayErr||hotelErr).message);
     return;
   }
 
@@ -4210,31 +4207,42 @@ async function generateLocalExpensesFromArrangements(){
     });
   };
 
-  // バス: payment_methodの項目自体が無いため、金額が入っていれば常に対象にし「（要確認）」を付記する
+  // 各手配タブとも、payment_methodが「現地払い」の行のみを対象にする
+  // (事前決済/後請求/全旅クーポン/無料(FREE)は今回のツアー中の現金仮払いが不要なため対象外)。
+  // レストランタブのみ独自の語彙(請求書払い/現金払い/その他)のため、_localExpenseGenMapPaymentMethodで
+  // 仮払い一覧表側の語彙に変換した上で「現地払い」判定する。
+
+  // バス
   (busRows||[]).forEach(bus=>{
-    mk(bus.start_date||fallbackDate, '交通費', `${bus.bus_company||'バス会社'}${bus.bus_type?'('+bus.bus_type+')':''}`, 'D（ドライバー）', bus.amount, '', true);
+    if(bus.payment_method!=='現地払い') return;
+    mk(bus.start_date||fallbackDate, '交通費', `${bus.bus_company||'バス会社'}${bus.bus_type?'('+bus.bus_type+')':''}`, 'D（ドライバー）', bus.amount, '現地払い', false);
     if(Number(bus.driver_hotel_amount)>0){
-      mk(bus.driver_check_in||bus.start_date||fallbackDate, 'ホテル', `${bus.bus_company||'バス会社'} ドライバー宿泊費${bus.driver_hotel_name?'('+bus.driver_hotel_name+')':''}`, 'D（ドライバー）', bus.driver_hotel_amount, '', true);
+      mk(bus.driver_check_in||bus.start_date||fallbackDate, 'ホテル', `${bus.bus_company||'バス会社'} ドライバー宿泊費${bus.driver_hotel_name?'('+bus.driver_hotel_name+')':''}`, 'D（ドライバー）', bus.driver_hotel_amount, '現地払い', false);
     }
   });
 
-  // レストラン: 請求書払いは対象外。現金払い/空欄/その他は対象(空欄・その他は要確認)
+  // ホテル
+  (hotelRows||[]).forEach(h=>{
+    if(h.payment_method!=='現地払い') return;
+    mk(h.check_in||fallbackDate, 'ホテル', h.hotel_name||'ホテル', 'ゲスト', h.amount, '現地払い', false);
+  });
+
+  // レストラン
   (restRows||[]).forEach(r=>{
-    if(LOCAL_EXPENSE_GEN_SKIP_PAYMENT_METHODS.includes(r.payment_method) || r.payment_method==='請求書払い') return;
-    const needsCheck = !r.payment_method || r.payment_method==='その他';
-    mk(r.date||fallbackDate, '食事', `${r.restaurant_name||'レストラン'}(${r.meal_type||''})`, 'ゲスト', r.amount, _localExpenseGenMapPaymentMethod(r.payment_method), needsCheck);
+    if(_localExpenseGenMapPaymentMethod(r.payment_method)!=='現地払い') return;
+    mk(r.date||fallbackDate, '食事', `${r.restaurant_name||'レストラン'}(${r.meal_type||''})`, 'ゲスト', r.amount, '現地払い', false);
   });
 
-  // 観光施設・バス駐車場等: 事前決済/後請求/全旅クーポン/無料は対象外。現地払い/空欄は対象(空欄は要確認)
+  // 観光施設・バス駐車場等
   (facRows||[]).forEach(f=>{
-    if(LOCAL_EXPENSE_GEN_SKIP_PAYMENT_METHODS.includes(f.payment_method)) return;
-    const needsCheck = !f.payment_method;
-    mk(f.date||fallbackDate, '入場料', f.facility_name||'観光施設', 'ゲスト', f.amount, _localExpenseGenMapPaymentMethod(f.payment_method), needsCheck);
+    if(f.payment_method!=='現地払い') return;
+    mk(f.date||fallbackDate, '入場料', f.facility_name||'観光施設', 'ゲスト', f.amount, '現地払い', false);
   });
 
-  // ミネラルウォーター: 支払方法の情報自体が無いため、金額が入っていれば対象にし「（要確認）」を付記する
+  // ミネラルウォーター
   (waterRows||[]).forEach(w=>{
-    mk(w.date||fallbackDate, '雑費', w.item_name||'ミネラルウォーター', 'ゲスト', w.amount, '', true);
+    if(w.payment_method!=='現地払い') return;
+    mk(w.date||fallbackDate, '雑費', w.item_name||'ミネラルウォーター', 'ゲスト', w.amount, '現地払い', false);
   });
 
   // ガイドへの仮払金・追加仮払金(guide_settlements)。日付情報が無いため予約のIN-DATEで代用し「（要確認）」を付記する
@@ -4242,6 +4250,13 @@ async function generateLocalExpensesFromArrangements(){
     mk(fallbackDate, 'その他', `${gs.guide_name||'ガイド'} 仮払金`, 'ゲスト', gs.advance_payment, '', true);
     mk(fallbackDate, 'その他', `${gs.guide_name||'ガイド'} 仮払金追加`, 'ゲスト', gs.additional_advance_payment, '', true);
   });
+
+  // 重複防止: 仮払い一覧表の「内容」列に既に同じ内容の行がある場合は、その項目は追加しない
+  // (手配タブ側を編集して再度この生成ボタンを押した際に、同じ行が増殖しないようにするため)。
+  const existingLocalExpenseContents = new Set(bdLocalExpenses.map(it=>(it.content||'').trim()));
+  const rowsDeduped = rows.filter(r=>!existingLocalExpenseContents.has((r.content||'').trim()));
+  rows.length = 0;
+  rows.push(...rowsDeduped);
 
   // 「よく使う項目を追加」ボタンと同じ7項目を、この生成ボタンでも同時に追加する
   // (既に仮払い一覧表にいずれか1つでも存在する場合は重複防止のため追加しない)。
