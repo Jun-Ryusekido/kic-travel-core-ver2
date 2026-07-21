@@ -1881,6 +1881,7 @@ input[type=number]{-moz-appearance:textfield}
     <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:4px">
       <button class="btn" style="font-size:10px" onclick="addLocalExpenseRow()">＋ 行追加</button>
       <button class="btn" style="font-size:10px" onclick="generateLocalExpensesFromArrangements()">＋ 手配内容から概算行を生成</button>
+      <button class="btn" style="font-size:10px" onclick="addCommonLocalExpenseRows()">＋ よく使う項目を追加</button>
     </div>
     <div class="li-total">仮払い合計: <span id="bd-local-total">¥0</span></div>
     </div>
@@ -4016,6 +4017,35 @@ function localExpenseCalc(i, el){
 
 function addLocalExpenseRow(){
   bdLocalExpenses.push({expense_date:'', expense_type:'', content:'', category:'ゲスト', unit_price:0, qty:1, amount:0, payment_method:'現地払い'});
+  renderLocalExpenses();
+}
+
+// 仮払い一覧表：現場でよく使う定型項目を一括追加するショートカット。
+// 「行追加」の手動追加・「手配内容から概算行を生成」の自動生成とは独立しており、
+// どちらとも競合しない（既存行の削除・変更は一切行わない）。
+// 区分(category)は明示的に設定しない(空欄のまま)。
+const COMMON_LOCAL_EXPENSE_ITEMS = [
+  {content:'お茶代', unit_price:3000},
+  {content:'朝食代(乗務員)', unit_price:800},
+  {content:'昼食代(乗務員)', unit_price:1000},
+  {content:'夕食代(乗務員)', unit_price:1500},
+  {content:'予備費', unit_price:''},
+  {content:'通信費', unit_price:500},
+  {content:'ガイド費', unit_price:''},
+];
+function addCommonLocalExpenseRows(){
+  const existingContents = new Set(bdLocalExpenses.map(it=>(it.content||'').trim()));
+  const alreadyAdded = COMMON_LOCAL_EXPENSE_ITEMS.some(item=>existingContents.has(item.content));
+  if(alreadyAdded){
+    alert('よく使う項目はすでに追加済みです。');
+    return;
+  }
+  COMMON_LOCAL_EXPENSE_ITEMS.forEach(item=>{
+    bdLocalExpenses.push({
+      expense_date:'', expense_type:'', content:item.content, category:'',
+      unit_price:item.unit_price||0, qty:'', amount:0, payment_method:''
+    });
+  });
   renderLocalExpenses();
 }
 
