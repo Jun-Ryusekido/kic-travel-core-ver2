@@ -11825,12 +11825,16 @@ async function showHotelConfirmDialog(hotels){
   // 隠しフィールド(保存対象のbooking_id)と表示用テキストの両方を明示的に.valueへ再代入し、
   // 画面表示時点で選択済みの状態を保証する。
   hotels.forEach((h,i)=>{
-    if(!h._bookingId) return;
+    if(!h._bookingId){
+      console.log('[hm-confirm][render]', i, 'h._bookingId が未設定です(自動マッチなし)');
+      return;
+    }
     const hidden = document.getElementById(`hm-confirm-booking-${i}`);
     if(hidden) hidden.value = String(h._bookingId);
     const matched = sortedBookings.find(b=>String(b.id)===String(h._bookingId));
     const input = document.getElementById(`hm-confirm-input-${i}`);
     if(input && matched) input.value = matched.ref_no || '(REF#なし)';
+    console.log('[hm-confirm][render]', i, 'h._bookingId=', h._bookingId, 'hidden要素は存在するか=', !!hidden, 'hidden.value(設定直後)=', hidden && hidden.value);
   });
 }
 function filterHmConfirmDD(i){
@@ -11880,10 +11884,13 @@ function selectHmConfirmItem(i, bookingId, ref){
 
 function saveHotelConfirmNew(){
     const hotels = window._pendingHotels;
+    console.log('[hm-confirm][save] window._pendingHotels と表示中の行数が一致するか確認:', hotels && hotels.length);
     if(!hotels) return;
     hotels.forEach((h,i)=>{
       const sel = document.getElementById(`hm-confirm-booking-${i}`);
+      console.log('[hm-confirm][save]', i, 'sel要素は存在するか=', !!sel, 'sel.value=', sel && sel.value, 'h._bookingId(読取前)=', h._bookingId);
       if(sel) h._bookingId = sel.value || h._bookingId;
+      console.log('[hm-confirm][save]', i, 'h._bookingId(読取後・保存対象)=', h._bookingId);
     });
     saveHotelConfirm(hotels);
   }
@@ -12092,6 +12099,8 @@ async function saveHotelConfirm(hotels){
 
   const validRows = allRows.filter(r=>r.booking_id && (r.hotel_name||r.amount));
   const unmatched = allRows.filter(r=>!r.booking_id && (r.hotel_name||r.amount));
+  console.log('[hm-confirm][save] allRows(booking_id/hotel_name)=', allRows.map(r=>({booking_id:r.booking_id, hotel_name:r.hotel_name})));
+  console.log('[hm-confirm][save] validRows.length=', validRows.length, ' unmatched.length=', unmatched.length);
 
   if(!validRows.length){
     alert('⚠ ツアーREF#が1件も選択されていません。\n一番左の「ツアーREF#」欄から予約を選択してから保存してください。');
