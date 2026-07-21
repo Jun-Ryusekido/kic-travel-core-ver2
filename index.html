@@ -11774,9 +11774,14 @@ async function showHotelConfirmDialog(hotels){
       <input type="hidden" id="hm-confirm-booking-${i}" value="${hiddenVal}">
       <div id="hm-confirm-dd-${i}" style="display:none;position:fixed;top:0;left:0;background:var(--card,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:99999;max-height:180px;overflow-y:auto"></div>
     </div>`;
-    return `<div style="border:1px solid var(--border);${h.hotel_name?'':'border-left:4px solid var(--red);'}border-radius:10px;padding:12px;margin-bottom:10px">
+    return `<div id="hm-confirm-card-${i}" style="border:1px solid var(--border);${h.hotel_name?'':'border-left:4px solid var(--red);'}border-radius:10px;padding:12px;margin-bottom:10px">
       <div style="margin-bottom:8px">${comboHtml}${matchedBooking?`<div style="font-size:9px;color:var(--green);margin-top:2px">✓ 自動マッチ: ${escHtml(matchedBooking.ref_no||'')}</div>`:''}</div>
-      <div style="font-weight:700;font-size:12px;margin-bottom:6px">${escHtml(h.hotel_name||'')}${h.hotel_name?'':'<span style="color:var(--red);font-weight:600;font-size:11px">⚠ ホテル名が未入力です</span>'}</div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;flex-wrap:wrap">
+        <input type="text" id="hm-confirm-hotelname-${i}" value="${escAttr(h.hotel_name||'')}" placeholder="ホテル名を入力"
+               oninput="updateHmConfirmHotelName(${i}, this.value)"
+               style="font-weight:700;font-size:12px;padding:5px 8px;border-radius:6px;border:1px solid var(--border);flex:1;min-width:160px;box-sizing:border-box">
+        <span id="hm-confirm-hotelname-warn-${i}" style="color:var(--red);font-weight:600;font-size:11px;display:${h.hotel_name?'none':'inline'}">⚠ ホテル名が未入力です</span>
+      </div>
       <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--text2);margin-bottom:6px">
         <span>IN: ${h.check_in||''}</span>
         <span>OUT: ${h.check_out||''}</span>
@@ -11832,6 +11837,17 @@ async function showHotelConfirmDialog(hotels){
     const input = document.getElementById(`hm-confirm-input-${i}`);
     if(input && matched) input.value = matched.ref_no || '(REF#なし)';
   });
+}
+// 「読み取り結果の確認」画面でホテル名を直接入力・修正した際に、その場で
+// window._pendingHotels[i].hotel_name へ反映し(保存時にそのまま使われる)、
+// 未入力警告(赤枠・⚠表示)もリアルタイムに消す/出す。
+function updateHmConfirmHotelName(i, value){
+  const hotels = window._pendingHotels;
+  if(hotels && hotels[i]) hotels[i].hotel_name = value;
+  const warn = document.getElementById(`hm-confirm-hotelname-warn-${i}`);
+  if(warn) warn.style.display = value.trim() ? 'none' : 'inline';
+  const card = document.getElementById(`hm-confirm-card-${i}`);
+  if(card) card.style.borderLeft = value.trim() ? '' : '4px solid var(--red)';
 }
 function filterHmConfirmDD(i){
   const q = document.getElementById('hm-confirm-input-'+i)?.value||'';
@@ -12071,10 +12087,12 @@ async function saveHotelConfirm(hotels){
   const allRows = hotels.map((h,i)=>{
     const sel = document.getElementById(`hm-confirm-booking-${i}`);
     const bookingId = (sel ? sel.value : null) || h._bookingId || null;
+    const hotelNameInput = document.getElementById(`hm-confirm-hotelname-${i}`);
+    const hotelName = (hotelNameInput ? hotelNameInput.value : null) || h.hotel_name || '';
     const nights = calcHotelNights(h.check_in||'', h.check_out||'');
     return {
       booking_id: bookingId,
-      hotel_name: h.hotel_name||'',
+      hotel_name: hotelName,
       check_in: h.check_in||null,
       check_out: h.check_out||null,
       room_type: h.room_type||'',
@@ -12090,7 +12108,7 @@ async function saveHotelConfirm(hotels){
       // エラーメッセージで「何行目の何が問題か」を実データで示せるようにするための識別ラベル。
       // ホテル名・確認番号・チェックイン日のうち存在するものを優先して使い、
       // 何も無ければその旨を明記する（「行1」等の機械的な位置情報だけにはしない）。
-      _rowLabel: `${i+1}行目(${[h.hotel_name, h.confirmation_no?('確認番号:'+h.confirmation_no):'', h.check_in?('IN:'+h.check_in):''].filter(Boolean).join('・') || 'ホテル名・日付とも未入力'})`
+      _rowLabel: `${i+1}行目(${[hotelName, h.confirmation_no?('確認番号:'+h.confirmation_no):'', h.check_in?('IN:'+h.check_in):''].filter(Boolean).join('・') || 'ホテル名・日付とも未入力'})`
     };
   });
 
