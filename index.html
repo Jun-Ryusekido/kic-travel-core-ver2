@@ -4003,8 +4003,7 @@ function renderLocalExpenses(){
           ${LOCAL_EXPENSE_PAYMENT_METHODS.map(m=>`<option value="${m}" ${it.payment_method===m?'selected':''}>${m}</option>`).join('')}
         </select></td>
         <td class="li-del">
-          <span class="lnk" style="font-size:10px;color:var(--text3)" title="この行を複製します(2班体制等で同じ項目をもう1セット作りたい場合に使用)" onclick="duplicateLocalExpenseRow(${i})">⧉複製</span>
-          <span class="lnk" style="font-size:10px;margin-left:6px" onclick="if(confirm('この行を削除しますか？')){bdLocalExpenses.splice(${i},1);renderLocalExpenses()}">削除</span>
+          <span class="lnk" style="font-size:10px" onclick="if(confirm('この行を削除しますか？')){bdLocalExpenses.splice(${i},1);renderLocalExpenses()}">削除</span>
         </td>
       </tr>`).join('');
   }
@@ -4021,18 +4020,6 @@ function localExpenseCalc(i, el){
 
 function addLocalExpenseRow(){
   bdLocalExpenses.push({expense_date:'', expense_type:'', content:'', category:'ゲスト', unit_price:0, qty:1, amount:0, payment_method:'現地払い'});
-  renderLocalExpenses();
-}
-
-// 2班体制(別々のバス会社・ガイドが同行する2グループ)のツアーで、同じ項目
-// (お茶代・食事代等)をもう1セット作りたい場合に使う、行単位の複製。
-// JSON.parse(JSON.stringify(...))で値としてコピーするため、複製後に元の行・複製した行の
-// どちらを編集してももう片方には影響しない(参照共有ではない)。複製で追加された行は
-// 通常の手動追加行と全く同じ扱いで、保存・削除・「よく使う項目を追加」の重複チェックいずれも
-// 通常通り機能する(重複チェックは追加時点でのみ働くため、複製による追加は対象外)。
-function duplicateLocalExpenseRow(i){
-  const copy = JSON.parse(JSON.stringify(bdLocalExpenses[i]));
-  bdLocalExpenses.splice(i+1, 0, copy);
   renderLocalExpenses();
 }
 
