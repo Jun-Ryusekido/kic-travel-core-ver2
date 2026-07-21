@@ -1793,8 +1793,8 @@ input[type=number]{-moz-appearance:textfield}
       <div class="modal-section-title">日毎明細</div>
       <div style="border:1px dashed var(--border);border-radius:8px;padding:8px;margin-bottom:10px">
         <div style="font-size:11px;font-weight:600;margin-bottom:4px">行程表クラウドから貼り付け</div>
-        <div style="font-size:10px;color:var(--text3);margin-bottom:4px">「日付」の行と「地点(時刻)=地点(時刻)=…」の行を1組として、複数日分をまとめて貼り付けられます。</div>
-        <textarea id="ad-day-paste" rows="4" style="width:100%;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:11px;font-family:inherit;box-sizing:border-box" placeholder="例：&#10;2026/08/19&#10;リーガロイヤルホテル(9:30)=奈良公園バスターミナル(10:18～12:03)=...=リーガロイヤルホテル大阪 THE RAY(20:10)"></textarea>
+        <div style="font-size:10px;color:var(--text3);margin-bottom:4px">「日付」の行と「地点(時刻)=地点(時刻)=…」の行を1組として、ツアー全期間分（複数日分）をまとめて貼り付けられます。日付ごとに自動で振り分けられます。</div>
+        <textarea id="ad-day-paste" rows="12" style="width:100%;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:11px;font-family:inherit;box-sizing:border-box" placeholder="例：&#10;2026/08/19&#10;リーガロイヤルホテル(9:30)=奈良公園バスターミナル(10:18～12:03)=...=リーガロイヤルホテル大阪 THE RAY(20:10)&#10;2026/08/20&#10;千葉県船橋市夏見(8:30)=...=浅草ビューホテル(20:44)"></textarea>
         <button class="btn" style="font-size:10px;margin-top:6px" onclick="parseArrDayPasteText()">貼り付け内容を解析して反映</button>
       </div>
       <div id="ad-days-list"></div>
