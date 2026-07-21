@@ -2297,13 +2297,7 @@ async function doLogin(){
   const pw = document.getElementById('login-pw').value;
   document.getElementById('login-err').style.display='none';
 
-  let data = null, error = null;
-  try{
-    const resp = await fetch('/api/login', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({email:id, password:pw})});
-    const body = await resp.json();
-    if(resp.ok) data = body.user;
-    else error = new Error(body.error || 'ログインに失敗しました');
-  }catch(e){ error = e; }
+  const { data, error } = await sb.from('app_users').select('*').eq('email', id).eq('password', pw).maybeSingle();
 
   if(error || !data){
     document.getElementById('login-err').style.display='block';
@@ -2381,15 +2375,10 @@ async function loadErrorLogs(){
 // で行う。現在のパスワードの照合をサーバー側で必須にすることで、userIdさえ分かれば他人の
 // パスワードを書き換えられてしまう状態を防いでいる。
 async function changePassword(){
-  const oldPw = prompt('現在のパスワードを入力してください');
-  if(!oldPw) return;
   const newPw = prompt('新しいパスワードを入力してください（8文字以上）');
   if(!newPw || newPw.length<8){ alert('8文字以上のパスワードを入力してください'); return; }
-  try{
-    const resp = await fetch('/api/change-password', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({userId:currentUser.id, oldPassword:oldPw, newPassword:newPw})});
-    const body = await resp.json();
-    if(!resp.ok){ alert('変更に失敗しました: '+(body.error||'')); return; }
-  }catch(e){ alert('変更に失敗しました: '+e.message); return; }
+  const { error } = await sb.from('app_users').update({password:newPw}).eq('id', currentUser.id);
+  if(error){ alert('変更に失敗しました: '+error.message); return; }
   alert('パスワードを変更しました。次回ログインから新しいパスワードをご使用ください。');
 }
 
@@ -14724,13 +14713,7 @@ async function deletePartner(id){
 // /api/list-users・/api/add-user経由(service_role key)で行う。
 async function loadAccounts(){
   const list=document.getElementById('user-list');
-  let data = null, error = null;
-  try{
-    const resp = await fetch('/api/list-users');
-    const body = await resp.json();
-    if(resp.ok) data = body.users;
-    else error = new Error(body.error||'読み込みエラー');
-  }catch(e){ error = e; }
+  const { data, error } = await sb.from('app_users').select('*').order('created_at');
   if(error || !data){ list.innerHTML='<div class="empty">読み込みエラー</div>'; return; }
   const roleMap={admin:['role-admin','管理者'],staff:['role-staff','スタッフ'],view:['role-view','閲覧のみ']};
   list.innerHTML=data.map(u=>{
@@ -14751,11 +14734,8 @@ async function addUser(){
   const role=document.getElementById('new-role').value;
   if(!name||!email||pw.length<8){ alert('氏名・Email・パスワード(8文字以上)を入力してください'); return; }
 
-  try{
-    const resp = await fetch('/api/add-user', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name,email,password:pw,role})});
-    const body = await resp.json();
-    if(!resp.ok){ alert('追加に失敗しました: '+(body.error||'')); return; }
-  }catch(e){ alert('追加に失敗しました: '+e.message); return; }
+  const { error } = await sb.from('app_users').insert({email,password:pw,name,role});
+  if(error){ alert('追加に失敗しました: '+error.message); return; }
 
   await logAction('ユーザー追加', email);
   document.getElementById('add-user-msg').style.display='inline';
