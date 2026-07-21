@@ -8568,6 +8568,7 @@ function showBusConfirmDialog(buses){
     <td data-label="確認番号" style="padding:5px 4px"><input value="${escAttr(b.confirmation_no||'')}" id="bus-c-conf-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
     <td data-label="備考" style="padding:5px 4px"><input value="${escAttr(b.memo||'')}" id="bus-c-memo-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
   </tr>`).join('');
+  document.getElementById('bus-confirm-modal')?.remove();
   const modal=document.createElement('div');
   modal.id='bus-confirm-modal';
   modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:300;display:flex;align-items:center;justify-content:center;padding:20px';
@@ -8821,6 +8822,7 @@ function showRestaurantConfirmDialog(restaurants){
     <td data-label="ステータス" style="padding:5px 4px"><select id="rest-c-status-${i}" style="font-size:11px;padding:3px;border:1px solid var(--border);border-radius:5px"><option value="未予約" ${r.status==='未予約'?'selected':''}>未予約</option><option value="問い合わせ中" ${(r.status||'問い合わせ中')==='問い合わせ中'?'selected':''}>問い合わせ中</option><option value="手配OK" ${r.status==='手配OK'?'selected':''}>手配OK</option><option value="FNL済" ${r.status==='FNL済'?'selected':''}>FNL済</option><option value="NG回答" ${r.status==='NG回答'?'selected':''}>NG回答</option><option value="キャンセル" ${r.status==='キャンセル'?'selected':''}>キャンセル</option></select></td>
     <td data-label="備考" style="padding:5px 4px"><input value="${escAttr(r.memo||'')}" id="rest-c-memo-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
   </tr>`).join('');
+  document.getElementById('rest-confirm-modal')?.remove();
   const modal=document.createElement('div');
   modal.id='rest-confirm-modal';
   modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:300;display:flex;align-items:center;justify-content:center;padding:20px';
@@ -9115,6 +9117,7 @@ function showFacilityConfirmDialog(facilities){
     <td data-label="確認番号" style="padding:5px 4px"><input value="${escAttr(f.confirmation_no||'')}" id="fac-c-conf-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
     <td data-label="備考" style="padding:5px 4px"><input value="${escAttr(f.memo||'')}" id="fac-c-memo-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
   </tr>`).join('');
+  document.getElementById('fac-confirm-modal')?.remove();
   const modal=document.createElement('div');
   modal.id='fac-confirm-modal';
   modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:300;display:flex;align-items:center;justify-content:center;padding:20px';
@@ -9351,6 +9354,7 @@ function openNewGuideModal(i, ctx){
   if(ctx==='arr') hideArrGuideSuggest(i); else hideGuideSuggest(i);
   window._newGuideForRowIndex = i;
   window._newGuideForCtx = ctx;
+  document.getElementById('new-guide-modal')?.remove();
   const modal = document.createElement('div');
   modal.id = 'new-guide-modal';
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:220;display:flex;align-items:center;justify-content:center;padding:20px';
@@ -11944,6 +11948,7 @@ function showHmDupConflictModal(conflicts, onDone){
     </div>`;
   }).join('');
 
+  document.getElementById('hotel-dup-modal')?.remove();
   const modal = document.createElement('div');
   modal.id = 'hotel-dup-modal';
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:210;display:flex;align-items:center;justify-content:center;padding:20px';
@@ -12250,6 +12255,7 @@ async function extractInvoiceFromFile(event, mode){
 function openInvoiceImportForBooking(){
   if(!currentDetailId){ alert('予約詳細を開いてください'); return; }
   const b = findBookingById(currentDetailId)||{};
+  document.getElementById('inv-booking-modal')?.remove();
   const modal = document.createElement('div');
   modal.id = 'inv-booking-modal';
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:300;display:flex;align-items:center;justify-content:center;padding:20px';
@@ -12353,6 +12359,7 @@ function openCostOcrModal(){
   if(bdLocked){ alert('ロック中は追加できません'); return; }
   if(!currentDetailId){ alert('予約詳細を開いてください'); return; }
   const b = findBookingById(currentDetailId)||{};
+  document.getElementById('cost-ocr-modal')?.remove();
   const modal = document.createElement('div');
   modal.id = 'cost-ocr-modal';
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:300;display:flex;align-items:center;justify-content:center;padding:20px';
@@ -12433,6 +12440,7 @@ async function extractCostFromFile(event, mode){
 
 function showCostConfirmDialog(expenses){
   const b = findBookingById(currentDetailId)||{};
+  document.getElementById('cost-confirm-modal')?.remove();
   const modal = document.createElement('div');
   modal.id = 'cost-confirm-modal';
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:300;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto';
@@ -12608,6 +12616,7 @@ async function showInvoiceConfirmDialog(expenses, presetBookingId){
     </tr>`;
   }).join('');
 
+  document.getElementById('invoice-confirm-modal')?.remove();
   const modal = document.createElement('div');
   modal.id = 'invoice-confirm-modal';
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:300;display:flex;align-items:flex-start;justify-content:center;padding:12px;overflow-y:auto';
