@@ -12097,10 +12097,18 @@ async function saveHotelConfirm(hotels){
     };
   });
 
-  const validRows = allRows.filter(r=>r.booking_id && (r.hotel_name||r.amount));
-  const unmatched = allRows.filter(r=>!r.booking_id && (r.hotel_name||r.amount));
+  // 旧ロジックは r.booking_id && (r.hotel_name||r.amount) / !r.booking_id && (r.hotel_name||r.amount)
+  // という条件式だった。これだと「booking_idは正しく選択済みだが、hotel_name未入力かつ
+  // amount=0(単価・室数・泊数が未入力の行)」がvalidRows/unmatchedのどちらの条件も満たさず、
+  // 分類から漏れてしまい(=どちらの配列にも入らない)、結果としてvalidRows.length===0になり
+  // 「ツアーREF#が1件も選択されていません」の誤判定を引き起こしていた。
+  // 「何らかの内容がある行か」(hasContent)と「REF#が選択されているか」(booking_id)を
+  // 別の軸として扱い、hasContentな行を漏れなくvalidRows/unmatchedのどちらかに振り分ける。
+  const hasContent = r => !!(r.booking_id || r.hotel_name || r.amount);
+  const validRows = allRows.filter(r=>hasContent(r) && r.booking_id);
+  const unmatched = allRows.filter(r=>hasContent(r) && !r.booking_id);
   console.log('[hm-confirm][save] allRows(booking_id/hotel_name)=', allRows.map(r=>({booking_id:r.booking_id, hotel_name:r.hotel_name})));
-  console.log('[hm-confirm][save] validRows.length=', validRows.length, ' unmatched.length=', unmatched.length);
+  console.log('[hm-confirm][save] validRows.length=', validRows.length, ' unmatched.length=', unmatched.length, ' allRows.length=', allRows.length);
 
   if(!validRows.length){
     alert('⚠ ツアーREF#が1件も選択されていません。\n一番左の「ツアーREF#」欄から予約を選択してから保存してください。');
