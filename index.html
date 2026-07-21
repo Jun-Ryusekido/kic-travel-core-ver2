@@ -1561,6 +1561,7 @@ input[type=number]{-moz-appearance:textfield}
           <th style="width:35px">朝食</th>
           <th style="width:70px">単価(1室1泊)</th>
           <th style="width:70px">金額</th>
+          <th style="width:90px">支払方法</th>
           <th style="width:70px">確認番号</th>
           <th style="width:80px">ステータス</th>
           <th>備考</th>
@@ -1598,6 +1599,7 @@ input[type=number]{-moz-appearance:textfield}
           <th style="width:100px;cursor:pointer;user-select:none" onclick="sortBusTable('start_date')">開始日 <span id="bus-start-sort-arrow"></span></th>
           <th style="width:100px;cursor:pointer;user-select:none" onclick="sortBusTable('end_date')">終了日 <span id="bus-end-sort-arrow"></span></th>
           <th style="width:80px">金額</th>
+          <th style="width:90px">支払方法</th>
           <th style="width:80px">ステータス</th>
           <th style="width:90px">確認番号</th>
           <th>備考</th>
@@ -1696,6 +1698,7 @@ input[type=number]{-moz-appearance:textfield}
           <th style="width:60px">数量</th>
           <th style="width:80px">単価</th>
           <th style="width:80px">金額</th>
+          <th style="width:90px">支払方法</th>
           <th style="width:80px">ステータス</th>
           <th>備考</th>
           <th class="li-del"></th>
@@ -1721,6 +1724,7 @@ input[type=number]{-moz-appearance:textfield}
           <th style="width:50px">小人</th>
           <th style="width:50px">無賃</th>
           <th style="width:55px">割引率(%)</th>
+          <th style="width:90px">支払方法</th>
           <th style="width:88px">ステータス</th>
           <th>備考</th>
           <th class="li-del"></th>
@@ -1737,6 +1741,7 @@ input[type=number]{-moz-appearance:textfield}
           <th style="width:220px">ガイド</th>
           <th style="width:110px">担当日(From)</th>
           <th style="width:110px">担当日(To)</th>
+          <th style="width:90px">支払方法</th>
           <th style="width:90px">ステータス</th>
           <th>備考</th>
           <th class="li-del"></th>
@@ -3101,6 +3106,17 @@ async function safeReplaceRowsByKey(table, keyCol, keyVal, rows, label){
 let bdLocalExpenses = [];
 const LOCAL_EXPENSE_CATEGORIES = ['D（ドライバー）','ゲスト','ゲスト・TG','その他'];
 const LOCAL_EXPENSE_PAYMENT_METHODS = ['現地払い','事前決済','後請求','全旅クーポン','無料(FREE)'];
+// 手配管理タブ(ホテル・バス・ミネラルウォーター・新幹線・ガイド)共通の支払方法選択肢。
+// 「現地払い」のものだけが実際に現金の仮払いが必要な対象、それ以外(後請求/全旅クーポン/前振込み)は
+// 今回のツアー中の現金仮払いは不要、という仮払い一覧表側の自動判定にそのまま使えるよう、
+// 表記ゆれが起きないようこの一覧を共通で参照する。
+const ARRANGEMENT_PAYMENT_METHODS = ['現地払い','後請求','全旅クーポン','前振込み'];
+function arrPaymentMethodSelectHtml(arrName, i, value){
+  return `<td data-label="支払方法"><select onchange="${arrName}[${i}].payment_method=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px">
+    <option value="" ${!value?'selected':''}></option>
+    ${ARRANGEMENT_PAYMENT_METHODS.map(m=>`<option value="${m}" ${value===m?'selected':''}>${m}</option>`).join('')}
+  </select></td>`;
+}
 const LOCAL_EXPENSE_TYPES = ['食事','食事/TIP','交通費','入場料','ホテル','駐車料','TIP','雑費','その他'];
 let bdLocked = false; let suppliersCache = []; let busCompaniesCache = []; let restaurantPartnersCache = []; let allPartnersCache = [];
 let arrangementsCache = [];
@@ -4379,6 +4395,7 @@ async function openBookingDetail(id){
   bdGuideItems = (guideRows||[]).map(r=>({
     id: r.id, guide_id: r.guide_id||null, guide_name_freetext: r.guide_name_freetext||'',
     start_date: r.start_date||'', end_date: r.end_date||'', status: r.status||'回答待ち', memo: r.memo||'',
+    payment_method: r.payment_method||'',
     _freetextMode: !r.guide_id && !!r.guide_name_freetext
   }));
   originalGuideCount = bdGuideItems.length;
@@ -4394,7 +4411,7 @@ async function openBookingDetail(id){
     hotel_name: r.hotel_name||'', check_in: r.check_in||'', check_out: r.check_out||'',
     room_type: r.room_type||'', rooms: r.rooms||1, breakfast: r.breakfast||false,
     unit_price: r.unit_price||0, amount: r.amount||0,
-    confirmation_no: r.confirmation_no||'', status: r.status||'回答待ち', memo: r.memo||''
+    confirmation_no: r.confirmation_no||'', status: r.status||'回答待ち', memo: r.memo||'', payment_method: r.payment_method||''
   }));
   originalHotelCount = bdHotelItems.length;
   renderHotelTable();
@@ -4407,7 +4424,7 @@ async function openBookingDetail(id){
     sb.from('bullet_train_arrangements').select('*').eq('booking_ref', b.ref_no).order('sort_order'),
   ]);
   if(busFetchErr||restFetchErr||facFetchErr||waterFetchErr){ alert('手配明細の読み込みに一部失敗しました。このまま保存すると既存データが消える危険があるため、画面を再読み込みしてください。\n'+(busFetchErr||restFetchErr||facFetchErr||waterFetchErr).message); }
-  bdBusItems = (busRows||[]).map(r=>({id:r.id,bus_company:r.bus_company||'',bus_type:r.bus_type||'',buses:r.buses||1,start_date:r.start_date||'',end_date:r.end_date||'',amount:r.amount||0,status:r.status||'問い合わせ中',confirmation_no:r.confirmation_no||'',driver_hotel_name:r.driver_hotel_name||'',driver_hotel_phone:r.driver_hotel_phone||'',driver_hotel_address:r.driver_hotel_address||'',driver_check_in:r.driver_check_in||'',driver_check_out:r.driver_check_out||'',driver_hotel_amount:r.driver_hotel_amount||0,memo:r.memo||''}));
+  bdBusItems = (busRows||[]).map(r=>({id:r.id,bus_company:r.bus_company||'',bus_type:r.bus_type||'',buses:r.buses||1,start_date:r.start_date||'',end_date:r.end_date||'',amount:r.amount||0,status:r.status||'問い合わせ中',confirmation_no:r.confirmation_no||'',driver_hotel_name:r.driver_hotel_name||'',driver_hotel_phone:r.driver_hotel_phone||'',driver_hotel_address:r.driver_hotel_address||'',driver_check_in:r.driver_check_in||'',driver_check_out:r.driver_check_out||'',driver_hotel_amount:r.driver_hotel_amount||0,memo:r.memo||'',payment_method:r.payment_method||''}));
   originalBusCount = bdBusItems.length;
   bdRestaurantItems = (restRows||[]).map(r=>({id:r.id,restaurant_name:r.restaurant_name||'',meal_type:r.meal_type||'昼食',date:r.date||'',reservation_time:r.reservation_time||'',pax:r.pax||0,amount:r.amount||0,status:r.status||'問い合わせ中',payment_method:r.payment_method||'',memo:r.memo||''}));
   originalRestaurantCount = bdRestaurantItems.length;
@@ -4415,9 +4432,9 @@ async function openBookingDetail(id){
   if(bdRestaurantItems.length===0) generateRestaurantTemplateRows(b);
   bdFacilityItems = (facRows||[]).map(r=>({id:r.id,facility_name:r.facility_name||'',date:r.date||'',pax:r.pax||0,amount:r.amount||0,status:r.status||'問い合わせ中',confirmation_no:r.confirmation_no||'',deadline_date:r.deadline_date||'',payment_method:r.payment_method||'',memo:r.memo||''}));
   originalFacilityCount = bdFacilityItems.length;
-  bdWaterItems = (waterRows||[]).map(r=>({id:r.id,item_name:r.item_name||'',date:r.date||'',qty:r.qty||0,unit_price:r.unit_price||0,amount:r.amount||0,status:r.status||'問い合わせ中',memo:r.memo||''}));
+  bdWaterItems = (waterRows||[]).map(r=>({id:r.id,item_name:r.item_name||'',date:r.date||'',qty:r.qty||0,unit_price:r.unit_price||0,amount:r.amount||0,status:r.status||'問い合わせ中',memo:r.memo||'',payment_method:r.payment_method||''}));
   originalWaterCount = bdWaterItems.length;
-  bdBulletTrainItems = (btRows||[]).map(r=>({ride_date:r.ride_date||'',train_name:r.train_name||'',train_number:r.train_number||'',departure_station:r.departure_station||'',departure_time:r.departure_time||'',arrival_station:r.arrival_station||'',arrival_time:r.arrival_time||'',pax_adult:r.pax_adult||0,pax_child:r.pax_child||0,pax_free:r.pax_free||0,discount_rate:r.discount_rate||0,status:r.status||'回答待ち',memo:r.memo||''}));
+  bdBulletTrainItems = (btRows||[]).map(r=>({ride_date:r.ride_date||'',train_name:r.train_name||'',train_number:r.train_number||'',departure_station:r.departure_station||'',departure_time:r.departure_time||'',arrival_station:r.arrival_station||'',arrival_time:r.arrival_time||'',pax_adult:r.pax_adult||0,pax_child:r.pax_child||0,pax_free:r.pax_free||0,discount_rate:r.discount_rate||0,status:r.status||'回答待ち',memo:r.memo||'',payment_method:r.payment_method||''}));
   renderBusTable(); renderRestaurantTable(); renderFacilityTable(); renderWaterTable(); renderBulletTrainTable();
 
   // 手配書(新テーブル群)を読み込み。bdHotelItems/bdRestaurantItemsが読み込み済みであることに依存する
@@ -6988,17 +7005,17 @@ let bdGuideDocEditing = null; // 編集モーダルで開いている手配書1�
 // 新しいツアーではまだ確定していない情報のため、コピーせず空欄/初期値にリセットする。
 const ARR_COPY_CONFIG = {
   hotel:  { table:'booking_hotels',        keyField:'booking_id',
-    map:r=>({hotel_name:r.hotel_name||'', check_in:r.check_in||'', check_out:r.check_out||'', room_type:r.room_type||'', rooms:r.rooms||1, breakfast:r.breakfast||false, unit_price:r.unit_price||0, amount:r.amount||0, confirmation_no:'', status:'回答待ち', memo:r.memo||''}) },
+    map:r=>({hotel_name:r.hotel_name||'', check_in:r.check_in||'', check_out:r.check_out||'', room_type:r.room_type||'', rooms:r.rooms||1, breakfast:r.breakfast||false, unit_price:r.unit_price||0, amount:r.amount||0, confirmation_no:'', status:'回答待ち', payment_method:r.payment_method||'', memo:r.memo||''}) },
   bus:    { table:'booking_buses',         keyField:'booking_id',
-    map:r=>({bus_company:r.bus_company||'', bus_type:r.bus_type||'', buses:r.buses||1, start_date:r.start_date||'', end_date:r.end_date||'', amount:r.amount||0, status:'問い合わせ中', confirmation_no:'', driver_hotel_name:r.driver_hotel_name||'', driver_hotel_phone:r.driver_hotel_phone||'', driver_hotel_address:r.driver_hotel_address||'', driver_check_in:r.driver_check_in||'', driver_check_out:r.driver_check_out||'', driver_hotel_amount:r.driver_hotel_amount||0, memo:r.memo||''}) },
+    map:r=>({bus_company:r.bus_company||'', bus_type:r.bus_type||'', buses:r.buses||1, start_date:r.start_date||'', end_date:r.end_date||'', amount:r.amount||0, status:'問い合わせ中', confirmation_no:'', driver_hotel_name:r.driver_hotel_name||'', driver_hotel_phone:r.driver_hotel_phone||'', driver_hotel_address:r.driver_hotel_address||'', driver_check_in:r.driver_check_in||'', driver_check_out:r.driver_check_out||'', driver_hotel_amount:r.driver_hotel_amount||0, payment_method:r.payment_method||'', memo:r.memo||''}) },
   rest:   { table:'booking_restaurants',   keyField:'booking_id',
     map:r=>({restaurant_name:r.restaurant_name||'', meal_type:r.meal_type||'昼食', date:r.date||'', reservation_time:r.reservation_time||'', pax:r.pax||0, amount:r.amount||0, status:'問い合わせ中', payment_method:r.payment_method||'', memo:r.memo||''}) },
   fac:    { table:'booking_facilities',    keyField:'booking_id',
     map:r=>({facility_name:r.facility_name||'', date:r.date||'', pax:r.pax||0, amount:r.amount||0, status:'問い合わせ中', confirmation_no:'', deadline_date:r.deadline_date||'', payment_method:r.payment_method||'', memo:r.memo||''}) },
   water:  { table:'booking_water_items',   keyField:'booking_id',
-    map:r=>({item_name:r.item_name||'', date:r.date||'', qty:r.qty||0, unit_price:r.unit_price||0, amount:r.amount||0, status:'問い合わせ中', memo:r.memo||''}) },
+    map:r=>({item_name:r.item_name||'', date:r.date||'', qty:r.qty||0, unit_price:r.unit_price||0, amount:r.amount||0, status:'問い合わせ中', payment_method:r.payment_method||'', memo:r.memo||''}) },
   bullet: { table:'bullet_train_arrangements', keyField:'booking_ref',
-    map:r=>({ride_date:r.ride_date||'', train_name:r.train_name||'', train_number:r.train_number||'', departure_station:r.departure_station||'', departure_time:r.departure_time||'', arrival_station:r.arrival_station||'', arrival_time:r.arrival_time||'', pax_adult:r.pax_adult||0, pax_child:r.pax_child||0, pax_free:r.pax_free||0, discount_rate:r.discount_rate||0, status:'回答待ち', memo:r.memo||''}) },
+    map:r=>({ride_date:r.ride_date||'', train_name:r.train_name||'', train_number:r.train_number||'', departure_station:r.departure_station||'', departure_time:r.departure_time||'', arrival_station:r.arrival_station||'', arrival_time:r.arrival_time||'', pax_adult:r.pax_adult||0, pax_child:r.pax_child||0, pax_free:r.pax_free||0, discount_rate:r.discount_rate||0, status:'回答待ち', payment_method:r.payment_method||'', memo:r.memo||''}) },
 };
 const ARR_COPY_TAB_LABELS = {hotel:'ホテル', bus:'バス', rest:'レストラン', fac:'観光施設・バス駐車場等', water:'ミネラルウォーター', bullet:'新幹線'};
 let arrCopyTab = null;
@@ -7127,7 +7144,7 @@ function renderHotelTable(){
   if(!tbody) return;
   const total = bdHotelItems.reduce((s,it)=>s+Number(it.amount||0),0);
   if(bdHotelItems.length===0){
-    tbody.innerHTML='<tr><td colspan="13" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
+    tbody.innerHTML='<tr><td colspan="14" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
   }else{
     tbody.innerHTML = bdHotelItems.map((it,i)=>{
       const nights = calcHotelNights(it.check_in, it.check_out);
@@ -7141,6 +7158,7 @@ function renderHotelTable(){
         <td data-label="朝食" style="text-align:center"><input type="checkbox" ${it.breakfast?'checked':''} onchange="bdHotelItems[${i}].breakfast=this.checked"></td>
         <td data-label="単価"><input type="text" inputmode="numeric" value="${Number(it.unit_price||0).toLocaleString('ja-JP')}" onchange="bdHotelItems[${i}].unit_price=parseNum(this.value);this.value=bdHotelItems[${i}].unit_price.toLocaleString('ja-JP');hotelCalc(${i})"></td>
         <td data-label="金額" style="text-align:right;white-space:nowrap" data-hotel-amount="${i}">${yen(it.amount||0)}</td>
+        ${arrPaymentMethodSelectHtml('bdHotelItems', i, it.payment_method)}
         <td data-label="確認番号"><input value="${escAttr(it.confirmation_no)}" oninput="bdHotelItems[${i}].confirmation_no=this.value" style="width:100%"></td>
         <td data-label="ステータス"><select onchange="bdHotelItems[${i}].status=this.value;this.style.background=statusBg(this.value);this.style.color=statusFg(this.value)" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px;${statusSelectStyle(it.status||'回答待ち')}"><option value="未予約" ${it.status==='未予約'?'selected':''}>未予約</option><option value="回答待ち" ${!it.status||it.status==='回答待ち'?'selected':''}>回答待ち</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option><option value="FNL済" ${it.status==='FNL済'?'selected':''}>FNL済</option><option value="NG回答" ${it.status==='NG回答'?'selected':''}>NG回答</option><option value="キャンセル" ${it.status==='キャンセル'?'selected':''}>キャンセル</option></select></td>
         <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdHotelItems[${i}].memo=this.value" style="width:100%"></td>
@@ -7170,7 +7188,7 @@ function hotelCalc(i){
 }
 
 function addHotelRow(){
-  bdHotelItems.push({hotel_name:'', check_in:'', check_out:'', room_type:'', rooms:1, breakfast:false, unit_price:0, amount:0, confirmation_no:'', memo:''});
+  bdHotelItems.push({hotel_name:'', check_in:'', check_out:'', room_type:'', rooms:1, breakfast:false, unit_price:0, amount:0, confirmation_no:'', memo:'', payment_method:''});
   renderHotelTable();
 }
 
@@ -7193,6 +7211,7 @@ async function saveHotelItems(){
     confirmation_no: it.confirmation_no||'',
     status: it.status||'問い合わせ中',
     memo: it.memo||'',
+    payment_method: it.payment_method||'',
     sort_order: i
   }));
   await safeReplaceBookingRows('booking_hotels', bookingId, rows, 'ホテル明細');
@@ -7221,7 +7240,7 @@ function renderBusTable(){
   if(!tbody) return;
   const total = bdBusItems.reduce((s,it)=>s+Number(it.amount||0),0);
   if(bdBusItems.length===0){
-    tbody.innerHTML='<tr><td colspan="10" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
+    tbody.innerHTML='<tr><td colspan="11" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
   }else{
     tbody.innerHTML = bdBusItems.map((it,i)=>`<tr>
       <td data-label="バス会社" style="position:relative"><input value="${escAttr(it.bus_company)}" oninput="bdBusItems[${i}].bus_company=this.value;showBusCompanySuggest(this,${i})" onfocus="showBusCompanySuggest(this,${i})" onblur="setTimeout(hideBusCompanySuggest,150)" style="width:100%"></td>
@@ -7230,6 +7249,7 @@ function renderBusTable(){
       <td data-label="開始日"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.start_date||''}" onchange="bdBusItems[${i}].start_date=this.value"></td>
       <td data-label="終了日"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.end_date||''}" onchange="bdBusItems[${i}].end_date=this.value"></td>
       <td data-label="金額"><input type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="busAmountCalc(${i},this)"></td>
+      ${arrPaymentMethodSelectHtml('bdBusItems', i, it.payment_method)}
       <td data-label="ステータス"><select onchange="bdBusItems[${i}].status=this.value;this.style.background=statusBg(this.value);this.style.color=statusFg(this.value)" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px;${statusSelectStyle(it.status||'問い合わせ中')}"><option value="未予約" ${it.status==='未予約'?'selected':''}>未予約</option><option value="問い合わせ中" ${(it.status||'問い合わせ中')==='問い合わせ中'?'selected':''}>問い合わせ中</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option><option value="FNL済" ${it.status==='FNL済'?'selected':''}>FNL済</option><option value="NG回答" ${it.status==='NG回答'?'selected':''}>NG回答</option><option value="キャンセル" ${it.status==='キャンセル'?'selected':''}>キャンセル</option></select></td>
       <td data-label="確認番号"><input value="${escAttr(it.confirmation_no)}" oninput="bdBusItems[${i}].confirmation_no=this.value" style="width:100%"></td>
       <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdBusItems[${i}].memo=this.value" style="width:100%"></td>
@@ -7243,7 +7263,7 @@ function renderBusTable(){
   if(endArrow) endArrow.textContent = bdSortArrow(busSortState, 'end_date');
 }
 function addBusRow(){
-  bdBusItems.push({bus_company:'',bus_type:'',buses:1,start_date:'',end_date:'',amount:0,status:'問い合わせ中',confirmation_no:'',memo:''});
+  bdBusItems.push({bus_company:'',bus_type:'',buses:1,start_date:'',end_date:'',amount:0,status:'問い合わせ中',confirmation_no:'',memo:'',payment_method:''});
   renderBusTable();
 }
 async function saveBusItems(){
@@ -7257,7 +7277,8 @@ async function saveBusItems(){
     amount: Number(it.amount)||0,
     status: it.status||'問い合わせ中',
     confirmation_no: it.confirmation_no||'',
-    memo: it.memo||''
+    memo: it.memo||'',
+    payment_method: it.payment_method||''
   }));
   await safeReplaceBookingRows('booking_buses', bookingId, rows, 'バス明細');
 }
@@ -9114,7 +9135,7 @@ function renderWaterTable(){
   if(!tbody) return;
   const total = bdWaterItems.reduce((s,it)=>s+Number(it.amount||0),0);
   if(bdWaterItems.length===0){
-    tbody.innerHTML='<tr><td colspan="8" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
+    tbody.innerHTML='<tr><td colspan="9" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
   }else{
     tbody.innerHTML = bdWaterItems.map((it,i)=>`<tr>
       <td data-label="品名"><input value="${escAttr(it.item_name)}" oninput="bdWaterItems[${i}].item_name=this.value" style="width:100%"></td>
@@ -9122,6 +9143,7 @@ function renderWaterTable(){
       <td data-label="数量"><input type="number" value="${it.qty||0}" onchange="bdWaterItems[${i}].qty=Number(this.value);waterAmountCalc(${i})" style="width:100%"></td>
       <td data-label="単価"><input type="text" inputmode="numeric" value="${Number(it.unit_price||0).toLocaleString('ja-JP')}" onchange="bdWaterItems[${i}].unit_price=parseNum(this.value);this.value=bdWaterItems[${i}].unit_price.toLocaleString('ja-JP');waterAmountCalc(${i})"></td>
       <td data-label="金額" style="text-align:right;white-space:nowrap" data-water-amount="${i}">${yen(it.amount||0)}</td>
+      ${arrPaymentMethodSelectHtml('bdWaterItems', i, it.payment_method)}
       <td data-label="ステータス"><select onchange="bdWaterItems[${i}].status=this.value;this.style.background=statusBg(this.value);this.style.color=statusFg(this.value)" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px;${statusSelectStyle(it.status||'問い合わせ中')}"><option value="未予約" ${it.status==='未予約'?'selected':''}>未予約</option><option value="問い合わせ中" ${(it.status||'問い合わせ中')==='問い合わせ中'?'selected':''}>問い合わせ中</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option><option value="FNL済" ${it.status==='FNL済'?'selected':''}>FNL済</option><option value="NG回答" ${it.status==='NG回答'?'selected':''}>NG回答</option><option value="予約不要" ${it.status==='予約不要'?'selected':''}>予約不要</option><option value="キャンセル" ${it.status==='キャンセル'?'selected':''}>キャンセル</option></select></td>
       <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdWaterItems[${i}].memo=this.value" style="width:100%"></td>
       ${arrDelBtnHtml('bdWaterItems', i, 'renderWaterTable', escAttr([it.item_name, it.date].filter(Boolean).join(' '))+' の行を削除しますか？')}
@@ -9141,7 +9163,7 @@ function waterAmountCalc(i){
 }
 
 function addWaterRow(){
-  bdWaterItems.push({item_name:'',date:'',qty:0,unit_price:0,amount:0,status:'問い合わせ中',memo:''});
+  bdWaterItems.push({item_name:'',date:'',qty:0,unit_price:0,amount:0,status:'問い合わせ中',memo:'',payment_method:''});
   renderWaterTable();
 }
 
@@ -9155,7 +9177,8 @@ async function saveWaterItems(){
     unit_price: Number(it.unit_price)||0,
     amount: Number(it.amount)||0,
     status: it.status||'問い合わせ中',
-    memo: it.memo||''
+    memo: it.memo||'',
+    payment_method: it.payment_method||''
   }));
   await safeReplaceBookingRows('booking_water_items', bookingId, rows, 'ミネラルウォーター明細');
 }
@@ -9324,7 +9347,7 @@ function renderBulletTrainTable(){
   const rideDateArrow = document.getElementById('bullet-ride-date-sort-arrow');
   if(rideDateArrow) rideDateArrow.textContent = bdSortArrow(bulletTrainSortState, 'ride_date');
   if(bdBulletTrainItems.length===0){
-    tbody.innerHTML='<tr><td colspan="14" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
+    tbody.innerHTML='<tr><td colspan="15" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
     return;
   }
   const stStyle = s => s==='手配OK'
@@ -9346,6 +9369,7 @@ function renderBulletTrainTable(){
     <td data-label="小人"><input type="number" value="${it.pax_child||0}" onchange="bdBulletTrainItems[${i}].pax_child=Number(this.value)" style="width:100%;text-align:right"></td>
     <td data-label="無賃"><input type="number" value="${it.pax_free||0}" onchange="bdBulletTrainItems[${i}].pax_free=Number(this.value)" style="width:100%;text-align:right"></td>
     <td data-label="割引率(%)"><input type="number" value="${it.discount_rate||0}" onchange="bdBulletTrainItems[${i}].discount_rate=Number(this.value)" style="width:100%;text-align:right"></td>
+    ${arrPaymentMethodSelectHtml('bdBulletTrainItems', i, it.payment_method)}
     <td data-label="ステータス"><select style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px;font-weight:600;${stStyle(it.status||'回答待ち')}"
       onchange="bdBulletTrainItems[${i}].status=this.value;renderBulletTrainTable()">
       <option value="未予約" ${it.status==='未予約'?'selected':''}>未予約</option>
@@ -9361,7 +9385,7 @@ function renderBulletTrainTable(){
 }
 
 function addBulletTrainRow(){
-  bdBulletTrainItems.push({ride_date:'', train_name:'', train_number:'', departure_station:'', departure_time:'', arrival_station:'', arrival_time:'', pax_adult:0, pax_child:0, pax_free:0, discount_rate:0, status:'回答待ち', memo:''});
+  bdBulletTrainItems.push({ride_date:'', train_name:'', train_number:'', departure_station:'', departure_time:'', arrival_station:'', arrival_time:'', pax_adult:0, pax_child:0, pax_free:0, discount_rate:0, status:'回答待ち', memo:'', payment_method:''});
   renderBulletTrainTable();
 }
 
@@ -9386,6 +9410,7 @@ async function saveBulletTrainItems(){
     discount_rate: Number(it.discount_rate)||0,
     status: it.status||'回答待ち',
     memo: it.memo||'',
+    payment_method: it.payment_method||'',
     sort_order: i
   }));
   if(rows.length){
@@ -9415,7 +9440,7 @@ function renderGuideTable(){
   const tbody = document.getElementById('bd-guides-tbody');
   if(!tbody) return;
   if(bdGuideItems.length===0){
-    tbody.innerHTML = '<tr><td colspan="6" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
     return;
   }
   tbody.innerHTML = bdGuideItems.map((it,i)=>{
@@ -9435,6 +9460,7 @@ function renderGuideTable(){
       ${guideCell}
       <td data-label="担当日(From)"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.start_date||''}" onchange="bdGuideItems[${i}].start_date=this.value"></td>
       <td data-label="担当日(To)"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.end_date||''}" onchange="bdGuideItems[${i}].end_date=this.value"></td>
+      ${arrPaymentMethodSelectHtml('bdGuideItems', i, it.payment_method)}
       <td data-label="ステータス"><select onchange="bdGuideItems[${i}].status=this.value;this.style.background=statusBg(this.value);this.style.color=statusFg(this.value)" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px;${statusSelectStyle(it.status||'回答待ち')}"><option value="未予約" ${it.status==='未予約'?'selected':''}>未予約</option><option value="回答待ち" ${!it.status||it.status==='回答待ち'?'selected':''}>回答待ち</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option><option value="FNL済" ${it.status==='FNL済'?'selected':''}>FNL済</option><option value="NG回答" ${it.status==='NG回答'?'selected':''}>NG回答</option><option value="キャンセル" ${it.status==='キャンセル'?'selected':''}>キャンセル</option></select></td>
       <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdGuideItems[${i}].memo=this.value" style="width:100%"></td>
       ${arrDelBtnHtml('bdGuideItems', i, 'renderGuideTable', escAttr([guideRowDisplayName(it), [it.start_date, it.end_date].filter(Boolean).join('〜')].filter(Boolean).join(' '))+' の行を削除しますか？')}
@@ -9554,7 +9580,7 @@ async function submitNewGuide(){
 }
 
 function addGuideRow(){
-  bdGuideItems.push({guide_id:null, guide_name_freetext:'', start_date:'', end_date:'', status:'回答待ち', memo:'', _freetextMode:false});
+  bdGuideItems.push({guide_id:null, guide_name_freetext:'', start_date:'', end_date:'', status:'回答待ち', memo:'', payment_method:'', _freetextMode:false});
   renderGuideTable();
 }
 
@@ -9568,7 +9594,8 @@ async function saveGuideItems(){
     start_date: sanitizeDateField(it.start_date),
     end_date: sanitizeDateField(it.end_date),
     status: it.status||'回答待ち',
-    memo: it.memo||''
+    memo: it.memo||'',
+    payment_method: it.payment_method||''
   }));
   await safeReplaceBookingRows('booking_guides', bookingId, rows, '担当ガイド明細');
   // 保存後に他予約との二重アサインを再チェックする(警告表示のみで、保存自体はブロックしない)
