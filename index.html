@@ -1874,6 +1874,7 @@ input[type=number]{-moz-appearance:textfield}
     </table></div>
     <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:4px">
       <button class="btn" style="font-size:10px" onclick="addLocalExpenseRow()">＋ 行追加</button>
+      <button class="btn" style="font-size:10px" onclick="generateLocalExpensesFromArrangements()">＋ 手配内容から概算行を生成</button>
     </div>
     <div class="li-total">仮払い合計: <span id="bd-local-total">¥0</span></div>
     </div>
@@ -2282,12 +2283,20 @@ window.addEventListener('unhandledrejection', (ev)=>{
 });
 
 // ===== ログイン =====
+// app_usersへのanonキーからの直接アクセスは廃止したため、照合は/api/login経由(service_role key)
+// で行う。last_login更新・平文パスワードの自動ハッシュ化移行もサーバー側で完結する。
 async function doLogin(){
   const id = document.getElementById('login-id').value.trim();
   const pw = document.getElementById('login-pw').value;
   document.getElementById('login-err').style.display='none';
 
-  const {data, error} = await sb.from('app_users').select('*').eq('email', id).eq('password', pw).maybeSingle();
+  let data = null, error = null;
+  try{
+    const resp = await fetch('/api/login', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({email:id, password:pw})});
+    const body = await resp.json();
+    if(resp.ok) data = body.user;
+    else error = new Error(body.error || 'ログインに失敗しました');
+  }catch(e){ error = e; }
 
   if(error || !data){
     document.getElementById('login-err').style.display='block';
@@ -2301,8 +2310,6 @@ async function doLogin(){
   currentUser = data;
   sessionStorage.removeItem('db_todo_dismissed');
 
-  // 最終ログイン更新
-  await sb.from('app_users').update({last_login:new Date().toISOString()}).eq('id', data.id);
   await logAction('ログイン','—');
 
   applyLoggedInUI(data);
@@ -2363,11 +2370,19 @@ async function loadErrorLogs(){
   }).join('');
 }
 
+// app_usersへのanonキーからの直接update権限は廃止したため、/api/change-password経由(service_role key)
+// で行う。現在のパスワードの照合をサーバー側で必須にすることで、userIdさえ分かれば他人の
+// パスワードを書き換えられてしまう状態を防いでいる。
 async function changePassword(){
+  const oldPw = prompt('現在のパスワードを入力してください');
+  if(!oldPw) return;
   const newPw = prompt('新しいパスワードを入力してください（8文字以上）');
   if(!newPw || newPw.length<8){ alert('8文字以上のパスワードを入力してください'); return; }
-  const {error} = await sb.from('app_users').update({password:newPw}).eq('id', currentUser.id);
-  if(error){ alert('変更に失敗しました: '+error.message); return; }
+  try{
+    const resp = await fetch('/api/change-password', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({userId:currentUser.id, oldPassword:oldPw, newPassword:newPw})});
+    const body = await resp.json();
+    if(!resp.ok){ alert('変更に失敗しました: '+(body.error||'')); return; }
+  }catch(e){ alert('変更に失敗しました: '+e.message); return; }
   alert('パスワードを変更しました。次回ログインから新しいパスワードをご使用ください。');
 }
 
@@ -3957,6 +3972,119 @@ function localExpenseCalc(i, el){
 
 function addLocalExpenseRow(){
   bdLocalExpenses.push({expense_date:'', expense_type:'', content:'', category:'ゲスト', unit_price:0, qty:1, amount:0, payment_method:'現地払い'});
+  renderLocalExpenses();
+}
+
+// ─── 仮払い一覧表: 手配管理タブの既存データからの概算行の自動生成 ───────────────
+// booking_buses/booking_restaurants/booking_facilities/booking_water_items/guide_settlementsの
+// 金額を集計し、local_expensesの概算行として一括追加する。あくまで初期値の複製であり、
+// 生成後はlocal_expenses側で自由に編集・削除でき、元の仕入明細等の計算には一切影響しない。
+
+// レストラン/観光施設の支払方法のうち、明らかに現金の仮払いが不要（請求書払い・事前決済・
+// 後請求・全旅クーポン・無料）なものは概算生成の対象外にする。空欄・現金払い・現地払い・
+// その他(判断できないもの)は対象に含め、支払方法が空欄/不明なものは内容欄に「（要確認）」を付記する。
+const LOCAL_EXPENSE_GEN_SKIP_PAYMENT_METHODS = ['請求書払い','事前決済','後請求','全旅クーポン','無料(FREE)'];
+
+// 元データの支払方法表記(テーブルごとに選択肢が異なる)を、local_expenses側の
+// LOCAL_EXPENSE_PAYMENT_METHODS（現地払い/事前決済/後請求/全旅クーポン/無料(FREE)）に寄せる。
+// 一致するものが無ければ空欄にする(生成後にプルダウンで選び直してもらう)。
+function _localExpenseGenMapPaymentMethod(src){
+  if(LOCAL_EXPENSE_PAYMENT_METHODS.includes(src)) return src;
+  if(src==='現金払い') return '現地払い';
+  return '';
+}
+
+async function generateLocalExpensesFromArrangements(){
+  if(!currentDetailId) return;
+  const bookingId = currentDetailId;
+  const b = findBookingById(bookingId);
+  const fallbackDate = b ? (b.in_date||'') : '';
+
+  const [
+    {data: busRows, error: busErr},
+    {data: restRows, error: restErr},
+    {data: facRows, error: facErr},
+    {data: waterRows, error: waterErr},
+  ] = await Promise.all([
+    sb.from('booking_buses').select('*').eq('booking_id', bookingId),
+    sb.from('booking_restaurants').select('*').eq('booking_id', bookingId),
+    sb.from('booking_facilities').select('*').eq('booking_id', bookingId),
+    sb.from('booking_water_items').select('*').eq('booking_id', bookingId),
+  ]);
+  if(busErr||restErr||facErr||waterErr){
+    logError('仮払い概算行の生成(手配データ取得)', busErr||restErr||facErr||waterErr);
+    alert('手配データの取得に失敗しました: '+(busErr||restErr||facErr||waterErr).message);
+    return;
+  }
+  let guideSettlementRows = [];
+  if(b && b.ref_no){
+    const {data: gsRows, error: gsErr} = await sb.from('guide_settlements').select('*').eq('booking_ref', b.ref_no);
+    if(gsErr) logError('仮払い概算行の生成(ガイド精算取得)', gsErr, {toast:false});
+    else guideSettlementRows = gsRows||[];
+  }
+
+  const rows = [];
+  const mk = (expense_date, expense_type, content, category, amount, payment_method, needsCheck) => {
+    if(!Number(amount)) return;
+    rows.push({
+      expense_date: expense_date||'',
+      expense_type,
+      content: needsCheck ? `${content}（要確認）` : content,
+      category,
+      unit_price: Number(amount),
+      qty: 1,
+      amount: Number(amount),
+      payment_method: payment_method||'',
+    });
+  };
+
+  // バス: payment_methodの項目自体が無いため、金額が入っていれば常に対象にし「（要確認）」を付記する
+  (busRows||[]).forEach(bus=>{
+    mk(bus.start_date||fallbackDate, '交通費', `${bus.bus_company||'バス会社'}${bus.bus_type?'('+bus.bus_type+')':''}`, 'D（ドライバー）', bus.amount, '', true);
+    if(Number(bus.driver_hotel_amount)>0){
+      mk(bus.driver_check_in||bus.start_date||fallbackDate, 'ホテル', `${bus.bus_company||'バス会社'} ドライバー宿泊費${bus.driver_hotel_name?'('+bus.driver_hotel_name+')':''}`, 'D（ドライバー）', bus.driver_hotel_amount, '', true);
+    }
+  });
+
+  // レストラン: 請求書払いは対象外。現金払い/空欄/その他は対象(空欄・その他は要確認)
+  (restRows||[]).forEach(r=>{
+    if(LOCAL_EXPENSE_GEN_SKIP_PAYMENT_METHODS.includes(r.payment_method) || r.payment_method==='請求書払い') return;
+    const needsCheck = !r.payment_method || r.payment_method==='その他';
+    mk(r.date||fallbackDate, '食事', `${r.restaurant_name||'レストラン'}(${r.meal_type||''})`, 'ゲスト', r.amount, _localExpenseGenMapPaymentMethod(r.payment_method), needsCheck);
+  });
+
+  // 観光施設・バス駐車場等: 事前決済/後請求/全旅クーポン/無料は対象外。現地払い/空欄は対象(空欄は要確認)
+  (facRows||[]).forEach(f=>{
+    if(LOCAL_EXPENSE_GEN_SKIP_PAYMENT_METHODS.includes(f.payment_method)) return;
+    const needsCheck = !f.payment_method;
+    mk(f.date||fallbackDate, '入場料', f.facility_name||'観光施設', 'ゲスト', f.amount, _localExpenseGenMapPaymentMethod(f.payment_method), needsCheck);
+  });
+
+  // ミネラルウォーター: 支払方法の情報自体が無いため、金額が入っていれば対象にし「（要確認）」を付記する
+  (waterRows||[]).forEach(w=>{
+    mk(w.date||fallbackDate, '雑費', w.item_name||'ミネラルウォーター', 'ゲスト', w.amount, '', true);
+  });
+
+  // ガイドへの仮払金・追加仮払金(guide_settlements)。日付情報が無いため予約のIN-DATEで代用し「（要確認）」を付記する
+  guideSettlementRows.forEach(gs=>{
+    mk(fallbackDate, 'その他', `${gs.guide_name||'ガイド'} 仮払金`, 'ゲスト', gs.advance_payment, '', true);
+    mk(fallbackDate, 'その他', `${gs.guide_name||'ガイド'} 仮払金追加`, 'ゲスト', gs.additional_advance_payment, '', true);
+  });
+
+  if(rows.length===0){
+    alert('生成対象となる手配データが見つかりませんでした。\n（金額が入力されているバス/レストラン/観光施設/ミネラルウォーター/ガイド仮払金の明細がないか、レストラン・観光施設はすべて請求書払い等で現金の仮払いが不要と判断されるものでした）');
+    return;
+  }
+
+  if(bdLocalExpenses.length>0){
+    const preview = rows.slice(0,5).map(r=>`・${r.content} ${yen(r.amount)}`).join('\n') + (rows.length>5 ? `\n…他${rows.length-5}件` : '');
+    if(!confirm(`既存の仮払い一覧表に ${bdLocalExpenses.length}件 の行が既にあります。\n手配内容から生成した ${rows.length}件 を追加で生成しますか？\n\n${preview}`)) return;
+  }else{
+    const preview = rows.slice(0,5).map(r=>`・${r.content} ${yen(r.amount)}`).join('\n') + (rows.length>5 ? `\n…他${rows.length-5}件` : '');
+    if(!confirm(`手配内容から ${rows.length}件 の概算行を生成します。内容・金額はあとで自由に編集できます。\n\n${preview}`)) return;
+  }
+
+  bdLocalExpenses.push(...rows);
   renderLocalExpenses();
 }
 
@@ -14534,9 +14662,17 @@ async function deletePartner(id){
 }
 
 // ===== Accounts =====
+// app_usersへのanonキーからの直接アクセスは廃止したため、一覧取得・追加は
+// /api/list-users・/api/add-user経由(service_role key)で行う。
 async function loadAccounts(){
-  const {data, error} = await sb.from('app_users').select('*').order('created_at');
   const list=document.getElementById('user-list');
+  let data = null, error = null;
+  try{
+    const resp = await fetch('/api/list-users');
+    const body = await resp.json();
+    if(resp.ok) data = body.users;
+    else error = new Error(body.error||'読み込みエラー');
+  }catch(e){ error = e; }
   if(error || !data){ list.innerHTML='<div class="empty">読み込みエラー</div>'; return; }
   const roleMap={admin:['role-admin','管理者'],staff:['role-staff','スタッフ'],view:['role-view','閲覧のみ']};
   list.innerHTML=data.map(u=>{
@@ -14557,8 +14693,11 @@ async function addUser(){
   const role=document.getElementById('new-role').value;
   if(!name||!email||pw.length<8){ alert('氏名・Email・パスワード(8文字以上)を入力してください'); return; }
 
-  const {error} = await sb.from('app_users').insert({email,password:pw,name,role});
-  if(error){ alert('追加に失敗しました: '+error.message); return; }
+  try{
+    const resp = await fetch('/api/add-user', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name,email,password:pw,role})});
+    const body = await resp.json();
+    if(!resp.ok){ alert('追加に失敗しました: '+(body.error||'')); return; }
+  }catch(e){ alert('追加に失敗しました: '+e.message); return; }
 
   await logAction('ユーザー追加', email);
   document.getElementById('add-user-msg').style.display='inline';
