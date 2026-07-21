@@ -11808,7 +11808,7 @@ async function showHotelConfirmDialog(hotels){
         <div style="font-size:14px;font-weight:700">読み取り結果の確認</div>
         <button class="btn" onclick="document.getElementById('hotel-confirm-modal').remove()">✕ 閉じる</button>
       </div>
-      <div style="font-size:11px;color:var(--text3);margin-bottom:10px">各行のツアーREF#を確認・修正してから「保存」してください。</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:10px">「✓ 自動マッチ」と表示されている行はそのまま保存できます。間違っている場合のみ、一番上の入力欄を書き換えて修正してください。</div>
       <div>${rows}</div>
       <div style="margin-top:12px;display:flex;gap:8px">
         <button class="btn btn-p" onclick="saveHotelConfirmNew()">💾 保存</button>
@@ -11817,6 +11817,21 @@ async function showHotelConfirmDialog(hotels){
       </div>
     </div>`;
   document.body.appendChild(modal);
+
+  // 自動マッチ済みの行は、クリック等の追加操作なしで保存対象として確定させておく。
+  // <input value="..."> というHTML属性文字列としての初期値だけに頼ると、環境によっては
+  // 実際のDOMプロパティ(.value)に反映されないまま「✓自動マッチ」の表示だけが出て、
+  // 保存時には未選択(空)扱いになってしまう不具合があったため、モーダルをDOMに追加した直後に
+  // 隠しフィールド(保存対象のbooking_id)と表示用テキストの両方を明示的に.valueへ再代入し、
+  // 画面表示時点で選択済みの状態を保証する。
+  hotels.forEach((h,i)=>{
+    if(!h._bookingId) return;
+    const hidden = document.getElementById(`hm-confirm-booking-${i}`);
+    if(hidden) hidden.value = String(h._bookingId);
+    const matched = sortedBookings.find(b=>String(b.id)===String(h._bookingId));
+    const input = document.getElementById(`hm-confirm-input-${i}`);
+    if(input && matched) input.value = matched.ref_no || '(REF#なし)';
+  });
 }
 function filterHmConfirmDD(i){
   const q = document.getElementById('hm-confirm-input-'+i)?.value||'';
