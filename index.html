@@ -11760,6 +11760,11 @@ async function showHotelConfirmDialog(hotels){
     </div>`;
   }).join('');
 
+  // 前回の読み取り結果モーダルがエラー等で開いたまま残っていると、同じid(hm-confirm-*)を持つ
+  // 要素が重複してDOMに存在し、document.getElementByIdが古い(非表示の)モーダル側の要素を
+  // 返してしまい、画面上は自動マッチしているのに保存時は「REF#未選択」扱いになる不具合の原因に
+  // なるため、新しいモーダルを追加する前に既存のものを必ず取り除く。
+  document.getElementById('hotel-confirm-modal')?.remove();
   const modal = document.createElement('div');
   modal.id = 'hotel-confirm-modal';
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px';
