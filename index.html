@@ -11688,15 +11688,23 @@ async function showHotelConfirmDialog(hotels){
   const rows = hotels.map((h,i)=>{
     const nights = calcHotelNights(h.check_in||'', h.check_out||'');
     const amount = Number(h.unit_price||0)*Number(h.rooms||1)*nights;
-    // REF#で自動マッチ（3段階）
+    // REF#で自動マッチ（4段階）
     // 1) 最初の連続数字列で比較: "#1154"→"1154"、"KIC1154_J1"→"1154" どちらもマッチ
     //    ※replace(/[^0-9]/g,'')は"KIC1154_J1"を"11541"にしてしまうため使用不可
     // 2) h.ref_noとb.tour_nameの直接比較（大文字正規化）
-    // 3) h.ref_noが空の場合: b.tour_nameがhotelオブジェクト内の任意文字列と一致
+    // 3) 追加パターン: 集客表(Excel)等の「団体名」列にある「KIC967_TC/SOTC」のような
+    //    「KIC＋数字＋_＋任意の文字列」形式から数字部分だけを抽出して比較する。
+    //    AI抽出結果がref_noではなくmemo等の別フィールドに入ってしまう場合にも対応できるよう、
+    //    h全フィールドを結合したhAllTextに対して正規表現を当てる（既存の1)2)4)とは独立した
+    //    追加パターンとして扱い、メール受信箱側のREF#候補ロジック(computeRefSuggestions)には
+    //    影響を与えない）。
+    // 4) h.ref_noが空の場合: b.tour_nameがhotelオブジェクト内の任意文字列と一致
     const firstNum = s => { const m=(s||'').match(/(\d+)/); return m?m[1]:''; };
     const norm = s => (s||'').trim().toUpperCase();
-    // h全フィールドを結合した文字列（ステージ3用）
+    // h全フィールドを結合した文字列（ステージ3・4用）
     const hAllText = [h.ref_no, h.hotel_name, h.memo, h.confirmation_no].map(v=>norm(v)).join(' ');
+    const kicGroupNum = s => { const m=(s||'').match(/KIC\s*(\d+)\s*_/i); return m?m[1]:''; };
+    const hKicGroupNum = kicGroupNum(hAllText);
     const matchedBooking = sortedBookings.find(b=>{
       // ステージ1: 最初の連続数字列で比較
       if(h.ref_no){
@@ -11708,7 +11716,12 @@ async function showHotelConfirmDialog(hotels){
         const tNorm = norm(b.tour_name);
         if(hNorm && tNorm && (hNorm===tNorm || tNorm.includes(hNorm) || hNorm.includes(tNorm))) return true;
       }
-      // ステージ3: b.tour_nameがhotelの全フィールド文字列に含まれるか
+      // ステージ3: 「KIC＋数字＋_」パターンの数字部分で比較
+      if(hKicGroupNum){
+        const bNum = firstNum(b.ref_no);
+        if(bNum && bNum===hKicGroupNum) return true;
+      }
+      // ステージ4: b.tour_nameがhotelの全フィールド文字列に含まれるか
       // 数字を含む5文字以上のツアーコード形式のみ対象（誤マッチ防止）
       const bTour = norm(b.tour_name);
       return bTour.length >= 5 && /\d/.test(bTour) && hAllText.includes(bTour);
