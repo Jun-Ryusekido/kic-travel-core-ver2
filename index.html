@@ -4033,19 +4033,25 @@ const COMMON_LOCAL_EXPENSE_ITEMS = [
   {content:'通信費', unit_price:500},
   {content:'ガイド費', unit_price:''},
 ];
-function addCommonLocalExpenseRows(){
+// 既存の仮払い一覧表(bdLocalExpenses)の「内容」列に、よく使う項目のいずれかが
+// 既に存在する場合は空配列を返す(重複防止)。「よく使う項目を追加」ボタン単体、および
+// 「手配内容から概算行を生成」ボタンの両方から共通で使う。
+function getCommonLocalExpenseRowsIfNotAdded(){
   const existingContents = new Set(bdLocalExpenses.map(it=>(it.content||'').trim()));
   const alreadyAdded = COMMON_LOCAL_EXPENSE_ITEMS.some(item=>existingContents.has(item.content));
-  if(alreadyAdded){
+  if(alreadyAdded) return [];
+  return COMMON_LOCAL_EXPENSE_ITEMS.map(item=>({
+    expense_date:'', expense_type:'', content:item.content, category:'',
+    unit_price:item.unit_price||0, qty:'', amount:0, payment_method:''
+  }));
+}
+function addCommonLocalExpenseRows(){
+  const rows = getCommonLocalExpenseRowsIfNotAdded();
+  if(!rows.length){
     alert('よく使う項目はすでに追加済みです。');
     return;
   }
-  COMMON_LOCAL_EXPENSE_ITEMS.forEach(item=>{
-    bdLocalExpenses.push({
-      expense_date:'', expense_type:'', content:item.content, category:'',
-      unit_price:item.unit_price||0, qty:'', amount:0, payment_method:''
-    });
-  });
+  bdLocalExpenses.push(...rows);
   renderLocalExpenses();
 }
 
@@ -4145,20 +4151,33 @@ async function generateLocalExpensesFromArrangements(){
     mk(fallbackDate, 'その他', `${gs.guide_name||'ガイド'} 仮払金追加`, 'ゲスト', gs.additional_advance_payment, '', true);
   });
 
-  if(rows.length===0){
-    alert('生成対象となる手配データが見つかりませんでした。\n（金額が入力されているバス/レストラン/観光施設/ミネラルウォーター/ガイド仮払金の明細がないか、レストラン・観光施設はすべて請求書払い等で現金の仮払いが不要と判断されるものでした）');
+  // 「よく使う項目を追加」ボタンと同じ7項目を、この生成ボタンでも同時に追加する
+  // (既に仮払い一覧表にいずれか1つでも存在する場合は重複防止のため追加しない)。
+  const commonRows = getCommonLocalExpenseRowsIfNotAdded();
+
+  if(rows.length===0 && commonRows.length===0){
+    alert('生成対象となる手配データが見つかりませんでした。\n（金額が入力されているバス/レストラン/観光施設/ミネラルウォーター/ガイド仮払金の明細がないか、レストラン・観光施設はすべて請求書払い等で現金の仮払いが不要と判断されるものでした）\nまた、「よく使う項目」もすでに追加済みのため、今回の追加はありません。');
     return;
   }
 
-  if(bdLocalExpenses.length>0){
-    const preview = rows.slice(0,5).map(r=>`・${r.content} ${yen(r.amount)}`).join('\n') + (rows.length>5 ? `\n…他${rows.length-5}件` : '');
-    if(!confirm(`既存の仮払い一覧表に ${bdLocalExpenses.length}件 の行が既にあります。\n手配内容から生成した ${rows.length}件 を追加で生成しますか？\n\n${preview}`)) return;
-  }else{
-    const preview = rows.slice(0,5).map(r=>`・${r.content} ${yen(r.amount)}`).join('\n') + (rows.length>5 ? `\n…他${rows.length-5}件` : '');
-    if(!confirm(`手配内容から ${rows.length}件 の概算行を生成します。内容・金額はあとで自由に編集できます。\n\n${preview}`)) return;
+  if(rows.length===0){
+    // 手配タブにコピー元データが無い場合でも、「よく使う項目」はそれとは独立して追加する。
+    alert('生成対象となる手配データが見つかりませんでした。\n（金額が入力されているバス/レストラン/観光施設/ミネラルウォーター/ガイド仮払金の明細がないか、レストラン・観光施設はすべて請求書払い等で現金の仮払いが不要と判断されるものでした）\n\n「よく使う項目」（お茶代・通信費等）は追加します。');
+    bdLocalExpenses.push(...commonRows);
+    renderLocalExpenses();
+    return;
   }
 
-  bdLocalExpenses.push(...rows);
+  const commonNote = commonRows.length ? `\n\nあわせて「よく使う項目」（お茶代・通信費等 ${commonRows.length}件）も追加します。` : '';
+  if(bdLocalExpenses.length>0){
+    const preview = rows.slice(0,5).map(r=>`・${r.content} ${yen(r.amount)}`).join('\n') + (rows.length>5 ? `\n…他${rows.length-5}件` : '');
+    if(!confirm(`既存の仮払い一覧表に ${bdLocalExpenses.length}件 の行が既にあります。\n手配内容から生成した ${rows.length}件 を追加で生成しますか？\n\n${preview}${commonNote}`)) return;
+  }else{
+    const preview = rows.slice(0,5).map(r=>`・${r.content} ${yen(r.amount)}`).join('\n') + (rows.length>5 ? `\n…他${rows.length-5}件` : '');
+    if(!confirm(`手配内容から ${rows.length}件 の概算行を生成します。内容・金額はあとで自由に編集できます。\n\n${preview}${commonNote}`)) return;
+  }
+
+  bdLocalExpenses.push(...rows, ...commonRows);
   renderLocalExpenses();
 }
 
