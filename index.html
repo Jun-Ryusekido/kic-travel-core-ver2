@@ -9600,6 +9600,12 @@ function arrDayConfirmMsg(it){
   const summary = (it.itinerary_text||'').replace(/\s+/g,' ').trim().slice(0,30);
   return ['Day '+((bdArrDayItems.indexOf(it))+1), it.date?`(${it.date})`:'', summary].filter(Boolean).join(' ');
 }
+// レストランタブ(bdRestaurantItems)に該当日・該当食事回の実データ(店名入力済み)が
+// 1件もない場合、「未入力なだけ」なのか「そもそも手配が無い」のか区別できるようにするための判定。
+// 日毎明細の画面表示・Excel出力の両方から共通で使う。
+function hasArrDayMealData(date, mealType){
+  return !!date && bdRestaurantItems.some(x=>x.date===date && x.meal_type===mealType && (x.restaurant_name||'').trim());
+}
 function arrDayDelBtnHtml(i){
   const it = bdArrDayItems[i];
   const msg = escAttr(arrDayConfirmMsg(it)) + ' の行を削除しますか？';
@@ -9619,6 +9625,8 @@ function renderArrDayList(){
     });
     return opts.join('');
   };
+  const hasMealData = hasArrDayMealData;
+  const noMealLabel = (date, mealType) => hasMealData(date, mealType) ? '' : ' <span style="color:var(--text3);font-weight:400">（この回の食事手配なし）</span>';
   const restOptions = (selectedId) => {
     const opts = ['<option value="">-- 自由記述 --</option>'];
     bdRestaurantItems.filter(x=>x.id).forEach(x=>{
@@ -9660,23 +9668,23 @@ function renderArrDayList(){
         <div class="form-field"><label>ホテル選択</label><select onchange="bdArrDayItems[${i}].hotel_booking_id=this.value||null" style="width:100%">${hotelOptions(it.hotel_booking_id)}</select></div>
         <div class="form-field"><label>ホテル名(自由記述時)/備考</label><input value="${escAttr(it.hotel_note)}" oninput="bdArrDayItems[${i}].hotel_note=this.value" style="width:100%" placeholder="例: DRV同宿 P:あり／自由記述の場合はホテル名も"></div>
       </div>
-      <div style="font-size:11px;font-weight:600;margin:10px 0 4px">朝食(B)</div>
+      <div style="font-size:11px;font-weight:600;margin:10px 0 4px">朝食(B)${noMealLabel(it.date,'朝食')}</div>
       <div class="form-grid" style="grid-template-columns:repeat(3,1fr)">
-        <div class="form-field"><label>内容</label><input value="${escAttr(it.breakfast_text)}" oninput="bdArrDayItems[${i}].breakfast_text=this.value" style="width:100%" placeholder="例: ホテル / X / お弁当(店名)"></div>
+        <div class="form-field"><label>内容</label><input value="${escAttr(it.breakfast_text)}" oninput="bdArrDayItems[${i}].breakfast_text=this.value" style="width:100%" placeholder="${hasMealData(it.date,'朝食')?'例: ホテル / X / お弁当(店名)':'（この回の食事手配なし）'}"></div>
         <div class="form-field"><label>時刻</label><input value="${escAttr(it.breakfast_time)}" oninput="bdArrDayItems[${i}].breakfast_time=this.value" placeholder="例: 7:30"></div>
         <div class="form-field"><label>電話</label><input value="${escAttr(it.breakfast_phone)}" oninput="bdArrDayItems[${i}].breakfast_phone=this.value"></div>
       </div>
-      <div style="font-size:11px;font-weight:600;margin:10px 0 4px">昼食(L)</div>
+      <div style="font-size:11px;font-weight:600;margin:10px 0 4px">昼食(L)${noMealLabel(it.date,'昼食')}</div>
       <div class="form-grid" style="grid-template-columns:repeat(4,1fr)">
         <div class="form-field"><label>レストラン選択</label><select onchange="bdArrDayItems[${i}].lunch_restaurant_booking_id=this.value||null" style="width:100%">${restOptions(it.lunch_restaurant_booking_id)}</select></div>
-        <div class="form-field"><label>店名(自由記述時)</label><input value="${escAttr(it.lunch_text)}" oninput="bdArrDayItems[${i}].lunch_text=this.value" style="width:100%"></div>
+        <div class="form-field"><label>店名(自由記述時)</label><input value="${escAttr(it.lunch_text)}" oninput="bdArrDayItems[${i}].lunch_text=this.value" style="width:100%" placeholder="${hasMealData(it.date,'昼食')?'':'（この回の食事手配なし）'}"></div>
         <div class="form-field"><label>時刻</label><input value="${escAttr(it.lunch_time)}" oninput="bdArrDayItems[${i}].lunch_time=this.value" placeholder="例: 12:30"></div>
         <div class="form-field"><label>電話</label><input value="${escAttr(it.lunch_phone)}" oninput="bdArrDayItems[${i}].lunch_phone=this.value"></div>
       </div>
-      <div style="font-size:11px;font-weight:600;margin:10px 0 4px">夕食(D)</div>
+      <div style="font-size:11px;font-weight:600;margin:10px 0 4px">夕食(D)${noMealLabel(it.date,'夕食')}</div>
       <div class="form-grid" style="grid-template-columns:repeat(4,1fr)">
         <div class="form-field"><label>レストラン選択</label><select onchange="bdArrDayItems[${i}].dinner_restaurant_booking_id=this.value||null" style="width:100%">${restOptions(it.dinner_restaurant_booking_id)}</select></div>
-        <div class="form-field"><label>店名(自由記述時)</label><input value="${escAttr(it.dinner_text)}" oninput="bdArrDayItems[${i}].dinner_text=this.value" style="width:100%"></div>
+        <div class="form-field"><label>店名(自由記述時)</label><input value="${escAttr(it.dinner_text)}" oninput="bdArrDayItems[${i}].dinner_text=this.value" style="width:100%" placeholder="${hasMealData(it.date,'夕食')?'':'（この回の食事手配なし）'}"></div>
         <div class="form-field"><label>時刻</label><input value="${escAttr(it.dinner_time)}" oninput="bdArrDayItems[${i}].dinner_time=this.value" placeholder="例: 19:00"></div>
         <div class="form-field"><label>電話</label><input value="${escAttr(it.dinner_phone)}" oninput="bdArrDayItems[${i}].dinner_phone=this.value"></div>
       </div>
@@ -9966,10 +9974,10 @@ async function exportArrDocExcel(){
       others_text: it.others_text||'',
       hotel_name: arrDocResolveHotelName(it),
       hotel_note: it.hotel_note||'',
-      breakfast_text: it.breakfast_text||'', breakfast_time: it.breakfast_time||'',
-      lunch_name: it.lunch_restaurant_booking_id ? arrDocResolveRestaurantName(it.lunch_restaurant_booking_id) : (it.lunch_text||''),
+      breakfast_text: it.breakfast_text || (hasArrDayMealData(it.date,'朝食') ? '' : '（手配なし）'), breakfast_time: it.breakfast_time||'',
+      lunch_name: (it.lunch_restaurant_booking_id ? arrDocResolveRestaurantName(it.lunch_restaurant_booking_id) : it.lunch_text) || (hasArrDayMealData(it.date,'昼食') ? '' : '（手配なし）'),
       lunch_time: it.lunch_time||'', lunch_phone: it.lunch_phone||'',
-      dinner_name: it.dinner_restaurant_booking_id ? arrDocResolveRestaurantName(it.dinner_restaurant_booking_id) : (it.dinner_text||''),
+      dinner_name: (it.dinner_restaurant_booking_id ? arrDocResolveRestaurantName(it.dinner_restaurant_booking_id) : it.dinner_text) || (hasArrDayMealData(it.date,'夕食') ? '' : '（手配なし）'),
       dinner_time: it.dinner_time||'', dinner_phone: it.dinner_phone||'',
     })),
   };
