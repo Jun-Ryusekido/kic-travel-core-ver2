@@ -4043,15 +4043,20 @@ const LOCAL_EXPENSE_BAND_LABEL_RE = /\((\d+)班\)\s*$/;
 // 2班・3班以上の体制のツアーで、仮払い一覧表の内容一式(お茶代・食事代・通信費等)を
 // まとめて複製するためのショートカット。1班のみの通常のツアーではこのボタンを
 // 使わない限り一切影響しない(既存の行・レイアウトに変化なし)。
-// その時点で存在する全行をJSON.parse(JSON.stringify(...))で値コピーし、末尾に追加する。
-// 各行の「内容」欄には、既存の「(N班)」ラベルがあれば一旦取り除いた上で、
-// 現時点で最大のN(無ければ1班とみなす)+1 の新しい班番号を付け直す。
-// (例: 1回目クリック→全行に「(2班)」を付与、2回目クリック→その時点の全行を
-//  対象にラベルを付け直して「(3班)」を付与)。複製後の行は通常の手動追加行と
-// 全く同じ扱いで、保存・削除・編集とも通常通り行える。
+// 複製対象は常に「(N班)」ラベルが付いていない行(=1班目・複製のベースとなる元の行)のみ。
+// 何度ボタンを押しても、この1班分の内容をベースに(2班)(3班)(4班)…と連番の行が
+// 1セットずつ追加される(既に複製済みの2班・3班分等の行を複製元に含めることで
+// 同じ班のラベルの行が重複して増殖するのを防ぐため)。
+// 各行の「内容」欄には、現時点で最大のN(無ければ1班とみなす)+1 の新しい班番号を付与する。
+// 複製後の行は通常の手動追加行と全く同じ扱いで、保存・削除・編集とも通常通り行える。
 function duplicateAllLocalExpenseRows(){
   if(!bdLocalExpenses.length){
     alert('複製する行がありません。先に行を追加してください。');
+    return;
+  }
+  const baseRows = bdLocalExpenses.filter(it=>!LOCAL_EXPENSE_BAND_LABEL_RE.test(it.content||''));
+  if(!baseRows.length){
+    alert('複製元となる1班目の行(班番号ラベルが付いていない行)が見つかりません。');
     return;
   }
   let maxBand = 1;
@@ -4060,9 +4065,9 @@ function duplicateAllLocalExpenseRows(){
     if(m) maxBand = Math.max(maxBand, Number(m[1]));
   });
   const nextBand = maxBand + 1;
-  const copies = bdLocalExpenses.map(it=>{
+  const copies = baseRows.map(it=>{
     const copy = JSON.parse(JSON.stringify(it));
-    const baseContent = (copy.content||'').replace(LOCAL_EXPENSE_BAND_LABEL_RE, '').trim();
+    const baseContent = (copy.content||'').trim();
     copy.content = baseContent ? `${baseContent}(${nextBand}班)` : `(${nextBand}班)`;
     return copy;
   });
