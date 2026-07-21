@@ -7091,18 +7091,36 @@ let emailInboxSelectedIds = new Set(); // 一括無視用に選択中のメー�
 //   分割したILIKEクエリ（検索機能と同じチャンク方式）で「該当キーワードを含むid一覧」を
 //   一覧読み込み時に一度だけ取得してキャッシュする。
 // ・弱いキーワード（DX/業務効率化等）は単独では誤判定しやすいため、
-//   (a) 2語以上組み合わさっている、または (b) 送信者アドレスがpr@/marketing@/info@等を含む
+//   (a) 2語以上組み合わさっている、または (b) 送信者アドレスがmarketing@/info@等を含む
 //   場合のみ広告とみなす。件名・送信者のみで判定する（本文までは見ない軽量判定）。
-const EMAIL_INBOX_PROMO_HARD_KEYWORDS = ['配信停止','配信を停止','unsubscribe','セミナー','ウェビナー','無料モニター','資料請求','メルマガ'];
+// ・pr@/support@/no-reply@等の一斉配信専用に使われやすい送信者パターンは、キーワードの
+//   有無にかかわらず単独で除外側に倒す。ただし取引先マスタ(business_partners)に実在する
+//   ドメインからの送信であれば、実際のやり取りである可能性を優先して除外しない
+//   (emailInboxIsKnownPartnerSenderで判定)。
+const EMAIL_INBOX_PROMO_HARD_KEYWORDS = [
+  '配信停止','配信を停止','unsubscribe','セミナー','ウェビナー','無料モニター','資料請求','メルマガ',
+  // 配送業者の再配達・不在通知（なりすまし/フィッシングの疑いのあるものを含め、
+  // 手配業務とは無関係なため一律除外する）
+  '不在票','不在のお知らせ','ご不在','再配達','お荷物のお届け','宅配便のお知らせ','荷物のお届けにあがりました',
+  '佐川急便','ヤマト運輸','クロネコヤマト','日本郵便',
+];
 const EMAIL_INBOX_PROMO_SOFT_KEYWORDS = ['導入事例','業務効率化','DX','システム導入'];
-const EMAIL_INBOX_PROMO_SENDER_PATTERNS = ['pr@','marketing@','info@'];
+const EMAIL_INBOX_PROMO_SENDER_PATTERNS = ['marketing@'];
+// 一斉配信専用として使われることが多く、取引先マスタに実在するドメインからの送信でない限り、
+// 単独でも(件名のキーワードに関係なく)除外側に倒す送信者パターン。
+// (pr@/support@/no-reply@等。marketing@はEMAIL_INBOX_PROMO_SENDER_PATTERNS側でsoft keywordとの
+//  組み合わせ判定に残す)
+const EMAIL_INBOX_BULK_SENDER_PATTERNS = ['pr@','no-reply@','noreply@','no_reply@','news@','newsletter@','mail-magazine@','support@'];
 
 function isPromoEmailBySubjectSender(subject, sender){
   const lowerSubject = String(subject||'').toLowerCase();
   if(EMAIL_INBOX_PROMO_HARD_KEYWORDS.some(k=>lowerSubject.includes(k.toLowerCase()))) return true;
 
+  const isKnownPartner = emailInboxIsKnownPartnerSender(sender);
+  if(!isKnownPartner && EMAIL_INBOX_BULK_SENDER_PATTERNS.some(p=>String(sender||'').toLowerCase().includes(p))) return true;
+
   const softHits = EMAIL_INBOX_PROMO_SOFT_KEYWORDS.filter(k=>lowerSubject.includes(k.toLowerCase())).length;
-  const senderMatches = EMAIL_INBOX_PROMO_SENDER_PATTERNS.some(p=>String(sender||'').toLowerCase().includes(p));
+  const senderMatches = EMAIL_INBOX_PROMO_SENDER_PATTERNS.some(p=>String(sender||'').toLowerCase().includes(p)) || String(sender||'').toLowerCase().includes('info@');
   if(softHits>=2) return true;
   if(softHits>=1 && senderMatches) return true;
   return false;
@@ -7326,28 +7344,32 @@ async function ensureEmailInboxSuggestIndex(){
     .map(r=>({ref_no: refByBookingId.get(r.booking_id), hotel_name: r.hotel_name||'', check_in: r.check_in||'', check_out: r.check_out||''}))
     .filter(h=>h.ref_no && h.hotel_name && h.hotel_name.length>=3);
 
-  emailInboxSuggestIndex = {hotels, bookings};
+  // 取引先マスタのメールドメイン一覧。「support@」等の一斉配信系に見えるアドレスでも、
+  // 実在する取引先のドメインからの送信であれば除外側に倒さないための例外リストとして使う。
+  const {data: partnerRows} = await sb.from('business_partners').select('email').or('is_deleted.is.null,is_deleted.eq.false');
+  const partnerDomains = new Set(
+    (partnerRows||[])
+      .map(p=>String(p.email||'').split('@')[1])
+      .filter(Boolean)
+      .map(d=>d.toLowerCase())
+  );
+
+  emailInboxSuggestIndex = {hotels, bookings, partnerDomains};
   return emailInboxSuggestIndex;
 }
 
-// メール本文/件名から日付らしき文字列を抽出する（全角数字を半角に正規化した上で、
-// 「YYYY年MM月DD日」「YYYY/MM/DD」「YYYY-MM-DD」の形式をYYYY-MM-DD文字列として拾う。簡易抽出でよい）
-function extractDatesFromEmailText(text){
-  const normalized = String(text||'').replace(/[０-９]/g, d => String.fromCharCode(d.charCodeAt(0)-0xFEE0));
-  const dates = new Set();
-  const patterns = [/(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})日/g, /(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/g];
-  for(const re of patterns){
-    let m;
-    while((m = re.exec(normalized))){
-      dates.add(`${m[1]}-${String(m[2]).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}`);
-      if(dates.size>=10) break;
-    }
-  }
-  return dates;
+// 送信者アドレスのドメインが、取引先マスタ(business_partners)に実在するドメインと
+// 一致するかどうか。一致すれば「実在の取引先とのやり取り」の可能性が高いとみなし、
+// pr@/support@/no-reply@等の一斉配信パターンによる除外を抑止する安全弁として使う。
+function emailInboxIsKnownPartnerSender(sender){
+  const domain = String(sender||'').toLowerCase().split('@')[1];
+  if(!domain || !emailInboxSuggestIndex || !emailInboxSuggestIndex.partnerDomains) return false;
+  return emailInboxSuggestIndex.partnerDomains.has(domain);
 }
 
-// 件名・本文と、既存のホテル名マスタ・予約データ（団体名・チェックイン/アウト日）との
-// 単純な文字列マッチングでREF#候補を最大5件返す（優先度: 団体名一致 > ホテル名一致 > 日付一致）
+// 件名・本文と、既存のホテル名マスタ・予約データ（団体名・ホテル名）との
+// 単純な文字列マッチングでREF#候補を最大5件返す（優先度: 団体名一致 > ホテル名一致）。
+// 日付のみの一致は固有名詞の裏付けがなく誤誘導しやすいため候補にしない。
 function computeRefSuggestions(subject, body, index){
   if(!index) return [];
   const text = (String(subject||'')+' '+String(body||'')).slice(0, 4000);
@@ -7368,23 +7390,8 @@ function computeRefSuggestions(subject, body, index){
       }
     }
   }
-  if(results.size<5){
-    const dates = extractDatesFromEmailText(text);
-    if(dates.size){
-      for(const h of index.hotels){
-        if(results.size>=5) break;
-        if(((h.check_in && dates.has(h.check_in)) || (h.check_out && dates.has(h.check_out))) && !results.has(h.ref_no)){
-          results.set(h.ref_no, h.hotel_name || h.check_in || h.check_out);
-        }
-      }
-      for(const b of index.bookings){
-        if(results.size>=5) break;
-        if(((b.in_date && dates.has(b.in_date)) || (b.out_date && dates.has(b.out_date))) && !results.has(b.ref_no)){
-          results.set(b.ref_no, b.in_date || b.out_date);
-        }
-      }
-    }
-  }
+  // 日付のみの一致(団体名・ホテル名のような固有名詞の裏付けが無い)は、無関係メールに
+  // 偶然含まれる日付とも一致しやすく誤誘導の原因になりやすいため、REF#候補としては使わない。
   return Array.from(results.entries()).slice(0,5).map(([ref_no,label])=>({ref_no, label}));
 }
 
@@ -7429,8 +7436,11 @@ function guessEmailCategory(subject, body, sender){
   const sorted = Object.entries(scores).sort((a,b)=>b[1]-a[1]);
   const [topCat, topScore] = sorted[0];
   const secondScore = sorted[1][1];
-  // 手がかりが無い、または首位が同点(複数カテゴリにまたがる)場合は決め打ちしない
-  if(topScore === 0 || topScore === secondScore){
+  // 手がかりが弱い(スコア1以下＝本文中の単発ヒットのみ等)、または首位が同点
+  // (複数カテゴリにまたがる)場合は決め打ちせず「未分類」のままにする。
+  // 業務メールと確実に判定できないのに具体的なカテゴリを提示すると、
+  // 誤誘導(無関係メールをそれらしく見せてしまう)につながるため。
+  if(topScore < 2 || topScore === secondScore){
     return { category: null, reasons: [] };
   }
   return { category: topCat, reasons: hits[topCat].slice(0, 4) };
