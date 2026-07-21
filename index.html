@@ -4036,14 +4036,31 @@ const COMMON_LOCAL_EXPENSE_ITEMS = [
 // 既存の仮払い一覧表(bdLocalExpenses)の「内容」列に、よく使う項目のいずれかが
 // 既に存在する場合は空配列を返す(重複防止)。「よく使う項目を追加」ボタン単体、および
 // 「手配内容から概算行を生成」ボタンの両方から共通で使う。
-function getCommonLocalExpenseRowsIfNotAdded(){
+//
+// opts (「手配内容から概算行を生成」ボタンからのみ渡される。ボタン単体では未指定=従来通り):
+//   date              : 各行の「日付」欄の初期値(このツアーのIN-DATE)
+//   busCompanyDayCount: バス手配タブの延べ会社日数(1日2社の日は2件とカウント) → お茶代の数量に使う
+//   workingDays       : バスが割り当てられているユニークな日数 → 朝食・昼食・夕食(乗務員)・通信費の数量に使う
+// busCompanyDayCount/workingDaysが未指定(バスタブにデータが無い場合)は、数量を空欄のまま
+// (＝表示上は既存仕様通り1)にし、無理に0にはしない。準備金・ガイド費は常に自動計算しない。
+function getCommonLocalExpenseRowsIfNotAdded(opts){
   const existingContents = new Set(bdLocalExpenses.map(it=>(it.content||'').trim()));
   const alreadyAdded = COMMON_LOCAL_EXPENSE_ITEMS.some(item=>existingContents.has(item.content));
   if(alreadyAdded) return [];
-  return COMMON_LOCAL_EXPENSE_ITEMS.map(item=>({
-    expense_date:'', expense_type:'', content:item.content, category:'',
-    unit_price:item.unit_price||0, qty:'', amount:0, payment_method:''
-  }));
+  const o = opts||{};
+  const qtyForContent = (content)=>{
+    if(content==='お茶代') return (o.busCompanyDayCount!=null) ? o.busCompanyDayCount : '';
+    if(['朝食代(乗務員)','昼食代(乗務員)','夕食代(乗務員)','通信費'].includes(content)) return (o.workingDays!=null) ? o.workingDays : '';
+    return ''; // 準備金・ガイド費は自動計算しない
+  };
+  return COMMON_LOCAL_EXPENSE_ITEMS.map(item=>{
+    const qty = qtyForContent(item.content);
+    const unitPrice = Number(item.unit_price)||0;
+    return {
+      expense_date: o.date||'', expense_type:'', content:item.content, category:'',
+      unit_price: unitPrice, qty, amount: qty===''?0:Math.round(unitPrice*Number(qty)), payment_method:''
+    };
+  });
 }
 function addCommonLocalExpenseRows(){
   const rows = getCommonLocalExpenseRowsIfNotAdded();
@@ -4085,17 +4102,33 @@ async function generateLocalExpensesFromArrangements(){
     {data: restRows, error: restErr},
     {data: facRows, error: facErr},
     {data: waterRows, error: waterErr},
+    {data: dayRows, error: dayErr},
   ] = await Promise.all([
     sb.from('booking_buses').select('*').eq('booking_id', bookingId),
     sb.from('booking_restaurants').select('*').eq('booking_id', bookingId),
     sb.from('booking_facilities').select('*').eq('booking_id', bookingId),
     sb.from('booking_water_items').select('*').eq('booking_id', bookingId),
+    sb.from('tour_day_itinerary').select('date,bus_booking_id,bus_company_text,bus_booking_id_2,bus_company_text_2').eq('booking_id', bookingId),
   ]);
-  if(busErr||restErr||facErr||waterErr){
-    logError('仮払い概算行の生成(手配データ取得)', busErr||restErr||facErr||waterErr);
-    alert('手配データの取得に失敗しました: '+(busErr||restErr||facErr||waterErr).message);
+  if(busErr||restErr||facErr||waterErr||dayErr){
+    logError('仮払い概算行の生成(手配データ取得)', busErr||restErr||facErr||waterErr||dayErr);
+    alert('手配データの取得に失敗しました: '+(busErr||restErr||facErr||waterErr||dayErr).message);
     return;
   }
+
+  // 「よく使う項目」のお茶代・朝食/昼食/夕食代(乗務員)・通信費の数量に使う、
+  // バス手配タブ(tour_day_itinerary の日毎バス割当)から算出した延べ会社日数・実働日数。
+  // 1日に2社(bus_booking_id_2/bus_company_text_2、新幹線区間の乗り継ぎ等)入っている日は、
+  // busCompanyDayCountでは2件、workingDaysでは1日としてカウントする。
+  const busAssignedDays = (dayRows||[]).filter(r=>r.bus_booking_id||r.bus_company_text||r.bus_booking_id_2||r.bus_company_text_2);
+  const hasBusData = busAssignedDays.length>0;
+  const workingDays = new Set(busAssignedDays.map((r,idx)=>r.date||('_no_date_'+idx))).size;
+  const busCompanyDayCount = busAssignedDays.reduce((sum,r)=>{
+    let c = 0;
+    if(r.bus_booking_id||r.bus_company_text) c+=1;
+    if(r.bus_booking_id_2||r.bus_company_text_2) c+=1;
+    return sum+c;
+  }, 0);
   let guideSettlementRows = [];
   if(b && b.ref_no){
     const {data: gsRows, error: gsErr} = await sb.from('guide_settlements').select('*').eq('booking_ref', b.ref_no);
@@ -4153,7 +4186,10 @@ async function generateLocalExpensesFromArrangements(){
 
   // 「よく使う項目を追加」ボタンと同じ7項目を、この生成ボタンでも同時に追加する
   // (既に仮払い一覧表にいずれか1つでも存在する場合は重複防止のため追加しない)。
-  const commonRows = getCommonLocalExpenseRowsIfNotAdded();
+  // 日付はこのツアーのIN-DATEを初期値とし、バス手配タブにデータがあれば
+  // お茶代・朝食/昼食/夕食代(乗務員)・通信費の数量を自動計算する。
+  const commonOpts = hasBusData ? {date: fallbackDate, busCompanyDayCount, workingDays} : {date: fallbackDate};
+  const commonRows = getCommonLocalExpenseRowsIfNotAdded(commonOpts);
 
   if(rows.length===0 && commonRows.length===0){
     alert('生成対象となる手配データが見つかりませんでした。\n（金額が入力されているバス/レストラン/観光施設/ミネラルウォーター/ガイド仮払金の明細がないか、レストラン・観光施設はすべて請求書払い等で現金の仮払いが不要と判断されるものでした）\nまた、「よく使う項目」もすでに追加済みのため、今回の追加はありません。');
