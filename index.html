@@ -5720,45 +5720,51 @@ win.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><style>@pag
   });
   const guideStr = [...new Set(guideNames)].join(' / ');
 
-  const totalAmount = bdLocalExpenses.reduce((s,it)=>s+Number(it.amount||0),0);
-  const totalLocal  = bdLocalExpenses.reduce((s,it)=>s+(it.payment_method==='現地払い'?Number(it.amount||0):0),0);
-
   const tdB = 'style="border:1px solid #bbb;padding:3px 5px;vertical-align:top"';
   const tdR = 'style="border:1px solid #bbb;padding:3px 5px;text-align:right;vertical-align:top"';
-  let prevDate='';
-  const rows = bdLocalExpenses.map(it=>{
-    const showDate = it.expense_date!==prevDate;
-    prevDate = it.expense_date;
-    const localAmt = it.payment_method==='現地払い' ? Number(it.amount||0) : 0;
-    return `<tr>
-      <td ${tdB}>${showDate?(it.expense_date||''):''}</td>
-      <td ${tdB}>${escHtml(it.expense_type||'')}</td>
-      <td ${tdB}>${escHtml(it.content||'')}</td>
-      <td ${tdB}>${escHtml(it.category||'')}</td>
-      <td ${tdR}>${Number(it.unit_price||0).toLocaleString('ja-JP')}</td>
-      <td ${tdR}>${it.qty||1}</td>
-      <td ${tdR}>${Number(it.amount||0).toLocaleString('ja-JP')}</td>
-      <td ${tdB}>${escHtml(it.payment_method||'')}</td>
-      <td ${tdR}>${localAmt>0?localAmt.toLocaleString('ja-JP'):''}</td>
-    </tr>`;
-  }).join('');
+
+  // 「この内容を一括複製」で付与された「(N班)」ラベルに基づき、班ごとにグループ化する
+  // (ラベルなしは1班扱い)。1班のみの場合はグループ化・見出し追加とも行わず、
+  // 従来通り1つの表として印刷する(見た目に変化を出さないため)。
+  const bandGroups = new Map();
+  bdLocalExpenses.forEach(it=>{
+    const m = (it.content||'').match(LOCAL_EXPENSE_BAND_LABEL_RE);
+    const band = m ? Number(m[1]) : 1;
+    if(!bandGroups.has(band)) bandGroups.set(band, []);
+    bandGroups.get(band).push(it);
+  });
+  const bandNumbers = [...bandGroups.keys()].sort((a,b)=>a-b);
+  const multiBand = bandNumbers.length > 1;
 
   const now = new Date();
   const dateStr = now.toLocaleDateString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit'})+' '+now.toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'});
-
   const thStyle = 'style="border:1px solid #999;padding:4px 5px;background:#dce4f0;font-weight:700;white-space:nowrap"';
-  const html = `<div style="font-family:'Meiryo','Noto Sans JP',sans-serif;font-size:9.5pt;color:#000">
-    <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:6px">
-      <div>
-        <div style="font-size:15pt;font-weight:700;letter-spacing:0.05em">精算表</div>
-        <div style="font-size:9pt;margin-top:2px">${escHtml(b.ref_no||'')}　${escHtml(b.tour_name||'')}</div>
-      </div>
-      <div style="font-size:9pt;text-align:right;line-height:1.6">
-        ${guideStr?`<div>ガイド：${escHtml(guideStr)}</div>`:''}
-        <div>${Number(b.pax||0)}名　${b.in_date||''}${b.out_date?' ～ '+b.out_date:''}</div>
-        <div>出力：${dateStr}</div>
-      </div>
-    </div>
+
+  const buildSectionHtml = (items, band) => {
+    const totalAmount = items.reduce((s,it)=>s+Number(it.amount||0),0);
+    const totalLocal  = items.reduce((s,it)=>s+(it.payment_method==='現地払い'?Number(it.amount||0):0),0);
+    let prevDate='';
+    const rows = items.map(it=>{
+      const showDate = it.expense_date!==prevDate;
+      prevDate = it.expense_date;
+      const localAmt = it.payment_method==='現地払い' ? Number(it.amount||0) : 0;
+      // 班ごとの見出しで既にラベルを示しているため、複数班表示時は各行の「内容」欄からは
+      // 「(N班)」ラベル部分を省いて表示する(1班のみの場合はラベル自体存在しないため無関係)。
+      const displayContent = multiBand ? (it.content||'').replace(LOCAL_EXPENSE_BAND_LABEL_RE,'').trim() : (it.content||'');
+      return `<tr>
+        <td ${tdB}>${showDate?(it.expense_date||''):''}</td>
+        <td ${tdB}>${escHtml(it.expense_type||'')}</td>
+        <td ${tdB}>${escHtml(displayContent)}</td>
+        <td ${tdB}>${escHtml(it.category||'')}</td>
+        <td ${tdR}>${Number(it.unit_price||0).toLocaleString('ja-JP')}</td>
+        <td ${tdR}>${it.qty||1}</td>
+        <td ${tdR}>${Number(it.amount||0).toLocaleString('ja-JP')}</td>
+        <td ${tdB}>${escHtml(it.payment_method||'')}</td>
+        <td ${tdR}>${localAmt>0?localAmt.toLocaleString('ja-JP'):''}</td>
+      </tr>`;
+    }).join('');
+
+    return `${multiBand?`<div style="font-size:13pt;font-weight:700;margin-bottom:4px">${band}班</div>`:''}
     <table style="width:100%;border-collapse:collapse;font-size:9pt">
       <thead><tr>
         <th ${thStyle} style="border:1px solid #999;padding:4px 5px;background:#dce4f0;font-weight:700;width:72px">日付</th>
@@ -5778,8 +5784,30 @@ win.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><style>@pag
         <td style="border:1px solid #999;padding:4px 5px"></td>
         <td style="border:1px solid #999;padding:4px 5px;text-align:right">${totalLocal>0?totalLocal.toLocaleString('ja-JP'):''}</td>
       </tr></tfoot>
-    </table>
-  </div>`;
+    </table>`;
+  };
+
+  const headerHtml = `<div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:6px">
+      <div>
+        <div style="font-size:15pt;font-weight:700;letter-spacing:0.05em">精算表</div>
+        <div style="font-size:9pt;margin-top:2px">${escHtml(b.ref_no||'')}　${escHtml(b.tour_name||'')}</div>
+      </div>
+      <div style="font-size:9pt;text-align:right;line-height:1.6">
+        ${guideStr?`<div>ガイド：${escHtml(guideStr)}</div>`:''}
+        <div>${Number(b.pax||0)}名　${b.in_date||''}${b.out_date?' ～ '+b.out_date:''}</div>
+        <div>出力：${dateStr}</div>
+      </div>
+    </div>`;
+
+  // 班が複数ある場合は、班ごとに改ページしてそれぞれ独立したページとして印刷する
+  // (現場でどの班の紙かひと目で分かるよう、各ページの先頭にヘッダーを繰り返す)。
+  // 1班のみの場合は改ページ・見出しとも入れず、従来通り1ページ1表のまま出力する。
+  const sectionsHtml = bandNumbers.map((band,idx)=>{
+    const pageBreakStyle = (multiBand && idx>0) ? 'page-break-before:always;' : '';
+    return `<div style="${pageBreakStyle}">${headerHtml}${buildSectionHtml(bandGroups.get(band), band)}</div>`;
+  }).join('');
+
+  const html = `<div style="font-family:'Meiryo','Noto Sans JP',sans-serif;font-size:9.5pt;color:#000">${sectionsHtml}</div>`;
 
   const win = window.open('','_blank','width=1100,height=700');
   win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><style>@page{size:A4 landscape;margin:10mm}body{margin:0;padding:8mm}table{page-break-inside:auto}tr{page-break-inside:avoid}</style></head><body>${html}<script>window.onload=()=>{window.print();window.close()}<\/script></body></html>`);
