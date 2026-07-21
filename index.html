@@ -12137,17 +12137,22 @@ async function saveHotelConfirm(hotels){
     if(!confirm(`${unmatched.length}行はツアーREF#が未選択のため保存されません:\n\n${list}${more}\n\n残り${validRows.length}行を保存しますか？`)) return;
   }
 
+  // validRowsは_rowLabel(エラーメッセージ表示専用の内部プロパティ、booking_hotelsに
+  // 存在しない列)を含んでいるため、DBへのinsert対象として使う前に必ず取り除く。
+  // これを取り除かずにinsertすると「Could not find the '_rowLabel' column」エラーになる。
+  const dbRows = validRows.map(({_rowLabel, ...rest})=>rest);
+
   statusEl.textContent = '重複チェック中...'; statusEl.style.color = 'var(--text3)';
   let classified;
   try{
-    classified = await hmClassifyForDuplicates(validRows);
+    classified = await hmClassifyForDuplicates(dbRows);
   }catch(e){
     statusEl.textContent = e.message;
     statusEl.style.color = 'var(--red)';
     return;
   }
   const { toInsert, conflicts } = classified;
-  const skippedCount = validRows.length - toInsert.length - conflicts.length;
+  const skippedCount = dbRows.length - toInsert.length - conflicts.length;
 
   statusEl.textContent = '保存中...'; statusEl.style.color = 'var(--text3)';
   if(toInsert.length>0){
