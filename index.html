@@ -9513,6 +9513,45 @@ function addArrDayRow(){
   renderArrDayList();
 }
 
+// saveHotelItems/saveBusItems/saveRestaurantItemsは、内容が変わっていなくても
+// 既存行をすべて削除して新しいIDで作り直す(safeReplaceBookingRows方式)。そのため
+// bdArrDayItems(手配書タブの日毎明細、モーダルを開いた時点のメモリ上のデータ)が保持している
+// hotel_booking_id/bus_booking_id/lunch・dinner_restaurant_booking_idは、直前のホテル/バス/
+// レストランタブの保存によって「既に削除された旧ID」になってしまっている。
+// この状態のままsaveArrDocを呼ぶと、tour_day_itineraryへのINSERT時にFK制約違反になる
+// (ON DELETE SET NULLはDB側の削除時にしか働かず、クライアント側のメモリには反映されないため)。
+// そこで、保存し直された最新のbooking_hotels/booking_buses/booking_restaurantsを取得し、
+// 「削除前の同一データ(ホテル名+チェックイン/アウト、バス会社+開始/終了日、店名+日付+食事種別)」
+// で照合して新IDに付け替える。一致するものが見つからない場合(実際に削除された場合)はnullにする
+// (自由記述のhotel_note等のテキストは元々別項目のため保持される)。
+async function remapArrDayForeignKeys(bookingId){
+  if(!bdArrDayItems.length) return;
+  const [{data: freshHotels}, {data: freshBuses}, {data: freshRests}] = await Promise.all([
+    sb.from('booking_hotels').select('id,hotel_name,check_in,check_out').eq('booking_id', bookingId),
+    sb.from('booking_buses').select('id,bus_company,start_date,end_date').eq('booking_id', bookingId),
+    sb.from('booking_restaurants').select('id,restaurant_name,date,meal_type').eq('booking_id', bookingId),
+  ]);
+  const remapId = (oldId, oldList, freshList, matchFn) => {
+    if(!oldId) return oldId;
+    const old = oldList.find(x=>String(x.id)===String(oldId));
+    if(!old) return null;
+    const match = (freshList||[]).find(f=>matchFn(f, old));
+    return match ? match.id : null;
+  };
+  bdArrDayItems.forEach(it=>{
+    it.hotel_booking_id = remapId(it.hotel_booking_id, bdHotelItems, freshHotels,
+      (f,old)=>f.hotel_name===old.hotel_name && f.check_in===old.check_in && f.check_out===old.check_out);
+    it.bus_booking_id = remapId(it.bus_booking_id, bdBusItems, freshBuses,
+      (f,old)=>f.bus_company===old.bus_company && f.start_date===old.start_date && f.end_date===old.end_date);
+    it.bus_booking_id_2 = remapId(it.bus_booking_id_2, bdBusItems, freshBuses,
+      (f,old)=>f.bus_company===old.bus_company && f.start_date===old.start_date && f.end_date===old.end_date);
+    it.lunch_restaurant_booking_id = remapId(it.lunch_restaurant_booking_id, bdRestaurantItems, freshRests,
+      (f,old)=>f.restaurant_name===old.restaurant_name && f.date===old.date && f.meal_type===old.meal_type);
+    it.dinner_restaurant_booking_id = remapId(it.dinner_restaurant_booking_id, bdRestaurantItems, freshRests,
+      (f,old)=>f.restaurant_name===old.restaurant_name && f.date===old.date && f.meal_type===old.meal_type);
+  });
+}
+
 async function saveArrDoc(){
   if(!currentDetailId) return;
   const bookingId = currentDetailId; // await中のcurrentDetailId変更に影響されないようスナップショットを保持
@@ -10422,6 +10461,7 @@ async function saveBookingDetail(){
     let newTableSaveWarning = '';
     try{
       await saveGuideItems();
+      await remapArrDayForeignKeys(bookingId);
       await saveArrDoc();
       await syncArrangementDocumentsFromDraft(bookingId);
     }catch(e){
