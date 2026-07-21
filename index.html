@@ -1791,6 +1791,12 @@ input[type=number]{-moz-appearance:textfield}
       <button class="btn" style="font-size:10px;margin-top:4px" onclick="addArrGuideRow()">＋ 行追加</button>
 
       <div class="modal-section-title">日毎明細</div>
+      <div style="border:1px dashed var(--border);border-radius:8px;padding:8px;margin-bottom:10px">
+        <div style="font-size:11px;font-weight:600;margin-bottom:4px">行程表クラウドから貼り付け</div>
+        <div style="font-size:10px;color:var(--text3);margin-bottom:4px">「日付」の行と「地点(時刻)=地点(時刻)=…」の行を1組として、複数日分をまとめて貼り付けられます。</div>
+        <textarea id="ad-day-paste" rows="4" style="width:100%;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:11px;font-family:inherit;box-sizing:border-box" placeholder="例：&#10;2026/08/19&#10;リーガロイヤルホテル(9:30)=奈良公園バスターミナル(10:18～12:03)=...=リーガロイヤルホテル大阪 THE RAY(20:10)"></textarea>
+        <button class="btn" style="font-size:10px;margin-top:6px" onclick="parseArrDayPasteText()">貼り付け内容を解析して反映</button>
+      </div>
       <div id="ad-days-list"></div>
       <button class="btn" style="font-size:10px;margin-top:4px" onclick="addArrDayRow()">＋ 日程を追加</button>
 
@@ -9686,6 +9692,89 @@ function addArrDayRow(){
     departure_time:''
   });
   renderArrDayList();
+}
+
+// 外部ソフト「行程表クラウド」からコピーしたテキスト（日付行＋「地点(時刻)=地点(時刻)=…」行の
+// 2行1組を日数分）を解析し、bdArrDayItemsの該当日（無ければ新規作成）へitinerary_textとして
+// 反映する。1組でも解析に失敗した場合は何も反映せず、失敗箇所を具体的に示す
+// （既存の日程データを壊さないよう、全行の解析に成功してから反映する）。
+function parseArrDayPasteText(){
+  const raw = (document.getElementById('ad-day-paste').value||'');
+  const lines = raw.split(/\r?\n/).map(l=>l.trim()).filter(l=>l.length>0);
+  if(lines.length===0){ alert('貼り付けるテキストがありません。'); return; }
+  if(lines.length % 2 !== 0){
+    alert(`解析エラー：日付の行と行程の行が対になっていません（内容のある行数が${lines.length}行で奇数になっています）。行程表クラウドからコピーした内容をそのまま貼り付けてください。`);
+    return;
+  }
+  const dateRe = /^(\d{4})\/(\d{1,2})\/(\d{1,2})$/;
+  const parsedDays = [];
+  for(let i=0;i<lines.length;i+=2){
+    const dateLine = lines[i];
+    const itinLine = lines[i+1];
+    const m = dateLine.match(dateRe);
+    if(!m){
+      alert(`解析エラー：${i+1}行目「${dateLine}」が日付(YYYY/MM/DD)として認識できませんでした。`);
+      return;
+    }
+    const isoDate = `${m[1]}-${String(m[2]).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}`;
+    const segments = itinLine.split('=').map(s=>s.trim()).filter(Boolean);
+    if(segments.length < 2){
+      alert(`解析エラー：${i+2}行目の行程が「地点(時刻)=地点(時刻)=…」の形式として認識できませんでした。`);
+      return;
+    }
+    const stops = [];
+    for(const seg of segments){
+      const sm = seg.match(/^(.*)\(([^()]+)\)\s*$/);
+      if(!sm || !sm[1].trim()){
+        alert(`解析エラー：${i+2}行目の「${seg}」が「地点名(時刻)」の形式として認識できませんでした。`);
+        return;
+      }
+      stops.push({name: sm[1].trim(), timeRaw: sm[2].trim()});
+    }
+    parsedDays.push({isoDate, stops});
+  }
+
+  parsedDays.forEach(day=>{
+    const itineraryText = day.stops.map((stop,idx)=>{
+      const rangeMatch = stop.timeRaw.match(/^(.+?)[～~\-](.+)$/);
+      if(rangeMatch) return `${rangeMatch[1].trim()}-${rangeMatch[2].trim()} ${stop.name}`;
+      if(idx===0) return `${stop.timeRaw} ${stop.name} 出発`;
+      if(idx===day.stops.length-1) return `${stop.timeRaw} ${stop.name} 到着`;
+      return `${stop.timeRaw} ${stop.name}`;
+    }).join('\n');
+
+    let target = bdArrDayItems.find(it=>it.date===day.isoDate);
+    if(!target){
+      target = {
+        day_no:0, date:day.isoDate, bus_company_text:'', bus_booking_id:null, bus_company_text_2:'', bus_booking_id_2:null, itinerary_text:'', others_text:'',
+        hotel_booking_id:null, hotel_note:'',
+        breakfast_text:'', breakfast_time:'', breakfast_phone:'',
+        lunch_restaurant_booking_id:null, lunch_text:'', lunch_time:'', lunch_phone:'',
+        dinner_restaurant_booking_id:null, dinner_text:'', dinner_time:'', dinner_phone:'',
+        departure_time:''
+      };
+      bdArrDayItems.push(target);
+    }
+    target.itinerary_text = itineraryText;
+
+    // 末尾の地点(その日の宿泊ホテル)を既存のホテル入力欄と自動リンク。一致しなければ
+    // 自由記述欄(hotel_note)に地点名を入れておく（行程本文にも既に含まれている）。
+    const arrivalName = day.stops[day.stops.length-1].name;
+    const hotelMatch = bdHotelItems.find(h=>h.id && h.hotel_name && (h.hotel_name===arrivalName || arrivalName.includes(h.hotel_name) || h.hotel_name.includes(arrivalName)));
+    if(hotelMatch) target.hotel_booking_id = hotelMatch.id;
+    else if(!target.hotel_note) target.hotel_note = arrivalName;
+  });
+
+  bdArrDayItems.sort((a,b)=>{
+    if(!a.date && !b.date) return 0;
+    if(!a.date) return 1;
+    if(!b.date) return -1;
+    return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0);
+  });
+
+  document.getElementById('ad-day-paste').value='';
+  renderArrDayList();
+  alert(`${parsedDays.length}日分の行程を反映しました。内容を確認のうえ、必要に応じて編集してください。`);
 }
 
 // saveHotelItems/saveBusItems/saveRestaurantItemsは、内容が変わっていなくても
