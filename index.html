@@ -11774,9 +11774,9 @@ async function showHotelConfirmDialog(hotels){
       <input type="hidden" id="hm-confirm-booking-${i}" value="${hiddenVal}">
       <div id="hm-confirm-dd-${i}" style="display:none;position:fixed;top:0;left:0;background:var(--card,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:99999;max-height:180px;overflow-y:auto"></div>
     </div>`;
-    return `<div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px">
+    return `<div style="border:1px solid var(--border);${h.hotel_name?'':'border-left:4px solid var(--red);'}border-radius:10px;padding:12px;margin-bottom:10px">
       <div style="margin-bottom:8px">${comboHtml}${matchedBooking?`<div style="font-size:9px;color:var(--green);margin-top:2px">✓ 自動マッチ: ${escHtml(matchedBooking.ref_no||'')}</div>`:''}</div>
-      <div style="font-weight:700;font-size:12px;margin-bottom:6px">${escHtml(h.hotel_name||'')}</div>
+      <div style="font-weight:700;font-size:12px;margin-bottom:6px">${escHtml(h.hotel_name||'')}${h.hotel_name?'':'<span style="color:var(--red);font-weight:600;font-size:11px">⚠ ホテル名が未入力です</span>'}</div>
       <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--text2);margin-bottom:6px">
         <span>IN: ${h.check_in||''}</span>
         <span>OUT: ${h.check_out||''}</span>
@@ -11825,16 +11825,12 @@ async function showHotelConfirmDialog(hotels){
   // 隠しフィールド(保存対象のbooking_id)と表示用テキストの両方を明示的に.valueへ再代入し、
   // 画面表示時点で選択済みの状態を保証する。
   hotels.forEach((h,i)=>{
-    if(!h._bookingId){
-      console.log('[hm-confirm][render]', i, 'h._bookingId が未設定です(自動マッチなし)');
-      return;
-    }
+    if(!h._bookingId) return;
     const hidden = document.getElementById(`hm-confirm-booking-${i}`);
     if(hidden) hidden.value = String(h._bookingId);
     const matched = sortedBookings.find(b=>String(b.id)===String(h._bookingId));
     const input = document.getElementById(`hm-confirm-input-${i}`);
     if(input && matched) input.value = matched.ref_no || '(REF#なし)';
-    console.log('[hm-confirm][render]', i, 'h._bookingId=', h._bookingId, 'hidden要素は存在するか=', !!hidden, 'hidden.value(設定直後)=', hidden && hidden.value);
   });
 }
 function filterHmConfirmDD(i){
@@ -11884,13 +11880,10 @@ function selectHmConfirmItem(i, bookingId, ref){
 
 function saveHotelConfirmNew(){
     const hotels = window._pendingHotels;
-    console.log('[hm-confirm][save] window._pendingHotels と表示中の行数が一致するか確認:', hotels && hotels.length);
     if(!hotels) return;
     hotels.forEach((h,i)=>{
       const sel = document.getElementById(`hm-confirm-booking-${i}`);
-      console.log('[hm-confirm][save]', i, 'sel要素は存在するか=', !!sel, 'sel.value=', sel && sel.value, 'h._bookingId(読取前)=', h._bookingId);
       if(sel) h._bookingId = sel.value || h._bookingId;
-      console.log('[hm-confirm][save]', i, 'h._bookingId(読取後・保存対象)=', h._bookingId);
     });
     saveHotelConfirm(hotels);
   }
@@ -12093,31 +12086,37 @@ async function saveHotelConfirm(hotels){
       memo: h.memo||'',
       sort_order: i,
       status: (document.getElementById(`hm-confirm-status-${i}`)?.value || '回答待ち'),
-      status_updated_at: new Date().toISOString()
+      status_updated_at: new Date().toISOString(),
+      // エラーメッセージで「何行目の何が問題か」を実データで示せるようにするための識別ラベル。
+      // ホテル名・確認番号・チェックイン日のうち存在するものを優先して使い、
+      // 何も無ければその旨を明記する（「行1」等の機械的な位置情報だけにはしない）。
+      _rowLabel: `${i+1}行目(${[h.hotel_name, h.confirmation_no?('確認番号:'+h.confirmation_no):'', h.check_in?('IN:'+h.check_in):''].filter(Boolean).join('・') || 'ホテル名・日付とも未入力'})`
     };
   });
 
-  // 旧ロジックは r.booking_id && (r.hotel_name||r.amount) / !r.booking_id && (r.hotel_name||r.amount)
-  // という条件式だった。これだと「booking_idは正しく選択済みだが、hotel_name未入力かつ
-  // amount=0(単価・室数・泊数が未入力の行)」がvalidRows/unmatchedのどちらの条件も満たさず、
-  // 分類から漏れてしまい(=どちらの配列にも入らない)、結果としてvalidRows.length===0になり
-  // 「ツアーREF#が1件も選択されていません」の誤判定を引き起こしていた。
   // 「何らかの内容がある行か」(hasContent)と「REF#が選択されているか」(booking_id)を
-  // 別の軸として扱い、hasContentな行を漏れなくvalidRows/unmatchedのどちらかに振り分ける。
+  // 別の軸として扱い、hasContentな行を漏れなくvalidRows/unmatchedのどちらかに振り分ける
+  // (booking_id はあるがhotel_name/amountが空の行も、内容がある行としてvalidRowsに含める)。
   const hasContent = r => !!(r.booking_id || r.hotel_name || r.amount);
   const validRows = allRows.filter(r=>hasContent(r) && r.booking_id);
   const unmatched = allRows.filter(r=>hasContent(r) && !r.booking_id);
-  console.log('[hm-confirm][save] allRows(booking_id/hotel_name)=', allRows.map(r=>({booking_id:r.booking_id, hotel_name:r.hotel_name})));
-  console.log('[hm-confirm][save] validRows.length=', validRows.length, ' unmatched.length=', unmatched.length, ' allRows.length=', allRows.length);
 
   if(!validRows.length){
-    alert('⚠ ツアーREF#が1件も選択されていません。\n一番左の「ツアーREF#」欄から予約を選択してから保存してください。');
+    if(unmatched.length){
+      const list = unmatched.slice(0,10).map(r=>'・'+r._rowLabel).join('\n');
+      const more = unmatched.length>10 ? `\n…他${unmatched.length-10}行` : '';
+      alert(`⚠ ツアーREF#が1件も選択されていません。\n以下の行でREF#を選択してから保存してください:\n\n${list}${more}`);
+    } else {
+      alert('⚠ 保存できる内容がありません。\nホテル名・REF#等を入力してから保存してください。');
+    }
     statusEl.textContent = '⚠ REF#未選択のため保存できません';
     statusEl.style.color = 'var(--red)';
     return;
   }
   if(unmatched.length>0){
-    if(!confirm(`${unmatched.length}行はツアーREF#が未選択のため保存されません。\n残り${validRows.length}行を保存しますか？`)) return;
+    const list = unmatched.slice(0,10).map(r=>'・'+r._rowLabel).join('\n');
+    const more = unmatched.length>10 ? `\n…他${unmatched.length-10}行` : '';
+    if(!confirm(`${unmatched.length}行はツアーREF#が未選択のため保存されません:\n\n${list}${more}\n\n残り${validRows.length}行を保存しますか？`)) return;
   }
 
   statusEl.textContent = '重複チェック中...'; statusEl.style.color = 'var(--text3)';
@@ -12774,12 +12773,17 @@ async function saveInvoiceConfirm(){
       payment_method: e.payment_method || '後請求',
       sort_order: i,
       _supplier: supplier,
-      _content: contentVal
+      _content: contentVal,
+      // エラーメッセージで「何行目の何が問題か」を実データで示せるようにするための識別ラベル。
+      _rowLabel: `${i+1}行目(${[supplier, contentVal, expense_date].filter(Boolean).join('・') || '内容未入力'})`
     };
   });
 
-  const validRows_raw = allRows.filter(r=>r.booking_id && (r.content||r.amount));
-  const unmatched = allRows.filter(r=>!r.booking_id && (r.content||r.amount));
+  // hotel側と同様、「booking_idはあるがcontent/amountが空」の行が分類から漏れないよう、
+  // hasContent(内容があるか)とbooking_idの有無を別軸として扱う。
+  const hasContent = r => !!(r.booking_id || r.content || r.amount);
+  const validRows_raw = allRows.filter(r=>hasContent(r) && r.booking_id);
+  const unmatched = allRows.filter(r=>hasContent(r) && !r.booking_id);
 
   const mergeChecked = document.getElementById('inv-confirm-merge-same-ref')?.checked;
   function mergeRowsByBookingId(rows){
@@ -12813,13 +12817,21 @@ async function saveInvoiceConfirm(){
   const validRows = mergeChecked ? mergeRowsByBookingId(validRows_raw) : validRows_raw;
 
   if(!validRows.length){
-    alert('⚠ ツアーREF#が1件も選択されていません。\n一番左の「ツアーREF#」欄から予約を選択してから保存してください。');
+    if(unmatched.length){
+      const list = unmatched.slice(0,10).map(r=>'・'+r._rowLabel).join('\n');
+      const more = unmatched.length>10 ? `\n…他${unmatched.length-10}行` : '';
+      alert(`⚠ ツアーREF#が1件も選択されていません。\n以下の行でREF#を選択してから保存してください:\n\n${list}${more}`);
+    } else {
+      alert('⚠ 保存できる内容がありません。\n支払先・内容・金額等を入力してから保存してください。');
+    }
     statusEl.textContent = '⚠ REF#未選択のため保存できません';
     statusEl.style.color = 'var(--red)';
     return;
   }
   if(unmatched.length>0){
-    if(!confirm(`${unmatched.length}行はツアーREF#が未選択のため保存されません。\n残り${validRows.length}行を保存しますか？`)) return;
+    const list = unmatched.slice(0,10).map(r=>'・'+r._rowLabel).join('\n');
+    const more = unmatched.length>10 ? `\n…他${unmatched.length-10}行` : '';
+    if(!confirm(`${unmatched.length}行はツアーREF#が未選択のため保存されません:\n\n${list}${more}\n\n残り${validRows.length}行を保存しますか？`)) return;
   }
 
   statusEl.textContent = '保存中...'; statusEl.style.color = 'var(--text3)';
