@@ -1858,10 +1858,7 @@ input[type=number]{-moz-appearance:textfield}
 
 
     <div class="modal-section-title">関連Invoice</div>
-    <div class="tbl-wrap"><table>
-      <thead><tr><th>Invoice No.</th><th>通貨</th><th>金額</th><th>発行日</th><th>期限</th><th>Status</th></tr></thead>
-      <tbody id="bd-invoices"><tr><td colspan="6" class="empty">なし</td></tr></tbody>
-    </table></div>
+    <div id="bd-invoices" style="margin-bottom:6px"><div class="empty" style="font-size:12px;color:var(--text3)">なし</div></div>
 
     <div class="modal-section-title">売上明細 / 仕入明細</div>
     <div id="bd-lock-banner" style="margin-bottom:8px"></div>
@@ -4434,20 +4431,10 @@ async function openBookingDetail(id){
   renderCostTable();
 
   // 関連Invoiceを読み込み
-  const invTbody = document.getElementById('bd-invoices');
-  invTbody.innerHTML = '<tr><td colspan="8" class="empty">読み込み中...</td></tr>';
+  const invContainer = document.getElementById('bd-invoices');
+  invContainer.innerHTML = '<div class="empty" style="font-size:12px;color:var(--text3)">読み込み中...</div>';
   const {data: invoices} = await sb.from('invoices').select('*').eq('booking_id', id).order('created_at',{ascending:false});
-  if(!invoices || invoices.length===0){
-    invTbody.innerHTML = '<tr><td colspan="6" class="empty">関連するInvoiceはありません</td></tr>';
-  }else{
-    invTbody.innerHTML = invoices.map(inv=>`
-      <tr>
-        <td>${inv.invoice_no}</td><td>${inv.currency}</td>
-        <td>${inv.currency==='USD' ? '$'+Number(inv.amount).toLocaleString() : yen(inv.amount)}</td>
-        <td>${inv.issue_date||''}</td><td>${inv.due_date||''}</td>
-        <td>${invoiceStatusPill(inv.status)}</td>
-      </tr>`).join('');
-  }
+  renderBdInvoicesAccordion(invoices||[]);
 
   // 手配書一覧を読み込み
   await loadArrangementsList();
@@ -15965,6 +15952,44 @@ function invoiceStatusPill(status){
   const [cls,label]=map[status]||['s-pending',status];
   const bg = cls==='s-over' ? 'background:var(--red-lt);color:var(--red)' : '';
   return `<span class="pill ${cls}" style="${bg}">${label}</span>`;
+}
+
+// 予約詳細モーダル「関連Invoice」：複数件並ぶと縦に長くなるため、1行の帯（Invoice No.＋
+// Statusのみ常時表示）をクリックすると通貨・金額・発行日・期限が展開されるアコーディオン形式にする。
+// デフォルトは全件折りたたみ。
+function renderBdInvoicesAccordion(invoices){
+  const container = document.getElementById('bd-invoices');
+  if(!container) return;
+  if(!invoices || invoices.length===0){
+    container.innerHTML = '<div class="empty" style="font-size:12px;color:var(--text3)">関連するInvoiceはありません</div>';
+    return;
+  }
+  container.innerHTML = invoices.map((inv,i)=>{
+    const amountStr = inv.currency==='USD' ? '$'+Number(inv.amount).toLocaleString() : yen(inv.amount);
+    return `
+    <div style="border:1px solid var(--border);border-radius:8px;margin-bottom:6px;overflow:hidden">
+      <div onclick="toggleBdInvoiceRow(${i})" style="display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;background:var(--bg)">
+        <span id="bd-inv-caret-${i}" style="font-size:10px;color:var(--text3);transition:transform .15s">▶</span>
+        <span style="font-weight:600;font-size:12px">${escHtml(inv.invoice_no||'')}</span>
+        ${invoiceStatusPill(inv.status)}
+      </div>
+      <div id="bd-inv-detail-${i}" style="display:none;padding:8px 10px;font-size:12px;border-top:1px solid var(--border)">
+        <div>通貨: ${escHtml(inv.currency||'')}</div>
+        <div>金額: ${amountStr}</div>
+        <div>発行日: ${escHtml(inv.issue_date||'')}</div>
+        <div>期限: ${escHtml(inv.due_date||'')}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function toggleBdInvoiceRow(i){
+  const detail = document.getElementById(`bd-inv-detail-${i}`);
+  const caret = document.getElementById(`bd-inv-caret-${i}`);
+  if(!detail) return;
+  const open = detail.style.display !== 'none';
+  detail.style.display = open ? 'none' : 'block';
+  if(caret) caret.style.transform = open ? 'rotate(0deg)' : 'rotate(90deg)';
 }
 
 function salesItemBelongsToAgent(row, agentFilter, bookingAgent){
