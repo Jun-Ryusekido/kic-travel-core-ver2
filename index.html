@@ -3129,7 +3129,7 @@ function arrPaymentMethodSelectHtml(arrName, i, value){
     ${ARRANGEMENT_PAYMENT_METHODS.map(m=>`<option value="${m}" ${value===m?'selected':''}>${m}</option>`).join('')}
   </select></td>`;
 }
-const LOCAL_EXPENSE_TYPES = ['食事','食事/TIP','交通費','入場料','ホテル','駐車料','TIP','雑費','その他'];
+const LOCAL_EXPENSE_TYPES = ['食事','食事代','食事/TIP','交通費','入場料','駐車場代','ホテル','ホテル代','水代','駐車料','TIP','雑費','その他'];
 let bdLocked = false; let suppliersCache = []; let busCompaniesCache = []; let restaurantPartnersCache = []; let allPartnersCache = [];
 let arrangementsCache = [];
 let currentArrangementId = null;
@@ -4206,53 +4206,59 @@ async function generateLocalExpensesFromArrangements(){
 
   const rows = [];
   const mk = (expense_date, expense_type, content, category, amount, payment_method, needsCheck) => {
-    if(!Number(amount)) return;
     rows.push({
       expense_date: expense_date||'',
       expense_type,
       content: needsCheck ? `${content}（要確認）` : content,
       category,
-      unit_price: Number(amount),
+      unit_price: Number(amount)||0,
       qty: 1,
-      amount: Number(amount),
+      amount: Number(amount)||0,
       payment_method: payment_method||'',
     });
   };
 
-  // 支払方法に関わらず、金額が入力されている行は全て対象にする。仮払い一覧表は
-  // 「現金で渡す金額の集計」だけでなく「ガイドが現地で、どの支払いが済んでいて
-  // どれを現地で払う必要があるかを判断するための一覧」でもあるため、支払方法(現地払い/
-  // 事前決済/後請求/全旅クーポン/無料(FREE))をそのまま反映する(絞り込みは行わない)。
-  // これにより、クーポン払い済みのものを誤って現地で二重に現金払いしてしまう、といった
-  // 支払いミスの防止にもつながる。レストランタブのみ独自の語彙(請求書払い/現金払い/その他)の
+  // 金額の有無・支払方法に関わらず、各タブに登録されている行は全て対象にする。
+  // 仮払い一覧表は「現金で渡す金額の集計」だけでなく「ガイドが現地で、どの支払いが
+  // 済んでいてどれを現地で払う必要があるかを判断するための一覧」でもあるため、
+  // 現地払いだが金額未確定の行・後請求で金額未入力の行も含めて反映する。
+  // 支払方法(現地払い/事前決済/後請求/全旅クーポン/無料(FREE))はそのまま反映する
+  // (絞り込みは行わない)。レストランタブのみ独自の語彙(請求書払い/現金払い/その他)の
   // ため、_localExpenseGenMapPaymentMethodで仮払い一覧表側の語彙に変換する。
+  //
+  // 費用種類(expense_type)は、実際の仮払表の実例(KIC0752_JK)に基づき、手配タブの
+  // 種類に対応させて自動分類する: ホテル→ホテル代、レストラン→食事代、
+  // 観光施設・バス駐車場等→施設名に「駐車場」「Parking」等を含む場合のみ駐車場代・
+  // それ以外は入場料、新幹線→交通費、ミネラルウォーター→水代。バスは既存のまま。
+  const isParkingFacility = name => /駐車場|パーキング|parking/i.test(name||'');
 
   // バス
   (busRows||[]).forEach(bus=>{
     mk(bus.start_date||fallbackDate, '交通費', `${bus.bus_company||'バス会社'}${bus.bus_type?'('+bus.bus_type+')':''}`, 'D（ドライバー）', bus.amount, bus.payment_method||'', false);
     if(Number(bus.driver_hotel_amount)>0){
-      mk(bus.driver_check_in||bus.start_date||fallbackDate, 'ホテル', `${bus.bus_company||'バス会社'} ドライバー宿泊費${bus.driver_hotel_name?'('+bus.driver_hotel_name+')':''}`, 'D（ドライバー）', bus.driver_hotel_amount, bus.payment_method||'', false);
+      mk(bus.driver_check_in||bus.start_date||fallbackDate, 'ホテル代', `${bus.bus_company||'バス会社'} ドライバー宿泊費${bus.driver_hotel_name?'('+bus.driver_hotel_name+')':''}`, 'D（ドライバー）', bus.driver_hotel_amount, bus.payment_method||'', false);
     }
   });
 
   // ホテル
   (hotelRows||[]).forEach(h=>{
-    mk(h.check_in||fallbackDate, 'ホテル', h.hotel_name||'ホテル', 'ゲスト', h.amount, h.payment_method||'', false);
+    mk(h.check_in||fallbackDate, 'ホテル代', h.hotel_name||'ホテル', 'ゲスト', h.amount, h.payment_method||'', false);
   });
 
   // レストラン
   (restRows||[]).forEach(r=>{
-    mk(r.date||fallbackDate, '食事', `${r.restaurant_name||'レストラン'}(${r.meal_type||''})`, 'ゲスト', r.amount, _localExpenseGenMapPaymentMethod(r.payment_method), false);
+    mk(r.date||fallbackDate, '食事代', `${r.restaurant_name||'レストラン'}(${r.meal_type||''})`, 'ゲスト', r.amount, _localExpenseGenMapPaymentMethod(r.payment_method), false);
   });
 
   // 観光施設・バス駐車場等
   (facRows||[]).forEach(f=>{
-    mk(f.date||fallbackDate, '入場料', f.facility_name||'観光施設', 'ゲスト', f.amount, f.payment_method||'', false);
+    const expenseType = isParkingFacility(f.facility_name) ? '駐車場代' : '入場料';
+    mk(f.date||fallbackDate, expenseType, f.facility_name||'観光施設', 'ゲスト', f.amount, f.payment_method||'', false);
   });
 
   // ミネラルウォーター
   (waterRows||[]).forEach(w=>{
-    mk(w.date||fallbackDate, '雑費', w.item_name||'ミネラルウォーター', 'ゲスト', w.amount, w.payment_method||'', false);
+    mk(w.date||fallbackDate, '水代', w.item_name||'ミネラルウォーター', 'ゲスト', w.amount, w.payment_method||'', false);
   });
 
   // 新幹線
@@ -4260,10 +4266,12 @@ async function generateLocalExpensesFromArrangements(){
     mk(t.ride_date||fallbackDate, '交通費', t.train_name||'新幹線', 'ゲスト', t.amount, t.payment_method||'', false);
   });
 
-  // ガイドへの仮払金・追加仮払金(guide_settlements)。日付情報が無いため予約のIN-DATEで代用し「（要確認）」を付記する
+  // ガイドへの仮払金・追加仮払金(guide_settlements)。日付情報が無いため予約のIN-DATEで代用し「（要確認）」を付記する。
+  // これは今回の「金額0円/未入力でも含める」対象タブ(ホテル・レストラン・観光施設・
+  // ミネラルウォーター・バス・新幹線)には含まれないため、従来通り金額0円は対象外のままとする。
   guideSettlementRows.forEach(gs=>{
-    mk(fallbackDate, 'その他', `${gs.guide_name||'ガイド'} 仮払金`, 'ゲスト', gs.advance_payment, '', true);
-    mk(fallbackDate, 'その他', `${gs.guide_name||'ガイド'} 仮払金追加`, 'ゲスト', gs.additional_advance_payment, '', true);
+    if(Number(gs.advance_payment)) mk(fallbackDate, 'その他', `${gs.guide_name||'ガイド'} 仮払金`, 'ゲスト', gs.advance_payment, '', true);
+    if(Number(gs.additional_advance_payment)) mk(fallbackDate, 'その他', `${gs.guide_name||'ガイド'} 仮払金追加`, 'ゲスト', gs.additional_advance_payment, '', true);
   });
 
   // 重複防止: 仮払い一覧表の「内容」列に既に同じ内容の行がある場合は、その項目は追加しない
@@ -4281,13 +4289,13 @@ async function generateLocalExpensesFromArrangements(){
   const commonRows = getCommonLocalExpenseRowsIfNotAdded(commonOpts);
 
   if(rows.length===0 && commonRows.length===0){
-    alert('生成対象となる手配データが見つかりませんでした。\n（金額が入力されているバス/レストラン/観光施設/ミネラルウォーター/ガイド仮払金の明細がないか、レストラン・観光施設はすべて請求書払い等で現金の仮払いが不要と判断されるものでした）\nまた、「よく使う項目」もすでに追加済みのため、今回の追加はありません。');
+    alert('生成対象となる手配データが見つかりませんでした。\n（ホテル/バス/レストラン/観光施設/ミネラルウォーター/新幹線のいずれのタブにも明細が登録されていません）\nまた、「よく使う項目」もすでに追加済みのため、今回の追加はありません。');
     return;
   }
 
   if(rows.length===0){
     // 手配タブにコピー元データが無い場合でも、「よく使う項目」はそれとは独立して追加する。
-    alert('生成対象となる手配データが見つかりませんでした。\n（金額が入力されているバス/レストラン/観光施設/ミネラルウォーター/ガイド仮払金の明細がないか、レストラン・観光施設はすべて請求書払い等で現金の仮払いが不要と判断されるものでした）\n\n「よく使う項目」（お茶代・通信費等）は追加します。');
+    alert('生成対象となる手配データが見つかりませんでした。\n（ホテル/バス/レストラン/観光施設/ミネラルウォーター/新幹線のいずれのタブにも明細が登録されていません）\n\n「よく使う項目」（お茶代・通信費等）は追加します。');
     bdLocalExpenses.push(...commonRows);
     renderLocalExpenses();
     return;
