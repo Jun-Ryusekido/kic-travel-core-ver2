@@ -7953,6 +7953,18 @@ const EMAIL_CATEGORY_KEYWORDS = {
 const ATTRACTION_VEHICLE_KEYWORDS = ['海賊船', '遊覧船', '周遊船', 'クルーズ', 'ロープウェイ', 'ケーブルカー'];
 const BUS_CHARTER_KEYWORDS = ['貸切バス', '送迎バス', 'バス会社', '号車', '配車', '乗務員', 'バス手配'];
 
+// 短い英単語(英字のみ・4文字以下、例:"bus")は、"business"のような別の単語に
+// 部分一致してしまう誤爆リスクが高いため、単語境界(\b)付きの正規表現でマッチさせる。
+// それ以外のキーワード(長い英単語・日本語)は、既存通りincludes()による部分一致のままとする
+// (日本語は分かち書きされないため、単語境界判定になじまない)。
+function emailCategoryKeywordHit(k, haystack){
+  const isShortEnglishWord = /^[a-z]+$/.test(k) && k.length <= 4;
+  if(isShortEnglishWord){
+    return new RegExp('\\b'+k+'\\b', 'i').test(haystack);
+  }
+  return haystack.includes(k);
+}
+
 function guessEmailCategory(subject, body, sender){
   const subj = String(subject||'').toLowerCase();
   const text = String(body||'').slice(0, 2000).toLowerCase();
@@ -7971,9 +7983,9 @@ function guessEmailCategory(subject, body, sender){
     for(const kw of keywords){
       const k = kw.toLowerCase();
       let s = 0;
-      if(subj.includes(k)) s += 2;       // 件名ヒットは本文より強い手がかり
-      else if(from.includes(k)) s += 2;  // 送信者名/ドメインのヒットも同様
-      else if(text.includes(k)) s += 1;
+      if(emailCategoryKeywordHit(k, subj)) s += 2;       // 件名ヒットは本文より強い手がかり
+      else if(emailCategoryKeywordHit(k, from)) s += 2;  // 送信者名/ドメインのヒットも同様
+      else if(emailCategoryKeywordHit(k, text)) s += 1;
       if(s > 0){ score += s; matched.push(kw); }
     }
     scores[cat] = score;
