@@ -3117,9 +3117,9 @@ async function safeReplaceRowsByKey(table, keyCol, keyVal, rows, label){
 }
 let bdLocalExpenses = [];
 const LOCAL_EXPENSE_CATEGORIES = ['D（ドライバー）','ゲスト','ゲスト・TG','その他'];
-const LOCAL_EXPENSE_PAYMENT_METHODS = ['現地払い','事前決済','後請求','全旅クーポン','無料(FREE)'];
+const LOCAL_EXPENSE_PAYMENT_METHODS = ['現地払い','事前決済','請求書払い','全旅クーポン','無料(FREE)'];
 // 手配管理タブ(ホテル・バス・ミネラルウォーター・新幹線・ガイド)共通の支払方法選択肢。
-// 「現地払い」のものだけが実際に現金の仮払いが必要な対象、それ以外(事前決済/後請求/
+// 「現地払い」のものだけが実際に現金の仮払いが必要な対象、それ以外(事前決済/請求書払い/
 // 全旅クーポン/無料(FREE))は今回のツアー中の現金仮払いは不要、という仮払い一覧表側の
 // 自動判定にそのまま使えるよう、仮払い一覧表側(LOCAL_EXPENSE_PAYMENT_METHODS)と
 // 完全に同じ選択肢を参照する(表記ゆれ防止のため別々の配列にせず、同一の配列を共用する)。
@@ -4148,7 +4148,7 @@ function addCommonLocalExpenseRows(){
 // 生成後はlocal_expenses側で自由に編集・削除でき、元の仕入明細等の計算には一切影響しない。
 
 // 元データの支払方法表記(テーブルごとに選択肢が異なる)を、local_expenses側の
-// LOCAL_EXPENSE_PAYMENT_METHODS（現地払い/事前決済/後請求/全旅クーポン/無料(FREE)）に寄せる。
+// LOCAL_EXPENSE_PAYMENT_METHODS（現地払い/事前決済/請求書払い/全旅クーポン/無料(FREE)）に寄せる。
 // 一致するものが無ければ空欄にする(生成後にプルダウンで選び直してもらう)。
 function _localExpenseGenMapPaymentMethod(src){
   if(LOCAL_EXPENSE_PAYMENT_METHODS.includes(src)) return src;
@@ -4222,8 +4222,8 @@ async function generateLocalExpensesFromArrangements(){
   // 金額の有無・支払方法に関わらず、各タブに登録されている行は全て対象にする。
   // 仮払い一覧表は「現金で渡す金額の集計」だけでなく「ガイドが現地で、どの支払いが
   // 済んでいてどれを現地で払う必要があるかを判断するための一覧」でもあるため、
-  // 現地払いだが金額未確定の行・後請求で金額未入力の行も含めて反映する。
-  // 支払方法(現地払い/事前決済/後請求/全旅クーポン/無料(FREE))はそのまま反映する
+  // 現地払いだが金額未確定の行・請求書払いで金額未入力の行も含めて反映する。
+  // 支払方法(現地払い/事前決済/請求書払い/全旅クーポン/無料(FREE))はそのまま反映する
   // (絞り込みは行わない)。レストランタブのみ独自の語彙(請求書払い/現金払い/その他)の
   // ため、_localExpenseGenMapPaymentMethodで仮払い一覧表側の語彙に変換する。
   //
@@ -7199,7 +7199,7 @@ function renderHotelTable(){
         <td data-label="確認番号"><input value="${escAttr(it.confirmation_no)}" oninput="bdHotelItems[${i}].confirmation_no=this.value" style="width:100%"></td>
         <td data-label="ステータス"><select onchange="bdHotelItems[${i}].status=this.value;this.style.background=statusBg(this.value);this.style.color=statusFg(this.value)" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px;${statusSelectStyle(it.status||'回答待ち')}"><option value="未予約" ${it.status==='未予約'?'selected':''}>未予約</option><option value="回答待ち" ${!it.status||it.status==='回答待ち'?'selected':''}>回答待ち</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option><option value="FNL済" ${it.status==='FNL済'?'selected':''}>FNL済</option><option value="NG回答" ${it.status==='NG回答'?'selected':''}>NG回答</option><option value="キャンセル" ${it.status==='キャンセル'?'selected':''}>キャンセル</option></select></td>
         <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdHotelItems[${i}].memo=this.value" style="width:100%"></td>
-        ${arrDelBtnHtml('bdHotelItems', i, 'renderHotelTable', escAttr([it.hotel_name, it.room_type, [it.check_in, it.check_out].filter(Boolean).join('〜')].filter(Boolean).join(' '))+' の行を削除しますか？')}
+        ${arrDelBtnHtml('bdHotelItems', i, 'renderHotelTable', escAttr([it.hotel_name, it.room_type, [it.check_in, it.check_out].filter(Boolean).join('〜')].filter(Boolean).join(' '))+' の行を削除しますか？', 'duplicateHotelRow')}
       </tr>`;
     }).join('');
   }
@@ -7290,7 +7290,7 @@ function renderBusTable(){
       <td data-label="ステータス"><select onchange="bdBusItems[${i}].status=this.value;this.style.background=statusBg(this.value);this.style.color=statusFg(this.value)" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px;${statusSelectStyle(it.status||'問い合わせ中')}"><option value="未予約" ${it.status==='未予約'?'selected':''}>未予約</option><option value="問い合わせ中" ${(it.status||'問い合わせ中')==='問い合わせ中'?'selected':''}>問い合わせ中</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option><option value="FNL済" ${it.status==='FNL済'?'selected':''}>FNL済</option><option value="NG回答" ${it.status==='NG回答'?'selected':''}>NG回答</option><option value="キャンセル" ${it.status==='キャンセル'?'selected':''}>キャンセル</option></select></td>
       <td data-label="確認番号"><input value="${escAttr(it.confirmation_no)}" oninput="bdBusItems[${i}].confirmation_no=this.value" style="width:100%"></td>
       <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdBusItems[${i}].memo=this.value" style="width:100%"></td>
-      ${arrDelBtnHtml('bdBusItems', i, 'renderBusTable', escAttr([it.bus_company, it.bus_type, [it.start_date, it.end_date].filter(Boolean).join('〜')].filter(Boolean).join(' '))+' の行を削除しますか？')}
+      ${arrDelBtnHtml('bdBusItems', i, 'renderBusTable', escAttr([it.bus_company, it.bus_type, [it.start_date, it.end_date].filter(Boolean).join('〜')].filter(Boolean).join(' '))+' の行を削除しますか？', 'duplicateBusRow')}
     </tr>`).join('');
   }
   document.getElementById('bd-buses-total').textContent = yen(total);
@@ -8876,7 +8876,7 @@ function renderRestaurantTable(){
       <td data-label="支払方法"><select onchange="bdRestaurantItems[${i}].payment_method=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px"><option value="" ${!it.payment_method?'selected':''}></option><option value="請求書払い" ${it.payment_method==='請求書払い'?'selected':''}>請求書払い</option><option value="現金払い" ${it.payment_method==='現金払い'?'selected':''}>現金払い</option><option value="その他" ${it.payment_method==='その他'?'selected':''}>その他</option></select></td>
       ${guideCell}
       <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdRestaurantItems[${i}].memo=this.value" style="width:100%"></td>
-      ${arrDelBtnHtml('bdRestaurantItems', i, 'renderRestaurantTable', escAttr([it.date, it.meal_type, it.restaurant_name].filter(Boolean).join(' '))+' の行を削除しますか？')}
+      ${arrDelBtnHtml('bdRestaurantItems', i, 'renderRestaurantTable', escAttr([it.date, it.meal_type, it.restaurant_name].filter(Boolean).join(' '))+' の行を削除しますか？', 'duplicateRestaurantRow')}
     </tr>`;
     }).join('');
   }
@@ -9175,7 +9175,7 @@ function renderFacilityTable(){
       <td data-label="期限日"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.deadline_date||''}" onchange="bdFacilityItems[${i}].deadline_date=this.value"></td>
       <td data-label="支払方法"><select onchange="bdFacilityItems[${i}].payment_method=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px"><option value="" ${!it.payment_method?'selected':''}></option>${LOCAL_EXPENSE_PAYMENT_METHODS.map(m=>`<option value="${m}" ${it.payment_method===m?'selected':''}>${m}</option>`).join('')}</select></td>
       <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdFacilityItems[${i}].memo=this.value" style="width:100%"></td>
-      ${arrDelBtnHtml('bdFacilityItems', i, 'renderFacilityTable', escAttr([it.facility_name, it.date].filter(Boolean).join(' '))+' の行を削除しますか？')}
+      ${arrDelBtnHtml('bdFacilityItems', i, 'renderFacilityTable', escAttr([it.facility_name, it.date].filter(Boolean).join(' '))+' の行を削除しますか？', 'duplicateFacilityRow')}
     </tr>`).join('');
   }
   document.getElementById('bd-facilities-total').textContent = yen(total);
@@ -9199,10 +9199,50 @@ function bdSortArrow(state, field){ return state.field===field ? (state.dir===1?
 // 手配管理タブ共通の明細行削除ボタン（ホテル/バス/レストラン/観光施設等/ミネラルウォーター/
 // 新幹線の全タブで共用）。確認ダイアログ後、対象配列から該当行を取り除いて再描画するのみで、
 // DBへは反映しない（「行追加」と同じく、既存の保存ボタン押下時にのみ反映される）。
-function arrDelBtnHtml(arrVarName, i, renderFnName, confirmMsg){
+function arrDelBtnHtml(arrVarName, i, renderFnName, confirmMsg, dupFnName){
   const msg = confirmMsg || 'この行を削除しますか？';
-  return `<td class="li-del"><button class="btn" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="if(confirm('${msg}')){${arrVarName}.splice(${i},1);${renderFnName}()}">✕</button></td>`;
+  const dupBtn = dupFnName ? `<button class="btn" style="font-size:10px;padding:1px 6px;margin-right:4px" onclick="${dupFnName}(${i})" title="この行を複製します(2班体制等で同じ内容をもう1件登録したい場合に使用)">⧉</button>` : '';
+  return `<td class="li-del">${dupBtn}<button class="btn" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="if(confirm('${msg}')){${arrVarName}.splice(${i},1);${renderFnName}()}">✕</button></td>`;
 }
+
+// 「(N班)」ラベルを検出する正規表現(仮払い一覧表の一括複製で使っているものと同じ考え方)。
+const ARR_ROW_BAND_LABEL_RE = /\((\d+)班\)\s*$/;
+
+// 手配タブ各行の複製(2班体制のツアーで、同じレストラン・バス会社等をもう1件
+// 登録する際に、都度手入力する手間を省くためのショートカット)。指定した名称
+// フィールド(店名・会社名等)を対象に、その配列内で現在使われている最大の班番号を
+// 検出し、元の行(まだラベルが無い場合のみ)には「(1班)」、複製後の行には次の
+// 連番(2班・3班…)をそれぞれ付与する。それ以外の項目(日付・人数・金額・支払方法等)は
+// 複製元の値をそのまま引き継ぎ、複製後は他の行と同様に自由に編集できる。
+function duplicateArrRow(arr, i, nameField, renderFn){
+  const original = arr[i];
+  if(!original) return;
+  const originalBase = (original[nameField]||'').replace(ARR_ROW_BAND_LABEL_RE,'').trim();
+  // 班番号の連番は、同じ名称(店名・会社名等、班ラベルを除いた部分)を持つ行同士でのみ
+  // 数える(全く別内容の行がたまたま班ラベル付きで存在していても引きずられないようにするため)。
+  let maxBand = 1;
+  arr.forEach(it=>{
+    const base = (it[nameField]||'').replace(ARR_ROW_BAND_LABEL_RE,'').trim();
+    if(base !== originalBase) return;
+    const m = (it[nameField]||'').match(ARR_ROW_BAND_LABEL_RE);
+    if(m) maxBand = Math.max(maxBand, Number(m[1]));
+  });
+  if(!ARR_ROW_BAND_LABEL_RE.test(original[nameField]||'')){
+    original[nameField] = originalBase ? `${originalBase}(1班)` : '(1班)';
+  }
+  const nextBand = maxBand + 1;
+  const copy = JSON.parse(JSON.stringify(original));
+  copy.id = null; // 複製行はDB上は新規行として扱う(元のidを引き継がない)
+  copy[nameField] = originalBase ? `${originalBase}(${nextBand}班)` : `(${nextBand}班)`;
+  arr.splice(i+1, 0, copy);
+  renderFn();
+}
+function duplicateHotelRow(i){ duplicateArrRow(bdHotelItems, i, 'hotel_name', renderHotelTable); }
+function duplicateBusRow(i){ duplicateArrRow(bdBusItems, i, 'bus_company', renderBusTable); }
+function duplicateRestaurantRow(i){ duplicateArrRow(bdRestaurantItems, i, 'restaurant_name', renderRestaurantTable); }
+function duplicateFacilityRow(i){ duplicateArrRow(bdFacilityItems, i, 'facility_name', renderFacilityTable); }
+function duplicateWaterRow(i){ duplicateArrRow(bdWaterItems, i, 'item_name', renderWaterTable); }
+function duplicateBulletTrainRow(i){ duplicateArrRow(bdBulletTrainItems, i, 'train_name', renderBulletTrainTable); }
 
 let facilitySortState = { field: null, dir: 1 };
 function sortFacilityTable(field){ sortBdItems(bdFacilityItems, field, facilitySortState, renderFacilityTable); }
@@ -9257,7 +9297,7 @@ function renderWaterTable(){
       ${arrPaymentMethodSelectHtml('bdWaterItems', i, it.payment_method)}
       <td data-label="ステータス"><select onchange="bdWaterItems[${i}].status=this.value;this.style.background=statusBg(this.value);this.style.color=statusFg(this.value)" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px;${statusSelectStyle(it.status||'問い合わせ中')}"><option value="未予約" ${it.status==='未予約'?'selected':''}>未予約</option><option value="問い合わせ中" ${(it.status||'問い合わせ中')==='問い合わせ中'?'selected':''}>問い合わせ中</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option><option value="FNL済" ${it.status==='FNL済'?'selected':''}>FNL済</option><option value="NG回答" ${it.status==='NG回答'?'selected':''}>NG回答</option><option value="予約不要" ${it.status==='予約不要'?'selected':''}>予約不要</option><option value="キャンセル" ${it.status==='キャンセル'?'selected':''}>キャンセル</option></select></td>
       <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdWaterItems[${i}].memo=this.value" style="width:100%"></td>
-      ${arrDelBtnHtml('bdWaterItems', i, 'renderWaterTable', escAttr([it.item_name, it.date].filter(Boolean).join(' '))+' の行を削除しますか？')}
+      ${arrDelBtnHtml('bdWaterItems', i, 'renderWaterTable', escAttr([it.item_name, it.date].filter(Boolean).join(' '))+' の行を削除しますか？', 'duplicateWaterRow')}
     </tr>`).join('');
   }
   document.getElementById('bd-water-total').textContent = yen(total);
@@ -9493,7 +9533,7 @@ function renderBulletTrainTable(){
       <option value="キャンセル" ${it.status==='キャンセル'?'selected':''}>キャンセル</option>
     </select></td>
     <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdBulletTrainItems[${i}].memo=this.value" style="width:100%"></td>
-    ${arrDelBtnHtml('bdBulletTrainItems', i, 'renderBulletTrainTable', escAttr([it.ride_date, it.train_name, it.train_number, [it.departure_station, it.arrival_station].filter(Boolean).join('→')].filter(Boolean).join(' '))+' の行を削除しますか？')}
+    ${arrDelBtnHtml('bdBulletTrainItems', i, 'renderBulletTrainTable', escAttr([it.ride_date, it.train_name, it.train_number, [it.departure_station, it.arrival_station].filter(Boolean).join('→')].filter(Boolean).join(' '))+' の行を削除しますか？', 'duplicateBulletTrainRow')}
   </tr>`).join('');
   document.getElementById('bd-bullet-total').textContent = yen(bdBulletTrainItems.reduce((s,it)=>s+Number(it.amount||0),0));
 }
@@ -13170,7 +13210,7 @@ async function saveInvoiceConfirm(){
       unit_price: Number(document.getElementById(`inv-confirm-uprice-${i}`)?.value)||0,
       qty: Number(document.getElementById(`inv-confirm-qty-${i}`)?.value)||1,
       amount,
-      payment_method: e.payment_method || '後請求',
+      payment_method: e.payment_method || '請求書払い',
       sort_order: i,
       _supplier: supplier,
       _content: contentVal,
