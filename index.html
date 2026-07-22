@@ -7896,13 +7896,26 @@ const EMAIL_CATEGORY_KEYWORDS = {
   'ホテル': ['ホテル', 'hotel', '宿泊', 'チェックイン', 'チェックアウト', 'check-in', '客室', '部屋割', 'ルーミング', 'rooming', 'ツイン', 'シングル', 'トリプル', '旅館', '御宿泊', 'ご宿泊', '泊'],
   'バス': ['バス', 'bus', '配車', '乗務員', 'ドライバー', '運転手', '回送', '貸切', '号車', '運行', '車両', '送迎'],
   'レストラン': ['レストラン', 'restaurant', '昼食', '夕食', 'ランチ', 'ディナー', '会食', 'お食事', 'ご来店', 'メニュー', 'ハラール', 'ハラル', 'ベジタリアン', 'コース料理', '御膳'],
-  '観光施設・バス駐車場等': ['駐車場', '入場', '拝観', '見学', '入園', '入館', 'チケット', '観光施設', '体験', '乗船', 'ロープウェイ', 'ケーブルカー', '美術館', '博物館', '城', '神社', '寺'],
+  '観光施設・バス駐車場等': ['駐車場', '入場', '拝観', '見学', '入園', '入館', 'チケット', '観光施設', '体験', '乗船', 'ロープウェイ', 'ケーブルカー', '美術館', '博物館', '城', '神社', '寺', '海賊船', '遊覧船', '周遊船', 'クルーズ'],
 };
+
+// 遊覧船・ロープウェイ・ケーブルカー等、観光名所としての乗り物を示すキーワード。
+// これらは「出発」「到着」「時刻」等バス手配と似た語彙を含むため、明確なバス会社の
+// 貸切・配車を示す語(BUS_CHARTER_KEYWORDS)が無い限り「観光施設・バス駐車場等」を
+// 優先する(「箱根海賊船」がバスタブに誤分類されていた不具合の修正)。
+const ATTRACTION_VEHICLE_KEYWORDS = ['海賊船', '遊覧船', '周遊船', 'クルーズ', 'ロープウェイ', 'ケーブルカー'];
+const BUS_CHARTER_KEYWORDS = ['貸切バス', '送迎バス', 'バス会社', '号車', '配車', '乗務員', 'バス手配'];
 
 function guessEmailCategory(subject, body, sender){
   const subj = String(subject||'').toLowerCase();
   const text = String(body||'').slice(0, 2000).toLowerCase();
   const from = String(sender||'').toLowerCase();
+  const combined = subj + ' ' + text + ' ' + from;
+  const attractionHit = ATTRACTION_VEHICLE_KEYWORDS.find(kw=>combined.includes(kw.toLowerCase()));
+  const busCharterHit = BUS_CHARTER_KEYWORDS.some(kw=>combined.includes(kw.toLowerCase()));
+  if(attractionHit && !busCharterHit){
+    return { category: '観光施設・バス駐車場等', reasons: [attractionHit] };
+  }
   const scores = {};
   const hits = {};
   for(const [cat, keywords] of Object.entries(EMAIL_CATEGORY_KEYWORDS)){
@@ -8422,6 +8435,8 @@ function resolveEmailSplitRef(rawRef){
 
 function guessEmailSplitCategory(excerpt){
   const t = excerpt||'';
+  const busCharterHit = BUS_CHARTER_KEYWORDS.some(kw=>t.includes(kw));
+  if(ATTRACTION_VEHICLE_KEYWORDS.some(kw=>t.includes(kw)) && !busCharterHit) return '観光施設・バス駐車場等';
   if(/ホテル|宿泊|泊/.test(t)) return 'ホテル';
   if(/バス|送迎|車両/.test(t)) return 'バス';
   if(/レストラン|食事|昼食|夕食/.test(t)) return 'レストラン';
