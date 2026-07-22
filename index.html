@@ -2322,7 +2322,18 @@ async function doLogin(){
   const pw = document.getElementById('login-pw').value;
   document.getElementById('login-err').style.display='none';
 
-  const { data, error } = await sb.from('app_users').select('*').eq('email', id).eq('password', pw).maybeSingle();
+  // app_users.passwordはbcryptハッシュ化されているため、クライアントから平文パスワードを
+  // クエリパラメータとしてSupabaseに投げて直接比較する方式(password=eq.<平文>)では
+  // 原理的に一致しない。ハッシュとの照合はservice_role key経由のサーバー側API(/api/login、
+  // bcrypt.compareを使用)で行う。/api/loginは旧・平文保存ユーザーとの後方互換(平文比較→
+  // 成功時にbcryptへ自動移行)にも対応済み。
+  let data = null, error = null;
+  try{
+    const resp = await fetch('/api/login', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({email:id, password:pw})});
+    const body = await resp.json();
+    if(resp.ok) data = body.user;
+    else error = new Error(body.error || 'ログインに失敗しました');
+  }catch(e){ error = e; }
 
   if(error || !data){
     document.getElementById('login-err').style.display='block';
