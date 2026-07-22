@@ -8394,8 +8394,10 @@ async function sendEmailToBooking(emailId){
         return;
       }
     }catch(e){
-      // 判定自体に失敗した場合は、安全側として通常の単一送信にフォールバックする
-      logError('メール受信箱: 複数REF#判定', e);
+      // 判定自体に失敗した場合(AI呼び出しのタイムアウト/504等)は、安全側として通常の
+      // 単一送信に自動フォールバックする。この後で送信自体は正常に完了するため、
+      // ユーザーに無用な不安を与えないようトーストは出さずログのみ記録する。
+      logError('メール受信箱: 複数REF#判定', e, {toast:false});
       if(sendBtn){ sendBtn.disabled = false; sendBtn.innerHTML = origLabel; }
     }
   }
@@ -8404,8 +8406,16 @@ async function sendEmailToBooking(emailId){
 }
 
 // 通常の単一送信（従来の「送る」ボタンの処理そのもの）。
+// REF#入力欄には「#762」のような表記を想定しているが、実際には「762」のように
+// 先頭の#を省略して入力されることが多く、その場合ref_no(例:"#762")との完全一致に
+// 失敗して「予約が見つかりませんでした」になってしまっていた。
+// resolveEmailSplitRef（メール分割振り分けで使っている解決ロジックと同じもの）で
+// #の有無・ツアー名内の番号一致まで含めて正規化してから検索することで、
+// 桁数や#表記の違いを吸収する。
 async function performSingleEmailSend(emailId, refNo, map, body){
-  const {data: booking, error: bErr} = await sb.from('bookings').select('id,ref_no').eq('ref_no', refNo).maybeSingle();
+  if(!allBookingsCache.length) allBookingsCache = await fetchAllBookings();
+  const resolvedRef = resolveEmailSplitRef(refNo) || refNo;
+  const {data: booking, error: bErr} = await sb.from('bookings').select('id,ref_no').eq('ref_no', resolvedRef).maybeSingle();
   if(bErr){ alert('予約検索でエラーが発生しました: '+bErr.message); return; }
   if(!booking){ alert('REF# "'+refNo+'" の予約が見つかりませんでした。'); return; }
 

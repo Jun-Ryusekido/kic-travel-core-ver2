@@ -2,6 +2,13 @@ export const config = { runtime: 'edge' };
 
 export default async function handler(req) {
   if(req.method !== 'POST') return new Response('Method Not Allowed', {status:405});
+  // 長文メール(複数ツアーがまとめて書かれた本文等)ではAI応答が遅くなり、Vercel側の
+  // 実行時間上限に達すると、このtry/catchを経由しないプラットフォームのエラーページ
+  // (HTTP 504)がそのままクライアントに返ってしまう。それより先に自前でタイムアウトさせ、
+  // 常に分かりやすいJSONエラーを返すことで、クライアント側の自動フォールバック(通常の
+  // 単一送信)がスムーズに機能するようにする。
+  const controller = new AbortController();
+  const timeoutId = setTimeout(()=>controller.abort(), 20000);
   try{
     const {subject, body} = await req.json();
     const response = await fetch('https://api.anthropic.com/v1/messages',{
@@ -11,6 +18,7 @@ export default async function handler(req) {
         'x-api-key': process.env.ANTHROPIC_API_KEY,
         'anthropic-version':'2023-06-01'
       },
+      signal: controller.signal,
       body: JSON.stringify({
         model:'claude-sonnet-4-6',
         max_tokens:4000,
@@ -37,6 +45,7 @@ ${body||''}`}
         }]
       })
     });
+    clearTimeout(timeoutId);
     const data = await response.json();
     if(!response.ok){
       const errMsg = data?.error?.message || 'Anthropic APIエラー';
@@ -48,6 +57,10 @@ ${body||''}`}
     }
     return new Response(JSON.stringify({text}),{headers:{'Content-Type':'application/json'}});
   }catch(e){
+    clearTimeout(timeoutId);
+    if(e.name === 'AbortError'){
+      return new Response(JSON.stringify({error:'AI応答がタイムアウトしました(本文が長すぎる可能性があります)。しばらく経ってから再度お試しください。'}), {status: 504, headers:{'Content-Type':'application/json'}});
+    }
     return new Response(JSON.stringify({error:e.message}),{status:500,headers:{'Content-Type':'application/json'}});
   }
 }
