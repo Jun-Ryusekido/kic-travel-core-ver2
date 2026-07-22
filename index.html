@@ -1733,7 +1733,8 @@ input[type=number]{-moz-appearance:textfield}
         <tbody id="bd-bullet-tbody"></tbody>
       </table></div>
       <button class="btn" style="font-size:10px;margin-top:4px" onclick="addBulletTrainRow()">＋ 行追加</button>
-      <button class="btn" style="font-size:10px;margin-top:4px" onclick="openArrCopyModal('bullet')">📋 REF#からコピー</button>
+      <button class="btn" style="font-size:10px;margin-top:4px" onclick="triggerBdBulletCsvImport()">📥 CSV取込</button>
+      <input type="file" id="bd-bullet-csv-file" accept=".csv" style="display:none" onchange="onBdBulletCsvFileSelected(event)">
       <div class="li-total">新幹線合計: <span id="bd-bullet-total">¥0</span></div>
     </div>
 
@@ -7038,10 +7039,8 @@ const ARR_COPY_CONFIG = {
     map:r=>({facility_name:r.facility_name||'', date:r.date||'', pax:r.pax||0, amount:r.amount||0, status:'問い合わせ中', confirmation_no:'', deadline_date:r.deadline_date||'', payment_method:r.payment_method||'', memo:r.memo||''}) },
   water:  { table:'booking_water_items',   keyField:'booking_id',
     map:r=>({item_name:r.item_name||'', date:r.date||'', qty:r.qty||0, unit_price:r.unit_price||0, amount:r.amount||0, status:'問い合わせ中', payment_method:r.payment_method||'', memo:r.memo||''}) },
-  bullet: { table:'bullet_train_arrangements', keyField:'booking_ref',
-    map:r=>({ride_date:r.ride_date||'', train_name:r.train_name||'', train_number:r.train_number||'', departure_station:r.departure_station||'', departure_time:r.departure_time||'', arrival_station:r.arrival_station||'', arrival_time:r.arrival_time||'', pax_adult:r.pax_adult||0, pax_child:r.pax_child||0, pax_free:r.pax_free||0, discount_rate:r.discount_rate||0, status:'回答待ち', payment_method:r.payment_method||'', amount:r.amount||0, memo:r.memo||''}) },
 };
-const ARR_COPY_TAB_LABELS = {hotel:'ホテル', bus:'バス', rest:'レストラン', fac:'観光施設・バス駐車場等', water:'ミネラルウォーター', bullet:'新幹線'};
+const ARR_COPY_TAB_LABELS = {hotel:'ホテル', bus:'バス', rest:'レストラン', fac:'観光施設・バス駐車場等', water:'ミネラルウォーター'};
 let arrCopyTab = null;
 
 function openArrCopyModal(tab){
@@ -7091,7 +7090,6 @@ function arrCopyAppendAndRender(tab, mapped){
     case 'rest':   bdRestaurantItems.push(...mapped); renderRestaurantTable(); break;
     case 'fac':    bdFacilityItems.push(...mapped);   renderFacilityTable();   break;
     case 'water':  bdWaterItems.push(...mapped);      renderWaterTable();      break;
-    case 'bullet': bdBulletTrainItems.push(...mapped);renderBulletTrainTable();break;
   }
 }
 
@@ -9451,6 +9449,99 @@ async function saveBulletTrainItems(){
     const {error: insErr} = await sb.from('bullet_train_arrangements').insert(rows);
     if(insErr) throw new Error('新幹線明細の保存に失敗: '+insErr.message);
   }
+}
+
+// 予約詳細モーダル内「新幹線」タブ用のCSV取込。サイドメニューの独立した「新幹線手配」
+// 一覧ページのCSV取込(VIEW/びゅう GroupTour CSV、複数REF#にまたがる専用フォーマット)とは別に、
+// この予約(現在開いているREF#固定)向けのシンプルなフラットCSV(1行1件、ヘッダー行あり)を
+// 取り込む。列名は日毎明細の入力項目(乗車日・列車名・号数・出発駅・出発時刻・到着駅・
+// 到着時刻・大人・小人・無償/無賃・割引率・金額・支払方法・ステータス・備考)にそのまま対応させる。
+// パース自体は既存のparseCsvRow/btNormalizeDate/btNormalizeTimeを流用する。
+function triggerBdBulletCsvImport(){
+  const el = document.getElementById('bd-bullet-csv-file');
+  el.value = '';
+  el.click();
+}
+
+async function onBdBulletCsvFileSelected(e){
+  const file = e.target.files[0];
+  if(!file) return;
+  const buf = await file.arrayBuffer();
+  let text;
+  try { text = new TextDecoder('shift-jis').decode(buf); }
+  catch(_){ text = ''; }
+  // TextDecoder('shift-jis')はUTF-8バイト列を渡しても例外を投げず文字化けした文字列を
+  // 返すだけのため、例外の有無だけではUTF-8のCSV(Googleスプレッドシート等からの
+  // エクスポートに多い)を正しく検知できない。見出し行に想定する列名が1つも
+  // 見当たらない場合は文字化けとみなし、UTF-8として読み直す。
+  if(!/乗車日|列車名|出発駅|到着駅|支払方法/.test(text)){
+    try { text = new TextDecoder('utf-8').decode(buf); } catch(_){}
+  }
+  text = text.replace(/^﻿/, '');
+
+  const lines = text.split(/\r?\n/).filter(l=>l.trim().length>0);
+  if(lines.length < 2){
+    alert('CSVの形式が正しくありません。見出し行とデータ行が必要です。');
+    return;
+  }
+  const header = parseCsvRow(lines[0]).map(h=>h.trim());
+  const idx = name => header.indexOf(name);
+  const iRideDate = idx('乗車日');
+  const iTrainName = idx('列車名');
+  if(iRideDate<0 && iTrainName<0){
+    alert('CSVの形式が正しくありません。1行目の見出しに「乗車日」「列車名」等の列が見つかりません。');
+    return;
+  }
+  const iTrainNumber = idx('号数');
+  const iDepStation = idx('出発駅');
+  const iDepTime = idx('出発時刻');
+  const iArrStation = idx('到着駅');
+  const iArrTime = idx('到着時刻');
+  const iAdult = idx('大人');
+  const iChild = idx('小人');
+  const iFree = idx('無償')>=0 ? idx('無償') : idx('無賃');
+  const iDiscount = idx('割引率');
+  const iAmount = idx('金額');
+  const iPayment = idx('支払方法');
+  const iStatus = idx('ステータス');
+  const iMemo = idx('備考');
+
+  const rows = [];
+  for(let i=1;i<lines.length;i++){
+    const cols = parseCsvRow(lines[i]);
+    if(!cols.some(c=>c)) continue;
+    const get = colIdx => colIdx>=0 ? (cols[colIdx]||'').trim() : '';
+    const paymentRaw = get(iPayment);
+    rows.push({
+      ride_date: btNormalizeDate(get(iRideDate)),
+      train_name: get(iTrainName),
+      train_number: get(iTrainNumber),
+      departure_station: get(iDepStation),
+      departure_time: btNormalizeTime(get(iDepTime)),
+      arrival_station: get(iArrStation),
+      arrival_time: btNormalizeTime(get(iArrTime)),
+      pax_adult: Number(get(iAdult))||0,
+      pax_child: Number(get(iChild))||0,
+      pax_free: Number(get(iFree))||0,
+      discount_rate: Number(get(iDiscount))||0,
+      amount: Number(String(get(iAmount)).replace(/[,¥]/g,''))||0,
+      payment_method: ARRANGEMENT_PAYMENT_METHODS.includes(paymentRaw) ? paymentRaw : '',
+      status: get(iStatus) || '回答待ち',
+      memo: get(iMemo)
+    });
+  }
+
+  if(!rows.length){
+    alert('取り込めるデータ行が見つかりませんでした。CSVの内容を確認してください。');
+    return;
+  }
+
+  const b = findBookingById(currentDetailId);
+  if(!confirm(`CSVから${rows.length}件の新幹線データを、現在開いている予約${b&&b.ref_no?'（'+b.ref_no+'）':''}に追加します。よろしいですか？`)) return;
+
+  bdBulletTrainItems.push(...rows);
+  renderBulletTrainTable();
+  alert(`✓ ${rows.length}件を追加しました。内容を確認し、保存を忘れずに行ってください。`);
 }
 
 // ─── 担当ガイド ─────────────────────────────────────────────────────────────
