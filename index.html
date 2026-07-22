@@ -1648,6 +1648,7 @@ input[type=number]{-moz-appearance:textfield}
           <th style="width:80px">金額</th>
           <th style="width:80px">ステータス</th>
           <th style="width:90px">支払方法</th>
+          <th style="width:150px">ガイド</th>
           <th>備考</th>
           <th class="li-del"></th>
         </tr></thead>
@@ -4465,7 +4466,7 @@ async function openBookingDetail(id){
   if(busFetchErr||restFetchErr||facFetchErr||waterFetchErr){ alert('手配明細の読み込みに一部失敗しました。このまま保存すると既存データが消える危険があるため、画面を再読み込みしてください。\n'+(busFetchErr||restFetchErr||facFetchErr||waterFetchErr).message); }
   bdBusItems = (busRows||[]).map(r=>({id:r.id,bus_company:r.bus_company||'',bus_type:r.bus_type||'',buses:r.buses||1,start_date:r.start_date||'',end_date:r.end_date||'',amount:r.amount||0,status:r.status||'問い合わせ中',confirmation_no:r.confirmation_no||'',driver_hotel_name:r.driver_hotel_name||'',driver_hotel_phone:r.driver_hotel_phone||'',driver_hotel_address:r.driver_hotel_address||'',driver_check_in:r.driver_check_in||'',driver_check_out:r.driver_check_out||'',driver_hotel_amount:r.driver_hotel_amount||0,memo:r.memo||'',payment_method:r.payment_method||''}));
   originalBusCount = bdBusItems.length;
-  bdRestaurantItems = (restRows||[]).map(r=>({id:r.id,restaurant_name:r.restaurant_name||'',meal_type:r.meal_type||'昼食',date:r.date||'',reservation_time:r.reservation_time||'',pax:r.pax||0,amount:r.amount||0,status:r.status||'問い合わせ中',payment_method:r.payment_method||'',memo:r.memo||''}));
+  bdRestaurantItems = (restRows||[]).map(r=>({id:r.id,restaurant_name:r.restaurant_name||'',meal_type:r.meal_type||'昼食',date:r.date||'',reservation_time:r.reservation_time||'',pax:r.pax||0,amount:r.amount||0,status:r.status||'問い合わせ中',payment_method:r.payment_method||'',memo:r.memo||'',guide_id:r.guide_id||null,guide_name_freetext:r.guide_name_freetext||''}));
   originalRestaurantCount = bdRestaurantItems.length;
   // レストラン明細が空の場合、到着日〜出発日の期間分の昼食・夕食の空行をあらかじめ用意しておく
   if(bdRestaurantItems.length===0) generateRestaurantTemplateRows(b);
@@ -8434,7 +8435,7 @@ async function appendEmailExcerptAsDraftRow(tab, excerpt){
     renderBusTable();
     await saveBusItems();
   }else if(tab==='rest'){
-    bdRestaurantItems.push({restaurant_name:'', meal_type:'昼食', date:'', reservation_time:'', pax:0, amount:0, status:'問い合わせ中', payment_method:'', memo:excerpt});
+    bdRestaurantItems.push({restaurant_name:'', meal_type:'昼食', date:'', reservation_time:'', pax:0, amount:0, status:'問い合わせ中', payment_method:'', memo:excerpt, guide_id:null, guide_name_freetext:''});
     renderRestaurantTable();
     await saveRestaurantItems();
   }else if(tab==='fac'){
@@ -8842,9 +8843,22 @@ function renderRestaurantTable(){
   });
   const total = bdRestaurantItems.reduce((s,it)=>s+Number(it.amount||0),0);
   if(bdRestaurantItems.length===0){
-    tbody.innerHTML='<tr><td colspan="10" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
+    tbody.innerHTML='<tr><td colspan="11" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
   }else{
-    tbody.innerHTML = bdRestaurantItems.map((it,i)=>`<tr>
+    tbody.innerHTML = bdRestaurantItems.map((it,i)=>{
+      const selectedGuide = it.guide_id ? guideRegistryCache.find(g=>String(g.id)===String(it.guide_id)) : null;
+      const freetextMode = !!it._freetextMode || (!it.guide_id && !!it.guide_name_freetext);
+      const guideCell = freetextMode
+        ? `<td data-label="ガイド">
+            <input type="text" value="${escAttr(it.guide_name_freetext)}" placeholder="未入力なら担当ガイドを使用" oninput="bdRestaurantItems[${i}].guide_name_freetext=this.value" style="width:100%">
+            <div style="font-size:9px;margin-top:2px"><span class="lnk" onclick="switchRestGuideRowToSearchMode(${i})">🔍 マスタから選ぶ</span></div>
+          </td>`
+        : `<td data-label="ガイド" style="position:relative">
+            <input type="text" id="rest-guide-search-${i}" value="${escAttr(selectedGuide ? guideDisplayLabel(selectedGuide) : '')}" placeholder="未入力なら担当ガイドを使用" autocomplete="off"
+                   oninput="filterRestGuideSuggest(${i})" onfocus="showRestGuideSuggest(${i})" onblur="setTimeout(()=>hideRestGuideSuggest(${i}),200)" style="width:100%">
+            <div id="rest-guide-dd-${i}" style="display:none;position:fixed;background:var(--card,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:99999;max-height:220px;overflow-y:auto"></div>
+          </td>`;
+      return `<tr>
       <td data-label="店名" style="position:relative">
         <input value="${escAttr(it.restaurant_name)}" oninput="bdRestaurantItems[${i}].restaurant_name=this.value;showRestaurantSuggest(this,${i})" onfocus="showRestaurantSuggest(this,${i})" onblur="setTimeout(hideRestaurantSuggest,200)" style="width:100%">
         ${restaurantPartnerEnName(it.restaurant_name) ? `<div style="font-size:9px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(restaurantPartnerEnName(it.restaurant_name))}</div>` : ''}
@@ -8860,9 +8874,11 @@ function renderRestaurantTable(){
       <td data-label="金額"><input type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="restaurantAmountCalc(${i},this)"></td>
       <td data-label="ステータス"><select onchange="bdRestaurantItems[${i}].status=this.value;this.style.background=statusBg(this.value);this.style.color=statusFg(this.value)" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px;${statusSelectStyle(it.status||'問い合わせ中')}"><option value="未予約" ${it.status==='未予約'?'selected':''}>未予約</option><option value="問い合わせ中" ${(it.status||'問い合わせ中')==='問い合わせ中'?'selected':''}>問い合わせ中</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option><option value="FNL済" ${it.status==='FNL済'?'selected':''}>FNL済</option><option value="NG回答" ${it.status==='NG回答'?'selected':''}>NG回答</option><option value="キャンセル" ${it.status==='キャンセル'?'selected':''}>キャンセル</option></select></td>
       <td data-label="支払方法"><select onchange="bdRestaurantItems[${i}].payment_method=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px"><option value="" ${!it.payment_method?'selected':''}></option><option value="請求書払い" ${it.payment_method==='請求書払い'?'selected':''}>請求書払い</option><option value="現金払い" ${it.payment_method==='現金払い'?'selected':''}>現金払い</option><option value="その他" ${it.payment_method==='その他'?'selected':''}>その他</option></select></td>
+      ${guideCell}
       <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdRestaurantItems[${i}].memo=this.value" style="width:100%"></td>
       ${arrDelBtnHtml('bdRestaurantItems', i, 'renderRestaurantTable', escAttr([it.date, it.meal_type, it.restaurant_name].filter(Boolean).join(' '))+' の行を削除しますか？')}
-    </tr>`).join('');
+    </tr>`;
+    }).join('');
   }
   document.getElementById('bd-restaurants-total').textContent = yen(total);
   const dateArrow = document.getElementById('rest-date-sort-arrow');
@@ -8870,7 +8886,64 @@ function renderRestaurantTable(){
 }
 function addRestaurantRow(){
   const b = findBookingById(currentDetailId);
-  bdRestaurantItems.push({restaurant_name:'',meal_type:'昼食',date:'',reservation_time:'',pax:b?b.pax||0:0,amount:0,status:'問い合わせ中',payment_method:'',memo:''});
+  bdRestaurantItems.push({restaurant_name:'',meal_type:'昼食',date:'',reservation_time:'',pax:b?b.pax||0:0,amount:0,status:'問い合わせ中',payment_method:'',memo:'',guide_id:null,guide_name_freetext:''});
+  renderRestaurantTable();
+}
+
+// レストラン行ごとの「ガイド」欄。担当ガイドタブ(bdGuideItems)で使っている検索・
+// 携帯番号自動補完の仕組み(guideRegistryCache/guideDisplayLabel等)をそのまま流用し、
+// 行単位で別のガイドを指定できるようにする(2班体制で同じレストランを別々のガイドが
+// 同行するケース等)。未入力(guide_id・guide_name_freetextとも空)の場合、ミールバウチャー
+// 発行時は従来通り予約全体の担当ガイド(arr-guide-name/arr-guide-phone)にフォールバックする。
+function filterRestGuideSuggest(i){
+  const q = document.getElementById('rest-guide-search-'+i)?.value||'';
+  if(!q.trim()) bdRestaurantItems[i].guide_id = null;
+  renderRestGuideDropdown(i, q);
+}
+function showRestGuideSuggest(i){
+  renderRestGuideDropdown(i, document.getElementById('rest-guide-search-'+i)?.value||'');
+}
+function hideRestGuideSuggest(i){
+  const dd = document.getElementById('rest-guide-dd-'+i);
+  if(dd) dd.style.display = 'none';
+}
+function renderRestGuideDropdown(i, q){
+  const dd = document.getElementById('rest-guide-dd-'+i);
+  if(!dd) return;
+  const query = toHalfWidth(q.trim().toLowerCase());
+  const filtered = query
+    ? guideRegistryCache.filter(g=>{
+        const hay = `${g.name||''} ${g.name_kana||''} ${g.phone||''}`.toLowerCase();
+        return toHalfWidth(hay).includes(query);
+      })
+    : guideRegistryCache.slice(0,50);
+  const listHtml = filtered.length
+    ? filtered.slice(0,100).map(g=>`<div data-id="${g.id}" onmousedown="selectRestGuideItem(${i},this.dataset.id)" style="padding:8px 10px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''"><b>${escHtml(g.name||'')}</b>${g.phone?` <span style="color:var(--text3);font-size:10px">${escHtml(g.phone)}</span>`:''}</div>`).join('')
+    : `<div style="padding:8px 10px;font-size:11px;color:var(--text3)">該当なし</div>`;
+  dd.innerHTML = listHtml +
+    `<div onmousedown="switchRestGuideRowToFreetext(${i})" style="padding:8px 10px;font-size:12px;cursor:pointer;color:var(--blue);border-top:1px solid var(--border)">✏️ その他（自由入力）</div>` +
+    `<div onmousedown="openNewGuideModal(${i},'rest')" style="padding:8px 10px;font-size:12px;cursor:pointer;color:var(--green)">＋ 新規ガイドを登録</div>`;
+  _positionDropdownNearInput(document.getElementById('rest-guide-search-'+i), dd);
+  dd.style.display = 'block';
+}
+function selectRestGuideItem(i, guideId){
+  const g = guideRegistryCache.find(x=>String(x.id)===String(guideId));
+  if(!g) return;
+  bdRestaurantItems[i].guide_id = g.id;
+  bdRestaurantItems[i].guide_name_freetext = '';
+  bdRestaurantItems[i]._freetextMode = false;
+  hideRestGuideSuggest(i);
+  renderRestaurantTable();
+}
+function switchRestGuideRowToFreetext(i){
+  bdRestaurantItems[i].guide_id = null;
+  bdRestaurantItems[i]._freetextMode = true;
+  hideRestGuideSuggest(i);
+  renderRestaurantTable();
+}
+function switchRestGuideRowToSearchMode(i){
+  bdRestaurantItems[i]._freetextMode = false;
+  bdRestaurantItems[i].guide_name_freetext = '';
   renderRestaurantTable();
 }
 // 到着日〜出発日の期間分、各日「昼食」「夕食」の空行をあらかじめ用意する。
@@ -8890,7 +8963,7 @@ function generateRestaurantTemplateRows(b){
     ['昼食','夕食'].forEach(mealType=>{
       const key = dateStr+'|'+mealType;
       if(existing.has(key)) return;
-      newRows.push({restaurant_name:'',meal_type:mealType,date:dateStr,reservation_time:'',pax,amount:0,status:'問い合わせ中',payment_method:'',memo:''});
+      newRows.push({restaurant_name:'',meal_type:mealType,date:dateStr,reservation_time:'',pax,amount:0,status:'問い合わせ中',payment_method:'',memo:'',guide_id:null,guide_name_freetext:''});
     });
   }
   bdRestaurantItems.push(...newRows);
@@ -8916,7 +8989,8 @@ async function saveRestaurantItems(){
     date: sanitizeDateField(it.date), pax: Number(it.pax)||0,
     amount: Number(it.amount)||0,
     status: it.status||'問い合わせ中', payment_method: it.payment_method||null,
-    reservation_time: it.reservation_time||null, memo: it.memo||''
+    reservation_time: it.reservation_time||null, memo: it.memo||'',
+    guide_id: it.guide_id||null, guide_name_freetext: it.guide_id ? '' : (it.guide_name_freetext||'')
   }));
   await safeReplaceBookingRows('booking_restaurants', bookingId, rows, 'レストラン明細');
 }
@@ -9075,7 +9149,8 @@ function saveRestaurantConfirm(){
       pax: Number(document.getElementById(`rest-c-pax-${i}`)?.value)||(b?b.pax||0:0),
       amount: Number(document.getElementById(`rest-c-amount-${i}`)?.value)||0,
       status: document.getElementById(`rest-c-status-${i}`)?.value||'問い合わせ中',
-      memo: document.getElementById(`rest-c-memo-${i}`)?.value||''
+      memo: document.getElementById(`rest-c-memo-${i}`)?.value||'',
+      guide_id: null, guide_name_freetext: ''
     });
   });
   renderRestaurantTable();
@@ -9674,7 +9749,7 @@ function switchGuideRowToSearchMode(i){
 // 軽量モーダルとして別に用意している（登録先のguidesテーブル・guideRegistryCacheは共通）。
 function openNewGuideModal(i, ctx){
   ctx = ctx || 'bd';
-  if(ctx==='arr') hideArrGuideSuggest(i); else hideGuideSuggest(i);
+  if(ctx==='arr') hideArrGuideSuggest(i); else if(ctx==='rest') hideRestGuideSuggest(i); else hideGuideSuggest(i);
   window._newGuideForRowIndex = i;
   window._newGuideForCtx = ctx;
   document.getElementById('new-guide-modal')?.remove();
@@ -9717,6 +9792,13 @@ async function submitNewGuide(){
       if(!bdArrGuideItems[i].phone) bdArrGuideItems[i].phone = data.phone || '';
       bdArrGuideItems[i]._freetextMode = false;
       renderArrGuideTable();
+    }
+  } else if(ctx==='rest'){
+    if(i!=null && bdRestaurantItems[i]){
+      bdRestaurantItems[i].guide_id = data.id;
+      bdRestaurantItems[i].guide_name_freetext = '';
+      bdRestaurantItems[i]._freetextMode = false;
+      renderRestaurantTable();
     }
   } else if(i!=null && bdGuideItems[i]){
     bdGuideItems[i].guide_id = data.id;
@@ -14190,7 +14272,19 @@ function _buildVoucherHtml(restaurants, tourName, guideName, guidePhone){
     const ctrlLabel   = isKic ? 'KIC控え' : 'レストラン控え';
     const dateDisp    = r.date||'';
     const timeDisp    = (r.reservation_time||'').slice(0,5);
-    const guideText   = [eh(guideName), eh(guidePhone)].filter(Boolean).join(' ');
+    // 行(レストラン明細)ごとに個別のガイドが指定されていればそちらを優先し(2班体制で
+    // 同じレストランを別々のガイドが同行するケース等)、未入力の場合は従来通り
+    // 予約全体の担当ガイド(guideName/guidePhone、arr-guide-name/arr-guide-phone由来)を使う。
+    let rowGuideName = '', rowGuidePhone = '';
+    if(r.guide_id){
+      const g = guideRegistryCache.find(x=>String(x.id)===String(r.guide_id));
+      if(g){ rowGuideName = g.name||''; rowGuidePhone = g.phone||''; }
+    } else if(r.guide_name_freetext){
+      rowGuideName = r.guide_name_freetext;
+    }
+    const guideText   = rowGuideName
+      ? [eh(rowGuideName), eh(rowGuidePhone)].filter(Boolean).join(' ')
+      : [eh(guideName), eh(guidePhone)].filter(Boolean).join(' ');
     const payText     = eh(r.payment_method||'請求書払い');
     const memoText    = eh(r.memo||'');
     const nameJp      = eh(r.restaurant_name||'');
