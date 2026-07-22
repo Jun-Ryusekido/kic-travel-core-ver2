@@ -1858,7 +1858,10 @@ input[type=number]{-moz-appearance:textfield}
 
 
     <div class="modal-section-title">関連Invoice</div>
-    <div id="bd-invoices" style="margin-bottom:6px"><div class="empty" style="font-size:12px;color:var(--text3)">なし</div></div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+      <button class="btn" onclick="openBdInvoicesModal()">関連Invoice(<span id="bd-inv-count">0</span>件)</button>
+      <span id="bd-inv-empty-hint" style="display:none;font-size:11px;color:var(--text3)">関連するInvoiceはありません</span>
+    </div>
 
     <div class="modal-section-title">売上明細 / 仕入明細</div>
     <div id="bd-lock-banner" style="margin-bottom:8px"></div>
@@ -4430,11 +4433,11 @@ async function openBookingDetail(id){
   document.getElementById('bd-deposit').value = 0;renderSalesTable();
   renderCostTable();
 
-  // 関連Invoiceを読み込み
-  const invContainer = document.getElementById('bd-invoices');
-  invContainer.innerHTML = '<div class="empty" style="font-size:12px;color:var(--text3)">読み込み中...</div>';
+  // 関連Invoiceを読み込み（一覧はモーダル内、通常表示はボタンの件数のみ）
   const {data: invoices} = await sb.from('invoices').select('*').eq('booking_id', id).order('created_at',{ascending:false});
-  renderBdInvoicesAccordion(invoices||[]);
+  bdInvoicesCache = invoices||[];
+  document.getElementById('bd-inv-count').textContent = bdInvoicesCache.length;
+  document.getElementById('bd-inv-empty-hint').style.display = bdInvoicesCache.length===0 ? '' : 'none';
 
   // 手配書一覧を読み込み
   await loadArrangementsList();
@@ -4665,6 +4668,7 @@ async function openBookingDetail(id){
 
 function closeBookingDetail(){
   document.getElementById('detail-modal').classList.remove('open');
+  document.getElementById('bd-invoices-modal')?.classList.remove('open');
   currentDetailId = null;
 }
 
@@ -15954,9 +15958,19 @@ function invoiceStatusPill(status){
   return `<span class="pill ${cls}" style="${bg}">${label}</span>`;
 }
 
-// 予約詳細モーダル「関連Invoice」：複数件並ぶと縦に長くなるため、1行の帯（Invoice No.＋
-// Statusのみ常時表示）をクリックすると通貨・金額・発行日・期限が展開されるアコーディオン形式にする。
-// デフォルトは全件折りたたみ。
+// 予約詳細モーダル「関連Invoice」：件数が多いと縦に長くなり他セクションを圧迫するため、
+// 通常表示は「関連Invoice(N件)」ボタン1つのみとし、クリックした時だけモーダルで一覧
+// （1行の帯をクリックすると通貨・金額・発行日・期限が展開されるアコーディオン形式）を表示する。
+let bdInvoicesCache = [];
+
+function openBdInvoicesModal(){
+  renderBdInvoicesAccordion(bdInvoicesCache);
+  document.getElementById('bd-invoices-modal').classList.add('open');
+}
+function closeBdInvoicesModal(){
+  document.getElementById('bd-invoices-modal').classList.remove('open');
+}
+
 function renderBdInvoicesAccordion(invoices){
   const container = document.getElementById('bd-invoices');
   if(!container) return;
@@ -16269,6 +16283,20 @@ function setDateInputValue(el, d){
       <thead><tr><th>会社名</th><th>削除日時</th><th>削除者</th><th style="width:100px"></th></tr></thead>
       <tbody id="deleted-pt-tbody"><tr><td colspan="4" class="empty">読み込み中...</td></tr></tbody>
     </table></div>
+  </div>
+</div>
+
+<!-- 関連Invoice一覧モーダル -->
+<div class="modal-overlay" id="bd-invoices-modal" onclick="if(event.target===this) closeBdInvoicesModal()">
+  <div class="modal-box" style="max-width:520px">
+    <div class="modal-header">
+      <div class="modal-title">関連Invoice</div>
+      <div class="modal-close" onclick="closeBdInvoicesModal()">✕</div>
+    </div>
+    <div id="bd-invoices"><div class="empty" style="font-size:12px;color:var(--text3)">なし</div></div>
+    <div style="margin-top:10px;text-align:right">
+      <button class="btn" onclick="closeBdInvoicesModal()">閉じる</button>
+    </div>
   </div>
 </div>
 
