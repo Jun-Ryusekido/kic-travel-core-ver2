@@ -8235,7 +8235,7 @@ async function renderEmailInboxPage(){
     if(emailInboxViewMode==='autofiltered'){
       const reason = emailInboxExcludeReason(m);
       return `<div id="email-inbox-row-${m.id}" style="display:flex;gap:8px;padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px">
-        <input type="checkbox" class="email-inbox-row-checkbox" ${checked} onchange="toggleEmailInboxRowSelection('${m.id}', this.checked)" style="margin-top:2px;flex-shrink:0">
+        <input type="checkbox" class="email-inbox-row-checkbox" ${checked} onchange="toggleEmailInboxRowSelection('${m.id}', this.checked)" style="margin-top:2px;flex-shrink:0;align-self:flex-start">
         <div style="flex:1;min-width:0">
           <div style="font-size:12px;font-weight:600;margin-bottom:2px">${escHtml(m.subject||'(件名なし)')}</div>
           <div style="font-size:11px;color:var(--text3);margin-bottom:2px">${escHtml(m.sender||'')} ・ ${escHtml(received)}</div>
@@ -8262,7 +8262,7 @@ async function renderEmailInboxPage(){
       ? `<button class="btn" style="font-size:11px" onclick="unpostponeEmailInboxItem('${m.id}')">▶ 保留を解除</button>`
       : `<button class="btn" style="font-size:11px" onclick="postponeEmailInboxItem('${m.id}')">⏸ 保留</button>`;
     return `<div id="email-inbox-row-${m.id}" style="display:flex;gap:8px;padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px">
-      <input type="checkbox" class="email-inbox-row-checkbox" ${checked} onchange="toggleEmailInboxRowSelection('${m.id}', this.checked)" style="margin-top:2px;flex-shrink:0">
+      <input type="checkbox" class="email-inbox-row-checkbox" ${checked} onchange="toggleEmailInboxRowSelection('${m.id}', this.checked)" style="margin-top:2px;flex-shrink:0;align-self:flex-start">
       <div style="flex:1;min-width:0">
         <div style="font-size:12px;font-weight:600;margin-bottom:2px">${escHtml(m.subject||'(件名なし)')}</div>
         <div style="font-size:11px;color:var(--text3);margin-bottom:2px">${escHtml(m.sender||'')} ・ ${escHtml(received)}</div>
