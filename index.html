@@ -4479,7 +4479,7 @@ async function openBookingDetail(id){
   originalRestaurantCount = bdRestaurantItems.length;
   // レストラン明細が空の場合、到着日〜出発日の期間分の昼食・夕食の空行をあらかじめ用意しておく
   if(bdRestaurantItems.length===0) generateRestaurantTemplateRows(b);
-  bdFacilityItems = (facRows||[]).map(r=>({id:r.id,facility_name:r.facility_name||'',date:r.date||'',pax:r.pax||0,amount:r.amount||0,status:r.status||'問い合わせ中',confirmation_no:r.confirmation_no||'',deadline_date:r.deadline_date||'',payment_method:r.payment_method||'',memo:r.memo||''}));
+  bdFacilityItems = (facRows||[]).map(r=>({id:r.id,facility_name:r.facility_name||'',date:r.date||'',pax:r.pax||0,amount:r.amount||0,status:r.status||'問い合わせ中',confirmation_no:r.confirmation_no||'',deadline_date:r.deadline_date||'',payment_method:r.payment_method||'',memo:r.memo||'',deadline_completed:r.deadline_completed||false,deadline_completed_at:r.deadline_completed_at||null}));
   originalFacilityCount = bdFacilityItems.length;
   bdWaterItems = (waterRows||[]).map(r=>({id:r.id,item_name:r.item_name||'',date:r.date||'',qty:r.qty||0,unit_price:r.unit_price||0,amount:r.amount||0,status:r.status||'問い合わせ中',memo:r.memo||'',payment_method:r.payment_method||''}));
   originalWaterCount = bdWaterItems.length;
@@ -9363,7 +9363,9 @@ async function saveFacilityItems(){
     confirmation_no: it.confirmation_no||'',
     deadline_date: sanitizeDateField(it.deadline_date),
     payment_method: it.payment_method||null,
-    memo: it.memo||''
+    memo: it.memo||'',
+    deadline_completed: it.deadline_completed||false,
+    deadline_completed_at: it.deadline_completed_at||null
   }));
   await safeReplaceBookingRows('booking_facilities', bookingId, rows, '観光施設明細');
 }
