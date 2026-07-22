@@ -3095,35 +3095,46 @@ let _bdReflections = []; // 反映履歴キャッシュ（decided_unit_price の
 let originalSalesCount = 0;
 let originalCostsCount = 0;
 let originalHotelCount = 0, originalBusCount = 0, originalRestaurantCount = 0, originalFacilityCount = 0, originalLocalExpenseCount = 0, originalWaterCount = 0, originalGuideCount = 0, originalArrGuideCount = 0, originalArrDayCount = 0;
+// PostgRESTの「Could not find the 'xxx' column of 'yyy' in the schema cache」エラーは、
+// アプリのコードが新しい列を参照しているのに、対応するALTER TABLE(列追加)がまだ
+// 本番DBで実行されていない場合に起きる典型的な事故パターン。技術的なメッセージだけでは
+// 運用者が「SQLの実行が必要」と気づきにくいため、このパターンを検出した場合は
+// 原因と次の対応が分かる一文を付け加える。
+function appendSchemaErrorHint(message){
+  const m = String(message||'').match(/Could not find the '([^']+)' column of '([^']+)'/);
+  if(!m) return message;
+  return `${message}\n\n（テーブル「${m[2]}」に列「${m[1]}」が見つかりません。開発側でこの列を追加するSQLの実行が必要な可能性があります。開発担当に連絡してください。）`;
+}
+
 // 全削除→再挿入の事故(#782でbooking_facilities 9件が消失)を防ぐための安全な差分保存ヘルパー。
 // 「新規データのINSERTに成功してから、既存の旧行だけをidで指定してDELETEする」順序にすることで、
 // INSERTが何らかの理由で失敗しても旧データは一切削除されない（失敗時は例外を投げてDELETEに進まない）。
 async function safeReplaceBookingRows(table, bookingId, rows, label){
   const {data: existing, error: fetchErr} = await sb.from(table).select('id').eq('booking_id', bookingId);
-  if(fetchErr) throw new Error(label+'の既存データ確認に失敗: '+fetchErr.message);
+  if(fetchErr) throw new Error(appendSchemaErrorHint(label+'の既存データ確認に失敗: '+fetchErr.message));
   const existingIds = (existing||[]).map(r=>r.id);
   if(rows.length){
     const {error: insErr} = await sb.from(table).insert(rows);
-    if(insErr) throw new Error(label+'の保存に失敗: '+insErr.message);
+    if(insErr) throw new Error(appendSchemaErrorHint(label+'の保存に失敗: '+insErr.message));
   }
   if(existingIds.length){
     const {error: delErr} = await sb.from(table).delete().in('id', existingIds);
-    if(delErr) throw new Error(label+'の旧データ削除に失敗（新データは保存済みのため重複している可能性があります）: '+delErr.message);
+    if(delErr) throw new Error(appendSchemaErrorHint(label+'の旧データ削除に失敗（新データは保存済みのため重複している可能性があります）: '+delErr.message));
   }
 }
 // safeReplaceBookingRowsの汎用版。booking_id以外のキー列(arrangement_document_id等)で
 // 「既存行を全削除→新データ挿入」の置き換えを行いたい場合に使う。
 async function safeReplaceRowsByKey(table, keyCol, keyVal, rows, label){
   const {data: existing, error: fetchErr} = await sb.from(table).select('id').eq(keyCol, keyVal);
-  if(fetchErr) throw new Error(label+'の既存データ確認に失敗: '+fetchErr.message);
+  if(fetchErr) throw new Error(appendSchemaErrorHint(label+'の既存データ確認に失敗: '+fetchErr.message));
   const existingIds = (existing||[]).map(r=>r.id);
   if(rows.length){
     const {error: insErr} = await sb.from(table).insert(rows);
-    if(insErr) throw new Error(label+'の保存に失敗: '+insErr.message);
+    if(insErr) throw new Error(appendSchemaErrorHint(label+'の保存に失敗: '+insErr.message));
   }
   if(existingIds.length){
     const {error: delErr} = await sb.from(table).delete().in('id', existingIds);
-    if(delErr) throw new Error(label+'の旧データ削除に失敗（新データは保存済みのため重複している可能性があります）: '+delErr.message);
+    if(delErr) throw new Error(appendSchemaErrorHint(label+'の旧データ削除に失敗（新データは保存済みのため重複している可能性があります）: '+delErr.message));
   }
 }
 let bdLocalExpenses = [];
@@ -9627,7 +9638,7 @@ async function saveBulletTrainItems(){
   if(!b) return;
   const ref = b.ref_no;
   const {error: delErr} = await sb.from('bullet_train_arrangements').delete().eq('booking_ref', ref);
-  if(delErr) throw new Error('新幹線明細の削除に失敗: '+delErr.message);
+  if(delErr) throw new Error(appendSchemaErrorHint('新幹線明細の削除に失敗: '+delErr.message));
   const rows = bdBulletTrainItems.filter(it=>it.departure_station||it.arrival_station||it.train_name||it.train_number||it.ride_date||it.memo||it.amount).map((it,i)=>({
     booking_ref: ref,
     ride_date: sanitizeDateField(it.ride_date),
@@ -9649,7 +9660,7 @@ async function saveBulletTrainItems(){
   }));
   if(rows.length){
     const {error: insErr} = await sb.from('bullet_train_arrangements').insert(rows);
-    if(insErr) throw new Error('新幹線明細の保存に失敗: '+insErr.message);
+    if(insErr) throw new Error(appendSchemaErrorHint('新幹線明細の保存に失敗: '+insErr.message));
   }
 }
 
