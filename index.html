@@ -7697,6 +7697,21 @@ function setEmailRelevanceCacheEntry(emailId, related){
 }
 
 const EMAIL_AI_EXCLUDE_REASON = 'REF#/ツアーコードなし、AI判定：無関係';
+
+// AI呼び出し系のAPI(/api/classify-email-relevance, /api/extract-email-refs等)は基本的に
+// 常にJSONを返す実装になっているが、Vercel側のタイムアウト等プラットフォームレベルの
+// 異常時には、ハンドラのtry/catchを経由しないプレーンテキスト/HTMLのエラーページが
+// 返ってくることがある(この場合resp.json()が「Unexpected token 'A', "An error o"...」
+// のような分かりにくい例外を投げる)。resp.text()で受けてからJSON.parseすることで、
+// パース失敗時に原因の分かるメッセージに変換する。
+async function parseJsonResponseSafe(resp){
+  const raw = await resp.text();
+  try{
+    return JSON.parse(raw);
+  }catch(e){
+    throw new Error(`サーバーから予期しない応答がありました(HTTP ${resp.status})。しばらく経ってから再度お試しください。`);
+  }
+}
 let emailRelevanceInFlight = new Set(); // 同じメールへの同時多重AI呼び出しを防ぐ
 
 // 実在するbookings.ref_noのうち数字のみのもの(例:"1374")の集合。#1374のようなREF#表記の
@@ -7738,7 +7753,7 @@ async function classifyEmailRelevanceForRows(rows){
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({emails: needAI.map(m=>({id:m.id, subject:m.subject||'', sender:m.sender||'', excerpt:String(m.body||'').slice(0,600)}))})
       });
-      const data = await resp.json();
+      const data = await parseJsonResponseSafe(resp);
       if(resp.ok && Array.isArray(data.results)){
         const resultMap = new Map(data.results.map(r=>[String(r.id), !!r.related]));
         for(const m of needAI){
@@ -8281,11 +8296,16 @@ function mightHaveMultipleRefs(text){
 
 // AIにメール本文を渡し、REF#/ツアー番号ごとの候補（{ref_no, excerpt}の配列）を取得する。
 async function fetchEmailSplitCandidates(subject, body){
+  // 極端に長い本文(埋め込み画像のBase64データ等が紛れ込んだ場合を含む)をそのままAIに
+  // 渡すと、応答が遅くなりVercelの実行時間上限に達して関数がタイムアウトし、
+  // JSONではなくプラットフォーム側のエラーページが返ってくることがあるため、
+  // 実務上十分な長さに切り詰めてから送信する。
+  const cappedBody = String(body||'').slice(0, 8000);
   const resp = await fetch('/api/extract-email-refs', {
     method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({subject, body})
+    body: JSON.stringify({subject, body: cappedBody})
   });
-  const data = await resp.json();
+  const data = await parseJsonResponseSafe(resp);
   if(!resp.ok || data.error){ throw new Error(data.error || 'AI解析でエラーが発生しました'); }
   let parsed;
   try{
