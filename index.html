@@ -1766,7 +1766,7 @@ input[type=number]{-moz-appearance:textfield}
 
     <div id="arrtab-doc" style="display:none">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px">
-        <div style="font-size:11px;color:var(--text3)">※この下の「共通ドラフト」は、ガイド別手配書のコピー元となる下書きです。ページ下部の「保存」で保存すると、まだ手配書を持たない担当ガイドの分が自動的に作成されます。作成済みのガイド別手配書は共通ドラフトとは完全に独立しており、共通ドラフトを後から編集してもガイド別手配書には反映されません。</div>
+        <div style="font-size:11px;color:var(--text3)">※この下の「共通ドラフト」は、ガイド別手配書のコピー元となる下書きです。ページ下部の「保存」で保存すると、まだ手配書を持たないガイドの分が自動的に作成されます。作成済みのガイド別手配書は共通ドラフトとは完全に独立しており、共通ドラフトを後から編集してもガイド別手配書には反映されません。</div>
         <button class="btn" style="font-size:11px" onclick="exportArrDocExcel()">📥 共通ドラフトをExcel出力</button>
       </div>
       <div class="modal-section-title" style="margin-top:0">ヘッダー情報（共通ドラフト）</div>
@@ -1795,7 +1795,7 @@ input[type=number]{-moz-appearance:textfield}
       </div>
       <div id="ad-last-revised" style="font-size:10px;color:var(--text3);margin-top:4px"></div>
 
-      <div class="modal-section-title">担当ガイド</div>
+      <div class="modal-section-title">ガイド</div>
       <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:640px">
         <thead><tr>
           <th style="width:220px">ガイド</th>
@@ -1828,7 +1828,7 @@ input[type=number]{-moz-appearance:textfield}
         <span>ガイド別手配書</span>
         <button class="btn" style="font-size:10px" onclick="exportAllGuideDocsZip()">📦 全ガイド分をZIPで一括出力</button>
       </div>
-      <div style="font-size:10px;color:var(--text3);margin-bottom:8px">担当ガイド1名につき1部の手配書です。共通ドラフトを保存すると、まだ手配書がないガイドの分が自動的に作成されます。作成後は個別に編集でき、共通ドラフトの変更やお互いの内容には影響しません。</div>
+      <div style="font-size:10px;color:var(--text3);margin-bottom:8px">ガイド1名につき1部の手配書です。共通ドラフトを保存すると、まだ手配書がないガイドの分が自動的に作成されます。作成後は個別に編集でき、共通ドラフトの変更やお互いの内容には影響しません。</div>
       <div id="ad-guide-docs-list"></div>
     </div>
 
@@ -1910,12 +1910,14 @@ input[type=number]{-moz-appearance:textfield}
       <div style="font-size:10px;color:var(--text3);font-weight:600;margin-bottom:6px">新しく精算リンクを発行（このツアーを担当するガイドを1名以上登録）</div>
       <div id="bd-new-guide-list" style="display:flex;flex-direction:column;gap:4px;margin-bottom:6px"></div>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
-        <label style="font-size:10px;color:var(--text3);white-space:nowrap">担当ガイドタブから選択</label>
+        <label style="font-size:10px;color:var(--text3);white-space:nowrap">ガイドタブから選択</label>
         <select id="bd-new-guide-from-booking-select" onchange="addBookingGuideToNewList(this)" style="font-size:11px;padding:6px;border-radius:8px;border:1px solid var(--border);max-width:220px">
           <option value="">-- 選択してください --</option>
         </select>
+        <a id="bd-new-guide-from-booking-empty-hint" href="#" onclick="switchArrangTab('guide');return false;" style="display:none;font-size:11px;color:var(--blue,#2563eb);text-decoration:underline;cursor:pointer">ガイドタブで登録してください</a>
+        <button class="btn" style="font-size:10px" onclick="openNewGuideModal(null,'settle')">＋ ガイドを追加</button>
       </div>
-      <div style="font-size:9px;color:var(--text3);margin-bottom:4px">↑ このツアーの「担当ガイド」タブに登録済みのガイド。未登録のガイドは以下から自由入力できます</div>
+      <div style="font-size:9px;color:var(--text3);margin-bottom:4px">↑ このツアーの「ガイド」タブに登録済みのガイド。未登録のガイドは以下から自由入力できます</div>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         <input id="bd-new-guide-name" placeholder="ガイド名" style="max-width:160px;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:12px">
         <input id="bd-new-guide-phone" placeholder="電話番号" style="max-width:130px;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:12px">
@@ -4449,11 +4451,11 @@ async function openBookingDetail(id){
   await populateGuideRegistrySelects([document.getElementById('bd-new-guide-select')]);
   bdNewGuideList = [];  renderBdNewGuideList();
 
-  // 担当ガイドを読み込み（guideRegistryCacheは直前のpopulateGuideRegistrySelects()で読み込み済み）
+  // ガイドを読み込み（guideRegistryCacheは直前のpopulateGuideRegistrySelects()で読み込み済み）
   const {data: guideRows, error: guideFetchErr} = await sb.from('booking_guides').select('*').eq('booking_id', id).order('created_at');
   // booking_guidesはDDL未実行の環境ではテーブルが存在せずエラーになるため、他の明細と異なり
   // alert()では出さずconsole.warnに留める（新規テーブルのため既存データ消失リスクがない）。
-  if(guideFetchErr){ logError('担当ガイド明細の読み込み', guideFetchErr); }
+  if(guideFetchErr){ logError('ガイド明細の読み込み', guideFetchErr); }
   bdGuideItems = (guideRows||[]).map(r=>({
     id: r.id, guide_id: r.guide_id||null, guide_name_freetext: r.guide_name_freetext||'',
     start_date: r.start_date||'', end_date: r.end_date||'', status: r.status||'回答待ち', memo: r.memo||'',
@@ -4522,7 +4524,7 @@ async function openBookingDetail(id){
     id:r.id, guide_id:r.guide_id||null, guide_name_freetext:r.guide_name_freetext||'', phone:r.phone||'',
     start_date:r.start_date||'', _freetextMode: !r.guide_id && !!r.guide_name_freetext
   }));
-  // 手配書側(tour_guides)がまだ空で、担当ガイドタブ(booking_guides)には既にガイドが
+  // 手配書側(tour_guides)がまだ空で、ガイドタブ(booking_guides)には既にガイドが
   // 登録されている場合、それを初期値として自動コピーする。コピー後は手配書側で独立して
   // 編集でき、以後booking_guidesを変更してもここには自動追従しない(手配書の既存の
   // 「独立コピー」方針を踏襲。保存するまではDBには反映されない)。
@@ -5896,12 +5898,12 @@ let bdNewGuideList = [];
 function renderBdNewGuideList(){
   const el = document.getElementById('bd-new-guide-list');
   if(bdNewGuideList.length===0){
-    el.innerHTML = '<div style="font-size:11px;color:var(--text3)">担当ガイドが追加されていません</div>';
+    el.innerHTML = '<div style="font-size:11px;color:var(--text3)">ガイドが追加されていません</div>';
     return;
   }
   el.innerHTML = bdNewGuideList.map((g,i)=>`
     <div style="display:flex;gap:6px;align-items:center;font-size:11px;background:var(--bg);border-radius:6px;padding:4px 8px">
-      <span style="flex:1">${escHtml(g.name)}${g.phone?(' / '+escHtml(g.phone)):''}${g.guide_id?' <span style="color:var(--text3);font-size:9px">(担当ガイドタブ登録済み)</span>':''}</span>
+      <span style="flex:1">${escHtml(g.name)}${g.phone?(' / '+escHtml(g.phone)):''}${g.guide_id?' <span style="color:var(--text3);font-size:9px">(ガイドタブ登録済み)</span>':''}</span>
       <button class="btn" style="font-size:9px" onclick="removeGuideFromNewList(${i})">削除</button>
     </div>`).join('');
 }
@@ -5932,7 +5934,7 @@ function applyGuideFromRegistryAndAdd(selectEl){
   if(searchEl){ searchEl.value=''; filterGuideSelect(searchEl, selectEl); }
 }
 
-// 「担当ガイドタブから選択」プルダウンを、現在のbdGuideItems(booking_guides)の内容で埋める。
+// 「ガイドタブから選択」プルダウンを、現在のbdGuideItems(booking_guides)の内容で埋める。
 // booking_guides側でguide_idが設定されている行のみを対象にする(自由入力のみの行は
 // guide_idが無く突合できないため対象外。その場合は下の自由入力欄から追加する)。
 function renderBdNewGuideFromBookingSelect(){
@@ -5945,8 +5947,10 @@ function renderBdNewGuideFromBookingSelect(){
     const phone = master ? (master.phone||'') : '';
     return `<option value='${escAttr(JSON.stringify({guide_id:g.guide_id, name, phone}))}'>${escHtml(name)}</option>`;
   }).join('');
-  sel.innerHTML = '<option value="">-- 選択してください --</option>' + options
-    + (candidates.length===0 ? '<option value="" disabled>(担当ガイドタブに未登録)</option>' : '');
+  sel.innerHTML = '<option value="">-- 選択してください --</option>' + options;
+  const hint = document.getElementById('bd-new-guide-from-booking-empty-hint');
+  if(hint){ hint.style.display = candidates.length===0 ? '' : 'none'; }
+  sel.style.display = candidates.length===0 ? 'none' : '';
 }
 
 function addBookingGuideToNewList(selectEl){
@@ -7058,7 +7062,7 @@ const ARR_DOC_FIXED_TEMPLATE_DEFAULT =
 ※貴重品の管理は各自でお願いいたします。`;
 
 // ─── ガイド別手配書(arrangement_documents/arrangement_document_days/arrangement_document_notes) ───
-// 1件=1予約×1担当ガイド(booking_guides行)分の、共通ドラフトから独立したスナップショット。
+// 1件=1予約×1ガイド(booking_guides行)分の、共通ドラフトから独立したスナップショット。
 let bdGuideDocs = []; // 一覧表示用: {id, booking_guide_id, guide_name_snapshot, status, revision_no, last_revised_at}
 let bdGuideDocEditing = null; // 編集モーダルで開いている手配書1件分のフルデータ {..., days:[...], notes:{...}}
 
@@ -7184,7 +7188,7 @@ function switchArrangTab(tab){
     btn.classList.toggle('active', t===tab);
   });
   if(tab==='rest' && restaurantPartnersCache.length===0) loadRestaurantPartnersCache().then(renderRestaurantTable);
-  // 担当ガイドタブを開いたとき、保存前から他予約との二重アサイン警告が見えるようにする
+  // ガイドタブを開いたとき、保存前から他予約との二重アサイン警告が見えるようにする
   if(tab==='guide') checkGuideDoubleBookings().catch(e=>logError('ガイド二重アサインチェック', e, {toast:false}));
   // 手配書タブの日毎明細はホテル/レストランのプルダウンをbdHotelItems/bdRestaurantItemsから
   // 都度組み立てているため、他タブで行を追加/削除した後にこのタブへ切り替えた際に
@@ -8934,11 +8938,11 @@ function renderRestaurantTable(){
       const freetextMode = !!it._freetextMode || (!it.guide_id && !!it.guide_name_freetext);
       const guideCell = freetextMode
         ? `<td data-label="ガイド">
-            <input type="text" value="${escAttr(it.guide_name_freetext)}" placeholder="未入力なら担当ガイドを使用" oninput="bdRestaurantItems[${i}].guide_name_freetext=this.value" style="width:100%">
+            <input type="text" value="${escAttr(it.guide_name_freetext)}" placeholder="未入力ならガイドを使用" oninput="bdRestaurantItems[${i}].guide_name_freetext=this.value" style="width:100%">
             <div style="font-size:9px;margin-top:2px"><span class="lnk" onclick="switchRestGuideRowToSearchMode(${i})">🔍 マスタから選ぶ</span></div>
           </td>`
         : `<td data-label="ガイド" style="position:relative">
-            <input type="text" id="rest-guide-search-${i}" value="${escAttr(selectedGuide ? guideDisplayLabel(selectedGuide) : '')}" placeholder="未入力なら担当ガイドを使用" autocomplete="off"
+            <input type="text" id="rest-guide-search-${i}" value="${escAttr(selectedGuide ? guideDisplayLabel(selectedGuide) : '')}" placeholder="未入力ならガイドを使用" autocomplete="off"
                    oninput="filterRestGuideSuggest(${i})" onfocus="showRestGuideSuggest(${i})" onblur="setTimeout(()=>hideRestGuideSuggest(${i}),200)" style="width:100%">
             <div id="rest-guide-dd-${i}" style="display:none;position:fixed;background:var(--card,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:99999;max-height:220px;overflow-y:auto"></div>
           </td>`;
@@ -8974,11 +8978,11 @@ function addRestaurantRow(){
   renderRestaurantTable();
 }
 
-// レストラン行ごとの「ガイド」欄。担当ガイドタブ(bdGuideItems)で使っている検索・
+// レストラン行ごとの「ガイド」欄。ガイドタブ(bdGuideItems)で使っている検索・
 // 携帯番号自動補完の仕組み(guideRegistryCache/guideDisplayLabel等)をそのまま流用し、
 // 行単位で別のガイドを指定できるようにする(2班体制で同じレストランを別々のガイドが
 // 同行するケース等)。未入力(guide_id・guide_name_freetextとも空)の場合、ミールバウチャー
-// 発行時は従来通り予約全体の担当ガイド(arr-guide-name/arr-guide-phone)にフォールバックする。
+// 発行時は従来通り予約全体のガイド(arr-guide-name/arr-guide-phone)にフォールバックする。
 function filterRestGuideSuggest(i){
   const q = document.getElementById('rest-guide-search-'+i)?.value||'';
   if(!q.trim()) bdRestaurantItems[i].guide_id = null;
@@ -9757,7 +9761,7 @@ async function onBdBulletCsvFileSelected(e){
   alert(`✓ ${rows.length}件を追加しました。内容を確認し、保存を忘れずに行ってください。`);
 }
 
-// ─── 担当ガイド ─────────────────────────────────────────────────────────────
+// ─── ガイド ─────────────────────────────────────────────────────────────
 // guidesマスタからの検索付き選択、または「その他（自由入力）」でguide_idなしの
 // 氏名テキストのみを保存する2モードを行ごとに切り替えられるようにしている。
 // guidesマスタの読み込みは、booking detail読み込み時に呼ばれるpopulateGuideRegistrySelects()が
@@ -9924,6 +9928,12 @@ async function submitNewGuide(){
       bdRestaurantItems[i]._freetextMode = false;
       renderRestaurantTable();
     }
+  } else if(ctx==='settle'){
+    // ガイド精算セクションからの追加登録。ガイドタブ(booking_guides)にも新規行として
+    // 追加し、両方の画面で即座に選択できるようにする(保存はいずれも通常の「保存」ボタン経由)。
+    bdGuideItems.push({guide_id:data.id, guide_name_freetext:'', start_date:'', end_date:'', status:'回答待ち', memo:'', payment_method:'', amount:0, _freetextMode:false});
+    renderGuideTable();
+    renderBdNewGuideFromBookingSelect();
   } else if(i!=null && bdGuideItems[i]){
     bdGuideItems[i].guide_id = data.id;
     bdGuideItems[i].guide_name_freetext = '';
@@ -9952,7 +9962,7 @@ async function saveGuideItems(){
     payment_method: it.payment_method||'',
     amount: Number(it.amount)||0
   }));
-  await safeReplaceBookingRows('booking_guides', bookingId, rows, '担当ガイド明細');
+  await safeReplaceBookingRows('booking_guides', bookingId, rows, 'ガイド明細');
   // 保存後に他予約との二重アサインを再チェックする(警告表示のみで、保存自体はブロックしない)
   checkGuideDoubleBookings().catch(e=>logError('ガイド二重アサインチェック', e, {toast:false}));
 }
@@ -9961,7 +9971,7 @@ async function saveGuideItems(){
 // booking_guidesを軸に、guide_idが設定されている行のみを対象として、同じガイドが
 // 別の予約(booking_id)に重複する期間でアサインされていないかを確認する。
 // guide_name_freetextのみの行は表記ゆれ・同姓同名での誤検知リスクが高いため対象外。
-// 重複が見つかっても保存はブロックせず、担当ガイドタブ内に警告を表示するだけに留める。
+// 重複が見つかっても保存はブロックせず、ガイドタブ内に警告を表示するだけに留める。
 
 // 期間の重複判定: end_dateが無い行はstart_dateの1日だけの担当とみなす。
 // 2つの期間が1日でも重なっていれば重複(aStart <= bEnd かつ bStart <= aEnd)。
@@ -10028,7 +10038,7 @@ async function checkGuideDoubleBookings(){
 }
 
 // ─── 手配書(tour_arrangement_headers / tour_guides / tour_day_itinerary / tour_arrangement_notes) ───
-// 「担当ガイド」タブ(booking_guides)とは別の新規テーブル群。tour_guidesのガイド検索UIは
+// 「ガイド」タブ(booking_guides)とは別の新規テーブル群。tour_guidesのガイド検索UIは
 // 上のbdGuideItems用の検索ドロップダウンと見た目・挙動を揃えつつ、対象配列(bdArrGuideItems)が
 // 異なるため専用の関数群にしている（新規ガイド登録モーダルのみopenNewGuideModal/submitNewGuideを
 // 第2引数ctxで共用）。
@@ -10084,12 +10094,12 @@ function renderArrNotesForm(){
   set('ad-note-specific', bdArrNotes.tour_specific);
 }
 
-// --- 担当ガイド(tour_guides) ---
+// --- ガイド(tour_guides) ---
 function renderArrGuideTable(){
   const tbody = document.getElementById('ad-guides-tbody');
   if(!tbody) return;
   if(bdArrGuideItems.length===0){
-    tbody.innerHTML = '<tr><td colspan="4" class="empty" style="padding:6px;font-size:10px">担当ガイドなし</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="4" class="empty" style="padding:6px;font-size:10px">ガイドなし</td></tr>';
     return;
   }
   tbody.innerHTML = bdArrGuideItems.map((it,i)=>{
@@ -10443,7 +10453,7 @@ async function saveArrDoc(){
     start_date: sanitizeDateField(it.start_date),
     display_order: i
   }));
-  await safeReplaceBookingRows('tour_guides', bookingId, guideRows, '手配書担当ガイド');
+  await safeReplaceBookingRows('tour_guides', bookingId, guideRows, '手配書ガイド');
 
   const dayRows = bdArrDayItems.map((it,i)=>({
     booking_id: bookingId,
@@ -10597,7 +10607,7 @@ function renderGuideDocsList(){
   const el = document.getElementById('ad-guide-docs-list');
   if(!el) return;
   if(!bdGuideItems.length){
-    el.innerHTML = '<div style="font-size:11px;color:var(--text3)">「担当ガイド」タブでガイドを追加すると、ここにガイド別の手配書が作成できます。</div>';
+    el.innerHTML = '<div style="font-size:11px;color:var(--text3)">「ガイド」タブでガイドを追加すると、ここにガイド別の手配書が作成できます。</div>';
     return;
   }
   el.innerHTML = bdGuideItems.map(g=>{
@@ -10632,7 +10642,7 @@ function renderGuideDocsList(){
 // 既に手配書がある行はスキップする(以後は共通ドラフトと完全に独立させるため)。
 async function syncArrangementDocumentsFromDraft(bookingId){
   const {data: guideRows, error: guideErr} = await sb.from('booking_guides').select('*').eq('booking_id', bookingId);
-  if(guideErr) throw new Error('担当ガイドの取得に失敗（ガイド別手配書の自動作成をスキップしました）: '+guideErr.message);
+  if(guideErr) throw new Error('ガイドの取得に失敗（ガイド別手配書の自動作成をスキップしました）: '+guideErr.message);
   const {data: existingDocs, error: docErr} = await sb.from('arrangement_documents').select('id,booking_guide_id').eq('booking_id', bookingId);
   if(docErr) throw new Error('ガイド別手配書の既存確認に失敗: '+docErr.message);
   const existingGuideIds = new Set((existingDocs||[]).map(d=>d.booking_guide_id));
@@ -11205,10 +11215,10 @@ async function saveBookingDetail(){
     if(!confirm('ミネラルウォーターの明細が0件になっています。本当に保存しますか？')) return;
   }
   if(originalGuideCount > 0 && bdGuideItems.length === 0){
-    if(!confirm('担当ガイドの明細が0件になっています。本当に保存しますか？')) return;
+    if(!confirm('ガイドの明細が0件になっています。本当に保存しますか？')) return;
   }
   if(originalArrGuideCount > 0 && bdArrGuideItems.length === 0){
-    if(!confirm('手配書の担当ガイドが0件になっています。本当に保存しますか？')) return;
+    if(!confirm('手配書のガイドが0件になっています。本当に保存しますか？')) return;
   }
   if(originalArrDayCount > 0 && bdArrDayItems.length === 0){
     if(!confirm('手配書の日毎明細が0件になっています。本当に保存しますか？')) return;
@@ -11314,8 +11324,8 @@ async function saveBookingDetail(){
       await saveArrDoc();
       await syncArrangementDocumentsFromDraft(bookingId);
     }catch(e){
-      logError('担当ガイド/手配書タブの保存', e, {toast:false});
-      newTableSaveWarning = '\n\n※「担当ガイド」「手配書」タブは保存できませんでした（DB側のテーブル未作成の可能性があります）。それ以外の内容は保存されています。\n'+e.message;
+      logError('ガイド/手配書タブの保存', e, {toast:false});
+      newTableSaveWarning = '\n\n※「ガイド」「手配書」タブは保存できませんでした（DB側のテーブル未作成の可能性があります）。それ以外の内容は保存されています。\n'+e.message;
     }
     const b = findBookingById(bookingId);
     await logAction('予約編集', b ? b.ref_no : bookingId);
@@ -14398,7 +14408,7 @@ function _buildVoucherHtml(restaurants, tourName, guideName, guidePhone){
     const timeDisp    = (r.reservation_time||'').slice(0,5);
     // 行(レストラン明細)ごとに個別のガイドが指定されていればそちらを優先し(2班体制で
     // 同じレストランを別々のガイドが同行するケース等)、未入力の場合は従来通り
-    // 予約全体の担当ガイド(guideName/guidePhone、arr-guide-name/arr-guide-phone由来)を使う。
+    // 予約全体のガイド(guideName/guidePhone、arr-guide-name/arr-guide-phone由来)を使う。
     let rowGuideName = '', rowGuidePhone = '';
     if(r.guide_id){
       const g = guideRegistryCache.find(x=>String(x.id)===String(r.guide_id));
