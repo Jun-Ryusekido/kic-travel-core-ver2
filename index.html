@@ -7230,7 +7230,7 @@ function renderHotelTable(){
         <td data-label="確認番号"><input value="${escAttr(it.confirmation_no)}" oninput="bdHotelItems[${i}].confirmation_no=this.value" style="width:100%"></td>
         <td data-label="ステータス"><select onchange="bdHotelItems[${i}].status=this.value;this.style.background=statusBg(this.value);this.style.color=statusFg(this.value)" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px;${statusSelectStyle(it.status||'回答待ち')}"><option value="未予約" ${it.status==='未予約'?'selected':''}>未予約</option><option value="回答待ち" ${!it.status||it.status==='回答待ち'?'selected':''}>回答待ち</option><option value="手配OK" ${it.status==='手配OK'?'selected':''}>手配OK</option><option value="FNL済" ${it.status==='FNL済'?'selected':''}>FNL済</option><option value="NG回答" ${it.status==='NG回答'?'selected':''}>NG回答</option><option value="キャンセル" ${it.status==='キャンセル'?'selected':''}>キャンセル</option></select></td>
         <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdHotelItems[${i}].memo=this.value" style="width:100%"></td>
-        ${arrDelBtnHtml('bdHotelItems', i, 'renderHotelTable', escAttr([it.hotel_name, it.room_type, [it.check_in, it.check_out].filter(Boolean).join('〜')].filter(Boolean).join(' '))+' の行を削除しますか？', 'duplicateHotelRow')}
+        ${arrDelBtnHtml('bdHotelItems', i, 'renderHotelTable', escAttr([it.hotel_name, it.room_type, [it.check_in, it.check_out].filter(Boolean).join('〜')].filter(Boolean).join(' '))+' の行を削除しますか？')}
       </tr>`;
     }).join('');
   }
@@ -9362,7 +9362,6 @@ function duplicateArrRow(arr, i, nameField, renderFn){
   arr.splice(i+1, 0, copy);
   renderFn();
 }
-function duplicateHotelRow(i){ duplicateArrRow(bdHotelItems, i, 'hotel_name', renderHotelTable); }
 function duplicateBusRow(i){ duplicateArrRow(bdBusItems, i, 'bus_company', renderBusTable); }
 function duplicateRestaurantRow(i){ duplicateArrRow(bdRestaurantItems, i, 'restaurant_name', renderRestaurantTable); }
 function duplicateFacilityRow(i){ duplicateArrRow(bdFacilityItems, i, 'facility_name', renderFacilityTable); }
