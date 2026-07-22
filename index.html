@@ -8256,12 +8256,12 @@ async function renderEmailInboxPage(){
         <div style="flex:1;min-width:0">
           <div style="font-size:12px;font-weight:600;margin-bottom:2px">${escHtml(m.subject||'(件名なし)')}</div>
           <div style="font-size:11px;color:var(--text3);margin-bottom:2px">${escHtml(m.sender||'')} ・ ${escHtml(received)}</div>
-          ${bodyBlock}
-          ${reason ? `<div style="font-size:10px;color:var(--amber);margin-bottom:8px">除外理由: ${escHtml(reason)}</div>` : ''}
-          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          ${reason ? `<div style="font-size:10px;color:var(--amber);margin-bottom:4px">除外理由: ${escHtml(reason)}</div>` : ''}
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
             <button class="btn btn-p" style="font-size:11px" onclick="markEmailInboxNotPromo('${m.id}')">✅ これはホテル等の予約メールです</button>
             <button class="btn" style="font-size:11px;color:var(--red)" onclick="if(confirm('このメールを一覧から除外しますか？')){ignoreEmailInboxItem('${m.id}')}">🗑 無視</button>
           </div>
+          ${bodyBlock}
         </div>
       </div>`;
     }
@@ -8282,8 +8282,7 @@ async function renderEmailInboxPage(){
       <input type="checkbox" class="email-inbox-row-checkbox" ${checked} onchange="toggleEmailInboxRowSelection('${m.id}', this.checked)" style="margin-top:2px;flex-shrink:0;align-self:flex-start">
       <div style="flex:1;min-width:0">
         <div style="font-size:12px;font-weight:600;margin-bottom:2px">${escHtml(m.subject||'(件名なし)')}</div>
-        <div style="font-size:11px;color:var(--text3);margin-bottom:2px">${escHtml(m.sender||'')} ・ ${escHtml(received)}</div>
-        ${bodyBlock}
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">${escHtml(m.sender||'')} ・ ${escHtml(received)}</div>
         <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
           <input id="email-inbox-ref-${m.id}" placeholder="REF# 例: #1374" style="font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px;width:140px">
           <select id="email-inbox-cat-${m.id}" style="font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px">${catOptions}</select>
@@ -8293,6 +8292,7 @@ async function renderEmailInboxPage(){
           ${postponeBtn}
         </div>
         ${suggestHtml}
+        <div style="margin-top:6px">${bodyBlock}</div>
       </div>
     </div>`;
   }).join('');
