@@ -7616,15 +7616,29 @@ function isRowAutoPromo(row){
   return !!row.isAutoPromo && !emailInboxAutoFilterOverrides.has(emailInboxOverrideKey(row));
 }
 
-// 広告・メルマガ判定(isAutoPromo)またはAIによる「手配業務と無関係」判定(aiIrrelevant)の
-// いずれかに該当すれば自動除外扱いとする。ユーザーが「これは予約メールです」で戻した行は除く。
+// メール受信箱はあくまで業者(取引先)からの手配関連メールを取り込むためのものなので、
+// 送信者アドレスが自社ドメイン(@kictravel.jp)のメール(社内スタッフ間のやり取り等)は
+// 一覧の対象外とする。email_import_queue自体への取込(VBA側)は変更せず、表示側のみで除外する。
+const EMAIL_INBOX_OWN_DOMAIN = 'kictravel.jp';
+function emailInboxSenderDomain(sender){
+  const m = String(sender||'').toLowerCase().match(/@([a-z0-9.-]+)/);
+  return m ? m[1] : '';
+}
+function isRowOwnDomain(row){
+  return emailInboxSenderDomain(row.sender) === EMAIL_INBOX_OWN_DOMAIN;
+}
+
+// 広告・メルマガ判定(isAutoPromo)、自社ドメイン送信(isOwnDomain)、またはAIによる
+// 「手配業務と無関係」判定(aiIrrelevant)のいずれかに該当すれば自動除外扱いとする。
+// ユーザーが「これは予約メールです」で戻した行は除く。
 function isRowAutoExcluded(row){
   if(emailInboxAutoFilterOverrides.has(emailInboxOverrideKey(row))) return false;
-  return !!row.isAutoPromo || !!row.aiIrrelevant;
+  return !!row.isAutoPromo || !!row.isOwnDomain || !!row.aiIrrelevant;
 }
 
 function emailInboxExcludeReason(row){
   if(row.isAutoPromo) return '広告・メルマガ判定';
+  if(row.isOwnDomain) return '自社送信(@'+EMAIL_INBOX_OWN_DOMAIN+')';
   if(row.aiIrrelevant) return row.autoExcludeReason || 'REF#/ツアーコードなし、AI判定：無関係';
   return '';
 }
@@ -7755,6 +7769,7 @@ async function classifyEmailRelevanceForRows(rows){
   for(const m of rows){
     if(m.aiIrrelevant !== undefined) continue;      // このセッションで判定済み
     if(isRowAutoPromo(m)) continue;                 // 広告判定済みの行は二重に判定しない
+    if(m.isOwnDomain) continue;                      // 自社送信は既に自動除外対象のためAI判定不要
     if(emailHasRefOrTourCode(m.subject, m.body, knownRefNumbers)){   // 実在するREF#/ツアーコードあり→予約関連と即断
       m.aiIrrelevant = false;
       continue;
@@ -8006,7 +8021,7 @@ async function renderEmailInboxList(){
 
   const deduped = dedupeEmailInboxRows(rows);
   // 件名・送信者ベースの軽量判定はここで即座に確定。本文ベースの判定は非同期で後追い反映する
-  deduped.forEach(m=>{ m.isAutoPromo = isPromoEmailBySubjectSender(m.subject, m.sender); });
+  deduped.forEach(m=>{ m.isAutoPromo = isPromoEmailBySubjectSender(m.subject, m.sender); m.isOwnDomain = isRowOwnDomain(m); });
   emailInboxRawList = deduped;
   emailInboxIndex = emailInboxRawList.filter(m=>isRowVisibleForMode(m, emailInboxViewMode));
   emailInboxPage = 1;
@@ -8186,10 +8201,12 @@ async function renderEmailInboxPage(){
   if(summaryEl){
     const excludedRows = emailInboxRawList.filter(m=>isRowAutoExcluded(m));
     const promoCount = excludedRows.filter(m=>m.isAutoPromo).length;
-    const aiCount = excludedRows.length - promoCount;
+    const ownDomainCount = excludedRows.filter(m=>!m.isAutoPromo && m.isOwnDomain).length;
+    const aiCount = excludedRows.length - promoCount - ownDomainCount;
     const parts = [];
     if(promoCount>0) parts.push(`広告・メルマガ ${promoCount}件`);
     if(aiCount>0) parts.push(`業務無関係(AI判定) ${aiCount}件`);
+    if(ownDomainCount>0) parts.push(`自社送信 ${ownDomainCount}件`);
     summaryEl.textContent = excludedRows.length>0 ? `🚫 ${excludedRows.length}件のメールを自動的に除外しています（${parts.join('、')}）` : '';
   }
 
