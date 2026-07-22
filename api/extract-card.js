@@ -46,7 +46,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
   try {
-    const { variants, mediaType, base64, hotelText, hotelPdfBase64, hotelExcelBase64, hotelImageBase64, hotelImageMediaType, facilityText, facilityPdfBase64, facilityExcelBase64, facilityImageBase64, facilityImageMediaType, busText, busPdfBase64, busExcelBase64, busImageBase64, busImageMediaType, restaurantText, restaurantPdfBase64, restaurantExcelBase64, restaurantImageBase64, restaurantImageMediaType, invoiceText, invoicePdfBase64, invoiceImageBase64, invoiceImageMediaType, targetCheckIn, targetCheckOut, password } = req.body;
+    const { variants, mediaType, base64, hotelText, hotelPdfBase64, hotelExcelBase64, hotelImageBase64, hotelImageMediaType, facilityText, facilityPdfBase64, facilityExcelBase64, facilityImageBase64, facilityImageMediaType, busText, busPdfBase64, busExcelBase64, busImageBase64, busImageMediaType, restaurantText, restaurantPdfBase64, restaurantExcelBase64, restaurantImageBase64, restaurantImageMediaType, invoiceText, invoicePdfBase64, invoiceExcelBase64, invoiceImageBase64, invoiceImageMediaType, targetCheckIn, targetCheckOut, password } = req.body;
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
       return res.status(500).json({ error: 'サーバー側にAPIキーが設定されていません' });
@@ -334,13 +334,14 @@ JSONのみ返し、説明文・コードブロック記号は不要です。` }
       return res.status(200).json(data);
     }
 
-    // 仕入明細（請求書）テキスト解析モード
-    if (invoiceText) {
+    // 仕入明細（請求書）テキスト解析モード（Excel由来のテキスト化データもここに合流する）
+    const resolvedInvoiceText = invoiceText || (invoiceExcelBase64 ? await resolveExcelText(invoiceExcelBase64, password) : '');
+    if (resolvedInvoiceText) {
       const data = await callClaude([{
         type: 'text',
         text: `以下の請求書・仕入明細書から費用明細を抽出してJSON配列で返してください。
 各費用項目を1つのオブジェクトとして配列に含めてください。
-フィールド：supplier_name(請求書の発行元・支払先の会社名、不明は空文字), ref_no(ツアー番号・REF#・KICコード等、行またはブロックに記載があれば抽出、なければ空文字), expense_date(費用日付・YYYY-MM-DD形式、不明は空文字), content(費用内容・品目名), category(区分：「D（ドライバー）」「ゲスト」「ゲスト・TG」「その他」のいずれか), unit_price(単価・数値・円、不明は0), qty(数量・数値、不明は1), amount(合計金額・数値・円、不明は0), payment_method(支払方法：「現地払い」「前振込み」「後請求」「全旅クーポン」のいずれか、請求書の場合は「後請求」)
+フィールド：supplier_name(請求書の発行元・支払先の会社名、不明は空文字), ref_no(ツアー番号・REF#・KICコード等、行またはブロックに記載があれば抽出、なければ空文字), expense_date(費用日付・YYYY-MM-DD形式、不明は空文字), content(費用内容・品目名), invoice_no(請求書番号・Invoice No.、記載があれば抽出、なければ空文字), category(区分：「D（ドライバー）」「ゲスト」「ゲスト・TG」「その他」のいずれか), unit_price(単価・数値・円、不明は0), qty(数量・数値、不明は1), amount(合計金額・数値・円、不明は0), payment_method(支払方法：「現地払い」「前振込み」「後請求」「全旅クーポン」のいずれか、請求書の場合は「後請求」)
 ツアーコードは「KIC1154」「#1154」の形式が多いですが、「852_KK」のような「数字_英字」形式（KICプレフィックスが省略された短縮形）で記載される場合もあります。こうした短縮形も必ずref_noとして抽出してください。
 categoryは費用内容から推測してください（ドライバー関連費用は「D（ドライバー）」、入場料・食事等のゲスト費用は「ゲスト」等）。
 出力は配列ではなく、以下の形式のJSONオブジェクトとしてください：
@@ -348,18 +349,19 @@ categoryは費用内容から推測してください（ドライバー関連費
 invoice_total_amountには、個々の明細の合計ではなく、請求書自体に印字されている「合計金額」「お振込金額」「TOTAL AMOUNT」等の総額の数字を、そのまま抽出してください（コミッション控除後の金額があればその総額を使用）。
 JSONのみ返し、説明文・コードブロック記号は不要です。
 
-${invoiceText}`
+${resolvedInvoiceText}`
       }], 8000);
       return res.status(200).json(data);
     }
 
     // 仕入明細（請求書）PDF解析モード
     if (invoicePdfBase64) {
+      const resolvedInvoicePdfBase64 = await resolvePdfBase64(invoicePdfBase64, password);
       const data = await callClaude([
-        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: invoicePdfBase64 } },
+        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: resolvedInvoicePdfBase64 } },
         { type: 'text', text: `このPDFから費用明細を抽出してJSON配列で返してください。
 各費用項目を1つのオブジェクトとして配列に含めてください。
-フィールド：supplier_name(請求書の発行元・支払先の会社名、不明は空文字), ref_no(ツアー番号・REF#・KICコード等、行またはブロックに記載があれば抽出、なければ空文字), expense_date(費用日付・YYYY-MM-DD形式、不明は空文字), content(費用内容・品目名), category(区分：「D（ドライバー）」「ゲスト」「ゲスト・TG」「その他」のいずれか), unit_price(単価・数値・円、不明は0), qty(数量・数値、不明は1), amount(合計金額・数値・円、不明は0), payment_method(支払方法：「現地払い」「前振込み」「後請求」「全旅クーポン」のいずれか、請求書の場合は「後請求」)
+フィールド：supplier_name(請求書の発行元・支払先の会社名、不明は空文字), ref_no(ツアー番号・REF#・KICコード等、行またはブロックに記載があれば抽出、なければ空文字), expense_date(費用日付・YYYY-MM-DD形式、不明は空文字), content(費用内容・品目名), invoice_no(請求書番号・Invoice No.、記載があれば抽出、なければ空文字), category(区分：「D（ドライバー）」「ゲスト」「ゲスト・TG」「その他」のいずれか), unit_price(単価・数値・円、不明は0), qty(数量・数値、不明は1), amount(合計金額・数値・円、不明は0), payment_method(支払方法：「現地払い」「前振込み」「後請求」「全旅クーポン」のいずれか、請求書の場合は「後請求」)
 ツアーコードは「KIC1154」「#1154」の形式が多いですが、「852_KK」のような「数字_英字」形式（KICプレフィックスが省略された短縮形）で記載される場合もあります。こうした短縮形も必ずref_noとして抽出してください。
 categoryは費用内容から推測してください。
 出力は配列ではなく、以下の形式のJSONオブジェクトとしてください：
@@ -376,7 +378,7 @@ JSONのみ返し、説明文・コードブロック記号は不要です。` }
         { type: 'image', source: { type: 'base64', media_type: invoiceImageMediaType || 'image/jpeg', data: invoiceImageBase64 } },
         { type: 'text', text: `この請求書画像から費用明細を抽出してJSON配列で返してください。
 各費用項目を1つのオブジェクトとして配列に含めてください。
-フィールド：supplier_name(請求書の発行元・支払先の会社名、不明は空文字), ref_no(ツアー番号・REF#・KICコード等、行またはブロックに記載があれば抽出、なければ空文字), expense_date(費用日付・YYYY-MM-DD形式、不明は空文字), content(費用内容・品目名), category(区分：「D（ドライバー）」「ゲスト」「ゲスト・TG」「その他」のいずれか), unit_price(単価・数値・円、不明は0), qty(数量・数値、不明は1), amount(合計金額・数値・円、不明は0), payment_method(支払方法：「現地払い」「前振込み」「後請求」「全旅クーポン」のいずれか、請求書の場合は「後請求」)
+フィールド：supplier_name(請求書の発行元・支払先の会社名、不明は空文字), ref_no(ツアー番号・REF#・KICコード等、行またはブロックに記載があれば抽出、なければ空文字), expense_date(費用日付・YYYY-MM-DD形式、不明は空文字), content(費用内容・品目名), invoice_no(請求書番号・Invoice No.、記載があれば抽出、なければ空文字), category(区分：「D（ドライバー）」「ゲスト」「ゲスト・TG」「その他」のいずれか), unit_price(単価・数値・円、不明は0), qty(数量・数値、不明は1), amount(合計金額・数値・円、不明は0), payment_method(支払方法：「現地払い」「前振込み」「後請求」「全旅クーポン」のいずれか、請求書の場合は「後請求」)
 ツアーコードは「KIC1154」「#1154」の形式が多いですが、「852_KK」のような「数字_英字」形式（KICプレフィックスが省略された短縮形）で記載される場合もあります。こうした短縮形も必ずref_noとして抽出してください。
 categoryは費用内容から推測してください。
 出力は配列ではなく、以下の形式のJSONオブジェクトとしてください：

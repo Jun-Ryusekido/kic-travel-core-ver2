@@ -3532,6 +3532,8 @@ function renderSuppliersDatalist(){
   // カスタムサジェスト方式のため何もしない（互換性のため残置）
 }
 
+// idxが-1の場合はbdCostItemsへの反映を行わず、入力欄の値を書き換えるだけにする
+// （仕入明細AI読み取りの確認ダイアログ等、bdCostItemsにまだ存在しない一時的な行のため）。
 function showSupplierSuggestions(inputEl, idx){
   hideSupplierSuggestions();
   const q = inputEl.value.trim().toLowerCase();
@@ -3555,7 +3557,7 @@ function showSupplierSuggestions(inputEl, idx){
       e.preventDefault();
       const name = item.getAttribute('data-name');
       inputEl.value = name;
-      bdCostItems[idx].item_name = name;
+      if(idx>=0) bdCostItems[idx].item_name = name;
       hideSupplierSuggestions();
     });
     item.addEventListener('mouseenter', ()=>{ item.style.background='var(--bg)'; });
@@ -13007,10 +13009,13 @@ function openCostOcrModal(){
         <button class="btn" onclick="document.getElementById('cost-ocr-modal').remove()">✕</button>
       </div>
       <div style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap">
-        <button class="btn" style="font-size:11px" onclick="document.getElementById('cost-ocr-text-area').style.display=''">📧 テキスト</button>
-        <label class="btn" style="font-size:11px;cursor:pointer">📎 PDF<input type="file" accept=".pdf" style="display:none" onchange="extractCostFromFile(event,'pdf')"></label>
-        <label class="btn" style="font-size:11px;cursor:pointer">🖼 画像<input type="file" accept="image/*" style="display:none" onchange="extractCostFromFile(event,'image')"></label>
-        <label class="btn" style="font-size:11px;cursor:pointer">📷 カメラ<input type="file" accept="image/*" capture="environment" style="display:none" onchange="extractCostFromFile(event,'image')"></label>
+        <button class="btn" style="font-size:11px" onclick="document.getElementById('cost-ocr-text-area').style.display=''">📧 メール/テキストから読み取り</button>
+        <label class="btn" style="font-size:11px;cursor:pointer">
+          📎 Excel/PDF/Wordから読み取り
+          <input type="file" accept=".xlsx,.xls,.pdf,.docx" style="display:none" onchange="extractCostFromFile(event)">
+        </label>
+        <label class="btn" style="font-size:11px;cursor:pointer">🖼 画像から読み取り<input type="file" accept="image/*" style="display:none" onchange="extractCostFromFile(event,'image')"></label>
+        <label class="btn" style="font-size:11px;cursor:pointer">📷 カメラで撮影<input type="file" accept="image/*" capture="environment" style="display:none" onchange="extractCostFromFile(event,'image')"></label>
         <span id="cost-ocr-file-status" style="font-size:11px;color:var(--text3)"></span>
       </div>
       <div id="cost-ocr-text-area" style="display:none">
@@ -13047,6 +13052,9 @@ async function extractCostFromText(){
   }
 }
 
+// パスワード付きPDF/Excel請求書に対応するため、他タブ(ホテル等)と同じ
+// fetchExtractCardWithPasswordSupport（読み取り失敗時にのみパスワード入力欄を表示し、
+// 再試行できる共通フロー）を流用する。Word(.docx)はクライアント側でテキスト化してから送る。
 async function extractCostFromFile(event, mode){
   const file = event.target.files[0];
   if(!file) return;
@@ -13054,11 +13062,40 @@ async function extractCostFromFile(event, mode){
   statusEl.textContent = '⏳ 読み取り中...'; statusEl.classList.add('ocr-loading'); statusEl.style.color = '';
   showGlobalOcrBanner();
   try{
-    const base64 = await new Promise((resolve,reject)=>{
-      const r = new FileReader(); r.onload = ()=>resolve(r.result.split(',')[1]); r.onerror = reject; r.readAsDataURL(file);
-    });
-    const bodyData = mode==='pdf' ? { invoicePdfBase64: base64 } : { invoiceImageBase64: base64, invoiceImageMediaType: file.type||'image/jpeg' };
-    const {expenses, invoiceTotal} = await _callInvoiceApi(bodyData);
+    const isPdf = mode==='image' ? false : file.name.toLowerCase().endsWith('.pdf');
+    const isExcel = mode==='image' ? false : file.name.toLowerCase().match(/\.(xlsx|xls)$/);
+    const isWord = mode==='image' ? false : file.name.toLowerCase().endsWith('.docx');
+    const isImage = mode==='image';
+    let bodyBase;
+
+    if(isImage){
+      const base64 = await compressImageToBase64(file);
+      bodyBase = { invoiceImageBase64: base64, invoiceImageMediaType: 'image/jpeg' };
+    } else if(isPdf){
+      const base64 = await readFileAsBase64(file);
+      bodyBase = { invoicePdfBase64: base64 };
+    } else if(isExcel){
+      try{
+        const sheets = await parseExcelToSheetsText(file);
+        bodyBase = { invoiceText: sheets };
+      }catch(e){
+        if(!e.isPasswordProtected) throw e;
+        const base64 = await readFileAsBase64(file);
+        bodyBase = { invoiceExcelBase64: base64 };
+      }
+    } else if(isWord){
+      const docText = await extractDocxText(file);
+      bodyBase = { invoiceText: docText };
+    } else {
+      throw new Error('対応していないファイル形式です（.xlsx / .xls / .pdf / .docx のいずれかを選択してください）');
+    }
+
+    const data = await fetchExtractCardWithPasswordSupport(pw => pw ? {...bodyBase, password: pw} : bodyBase, statusEl);
+    const textBlock = data.content.find(b=>b.type==='text');
+    const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
+    const parsed = JSON.parse(cleaned);
+    const expenses = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.items) ? parsed.items : [parsed]);
+    const invoiceTotal = Array.isArray(parsed) ? 0 : (Number(parsed.invoice_total_amount)||0);
     statusEl.textContent = '✓ '+expenses.length+'件読み取り完了';
     statusEl.classList.remove('ocr-loading');
     hideGlobalOcrBanner();
@@ -13082,13 +13119,15 @@ function showCostConfirmDialog(expenses){
   modal.id = 'cost-confirm-modal';
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:300;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto';
   const rows = expenses.map((e,i)=>{
-    const itemName = escAttr(e.supplier_name||e.content||'');
+    const itemName = escAttr(e.supplier_name||'');
     const amount = e.amount||0;
-    const payDate = '';
-    const memo = escAttr(e.supplier_name ? (e.content||'') : '');
+    const payDate = sanitizeDateField(e.expense_date)||'';
+    // 費用内容(content)に加え、請求書番号(invoice_no)があれば備考として併記する（保存前に確認・編集可能）
+    const memoParts = [e.content||'', e.invoice_no?('請求書番号: '+e.invoice_no):''].filter(Boolean);
+    const memo = escAttr(memoParts.join(' / '));
     return `<tr style="border-bottom:1px solid var(--border)">
       <td data-col="chk" style="padding:4px 3px;text-align:center"><input type="checkbox" id="cost-chk-${i}" checked></td>
-      <td data-col="item" style="padding:4px 3px"><input type="text" id="cost-item-${i}" value="${itemName}" placeholder="仕入先" style="font-size:10px;width:100%;box-sizing:border-box"></td>
+      <td data-col="item" style="padding:4px 3px;position:relative"><input type="text" id="cost-item-${i}" value="${itemName}" placeholder="仕入先" style="font-size:10px;width:100%;box-sizing:border-box" oninput="showSupplierSuggestions(this,-1)" onblur="setTimeout(hideSupplierSuggestions,150)" onfocus="showSupplierSuggestions(this,-1)"></td>
       <td data-col="amount" style="padding:4px 3px"><input type="number" id="cost-amount-${i}" value="${amount}" style="font-size:10px;width:100%;text-align:right;box-sizing:border-box"></td>
       <td data-col="date" style="padding:4px 3px"><input type="date" id="cost-date-${i}" value="${payDate}" style="font-size:10px;width:100%;box-sizing:border-box"></td>
       <td data-col="memo" style="padding:4px 3px"><input type="text" id="cost-memo-${i}" value="${memo}" placeholder="備考" style="font-size:10px;width:100%;box-sizing:border-box"></td>
