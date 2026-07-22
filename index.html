@@ -7760,7 +7760,7 @@ async function classifyEmailRelevanceForRows(rows){
 }
 
 // ─── REF#候補の提示用インデックス（bookings / booking_hotels から一度だけ構築してキャッシュ） ───
-let emailInboxSuggestIndex = null; // {hotels:[{ref_no,hotel_name,check_in,check_out}], bookings:[{ref_no,tour_name,in_date,out_date}]}
+let emailInboxSuggestIndex = null; // {hotels:[{ref_no,hotel_name,check_in,check_out}], bookings:[{ref_no,tour_name,agent_name,in_date,out_date}]}
 
 async function ensureEmailInboxSuggestIndex(){
   if(emailInboxSuggestIndex) return emailInboxSuggestIndex;
@@ -7768,7 +7768,7 @@ async function ensureEmailInboxSuggestIndex(){
   const refByBookingId = new Map(allBookingsCache.map(b=>[b.id, b.ref_no]));
   const bookings = allBookingsCache
     .filter(b=>b.ref_no && (b.tour_name || b.in_date || b.out_date))
-    .map(b=>({ref_no:b.ref_no, tour_name:b.tour_name||'', in_date:b.in_date||'', out_date:b.out_date||''}));
+    .map(b=>({ref_no:b.ref_no, tour_name:b.tour_name||'', agent_name:b.agent_name||'', in_date:b.in_date||'', out_date:b.out_date||''}));
 
   let hotelRows = [];
   let from = 0;
@@ -7807,37 +7807,78 @@ function emailInboxIsKnownPartnerSender(sender){
   return emailInboxSuggestIndex.partnerDomains.has(domain);
 }
 
-// 件名・本文と、既存のホテル名マスタ・予約データ（団体名・ホテル名）との
-// 単純な文字列マッチングでREF#候補を最大5件返す（優先度: 団体名一致 > ホテル名一致）。
+// 件名・本文と、既存のホテル名マスタ・予約データ（団体名・ホテル名・エージェント名）との
+// 文字列マッチングでREF#候補を最大5件返す（優先度: 団体名一致 > ホテル名一致 > エージェント名一致）。
+// 全角/半角・大文字小文字・空白の入り方のゆれ（例:「ヴィラフォンテーヌ グランド 羽田空港」の
+// ような、マスタ側とメール側で空白の有無が異なるだけのケース）を吸収するため、比較前に
+// NFKC正規化・小文字化・空白除去を行った上で部分一致を見る。
 // 日付のみの一致は固有名詞の裏付けがなく誤誘導しやすいため候補にしない。
+function _refSuggestNormalize(s){
+  return String(s||'').normalize('NFKC').toLowerCase().replace(/\s+/g,'');
+}
 function computeRefSuggestions(subject, body, index){
   if(!index) return [];
-  const text = (String(subject||'')+' '+String(body||'')).slice(0, 4000);
-  const lowerText = text.toLowerCase();
+  const rawText = (String(subject||'')+' '+String(body||'')).slice(0, 4000);
+  const text = _refSuggestNormalize(rawText);
   const results = new Map(); // ref_no -> 表示ラベル
 
+  // 1) 団体名(ツアー名)一致
   for(const b of index.bookings){
     if(results.size>=5) break;
-    if(b.tour_name && b.tour_name.length>=4 && text.includes(b.tour_name) && !results.has(b.ref_no)){
+    if(b.tour_name && b.tour_name.length>=4 && text.includes(_refSuggestNormalize(b.tour_name)) && !results.has(b.ref_no)){
       results.set(b.ref_no, b.tour_name);
     }
   }
+  // 2) ホテル名一致
   if(results.size<5){
     for(const h of index.hotels){
       if(results.size>=5) break;
-      if(h.hotel_name && lowerText.includes(h.hotel_name.toLowerCase()) && !results.has(h.ref_no)){
+      if(h.hotel_name && h.hotel_name.length>=3 && text.includes(_refSuggestNormalize(h.hotel_name)) && !results.has(h.ref_no)){
         results.set(h.ref_no, h.hotel_name);
       }
     }
   }
-  // 日付のみの一致(団体名・ホテル名のような固有名詞の裏付けが無い)は、無関係メールに
-  // 偶然含まれる日付とも一致しやすく誤誘導の原因になりやすいため、REF#候補としては使わない。
+  // 3) エージェント名一致(送客元の旅行会社名。例:「Thomas Cook」等がメール件名・本文に
+  //    含まれるケース。取引先名は短いと誤爆しやすいため4文字未満は対象外)
+  if(results.size<5){
+    for(const b of index.bookings){
+      if(results.size>=5) break;
+      if(b.agent_name && b.agent_name.length>=4 && text.includes(_refSuggestNormalize(b.agent_name)) && !results.has(b.ref_no)){
+        results.set(b.ref_no, b.agent_name);
+      }
+    }
+  }
+  // 日付のみの一致(団体名・ホテル名・エージェント名のような固有名詞の裏付けが無い)は、
+  // 無関係メールに偶然含まれる日付とも一致しやすく誤誘導の原因になりやすいため、
+  // REF#候補としては使わない。
   return Array.from(results.entries()).slice(0,5).map(([ref_no,label])=>({ref_no, label}));
 }
 
 function applyRefSuggestion(emailId, refNo){
   const input = document.getElementById('email-inbox-ref-'+emailId);
   if(input) input.value = refNo;
+}
+
+// メール一覧の各行には冒頭80文字のプレビューのみ表示しているが、それだけでは
+// 実際に業務に関係するメールか判断できないケースがあるため、「本文を全て表示」
+// リンクで全文(改行そのまま)を展開できるようにする。プレビュー・全文の両方を
+// 事前にDOMへ描画しておき、表示/非表示をトグルするだけなので、行の再描画
+// (REF#入力欄やカテゴリ選択の状態が消える)を伴わない。
+function emailInboxBodyBlockHtml(m, preview){
+  const bodyText = String(m.body||'').replace(/\s+/g,' ').trim();
+  const hasMore = bodyText.length > preview.length;
+  const expandLink = hasMore ? ` <span class="lnk" style="font-size:10px" onclick="toggleEmailInboxBody('${m.id}')">本文を全て表示</span>` : '';
+  const fullBodyHtml = escHtml(String(m.body||'')).replace(/\n/g,'<br>');
+  return `<div id="email-inbox-preview-${m.id}" style="font-size:11px;color:var(--text2);margin-bottom:8px">${escHtml(preview)}${preview.length>=80?'…':''}${expandLink}</div>
+    <div id="email-inbox-full-${m.id}" style="display:none;font-size:11px;color:var(--text2);margin-bottom:8px;white-space:pre-wrap;border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--bg);max-height:400px;overflow-y:auto">${fullBodyHtml}<div style="margin-top:6px"><span class="lnk" style="font-size:10px" onclick="toggleEmailInboxBody('${m.id}')">折りたたむ</span></div></div>`;
+}
+function toggleEmailInboxBody(id){
+  const preview = document.getElementById('email-inbox-preview-'+id);
+  const full = document.getElementById('email-inbox-full-'+id);
+  if(!preview || !full) return;
+  const showFull = full.style.display === 'none';
+  full.style.display = showFull ? 'block' : 'none';
+  preview.style.display = showFull ? 'none' : 'block';
 }
 
 // ─── メールのカテゴリ推定(ホテル/バス/レストラン/観光施設・バス駐車場等) ─────────
@@ -8141,6 +8182,7 @@ async function renderEmailInboxPage(){
     const preview = String(m.body||'').replace(/\s+/g,' ').trim().slice(0,80);
     const received = m.received_at ? new Date(m.received_at).toLocaleString('ja-JP') : '';
     const checked = emailInboxSelectedIds.has(m.id) ? 'checked' : '';
+    const bodyBlock = emailInboxBodyBlockHtml(m, preview);
 
     if(emailInboxViewMode==='autofiltered'){
       const reason = emailInboxExcludeReason(m);
@@ -8149,7 +8191,7 @@ async function renderEmailInboxPage(){
         <div style="flex:1;min-width:0">
           <div style="font-size:12px;font-weight:600;margin-bottom:2px">${escHtml(m.subject||'(件名なし)')}</div>
           <div style="font-size:11px;color:var(--text3);margin-bottom:2px">${escHtml(m.sender||'')} ・ ${escHtml(received)}</div>
-          <div style="font-size:11px;color:var(--text2);margin-bottom:4px">${escHtml(preview)}${preview.length>=80?'…':''}</div>
+          ${bodyBlock}
           ${reason ? `<div style="font-size:10px;color:var(--amber);margin-bottom:8px">除外理由: ${escHtml(reason)}</div>` : ''}
           <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
             <button class="btn btn-p" style="font-size:11px" onclick="markEmailInboxNotPromo('${m.id}')">✅ これはホテル等の予約メールです</button>
@@ -8176,7 +8218,7 @@ async function renderEmailInboxPage(){
       <div style="flex:1;min-width:0">
         <div style="font-size:12px;font-weight:600;margin-bottom:2px">${escHtml(m.subject||'(件名なし)')}</div>
         <div style="font-size:11px;color:var(--text3);margin-bottom:2px">${escHtml(m.sender||'')} ・ ${escHtml(received)}</div>
-        <div style="font-size:11px;color:var(--text2);margin-bottom:8px">${escHtml(preview)}${preview.length>=80?'…':''}</div>
+        ${bodyBlock}
         <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
           <input id="email-inbox-ref-${m.id}" placeholder="REF# 例: #1374" style="font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px;width:140px">
           <select id="email-inbox-cat-${m.id}" style="font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px">${catOptions}</select>
