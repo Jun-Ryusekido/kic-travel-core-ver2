@@ -24,6 +24,7 @@
     { "src": "/kic-logo.png", "dest": "/public/kic-logo.png" },
     { "src": "/kic_travel_logo.jpg", "dest": "/public/kic_travel_logo.jpg" },
     { "src": "/kic_travel_logo_final.png", "dest": "/public/kic_travel_logo_final.png" },
+    { "src": "/kic_stamp_v2.png", "dest": "/public/kic_stamp_v2.png" },
     { "src": "/tour_arrangement_template.xlsx", "dest": "/public/tour_arrangement_template.xlsx" },
     { "src": "/guide.html", "dest": "/guide.html" },
     { "src": "/arrangement_excel.js", "dest": "/arrangement_excel.js" },
