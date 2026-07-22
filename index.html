@@ -91,23 +91,13 @@ table{width:100%;border-collapse:collapse;font-size:12px}
   #pg-booking-list .bl-table th:nth-child(5),#pg-booking-list .bl-table td:nth-child(5),
   #pg-dashboard .bl-table th:nth-child(5),#pg-dashboard .bl-table td:nth-child(5),
   #pg-booking-list .bl-table th:nth-child(6),#pg-booking-list .bl-table td:nth-child(6),
-  #pg-dashboard .bl-table th:nth-child(6),#pg-dashboard .bl-table td:nth-child(6),
-  #pg-booking-list .bl-table th:nth-child(7),#pg-booking-list .bl-table td:nth-child(7),
-  #pg-dashboard .bl-table th:nth-child(7),#pg-dashboard .bl-table td:nth-child(7),
-  #pg-booking-list .bl-table th:nth-child(8),#pg-booking-list .bl-table td:nth-child(8),
-  #pg-dashboard .bl-table th:nth-child(8),#pg-dashboard .bl-table td:nth-child(8),
-  #pg-booking-list .bl-table th:nth-child(9),#pg-booking-list .bl-table td:nth-child(9),
-  #pg-dashboard .bl-table th:nth-child(9),#pg-dashboard .bl-table td:nth-child(9),
-  #pg-booking-list .bl-table th:nth-child(10),#pg-booking-list .bl-table td:nth-child(10),
-  #pg-dashboard .bl-table th:nth-child(10),#pg-dashboard .bl-table td:nth-child(10){display:none}
+  #pg-dashboard .bl-table th:nth-child(6),#pg-dashboard .bl-table td:nth-child(6){display:none}
   #pg-booking-list .bl-table th:nth-child(1),#pg-booking-list .bl-table td:nth-child(1),
   #pg-dashboard .bl-table th:nth-child(1),#pg-dashboard .bl-table td:nth-child(1){width:62px}
   #pg-booking-list .bl-table th:nth-child(4),#pg-booking-list .bl-table td:nth-child(4),
   #pg-dashboard .bl-table th:nth-child(4),#pg-dashboard .bl-table td:nth-child(4){width:68px}
-  #pg-booking-list .bl-table th:nth-child(11),#pg-booking-list .bl-table td:nth-child(11),
-  #pg-dashboard .bl-table th:nth-child(11),#pg-dashboard .bl-table td:nth-child(11){width:60px}
-  #pg-booking-list .bl-table th:nth-child(12),#pg-booking-list .bl-table td:nth-child(12),
-  #pg-dashboard .bl-table th:nth-child(12),#pg-dashboard .bl-table td:nth-child(12){width:26px}
+  #pg-booking-list .bl-table th:nth-child(7),#pg-booking-list .bl-table td:nth-child(7),
+  #pg-dashboard .bl-table th:nth-child(7),#pg-dashboard .bl-table td:nth-child(7){width:60px}
 }
 th{font-size:10px;color:var(--text3);font-weight:600;padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);white-space:nowrap}
 td{padding:8px 8px;border-bottom:1px solid var(--border);vertical-align:middle}
@@ -628,7 +618,7 @@ input[type=number]{-moz-appearance:textfield}
           <div class="card-title">予約一覧</div>
           <div class="tbl-wrap"><table class="bl-table">
             <thead id="db-thead"></thead>
-            <tbody id="db-tbody"><tr><td colspan="12" class="empty">読み込み中...</td></tr></tbody>
+            <tbody id="db-tbody"><tr><td colspan="7" class="empty">読み込み中...</td></tr></tbody>
           </table></div>
         </div>
       </div>
@@ -755,7 +745,7 @@ input[type=number]{-moz-appearance:textfield}
           <div class="card-title">Booking List</div>
           <div class="tbl-wrap"><table class="bl-table">
             <thead id="bl-thead"></thead>
-            <tbody id="bl-tbody"><tr><td colspan="12" class="empty">読み込み中...</td></tr></tbody>
+            <tbody id="bl-tbody"><tr><td colspan="7" class="empty">読み込み中...</td></tr></tbody>
           </table></div>
         </div>
       </div>
@@ -2528,9 +2518,9 @@ const LIST_PAGE_SIZE = 100;
 const listState = { db:{page:1, sortField:null, sortDir:1}, bl:{page:1, sortField:null, sortDir:1} };
 
 const LIST_COLUMNS = [
-  ['ref_no','REF#',true,'62px'], ['agent_name','Agent',true,'20%'], ['tour_name','Tour',true,'15%'],
-  ['in_date','In',true,'9%'], ['out_date','Out',true,'9%'], ['pax','Pax',true,'5%'],
-  ['gross_sales','売上',true,'8%'], ['gross_cost','原価',true,'8%'], ['gross','GROSS',true,'8%'], ['rate','率',true,'6%'], ['status','Status',true,'7%']
+  ['ref_no','REF#',true,'62px'], ['agent_name','Agent',true,'25%'], ['tour_name','Tour',true,'20%'],
+  ['in_date','In',true,'12%'], ['out_date','Out',true,'12%'], ['pax','Pax',true,'7%'],
+  ['status','Status',true,'10%']
 ];
 
 function renderListHeader(prefix){
@@ -2540,7 +2530,7 @@ function renderListHeader(prefix){
     if(state.sortField===field) arrow = ' <span class="sort-arrow">'+(state.sortDir===1?'▲':'▼')+'</span>';
     const styleAttr = width ? ` style="width:${width}"` : '';
     return `<th class="sortable"${styleAttr} onclick="sortBookingList('${prefix}','${field}')">${label}${arrow}</th>`;
-  }).join('') + '<th style="width:3%"></th></tr>';
+  }).join('') + '</tr>';
 }
 
 function sortBookingList(prefix, field){
@@ -2555,7 +2545,7 @@ function sortBookingList(prefix, field){
 const TEMP_DEFAULT_FROM = '2026-03-01';
 
 async function loadBookingListGeneric(prefix){
-  document.getElementById(prefix+'-tbody').innerHTML='<tr><td colspan="12" class="empty">読み込み中...</td></tr>';
+  document.getElementById(prefix+'-tbody').innerHTML='<tr><td colspan="7" class="empty">読み込み中...</td></tr>';
   renderListHeader(prefix);
   allBookingsCache = await fetchAllBookings();
   listState[prefix].page = 1;
@@ -3009,13 +2999,6 @@ function filterBookingListGeneric(prefix){
         if(isNaN(av) && isNaN(bv)) return dir * String(a.ref_no||'').localeCompare(String(b.ref_no||''), 'ja');
         if(isNaN(av)) return 1;
         if(isNaN(bv)) return -1;
-      }else if(f==='gross'){
-        av = Number(a.gross_sales||0)-Number(a.gross_cost||0);
-        bv = Number(b.gross_sales||0)-Number(b.gross_cost||0);
-      }else if(f==='rate'){
-        const as=Number(a.gross_sales||0), bs=Number(b.gross_sales||0);
-        av = as ? (Number(a.gross_sales)-Number(a.gross_cost))/as : 0;
-        bv = bs ? (Number(b.gross_sales)-Number(b.gross_cost))/bs : 0;
       }else{
         av = a[f]; bv = b[f];
       }
@@ -3029,7 +3012,7 @@ function filterBookingListGeneric(prefix){
   renderListHeader(prefix);
 
   const tbody = document.getElementById(prefix+'-tbody');
-  if(filtered.length===0){ tbody.innerHTML='<tr><td colspan="12" class="empty">該当する予約がありません</td></tr>'; return; }
+  if(filtered.length===0){ tbody.innerHTML='<tr><td colspan="7" class="empty">該当する予約がありません</td></tr>'; return; }
 
   // ページネーション
   let page = listState[prefix].page;
@@ -3041,24 +3024,16 @@ function filterBookingListGeneric(prefix){
   const pageData = filtered.slice(start, start+LIST_PAGE_SIZE);
 
   tbody.innerHTML = pageData.map(b=>{
-    const sales=Number(b.gross_sales||0), cost=Number(b.gross_cost||0), g=sales-cost;
-    const rate = sales ? (g/sales*100).toFixed(1) : '0.0';
-    const gcls = g<0?'red':'green';
     return `<tr ondblclick="openBookingDetail('${b.id}')">
       <td class="lnk" onclick="openBookingDetail('${b.id}')">${b.ref_no}</td><td>${b.agent_name||''}</td><td>${b.tour_name||''}</td>
       <td>${b.in_date||''}</td><td>${b.out_date||''}</td><td>${b.pax||0}</td>
-      <td>${yen(sales)}</td><td>${yen(cost)}</td>
-      <td class="${gcls}">${yen(g)}</td><td class="${gcls}">${rate}%</td>
       <td>${statusPill(b.status)}</td>
-      <td style="text-align:center" onclick="event.stopPropagation()">
-        <button class="btn" style="font-size:12px;padding:2px 5px" onclick="downloadHaichisho('${b.id}','initial')">📋</button>
-      </td>
     </tr>`;
   }).join('');
 
   // ページネーションUI
   if(totalPages > 1){
-    let pager = `<tr><td colspan="12" style="text-align:center;padding:10px">`;
+    let pager = `<tr><td colspan="7" style="text-align:center;padding:10px">`;
     pager += `<button class="btn" ${page<=1?'disabled':''} onclick="listGoPage('${prefix}',${page-1})">← 前へ</button> `;
     pager += `<span style="margin:0 10px;font-size:11px;color:var(--text3)">ページ ${page} / ${totalPages}</span>`;
     pager += `<button class="btn" ${page>=totalPages?'disabled':''} onclick="listGoPage('${prefix}',${page+1})">次へ →</button>`;
@@ -13552,22 +13527,6 @@ tbody.innerHTML = filtered.map(r=>{
 <td style="font-size:10px">${escHtml(r.confirmation_no||'')}<br><span onclick="toggleHmStatus('${r.id}')" style="font-size:10px;padding:2px 6px;border-radius:10px;cursor:pointer;background:${r.status==='手配OK'?'var(--green)':'#fff3cd'};color:${r.status==='手配OK'?'#fff':'#856404'}">${escHtml(r.status==='問い合わせ中'?'回答待ち':r.status||'回答待ち')}</span>${r.status_updated_at?`<br><span style="font-size:9px;color:var(--text3)">${new Date(r.status_updated_at).toLocaleString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>`:''}</td>
     </tr>`;
   }).join('');
-}
-
-async function downloadHaichisho(bookingId, type){
-  const url = `/api/generate-haichisho?booking_id=${encodeURIComponent(bookingId)}&type=${type}`;
-  try {
-    const r = await fetch(url);
-    if(!r.ok){ const j = await r.json(); alert('手配書生成エラー: '+(j.error||r.statusText)); return; }
-    const blob = await r.blob();
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    const cd = r.headers.get('Content-Disposition')||'';
-    const m = cd.match(/filename\*?=(?:UTF-8'')?([^;]+)/i);
-    a.download = m ? decodeURIComponent(m[1].replace(/['"]/g,'')) : `haichisho_${type}.xlsx`;
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    URL.revokeObjectURL(a.href);
-  } catch(e){ alert('手配書DLエラー: '+e.message); }
 }
 
 async function toggleHmStatus(id){
