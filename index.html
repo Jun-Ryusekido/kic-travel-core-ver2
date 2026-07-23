@@ -2205,14 +2205,22 @@ function statusSelectStyle(s){ return `background:${statusBg(s)};color:${statusF
 // 2) idStatusDropdownHtml: 予約時に document.getElementById(id).value を直接読む
 //    単発フィールド(新幹線編集モーダル・各種一括確認ダイアログの行)用。非表示inputに
 //    現在値を保持し、既存の読み取りコードを一切変更せずに済むようにする。
+// 選択肢一覧(.st-dd-list)は、手配タブの各テーブルが".tbl-wrap{overflow-x:auto}"で
+// 囲まれているため、ボタンの兄弟要素としてtd内にネストしたまま表示すると、CSS仕様上
+// overflow-xを指定した要素はoverflow-yも自動的にauto(=はみ出た内容をクリップ)になり、
+// position:absoluteの一覧がラッパーの外にはみ出た部分ごと見えなくなってしまう
+// (クリックしても開かない/選択できないように見えるバグの原因)。
+// 既存のサジェスト系ウィジェット(showSupplierSuggestions・_positionDropdownNearInput等)
+// と同じ考え方で、一覧はdocument.body直下に生成し、position:fixedで座標だけボタンに
+// 合わせることでこの問題を回避する。選択肢のHTML自体はボタンのdata属性に埋め込んで
+// おき、クリック時にそれを読み出してbody側に描画する。
 function arrStatusDropdownHtml(arrLiteral, i, value, options, defaultVal, renderFnLiteral){
   const cur = value || defaultVal;
   const itemsHtml = options.map(o=>
     `<div class="st-dd-item" style="background:${statusBg(o)};color:${statusFg(o)}" onclick="event.stopPropagation();${arrLiteral}[${i}].status='${o}';${renderFnLiteral}();closeStatusDropdowns()">${escHtml(o)}</div>`
   ).join('');
   return `<div class="st-dd">
-    <button type="button" class="st-dd-btn" style="background:${statusBg(cur)};color:${statusFg(cur)}" onclick="event.stopPropagation();toggleStatusDropdown(this)">${escHtml(cur)} <span style="font-size:9px">▾</span></button>
-    <div class="st-dd-list" style="display:none">${itemsHtml}</div>
+    <button type="button" class="st-dd-btn" data-dd-items="${escAttr(itemsHtml)}" style="background:${statusBg(cur)};color:${statusFg(cur)}" onclick="event.stopPropagation();toggleStatusDropdown(this)">${escHtml(cur)} <span style="font-size:9px">▾</span></button>
   </div>`;
 }
 function idStatusDropdownHtml(inputId, value, options, defaultVal){
@@ -2222,18 +2230,31 @@ function idStatusDropdownHtml(inputId, value, options, defaultVal){
   ).join('');
   return `<div class="st-dd">
     <input type="hidden" id="${inputId}" value="${escAttr(cur)}">
-    <button type="button" class="st-dd-btn" style="background:${statusBg(cur)};color:${statusFg(cur)}" onclick="event.stopPropagation();toggleStatusDropdown(this)">${escHtml(cur)} <span style="font-size:9px">▾</span></button>
-    <div class="st-dd-list" style="display:none">${itemsHtml}</div>
+    <button type="button" class="st-dd-btn" data-dd-items="${escAttr(itemsHtml)}" style="background:${statusBg(cur)};color:${statusFg(cur)}" onclick="event.stopPropagation();toggleStatusDropdown(this)">${escHtml(cur)} <span style="font-size:9px">▾</span></button>
   </div>`;
 }
+// 開いている一覧を出したボタン(値反映・色更新のため参照を保持する)
+let _statusDropdownBtn = null;
 function toggleStatusDropdown(btn){
-  const list = btn.nextElementSibling;
-  const willOpen = list.style.display === 'none';
+  const reopening = _statusDropdownBtn===btn && !!document.getElementById('status-dd-popup');
   closeStatusDropdowns();
-  list.style.display = willOpen ? 'block' : 'none';
+  if(reopening) return; // 同じボタンをもう一度クリックした場合は閉じるだけ
+  const popup = document.createElement('div');
+  popup.id = 'status-dd-popup';
+  popup.className = 'st-dd-list';
+  const rect = btn.getBoundingClientRect();
+  popup.style.position = 'fixed';
+  popup.style.top = (rect.bottom+2)+'px';
+  popup.style.left = rect.left+'px';
+  popup.style.minWidth = rect.width+'px';
+  popup.innerHTML = btn.getAttribute('data-dd-items')||'';
+  document.body.appendChild(popup);
+  _statusDropdownBtn = btn;
 }
 function closeStatusDropdowns(){
-  document.querySelectorAll('.st-dd-list').forEach(el=>{ el.style.display = 'none'; });
+  const popup = document.getElementById('status-dd-popup');
+  if(popup) popup.remove();
+  _statusDropdownBtn = null;
 }
 function setStatusDropdownValue(itemEl, inputId, value){
   const input = document.getElementById(inputId);
@@ -2257,6 +2278,7 @@ function syncStatusDropdownButton(inputId){
   btn.innerHTML = `${escHtml(value)} <span style="font-size:9px">▾</span>`;
 }
 document.addEventListener('click', ()=>{ closeStatusDropdowns(); });
+window.addEventListener('scroll', closeStatusDropdowns, true);
 function _positionDropdownNearInput(input, dd){
   if(!input || !dd) return;
   const rect = input.getBoundingClientRect();
