@@ -3399,7 +3399,25 @@ async function addArrRowToCostNow(payload, btnEl, onSuccess){
       memo: `${payload.label}手配（支払方法: ${payload.paymentMethod}）から自動反映`,
       status: 'pending'
     };
-    await bookingCostsApiCall('insert', { rows: [newCostRow] });
+    const insResult = await bookingCostsApiCall('insert', { rows: [newCostRow] });
+    // bookingCostsApiCallは通信エラー・サーバーエラー時は例外を投げる設計だが、万一
+    // 「例外は投げないが実際にはINSERTされていない」という不整合が起きても「済み」状態に
+    // ならないよう、実際にbooking_costsへ該当行が保存されたことをSELECTで再確認してから
+    // 初めてcost_addedを更新する(確認できない場合はエラーとして扱い、ボタンは「追加」の
+    // まま=再試行可能な状態に戻す)。
+    if(!insResult || insResult.ok !== true){
+      throw new Error('仕入明細への保存結果を確認できませんでした。再度お試しください。');
+    }
+    const {data: verifyRows, error: verifyErr} = await sb.from('booking_costs')
+      .select('id')
+      .eq('booking_id', bookingId)
+      .eq('item_name', newCostRow.item_name)
+      .eq('memo', newCostRow.memo)
+      .order('id', {ascending:false})
+      .limit(1);
+    if(verifyErr || !verifyRows || !verifyRows.length){
+      throw new Error('仕入明細への保存を確認できませんでした。再度お試しください。');
+    }
     if(payload.rowId){
       const {error} = await sb.from(payload.table).update({cost_added:true}).eq('id', payload.rowId);
       if(error) logError(`${payload.label}明細のcost_added更新`, error, {toast:false});
