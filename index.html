@@ -3809,8 +3809,7 @@ function renderCostTable(){
       const arrow = bdCostSortField===f ? (bdCostSortDir===1?'▲':'▼') : '';
       return `<th class="sortable" onclick="bdCostSortField=bdCostSortField==='${f}'?(bdCostSortDir*=-1,'${f}'):(bdCostSortDir=1,'${f}');renderCostTable()" style="cursor:pointer;user-select:none;${w?'width:'+w+';':''}${a}">${l}${arrow?` <span class="sort-arrow">${arrow}</span>`:''}</th>`;
     }).join('')}
-    <th style="width:60px">状態</th>
-    <th style="width:66px"></th>
+    <th style="width:70px">承認</th>
   </tr>`;
 
   // 絞り込み
@@ -3834,7 +3833,7 @@ function renderCostTable(){
   }
 
   const rows = display.length===0
-    ? '<tr><td colspan="7" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>'
+    ? '<tr><td colspan="6" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>'
     : display.map(it=>{
       const i = it._i;
       const approved = it.status==='approved';
@@ -3849,7 +3848,6 @@ function renderCostTable(){
         <td data-label="出金日" style="text-align:center"><input ${dis} type="date" min="1900-01-01" max="9999-12-31" value="${_safeDate(it.payment_date)}" onchange="bdCostItems[${i}].payment_date=this.value" style="text-align:center"></td>
         <td data-label="支払方法"><select ${dis} onchange="bdCostItems[${i}].payment_method=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px"><option value="" ${!it.payment_method?'selected':''}></option>${LOCAL_EXPENSE_PAYMENT_METHODS.map(m=>`<option value="${m}" ${it.payment_method===m?'selected':''}>${m}</option>`).join('')}</select></td>
         <td data-label="備考"><input ${dis} value="${(it.memo||'').replace(/"/g,'&quot;')}" title="${(it.memo||'').replace(/"/g,'&quot;')}" onchange="bdCostItems[${i}].memo=this.value"></td>
-        <td data-label="状態"><span style="font-size:9px;padding:2px 6px;border-radius:8px;background:${approved?'var(--green-lt)':'var(--bg)'};color:${approved?'var(--green)':'var(--text3)'}">${approved?'承認済':'未承認'}</span></td>
         <td class="li-del">${approveBtn}${delBtn}</td>
       </tr>`;
     }).join('');
