@@ -3390,18 +3390,29 @@ async function addArrRowToCostNow(payload, btnEl, onSuccess){
   btnEl.disabled = true;
   btnEl.textContent = '...';
   try{
-    await bookingCostsApiCall('insert', { rows: [{
+    const newCostRow = {
       booking_id: bookingId,
       item_name: payload.itemName,
       amount: 0,
       payment_date: payload.paymentDate,
       memo: `${payload.label}手配（支払方法: ${payload.paymentMethod}）から自動反映`,
       status: 'pending'
-    }] });
+    };
+    await bookingCostsApiCall('insert', { rows: [newCostRow] });
     if(payload.rowId){
       const {error} = await sb.from(payload.table).update({cost_added:true}).eq('id', payload.rowId);
       if(error) logError(`${payload.label}明細のcost_added更新`, error, {toast:false});
     }
+    // DBへの追加が成功したら、画面下部の「仕入明細」セクションにもリロード不要でその場で
+    // 反映されるよう、bdCostItems(仕入明細タブの表示用配列)へ同じ内容を追加して再描画する。
+    bdCostItems.push({
+      item_name: newCostRow.item_name,
+      amount: newCostRow.amount,
+      payment_date: newCostRow.payment_date,
+      memo: newCostRow.memo,
+      status: newCostRow.status
+    });
+    renderCostTable();
     onSuccess();
     btnEl.textContent = '済み';
     btnEl.disabled = true;
