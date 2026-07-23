@@ -515,10 +515,12 @@ input[type=number]{-moz-appearance:textfield}
   <div class="login-box">
     <div class="login-logo">✈ KIC Travel Core</div>
     <div class="login-sub">Ver 2.0 · INBOUND · マルチデバイス対応</div>
-    <div class="fld"><label>ユーザーID / Email</label><input id="login-id" type="text" placeholder="name@kictravel.jp"></div>
-    <div class="fld"><label>パスワード</label><input id="login-pw" type="password" placeholder="••••••••"></div>
-    <div class="login-err" id="login-err">IDまたはパスワードが正しくありません</div>
-    <button class="btn-login" onclick="doLogin()">ログイン</button>
+    <form onsubmit="doLogin(); return false;">
+      <div class="fld"><label>ユーザーID / Email</label><input id="login-id" name="username" type="text" autocomplete="username" placeholder="name@kictravel.jp"></div>
+      <div class="fld"><label>パスワード</label><input id="login-pw" name="password" type="password" autocomplete="current-password" placeholder="••••••••"></div>
+      <div class="login-err" id="login-err">IDまたはパスワードが正しくありません</div>
+      <button class="btn-login" type="submit">ログイン</button>
+    </form>
   </div>
 </div>
 
