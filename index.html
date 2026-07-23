@@ -88,16 +88,18 @@ table{width:100%;border-collapse:collapse;font-size:12px}
   #pg-booking-list .bl-table,#pg-dashboard .tbl-wrap .bl-table{table-layout:auto;min-width:0;width:100%}
   #pg-booking-list .bl-table th:nth-child(2),#pg-booking-list .bl-table td:nth-child(2),
   #pg-dashboard .bl-table th:nth-child(2),#pg-dashboard .bl-table td:nth-child(2),
-  #pg-booking-list .bl-table th:nth-child(5),#pg-booking-list .bl-table td:nth-child(5),
-  #pg-dashboard .bl-table th:nth-child(5),#pg-dashboard .bl-table td:nth-child(5),
+  #pg-booking-list .bl-table th:nth-child(3),#pg-booking-list .bl-table td:nth-child(3),
+  #pg-dashboard .bl-table th:nth-child(3),#pg-dashboard .bl-table td:nth-child(3),
   #pg-booking-list .bl-table th:nth-child(6),#pg-booking-list .bl-table td:nth-child(6),
-  #pg-dashboard .bl-table th:nth-child(6),#pg-dashboard .bl-table td:nth-child(6){display:none}
+  #pg-dashboard .bl-table th:nth-child(6),#pg-dashboard .bl-table td:nth-child(6),
+  #pg-booking-list .bl-table th:nth-child(7),#pg-booking-list .bl-table td:nth-child(7),
+  #pg-dashboard .bl-table th:nth-child(7),#pg-dashboard .bl-table td:nth-child(7){display:none}
   #pg-booking-list .bl-table th:nth-child(1),#pg-booking-list .bl-table td:nth-child(1),
   #pg-dashboard .bl-table th:nth-child(1),#pg-dashboard .bl-table td:nth-child(1){width:62px}
-  #pg-booking-list .bl-table th:nth-child(4),#pg-booking-list .bl-table td:nth-child(4),
-  #pg-dashboard .bl-table th:nth-child(4),#pg-dashboard .bl-table td:nth-child(4){width:68px}
-  #pg-booking-list .bl-table th:nth-child(7),#pg-booking-list .bl-table td:nth-child(7),
-  #pg-dashboard .bl-table th:nth-child(7),#pg-dashboard .bl-table td:nth-child(7){width:60px}
+  #pg-booking-list .bl-table th:nth-child(5),#pg-booking-list .bl-table td:nth-child(5),
+  #pg-dashboard .bl-table th:nth-child(5),#pg-dashboard .bl-table td:nth-child(5){width:68px}
+  #pg-booking-list .bl-table th:nth-child(8),#pg-booking-list .bl-table td:nth-child(8),
+  #pg-dashboard .bl-table th:nth-child(8),#pg-dashboard .bl-table td:nth-child(8){width:60px}
 }
 th{font-size:10px;color:var(--text3);font-weight:600;padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);white-space:nowrap}
 td{padding:8px 8px;border-bottom:1px solid var(--border);vertical-align:middle}
@@ -153,13 +155,14 @@ th.sortable:hover{color:var(--blue)}
 }
 @media(max-width:768px){
   #db-thead th,#db-tbody td,#bl-thead th,#bl-tbody td{display:none}
-  #db-thead th:nth-child(1),#db-thead th:nth-child(3),#db-thead th:nth-child(4),
-  #db-tbody tr td:nth-child(1),#db-tbody tr td:nth-child(3),#db-tbody tr td:nth-child(4),
-  #bl-thead th:nth-child(1),#bl-thead th:nth-child(3),#bl-thead th:nth-child(4),
-  #bl-tbody tr td:nth-child(1),#bl-tbody tr td:nth-child(3),#bl-tbody tr td:nth-child(4){display:table-cell;white-space:normal;overflow:visible;text-overflow:clip}
+  #db-thead th:nth-child(1),#db-thead th:nth-child(4),#db-thead th:nth-child(5),#db-thead th:nth-child(8),
+  #db-tbody tr td:nth-child(1),#db-tbody tr td:nth-child(4),#db-tbody tr td:nth-child(5),#db-tbody tr td:nth-child(8),
+  #bl-thead th:nth-child(1),#bl-thead th:nth-child(4),#bl-thead th:nth-child(5),#bl-thead th:nth-child(8),
+  #bl-tbody tr td:nth-child(1),#bl-tbody tr td:nth-child(4),#bl-tbody tr td:nth-child(5),#bl-tbody tr td:nth-child(8){display:table-cell;white-space:normal;overflow:visible;text-overflow:clip}
   #db-thead th:nth-child(1),#db-tbody tr td:nth-child(1),#bl-thead th:nth-child(1),#bl-tbody tr td:nth-child(1){width:15%!important}
-  #db-thead th:nth-child(3),#db-tbody tr td:nth-child(3),#bl-thead th:nth-child(3),#bl-tbody tr td:nth-child(3){width:50%!important}
-  #db-thead th:nth-child(4),#db-tbody tr td:nth-child(4),#bl-thead th:nth-child(4),#bl-tbody tr td:nth-child(4){width:35%!important}
+  #db-thead th:nth-child(4),#db-tbody tr td:nth-child(4),#bl-thead th:nth-child(4),#bl-tbody tr td:nth-child(4){width:38%!important}
+  #db-thead th:nth-child(5),#db-tbody tr td:nth-child(5),#bl-thead th:nth-child(5),#bl-tbody tr td:nth-child(5){width:27%!important}
+  #db-thead th:nth-child(8),#db-tbody tr td:nth-child(8),#bl-thead th:nth-child(8),#bl-tbody tr td:nth-child(8){width:20%!important}
 }
 .menu-btn{display:none;align-items:center;justify-content:center;width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:#fff;cursor:pointer;margin-right:8px}
 
@@ -644,7 +647,7 @@ input[type=number]{-moz-appearance:textfield}
           <div class="card-title">予約一覧</div>
           <div class="tbl-wrap"><table class="bl-table">
             <thead id="db-thead"></thead>
-            <tbody id="db-tbody"><tr><td colspan="7" class="empty">読み込み中...</td></tr></tbody>
+            <tbody id="db-tbody"><tr><td colspan="8" class="empty">読み込み中...</td></tr></tbody>
           </table></div>
         </div>
       </div>
@@ -772,7 +775,7 @@ input[type=number]{-moz-appearance:textfield}
           <div class="card-title">Booking List</div>
           <div class="tbl-wrap"><table class="bl-table">
             <thead id="bl-thead"></thead>
-            <tbody id="bl-tbody"><tr><td colspan="7" class="empty">読み込み中...</td></tr></tbody>
+            <tbody id="bl-tbody"><tr><td colspan="8" class="empty">読み込み中...</td></tr></tbody>
           </table></div>
         </div>
       </div>
@@ -2699,9 +2702,9 @@ const LIST_PAGE_SIZE = 100;
 const listState = { db:{page:1, sortField:null, sortDir:1}, bl:{page:1, sortField:null, sortDir:1} };
 
 const LIST_COLUMNS = [
-  ['ref_no','REF#',true,'62px'], ['agent_name','Agent',true,'25%'], ['tour_name','Tour',true,'20%'],
-  ['in_date','In',true,'12%'], ['out_date','Out',true,'12%'], ['pax','Pax',true,'7%'],
-  ['status','Status',true,'10%']
+  ['ref_no','REF#',true,'62px'], ['agent_name','Agent',true,'22%'], ['tour_code','Tour Code',true,'9%'], ['tour_name','Tour Name',true,'16%'],
+  ['in_date','In',true,'11%'], ['out_date','Out',true,'11%'], ['pax','Pax',true,'6%'],
+  ['status','Status',true,'9%']
 ];
 
 function renderListHeader(prefix){
@@ -2726,7 +2729,7 @@ function sortBookingList(prefix, field){
 const TEMP_DEFAULT_FROM = '2026-03-01';
 
 async function loadBookingListGeneric(prefix){
-  document.getElementById(prefix+'-tbody').innerHTML='<tr><td colspan="7" class="empty">読み込み中...</td></tr>';
+  document.getElementById(prefix+'-tbody').innerHTML='<tr><td colspan="8" class="empty">読み込み中...</td></tr>';
   renderListHeader(prefix);
   allBookingsCache = await fetchAllBookings();
   listState[prefix].page = 1;
@@ -3157,7 +3160,7 @@ function filterBookingListGeneric(prefix){
 
   let filtered = allBookingsCache.filter(b=>{
     if(q){
-      const hay = `${b.ref_no||''} ${b.agent_name||''} ${b.tour_name||''}`.toLowerCase();
+      const hay = `${b.ref_no||''} ${b.agent_name||''} ${b.tour_code||''} ${b.tour_name||''}`.toLowerCase();
       if(!hay.includes(q)) return false;
     }
     if(from && (!b.in_date || b.in_date < from)) return false;
@@ -3193,7 +3196,7 @@ function filterBookingListGeneric(prefix){
   renderListHeader(prefix);
 
   const tbody = document.getElementById(prefix+'-tbody');
-  if(filtered.length===0){ tbody.innerHTML='<tr><td colspan="7" class="empty">該当する予約がありません</td></tr>'; return; }
+  if(filtered.length===0){ tbody.innerHTML='<tr><td colspan="8" class="empty">該当する予約がありません</td></tr>'; return; }
 
   // ページネーション
   let page = listState[prefix].page;
@@ -3206,7 +3209,7 @@ function filterBookingListGeneric(prefix){
 
   tbody.innerHTML = pageData.map(b=>{
     return `<tr ondblclick="openBookingDetail('${b.id}')">
-      <td class="lnk" onclick="openBookingDetail('${b.id}')">${b.ref_no}</td><td>${b.agent_name||''}</td><td>${b.tour_name||''}</td>
+      <td class="lnk" onclick="openBookingDetail('${b.id}')">${b.ref_no}</td><td>${b.agent_name||''}</td><td>${b.tour_code||''}</td><td>${b.tour_name||''}</td>
       <td>${b.in_date||''}</td><td>${b.out_date||''}</td><td>${b.pax||0}</td>
       <td>${statusPill(b.status)}</td>
     </tr>`;
@@ -3214,7 +3217,7 @@ function filterBookingListGeneric(prefix){
 
   // ページネーションUI
   if(totalPages > 1){
-    let pager = `<tr><td colspan="7" style="text-align:center;padding:10px">`;
+    let pager = `<tr><td colspan="8" style="text-align:center;padding:10px">`;
     pager += `<button class="btn" ${page<=1?'disabled':''} onclick="listGoPage('${prefix}',${page-1})">← 前へ</button> `;
     pager += `<span style="margin:0 10px;font-size:11px;color:var(--text3)">ページ ${page} / ${totalPages}</span>`;
     pager += `<button class="btn" ${page>=totalPages?'disabled':''} onclick="listGoPage('${prefix}',${page+1})">次へ →</button>`;
