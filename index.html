@@ -5735,10 +5735,10 @@ function renderGuideSettlements(){
       ? s.guide_names
       : [{name: s.guide_name||'', phone: s.guide_phone||'', advance_payment: s.advance_payment||0, additional_advance_payment: s.additional_advance_payment||0, guide_fee: s.guide_fee||0}];
 
-    const bulkBtns = '<div style="position:sticky;top:50px;z-index:9;background:var(--bg);padding:6px 0;margin-bottom:8px;display:flex;gap:6px;justify-content:flex-end;border-bottom:1px solid var(--border)"><button class="btn" style="font-size:11px;padding:4px 10px;color:var(--red);border-color:var(--red)" onclick="deleteCheckedGuideItems()">削除</button><button class="btn" style="font-size:11px;padding:4px 10px;background:var(--green);color:#fff;border-color:var(--green)" onclick="reviewCheckedGuideItems(\'approved\')">承認</button></div>';
+    const bulkBtns = '<div style="position:sticky;top:50px;z-index:9;background:var(--bg);padding:4px 0;margin-bottom:5px;display:flex;gap:6px;justify-content:flex-end;border-bottom:1px solid var(--border)"><button class="btn" style="font-size:11px;padding:3px 10px;color:var(--red);border-color:var(--red)" onclick="deleteCheckedGuideItems()">削除</button><button class="btn" style="font-size:11px;padding:3px 10px;background:var(--green);color:#fff;border-color:var(--green)" onclick="reviewCheckedGuideItems(\'approved\')">承認</button></div>';
 
     const sortBtnStyle = (key) => `font-size:10px;padding:2px 8px;border-radius:6px;border:1px solid var(--border);background:${gsSortKey===key?'var(--blue)':'#fff'};color:${gsSortKey===key?'#fff':'var(--text2)'};cursor:pointer`;
-    const sortBar = `<div style="display:flex;gap:4px;margin-bottom:6px;align-items:center"><span style="font-size:10px;color:var(--text3)">並び替え:</span><button style="${sortBtnStyle('expense_date')}" onclick="gsSort('expense_date')">日付${gsSortKey==='expense_date'?(gsSortDir===1?'▲':'▼'):''}</button><button style="${sortBtnStyle('receipt_no')}" onclick="gsSort('receipt_no')">No${gsSortKey==='receipt_no'?(gsSortDir===1?'▲':'▼'):''}</button><button style="${sortBtnStyle('status')}" onclick="gsSort('status')">ステータス${gsSortKey==='status'?(gsSortDir===1?'▲':'▼'):''}</button></div>`;
+    const sortBar = `<div style="display:flex;gap:4px;margin-bottom:4px;align-items:center"><span style="font-size:10px;color:var(--text3)">並び替え:</span><button style="${sortBtnStyle('expense_date')}" onclick="gsSort('expense_date')">日付${gsSortKey==='expense_date'?(gsSortDir===1?'▲':'▼'):''}</button><button style="${sortBtnStyle('receipt_no')}" onclick="gsSort('receipt_no')">No${gsSortKey==='receipt_no'?(gsSortDir===1?'▲':'▼'):''}</button><button style="${sortBtnStyle('status')}" onclick="gsSort('status')">ステータス${gsSortKey==='status'?(gsSortDir===1?'▲':'▼'):''}</button></div>`;
     let itemsHtml;
     if(items.length===0){
       itemsHtml = '<div class="empty" style="font-size:11px;padding:4px 0">まだ送信された項目はありません</div>';
@@ -5760,8 +5760,8 @@ function renderGuideSettlements(){
     }
 
     const guideFieldsHtml = guideList.map((g,i)=>`
-      <div style="border:1px solid var(--border);border-radius:8px;padding:6px 8px;margin-bottom:4px">
-        <div style="font-size:11px;font-weight:700;margin-bottom:4px">${escHtml(g.name)}</div>
+      <div style="border:1px solid var(--border);border-radius:8px;padding:4px 6px;margin-bottom:3px">
+        <div style="font-size:11px;font-weight:700;margin-bottom:2px">${escHtml(g.name)}</div>
         <div class="gs-fields-row" style="margin-bottom:0">
           <div class="gs-field"><label>携帯番号</label><input value="${escAttr(g.phone)}" onchange="updateGuideEntryField('${s.id}',${i},'phone',this.value)"></div>
           <div class="gs-field"><label>仮払金${g.advance_manual_override?' <span style="color:var(--amber,#c90)" title="仕入明細からの自動集計を手動で上書き中">✋手動</span>':''}</label><input type="text" inputmode="numeric" style="text-align:right" value="${fmtAmt(g.advance_payment||0)}" onchange="updateGuideEntryField('${s.id}',${i},'advance_payment',parseAmt(this.value))" onblur="amtBlur(this)"></div>
@@ -5784,8 +5784,8 @@ function renderGuideSettlements(){
       </div>
       ${guideFieldsHtml}
       ${bulkBtns}${sortBar}${itemsHtml}
-      <div style="margin-top:8px;padding:6px 0;border-top:2px dashed var(--border)">
-        <div style="font-size:11px;font-weight:700;color:var(--primary);margin-bottom:6px">＋ KICスタッフが行を追加</div>
+      <div style="margin-top:6px;padding:4px 0;border-top:2px dashed var(--border)">
+        <div style="font-size:11px;font-weight:700;color:var(--primary);margin-bottom:4px">＋ KICスタッフが行を追加</div>
         <div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center">
           <input type="date" min="1900-01-01" max="9999-12-31" id="kic-add-date-${s.id}" style="font-size:11px;border:1px solid var(--border);border-radius:4px;padding:2px 4px">
           <select id="kic-add-cat-${s.id}" style="font-size:11px;border:1px solid var(--border);border-radius:4px;padding:2px 4px">
@@ -5805,8 +5805,7 @@ function renderGuideSettlements(){
           <button class="btn btn-p" style="font-size:11px;padding:3px 10px" onclick="kicAddSettlementItem('${s.id}')">追加</button>
         </div>
       </div>
-      <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
-        
+      <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
         ${guideList.length>1 ? guideList.map((g,i)=>`<button class="btn" style="font-size:10px" onclick="printGuideSettlement('${s.id}',${i})">🖨 ${escHtml(g.name)}の精算書を印刷</button><button class="btn" style="font-size:10px" onclick="printGuideVouchers('${s.id}',${i})">🧾 ${escHtml(g.name)}の伝票を印刷</button>${isAccountingUser()?`<button class="btn" style="font-size:10px" onclick="reflectVoucherToCost('${s.id}',${i})">📋 伝票内容を仕入明細に反映</button>`:''}${isAccountingUser()?`<button class="btn" style="font-size:10px" onclick="reflectVoucherToCost('${s.id}',${i})">📋 伝票内容を仕入明細に反映</button>`:''}${isAccountingUser()?`<button class="btn" style="font-size:10px" onclick="reflectVoucherToCost('${s.id}',${i})">📋 伝票内容を仕入明細に反映</button>`:''}`).join('') : `<button class="btn" style="font-size:10px" onclick="printGuideSettlement('${s.id}',0)">🖨 精算書を印刷</button><button class="btn" style="font-size:10px" onclick="printGuideVouchers('${s.id}',0)">🧾 伝票を印刷</button>${isAccountingUser()?`<button class="btn" style="font-size:10px" onclick="reflectVoucherToCost('${s.id}',0)">📋 伝票内容を仕入明細に反映</button>`:''}`}
         ${s.status!=='closed' ? `<button class="btn" style="font-size:10px" onclick="closeGuideSettlement('${s.id}')">この精算を締める</button>` : (isAccountingUser() ? `<button class="btn" style="font-size:10px" onclick="reopenGuideSettlement('${s.id}')">🔓 締めを解除</button>` : '')}
         <button class="btn" style="font-size:10px;color:var(--red);border-color:var(--red);margin-left:auto" onclick="deleteGuideSettlement('${s.id}')">🗑 精算リンクを削除</button>
