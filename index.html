@@ -1972,10 +1972,10 @@ input[type=number]{-moz-appearance:textfield}
     </div>
 
     <div class="modal-section-title">ガイド精算</div>
-    <div id="bd-guide-settlements" style="margin-bottom:6px"></div>
-    <div style="border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:6px">
-      <div style="font-size:10px;color:var(--text3);font-weight:600;margin-bottom:6px">新しく精算リンクを発行（このツアーを担当するガイドを1名以上登録）</div>
-      <div id="bd-new-guide-list" style="display:flex;flex-direction:column;gap:4px;margin-bottom:6px"></div>
+    <div id="bd-guide-settlements" style="margin-bottom:4px"></div>
+    <div style="border:1px solid var(--border);border-radius:8px;padding:6px;margin-bottom:4px">
+      <div style="font-size:10px;color:var(--text3);font-weight:600;margin-bottom:4px">新しく精算リンクを発行（このツアーを担当するガイドを1名以上登録）</div>
+      <div id="bd-new-guide-list" style="display:flex;flex-direction:column;gap:3px;margin-bottom:4px"></div>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         <div style="position:relative;flex:1 1 220px;max-width:260px">
           <input id="bd-new-guide-name" placeholder="ガイド名を検索または入力" autocomplete="off"
@@ -1985,8 +1985,6 @@ input[type=number]{-moz-appearance:textfield}
         </div>
         <input id="bd-new-guide-phone" placeholder="電話番号" style="max-width:130px;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:12px">
         <button class="btn" style="font-size:10px" onclick="addGuideToNewList()">＋ ガイドを追加</button>
-      </div>
-      <div style="margin-top:6px">
         <button class="btn btn-p" style="font-size:10px" onclick="createGuideSettlement()">＋ ガイド精算リンクを発行</button>
         <span class="msg-ok" id="gs-msg">✓ リンクを発行しました</span>
       </div>
