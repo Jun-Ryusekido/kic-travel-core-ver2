@@ -2256,10 +2256,31 @@ function toggleStatusDropdown(btn){
   popup.id = 'status-dd-popup';
   popup.className = 'st-dd-list';
   const rect = btn.getBoundingClientRect();
+  // 選択肢が多い(9色ステータス等)場合、常に下方向・固定位置で開くと画面下端を超えて
+  // はみ出し、かつ従来はmax-height/overflow-yを設定していなかったため、下側の選択肢
+  // (Closed/Cancelled等)が画面外に隠れて選択不可になっていた。
+  // 下にスペースが十分あれば下へ、無ければ上へ自動フリップし、いずれの場合も
+  // 実際に使える高さ(spaceBelow/spaceAbove)を上限としてmax-height+overflow-y:autoを
+  // 動的に設定することで、フリップ後もなお収まらない分は一覧内スクロールで
+  // 全選択肢に到達できるようにする。
+  const margin = 8;
+  const desiredMax = 260;
+  const spaceBelow = window.innerHeight - rect.bottom - margin;
+  const spaceAbove = rect.top - margin;
+  let top, maxHeight;
+  if(spaceBelow >= 120 || spaceBelow >= spaceAbove){
+    top = rect.bottom + 2;
+    maxHeight = Math.max(80, Math.min(desiredMax, spaceBelow));
+  } else {
+    maxHeight = Math.max(80, Math.min(desiredMax, spaceAbove));
+    top = rect.top - 2 - maxHeight;
+  }
   popup.style.position = 'fixed';
-  popup.style.top = (rect.bottom+2)+'px';
+  popup.style.top = top+'px';
   popup.style.left = rect.left+'px';
   popup.style.minWidth = rect.width+'px';
+  popup.style.maxHeight = maxHeight+'px';
+  popup.style.overflowY = 'auto';
   popup.innerHTML = btn.getAttribute('data-dd-items')||'';
   document.body.appendChild(popup);
   _statusDropdownBtn = btn;
