@@ -3832,6 +3832,7 @@ function renderCostTable(){
   if(_dateInputFocusedIn('bd-cost-tbody')) return;
   const tbody = document.getElementById('bd-cost-tbody');
   const dis = bdLocked ? 'disabled' : '';
+  const disPayDate = (bdLocked || !isAccountingUser()) ? 'disabled' : '';
 
   const searchEl = document.getElementById('bd-cost-search');
   if(searchEl && searchEl.value !== bdCostSearch) searchEl.value = bdCostSearch;
@@ -3877,7 +3878,7 @@ function renderCostTable(){
       return `<tr${rowBg}>
         <td data-label="仕入先"><input ${dis} value="${(it.item_name||'').replace(/"/g,'&quot;')}" title="${(it.item_name||'').replace(/"/g,'&quot;')}" oninput="bdCostItems[${i}].item_name=this.value;showSupplierSuggestions(this,${i})" onblur="setTimeout(hideSupplierSuggestions,150)" onfocus="showSupplierSuggestions(this,${i})"></td>
         <td data-label="仕入額" style="text-align:right"><input ${dis} type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="bdCostRowCalc(${i},this)" style="text-align:right"></td>
-        <td data-label="出金日" style="text-align:center"><input ${dis} type="date" min="1900-01-01" max="9999-12-31" value="${_safeDate(it.payment_date)}" onchange="bdCostItems[${i}].payment_date=this.value" style="text-align:center"></td>
+        <td data-label="出金日" style="text-align:center"><input ${disPayDate} type="date" min="1900-01-01" max="9999-12-31" value="${_safeDate(it.payment_date)}" onchange="bdCostItems[${i}].payment_date=this.value" style="text-align:center"></td>
         <td data-label="支払方法"><select ${dis} onchange="bdCostItems[${i}].payment_method=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px"><option value="" ${!it.payment_method?'selected':''}></option>${LOCAL_EXPENSE_PAYMENT_METHODS.map(m=>`<option value="${m}" ${it.payment_method===m?'selected':''}>${m}</option>`).join('')}</select></td>
         <td data-label="備考"><input ${dis} value="${(it.memo||'').replace(/"/g,'&quot;')}" title="${(it.memo||'').replace(/"/g,'&quot;')}" onchange="bdCostItems[${i}].memo=this.value"></td>
         <td class="li-del">${approveBtn}${delBtn}</td>
