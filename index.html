@@ -1692,7 +1692,7 @@ input[type=number]{-moz-appearance:textfield}
           <span id="rest-ocr-status" style="font-size:11px;color:var(--text3)"></span>
         </div>
       </div>
-      <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:1040px">
+      <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:980px">
         <thead><tr>
           <th style="width:160px">店名</th>
           <th style="width:70px">食事種別</th>
@@ -1702,8 +1702,7 @@ input[type=number]{-moz-appearance:textfield}
           <th style="width:80px">金額</th>
           <th style="width:80px">ステータス</th>
           <th style="width:90px">支払方法</th>
-          <th style="width:150px">ガイド</th>
-          <th style="width:140px">備考</th>
+          <th style="width:220px">備考</th>
           <th class="li-del"></th>
         </tr></thead>
         <tbody id="bd-restaurants-tbody"></tbody>
@@ -9195,21 +9194,9 @@ function renderRestaurantTable(){
   });
   const total = bdRestaurantItems.reduce((s,it)=>s+Number(it.amount||0),0);
   if(bdRestaurantItems.length===0){
-    tbody.innerHTML='<tr><td colspan="11" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
+    tbody.innerHTML='<tr><td colspan="10" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
   }else{
     tbody.innerHTML = bdRestaurantItems.map((it,i)=>{
-      const selectedGuide = it.guide_id ? guideRegistryCache.find(g=>String(g.id)===String(it.guide_id)) : null;
-      const freetextMode = !!it._freetextMode || (!it.guide_id && !!it.guide_name_freetext);
-      const guideCell = freetextMode
-        ? `<td data-label="ガイド">
-            <input type="text" value="${escAttr(it.guide_name_freetext)}" placeholder="未入力ならガイドを使用" oninput="bdRestaurantItems[${i}].guide_name_freetext=this.value" style="width:100%">
-            <div style="font-size:9px;margin-top:2px"><span class="lnk" onclick="switchRestGuideRowToSearchMode(${i})">🔍 マスタから選ぶ</span></div>
-          </td>`
-        : `<td data-label="ガイド" style="position:relative">
-            <input type="text" id="rest-guide-search-${i}" value="${escAttr(selectedGuide ? guideDisplayLabel(selectedGuide) : '')}" placeholder="未入力ならガイドを使用" autocomplete="off"
-                   oninput="filterRestGuideSuggest(${i})" onfocus="showRestGuideSuggest(${i})" onblur="setTimeout(()=>hideRestGuideSuggest(${i}),200)" style="width:100%">
-            <div id="rest-guide-dd-${i}" style="display:none;position:fixed;background:var(--card,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:99999;max-height:220px;overflow-y:auto"></div>
-          </td>`;
       return `<tr>
       <td data-label="店名" style="position:relative">
         <input value="${escAttr(it.restaurant_name)}" oninput="bdRestaurantItems[${i}].restaurant_name=this.value;showRestaurantSuggest(this,${i})" onfocus="showRestaurantSuggest(this,${i})" onblur="setTimeout(hideRestaurantSuggest,200)" style="width:100%">
@@ -9226,7 +9213,6 @@ function renderRestaurantTable(){
       <td data-label="金額"><input type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="restaurantAmountCalc(${i},this)"></td>
       <td data-label="ステータス">${arrStatusDropdownHtml('bdRestaurantItems', i, it.status, ['未予約','問い合わせ中','手配OK','FNL済','NG回答','キャンセル'], '問い合わせ中', 'renderRestaurantTable')}</td>
       <td data-label="支払方法"><select onchange="bdRestaurantItems[${i}].payment_method=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px"><option value="" ${!it.payment_method?'selected':''}></option><option value="請求書払い" ${it.payment_method==='請求書払い'?'selected':''}>請求書払い</option><option value="現金払い" ${it.payment_method==='現金払い'?'selected':''}>現金払い</option><option value="その他" ${it.payment_method==='その他'?'selected':''}>その他</option></select></td>
-      ${guideCell}
       <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdRestaurantItems[${i}].memo=this.value" style="width:100%"></td>
       ${arrDelBtnHtml('bdRestaurantItems', i, 'renderRestaurantTable', escAttr([it.date, it.meal_type, it.restaurant_name].filter(Boolean).join(' '))+' の行を削除しますか？', 'duplicateRestaurantRow')}
     </tr>`;
@@ -9242,62 +9228,6 @@ function addRestaurantRow(){
   renderRestaurantTable();
 }
 
-// レストラン行ごとの「ガイド」欄。ガイドタブ(bdGuideItems)で使っている検索・
-// 携帯番号自動補完の仕組み(guideRegistryCache/guideDisplayLabel等)をそのまま流用し、
-// 行単位で別のガイドを指定できるようにする(2班体制で同じレストランを別々のガイドが
-// 同行するケース等)。未入力(guide_id・guide_name_freetextとも空)の場合、ミールバウチャー
-// 発行時は従来通り予約全体のガイド(arr-guide-name/arr-guide-phone)にフォールバックする。
-function filterRestGuideSuggest(i){
-  const q = document.getElementById('rest-guide-search-'+i)?.value||'';
-  if(!q.trim()) bdRestaurantItems[i].guide_id = null;
-  renderRestGuideDropdown(i, q);
-}
-function showRestGuideSuggest(i){
-  renderRestGuideDropdown(i, document.getElementById('rest-guide-search-'+i)?.value||'');
-}
-function hideRestGuideSuggest(i){
-  const dd = document.getElementById('rest-guide-dd-'+i);
-  if(dd) dd.style.display = 'none';
-}
-function renderRestGuideDropdown(i, q){
-  const dd = document.getElementById('rest-guide-dd-'+i);
-  if(!dd) return;
-  const query = toHalfWidth(q.trim().toLowerCase());
-  const filtered = query
-    ? guideRegistryCache.filter(g=>{
-        const hay = `${g.name||''} ${g.name_kana||''} ${g.phone||''}`.toLowerCase();
-        return toHalfWidth(hay).includes(query);
-      })
-    : guideRegistryCache.slice(0,50);
-  const listHtml = filtered.length
-    ? filtered.slice(0,100).map(g=>`<div data-id="${g.id}" onmousedown="selectRestGuideItem(${i},this.dataset.id)" style="padding:8px 10px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''"><b>${escHtml(g.name||'')}</b>${g.phone?` <span style="color:var(--text3);font-size:10px">${escHtml(g.phone)}</span>`:''}</div>`).join('')
-    : `<div style="padding:8px 10px;font-size:11px;color:var(--text3)">該当なし</div>`;
-  dd.innerHTML = listHtml +
-    `<div onmousedown="switchRestGuideRowToFreetext(${i})" style="padding:8px 10px;font-size:12px;cursor:pointer;color:var(--blue);border-top:1px solid var(--border)">✏️ その他（自由入力）</div>` +
-    `<div onmousedown="openNewGuideModal(${i},'rest')" style="padding:8px 10px;font-size:12px;cursor:pointer;color:var(--green)">＋ 新規ガイドを登録</div>`;
-  _positionDropdownNearInput(document.getElementById('rest-guide-search-'+i), dd);
-  dd.style.display = 'block';
-}
-function selectRestGuideItem(i, guideId){
-  const g = guideRegistryCache.find(x=>String(x.id)===String(guideId));
-  if(!g) return;
-  bdRestaurantItems[i].guide_id = g.id;
-  bdRestaurantItems[i].guide_name_freetext = '';
-  bdRestaurantItems[i]._freetextMode = false;
-  hideRestGuideSuggest(i);
-  renderRestaurantTable();
-}
-function switchRestGuideRowToFreetext(i){
-  bdRestaurantItems[i].guide_id = null;
-  bdRestaurantItems[i]._freetextMode = true;
-  hideRestGuideSuggest(i);
-  renderRestaurantTable();
-}
-function switchRestGuideRowToSearchMode(i){
-  bdRestaurantItems[i]._freetextMode = false;
-  bdRestaurantItems[i].guide_name_freetext = '';
-  renderRestaurantTable();
-}
 // 到着日〜出発日の期間分、各日「昼食」「夕食」の空行をあらかじめ用意する。
 // 既存の行（店名入力済み・自動生成済み問わず）は壊さず、同じ日付・食事種別の
 // 組み合わせがまだ存在しない分だけを追加する（何度呼んでも重複しない）。
@@ -10189,7 +10119,7 @@ function switchGuideRowToSearchMode(i){
 // 軽量モーダルとして別に用意している（登録先のguidesテーブル・guideRegistryCacheは共通）。
 function openNewGuideModal(i, ctx){
   ctx = ctx || 'bd';
-  if(ctx==='arr') hideArrGuideSuggest(i); else if(ctx==='rest') hideRestGuideSuggest(i); else hideGuideSuggest(i);
+  if(ctx==='arr') hideArrGuideSuggest(i); else hideGuideSuggest(i);
   window._newGuideForRowIndex = i;
   window._newGuideForCtx = ctx;
   document.getElementById('new-guide-modal')?.remove();
@@ -10232,13 +10162,6 @@ async function submitNewGuide(){
       if(!bdArrGuideItems[i].phone) bdArrGuideItems[i].phone = data.phone || '';
       bdArrGuideItems[i]._freetextMode = false;
       renderArrGuideTable();
-    }
-  } else if(ctx==='rest'){
-    if(i!=null && bdRestaurantItems[i]){
-      bdRestaurantItems[i].guide_id = data.id;
-      bdRestaurantItems[i].guide_name_freetext = '';
-      bdRestaurantItems[i]._freetextMode = false;
-      renderRestaurantTable();
     }
   } else if(ctx==='settle'){
     // ガイド精算セクションからの追加登録。ガイドタブ(booking_guides)にも新規行として
@@ -14421,6 +14344,21 @@ function addHotelBookingRow(){
 }
 
 // ===== ミールバウチャー発行 =====
+// レストラン行ごとの「ガイド」欄は廃止し、ミールバウチャー発行時にその行の日付が
+// ガイドタブ(bdGuideItems=booking_guides)の担当日(From〜To)の範囲に含まれるガイドを
+// 自動的に引用する。該当0人なら空欄、1人なら自動採用、複数人いる場合のみ
+// (2班体制で日付が重複するケース)、その行に限りモーダル上で手動選択させる。
+function matchGuidesForDate(dateStr){
+  if(!dateStr || !bdGuideItems) return [];
+  return bdGuideItems.filter(g=>g.start_date && g.end_date && dateStr>=g.start_date && dateStr<=g.end_date);
+}
+function guideMasterInfo(g){
+  if(g.guide_id){
+    const master = guideRegistryCache.find(x=>String(x.id)===String(g.guide_id));
+    return {guide_id:g.guide_id, name: master?.name||'', phone: master?.phone||''};
+  }
+  return {guide_id:null, name: g.guide_name_freetext||'', phone:''};
+}
 function openVoucherModal(){
   if(!currentDetailId){ alert('予約詳細を開いてください'); return; }
   document.getElementById('vc-guide-name').value = document.getElementById('arr-guide-name')?.value || '';
@@ -14430,12 +14368,19 @@ function openVoucherModal(){
   document.getElementById('voucher-modal').style.display = 'flex';
 }
 
-// 中間モーダルを介さず、ボタン押下で直接PDFを新タブ生成する
+// 中間モーダルを介さず、ボタン押下で直接PDFを新タブ生成する。
+// ただし、いずれかの行で該当日に複数ガイドが重複している場合は自動選択できないため、
+// その場合のみモーダルを開いて手動選択を求める(該当なしなら従来通り直接生成する)。
 async function generateMealVoucherDirect(){
   if(!currentDetailId){ alert('予約詳細を開いてください'); return; }
   document.getElementById('vc-guide-name').value = document.getElementById('arr-guide-name')?.value || '';
   document.getElementById('vc-guide-phone').value = document.getElementById('arr-guide-phone')?.value || '';
   _renderVoucherEntries();
+  const hasAmbiguousGuide = (bdRestaurantItems||[]).some(r=>matchGuidesForDate(r.date).length>1);
+  if(hasAmbiguousGuide){
+    document.getElementById('voucher-modal').style.display = 'flex';
+    return;
+  }
   await generateMealVoucher();
 }
 
@@ -14449,15 +14394,38 @@ function _renderVoucherEntries(){
     container.innerHTML = '<p style="color:var(--text3);font-size:12px;padding:8px">レストランデータがありません。予約詳細のレストラン欄にデータを追加してください。</p>';
     return;
   }
-  container.innerHTML = bdRestaurantItems.map((r,i)=>`
+  container.innerHTML = bdRestaurantItems.map((r,i)=>{
+    const matches = matchGuidesForDate(r.date);
+    let guideRow = '';
+    if(matches.length>1){
+      const options = matches.map(g=>{
+        const info = guideMasterInfo(g);
+        return `<option value='${escAttr(JSON.stringify(info))}'>${escHtml(info.name)}${info.phone?'（'+escHtml(info.phone)+'）':''}</option>`;
+      }).join('');
+      guideRow = `<div class="form-field" style="margin-bottom:8px">
+        <label style="font-size:10px">ガイド（${r.date||''}に${matches.length}名が担当予定のため選択してください）</label>
+        <select id="vc-r-guide-${i}" style="font-size:12px">
+          <option value="">未選択</option>
+          ${options}
+        </select>
+      </div>`;
+    }else if(matches.length===1){
+      const info = guideMasterInfo(matches[0]);
+      guideRow = `<div style="font-size:11px;color:var(--text3);margin-bottom:8px">ガイド（自動引用）: ${escHtml(info.name)}${info.phone?'（'+escHtml(info.phone)+'）':''}</div>`;
+    }else{
+      guideRow = `<div style="font-size:11px;color:var(--text3);margin-bottom:8px">ガイド（自動引用）: 該当ガイドなし（空欄）</div>`;
+    }
+    return `
     <div style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px">
       <div style="font-size:13px;font-weight:700;margin-bottom:10px">${i+1}. ${escHtml(r.restaurant_name||'（名称未設定）')} <span style="font-size:11px;color:var(--text3);font-weight:400">${escHtml(r.meal_type||'')}${r.date?' / '+r.date:''}</span></div>
+      ${guideRow}
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:8px">
         <div class="form-field"><label style="font-size:10px">支払方法</label><input id="vc-r-payment-${i}" value="請求書払い" style="font-size:12px"></div>
       </div>
       <div class="form-field"><label style="font-size:10px">備考</label><input id="vc-r-memo-${i}" value="${escAttr(r.memo||'')}" style="font-size:12px;width:100%"></div>
     </div>
-  `).join('');
+  `;
+  }).join('');
 }
 
 async function generateMealVoucher(){
@@ -14487,8 +14455,29 @@ async function generateMealVoucher(){
 
   const restaurants = bdRestaurantItems.map((r,i)=>{
     const sup = supplierByName[normName(r.restaurant_name)];
+    // ガイド欄は行ごとの手入力を廃止し、この時点で日付一致で自動決定する。
+    // 複数候補がある行はモーダルの手動選択(vc-r-guide-i)の値を優先する。
+    const manualSelect = document.getElementById(`vc-r-guide-${i}`);
+    let rowGuideId = null, rowGuideFreetext = '';
+    if(manualSelect){
+      const v = manualSelect.value;
+      if(v){
+        const info = JSON.parse(v);
+        rowGuideId = info.guide_id||null;
+        rowGuideFreetext = info.guide_id ? '' : (info.name||'');
+      }
+    }else{
+      const matches = matchGuidesForDate(r.date);
+      if(matches.length===1){
+        const info = guideMasterInfo(matches[0]);
+        rowGuideId = info.guide_id;
+        rowGuideFreetext = info.guide_id ? '' : info.name;
+      }
+    }
     return {
       ...r,
+      guide_id: rowGuideId,
+      guide_name_freetext: rowGuideFreetext,
       payment_method: document.getElementById(`vc-r-payment-${i}`)?.value||'請求書払い',
       memo:        document.getElementById(`vc-r-memo-${i}`)?.value||'',
       restaurant_name_en: sup ? (sup.company_name_en||'') : '',
@@ -14751,9 +14740,9 @@ function _buildVoucherHtml(restaurants, tourName, guideName, guidePhone){
     const ctrlLabel   = isKic ? 'KIC控え' : 'レストラン控え';
     const dateDisp    = r.date||'';
     const timeDisp    = (r.reservation_time||'').slice(0,5);
-    // 行(レストラン明細)ごとに個別のガイドが指定されていればそちらを優先し(2班体制で
-    // 同じレストランを別々のガイドが同行するケース等)、未入力の場合は従来通り
-    // 予約全体のガイド(guideName/guidePhone、arr-guide-name/arr-guide-phone由来)を使う。
+    // 行(レストラン明細)のガイド名は、その日付にbooking_guidesで担当予定のガイドから
+    // generateMealVoucher()側で既に確定済み(guide_id/guide_name_freetext)。該当ガイドが
+    // いない行は空欄のままにする(予約全体のガイドへのフォールバックは行わない)。
     let rowGuideName = '', rowGuidePhone = '';
     if(r.guide_id){
       const g = guideRegistryCache.find(x=>String(x.id)===String(r.guide_id));
@@ -14761,9 +14750,7 @@ function _buildVoucherHtml(restaurants, tourName, guideName, guidePhone){
     } else if(r.guide_name_freetext){
       rowGuideName = r.guide_name_freetext;
     }
-    const guideText   = rowGuideName
-      ? [eh(rowGuideName), eh(rowGuidePhone)].filter(Boolean).join(' ')
-      : [eh(guideName), eh(guidePhone)].filter(Boolean).join(' ');
+    const guideText   = [eh(rowGuideName), eh(rowGuidePhone)].filter(Boolean).join(' ');
     const payText     = eh(r.payment_method||'請求書払い');
     const memoText    = eh(r.memo||'');
     const nameJp      = eh(r.restaurant_name||'');
