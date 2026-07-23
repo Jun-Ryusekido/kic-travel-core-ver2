@@ -1779,6 +1779,7 @@ input[type=number]{-moz-appearance:textfield}
       <button class="btn" style="font-size:10px;margin-top:4px" onclick="addBulletTrainRow()">＋ 行追加</button>
       <button class="btn" style="font-size:10px;margin-top:4px" onclick="triggerBdBulletCsvImport()">📥 CSV取込</button>
       <input type="file" id="bd-bullet-csv-file" accept=".csv" style="display:none" onchange="onBdBulletCsvFileSelected(event)">
+      <div style="font-size:10px;color:var(--text3);margin-top:4px">※このタブは1予約用のシンプルなCSV専用です。VIEW/びゅうのエクスポートファイルはサイドバー「新幹線手配」ページからご利用ください。</div>
       <div class="li-total">新幹線合計: <span id="bd-bullet-total">¥0</span></div>
     </div>
 
@@ -9869,7 +9870,7 @@ async function onBdBulletCsvFileSelected(e){
   const iRideDate = idx('乗車日');
   const iTrainName = idx('列車名');
   if(iRideDate<0 && iTrainName<0){
-    alert('CSVの形式が正しくありません。1行目の見出しに「乗車日」「列車名」等の列が見つかりません。');
+    alert('CSVの形式が正しくありません。1行目の見出しに「乗車日」「列車名」等の列が見つかりません。\n\nVIEW/びゅうのエクスポートファイルを取り込みたい場合は、サイドバーの「新幹線手配」ページをご利用ください。');
     return;
   }
   const iTrainNumber = idx('号数');
