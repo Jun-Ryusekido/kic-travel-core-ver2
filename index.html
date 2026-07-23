@@ -3837,8 +3837,8 @@ function renderCostTable(){
       const approved = it.status==='approved';
       const rowBg = approved ? ' style="background:var(--green-lt)"' : '';
       const approveBtn = bdLocked ? '' : (approved
-        ? `<button class="btn" disabled style="font-size:10px;padding:1px 6px;margin-right:4px;background:var(--green-lt);color:var(--green);border-color:var(--green)" title="承認済み">✓</button>`
-        : `<button class="btn" style="font-size:10px;padding:1px 6px;margin-right:4px;color:var(--green)" onclick="approveCostRow(${i})" title="承認">✓</button>`);
+        ? `<button class="btn" disabled style="font-size:9px;padding:1px 6px;margin-right:4px;white-space:nowrap;background:var(--green-lt);color:var(--green);border-color:var(--green)">承認済</button>`
+        : `<button class="btn" style="font-size:9px;padding:1px 6px;margin-right:4px;white-space:nowrap;color:var(--text3)" onclick="approveCostRow(${i})">未承認</button>`);
       const delBtn = bdLocked ? '' : `<button class="btn" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="removeCostRow(${i})">✕</button>`;
       return `<tr${rowBg}>
         <td data-label="仕入先"><input ${dis} value="${(it.item_name||'').replace(/"/g,'&quot;')}" title="${(it.item_name||'').replace(/"/g,'&quot;')}" oninput="bdCostItems[${i}].item_name=this.value;showSupplierSuggestions(this,${i})" onblur="setTimeout(hideSupplierSuggestions,150)" onfocus="showSupplierSuggestions(this,${i})"></td>
