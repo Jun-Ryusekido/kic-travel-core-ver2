@@ -29,6 +29,18 @@ async function readJsonSafe(resp) {
   try { return await resp.json(); } catch (e) { return {}; }
 }
 
+// PostgRESTが"permission denied for table booking_sales"を返す典型的な原因は、
+// RLS/GRANTのロックダウンSQL(scripts/lock_down_booking_sales_writes.sql)実行時に
+// service_roleへのGRANT文が反映されていないケース(service_roleはRLSはバイパスするが、
+// テーブル自体へのGRANTが無ければ書き込めない)。原因調査を早くできるよう、その場合だけ
+// ヒントを付け足す。
+function withGrantHint(message) {
+  if (/permission denied for table/i.test(String(message || ''))) {
+    return `${message}\n\n（service_roleロールにbooking_salesへのGRANTが付与されていない可能性があります。Supabase SQL Editorで次を再実行してください: grant select, insert, update, delete on public.booking_sales to service_role; notify pgrst, 'reload schema';）`;
+  }
+  return message;
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (!getServiceKey()) return res.status(500).json({ error: 'サーバー側にSUPABASE_SERVICE_ROLE_KEYが設定されていません' });
@@ -53,14 +65,14 @@ export default async function handler(req, res) {
         const insRes = await bookingSalesFetch('', { method: 'POST', prefer: 'return=minimal', body: JSON.stringify(rows) });
         if (!insRes.ok) {
           const e = await readJsonSafe(insRes);
-          return res.status(500).json({ error: e.message || '売上明細の保存に失敗しました' });
+          return res.status(500).json({ error: withGrantHint(e.message) || '売上明細の保存に失敗しました' });
         }
       }
       if (existingIds.length) {
         const delRes = await bookingSalesFetch(`?id=in.(${existingIds.join(',')})`, { method: 'DELETE', prefer: 'return=minimal' });
         if (!delRes.ok) {
           const e = await readJsonSafe(delRes);
-          return res.status(500).json({ error: e.message || '売上明細の旧データ削除に失敗しました（新データは保存済みのため重複している可能性があります）' });
+          return res.status(500).json({ error: withGrantHint(e.message) || '売上明細の旧データ削除に失敗しました（新データは保存済みのため重複している可能性があります）' });
         }
       }
       return res.status(200).json({ ok: true });
@@ -75,7 +87,7 @@ export default async function handler(req, res) {
       });
       if (!upRes.ok) {
         const e = await readJsonSafe(upRes);
-        return res.status(500).json({ error: e.message || '入金反映に失敗しました' });
+        return res.status(500).json({ error: withGrantHint(e.message) || '入金反映に失敗しました' });
       }
       return res.status(200).json({ ok: true });
     }
@@ -89,7 +101,7 @@ export default async function handler(req, res) {
       });
       if (!delRes.ok) {
         const e = await readJsonSafe(delRes);
-        return res.status(500).json({ error: e.message || '売上明細の削除に失敗しました' });
+        return res.status(500).json({ error: withGrantHint(e.message) || '売上明細の削除に失敗しました' });
       }
       return res.status(200).json({ ok: true });
     }
