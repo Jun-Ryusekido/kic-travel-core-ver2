@@ -107,6 +107,15 @@ tr:hover td{background:var(--bg)}
 .arrtab-bar{flex-wrap:wrap}
 .arrtab-btn.active{background:var(--blue) !important;color:#fff !important;border-color:var(--blue) !important;font-weight:700;border-bottom:2px solid var(--blue) !important;margin-bottom:-2px !important}
 .pill{display:inline-flex;align-items:center;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;white-space:nowrap}
+/* ステータスのカスタムドロップダウン(st-dd)。ネイティブ<select>のoption個別背景色は
+   ブラウザ/OSによって開いた一覧が<select>自体の背景色一色でレンダリングされてしまい
+   (Windows版Chrome等)、選択肢ごとの色分けができない制約があるため、代わりにこの
+   button+ul/li風のポップアップリストで各選択肢を独自に描画・色分けする。*/
+.st-dd{position:relative;display:inline-block;width:100%}
+.st-dd-btn{width:100%;text-align:left;font-size:11px;padding:3px 4px;border:1px solid var(--border);border-radius:5px;cursor:pointer;font-weight:600;font-family:inherit}
+.st-dd-list{position:absolute;z-index:250;top:100%;left:0;min-width:110px;background:#fff;border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);overflow:hidden;margin-top:2px;max-height:220px;overflow-y:auto}
+.st-dd-item{padding:5px 8px;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap}
+.st-dd-item:hover{filter:brightness(0.93)}
 .s-open{background:var(--green-lt);color:#3B6D11}
 .s-closed{background:#F1EFE8;color:#5F5E5A}
 .s-pending{background:var(--amber-lt);color:var(--amber)}
@@ -1177,14 +1186,18 @@ input[type=number]{-moz-appearance:textfield}
             <div class="form-field" style="grid-column:1/-1"><label>REF#（ツアーコード）</label><input id="bt-m-booking-ref" placeholder="例: KIC250401-KK"></div>
             <div class="form-field"><label>乗車日</label><input id="bt-m-ride-date" type="date" min="1900-01-01" max="9999-12-31"></div>
             <div class="form-field"><label>ステータス</label>
-              <select id="bt-m-status">
-                <option value="未予約" style="background:var(--red-lt);color:var(--red)">未予約</option>
-                <option value="回答待ち" style="background:var(--amber-lt);color:var(--amber)">回答待ち</option>
-                <option value="手配OK" style="background:var(--green-lt);color:var(--green)">手配OK</option>
-                <option value="FNL済" style="background:var(--green2-lt);color:var(--green2)">FNL済</option>
-                <option value="NG回答" style="background:var(--red-lt);color:var(--red)">NG回答</option>
-                <option value="キャンセル" style="background:var(--red-lt);color:var(--red)">キャンセル</option>
-              </select>
+              <div class="st-dd">
+                <input type="hidden" id="bt-m-status" value="回答待ち">
+                <button type="button" class="st-dd-btn" style="background:var(--amber-lt);color:var(--amber)" onclick="event.stopPropagation();toggleStatusDropdown(this)">回答待ち <span style="font-size:9px">▾</span></button>
+                <div class="st-dd-list" style="display:none">
+                  <div class="st-dd-item" style="background:var(--red-lt);color:var(--red)" onclick="event.stopPropagation();setStatusDropdownValue(this,'bt-m-status','未予約')">未予約</div>
+                  <div class="st-dd-item" style="background:var(--amber-lt);color:var(--amber)" onclick="event.stopPropagation();setStatusDropdownValue(this,'bt-m-status','回答待ち')">回答待ち</div>
+                  <div class="st-dd-item" style="background:var(--green-lt);color:var(--green)" onclick="event.stopPropagation();setStatusDropdownValue(this,'bt-m-status','手配OK')">手配OK</div>
+                  <div class="st-dd-item" style="background:var(--green2-lt);color:var(--green2)" onclick="event.stopPropagation();setStatusDropdownValue(this,'bt-m-status','FNL済')">FNL済</div>
+                  <div class="st-dd-item" style="background:var(--red-lt);color:var(--red)" onclick="event.stopPropagation();setStatusDropdownValue(this,'bt-m-status','NG回答')">NG回答</div>
+                  <div class="st-dd-item" style="background:var(--red-lt);color:var(--red)" onclick="event.stopPropagation();setStatusDropdownValue(this,'bt-m-status','キャンセル')">キャンセル</div>
+                </div>
+              </div>
             </div>
             <div class="form-field"><label>列車名</label><input id="bt-m-train-name" placeholder="のぞみ"></div>
             <div class="form-field"><label>号数</label><input id="bt-m-train-number" placeholder="123号"></div>
@@ -2157,6 +2170,71 @@ function escAttr(s){ return escHtml(s).replace(/"/g,'&quot;'); }
 function statusBg(s){ return (s==='手配OK'||s==='確定') ? 'var(--green-lt)' : s==='FNL済' ? 'var(--green2-lt)' : s==='予約不要' ? 'var(--blue-lt)' : (s==='NG回答'||s==='キャンセル'||s==='未予約') ? 'var(--red-lt)' : 'var(--amber-lt)'; }
 function statusFg(s){ return (s==='手配OK'||s==='確定') ? 'var(--green)' : s==='FNL済' ? 'var(--green2)' : s==='予約不要' ? 'var(--blue)' : (s==='NG回答'||s==='キャンセル'||s==='未予約') ? 'var(--red)' : 'var(--amber)'; }
 function statusSelectStyle(s){ return `background:${statusBg(s)};color:${statusFg(s)}`; }
+
+// ステータスのカスタムドロップダウン。ネイティブ<select>のoptionごとの背景色指定は
+// ブラウザ/OS(特にWindows版Chrome)の制約で無視され、開いた一覧全体が<select>自身の
+// 背景色一色になってしまう不具合があったため、button+リストのカスタムUIに置き換える。
+//
+// 1) arrStatusDropdownHtml: bdHotelItems等の配列を直接書き換えて再描画するテーブル行用。
+//    arrLiteral/renderFnLiteralは実際のグローバル識別子名を文字列でそのまま埋め込み、
+//    生成されるonclick文字列の中で識別子として評価させる(トップレベルのlet/constは
+//    windowプロパティにならないため、window[arrName]のような間接参照ではなく、
+//    このように埋め込んだ識別子名をそのままJSソースとして展開する必要がある)。
+// 2) idStatusDropdownHtml: 予約時に document.getElementById(id).value を直接読む
+//    単発フィールド(新幹線編集モーダル・各種一括確認ダイアログの行)用。非表示inputに
+//    現在値を保持し、既存の読み取りコードを一切変更せずに済むようにする。
+function arrStatusDropdownHtml(arrLiteral, i, value, options, defaultVal, renderFnLiteral){
+  const cur = value || defaultVal;
+  const itemsHtml = options.map(o=>
+    `<div class="st-dd-item" style="background:${statusBg(o)};color:${statusFg(o)}" onclick="event.stopPropagation();${arrLiteral}[${i}].status='${o}';${renderFnLiteral}();closeStatusDropdowns()">${escHtml(o)}</div>`
+  ).join('');
+  return `<div class="st-dd">
+    <button type="button" class="st-dd-btn" style="background:${statusBg(cur)};color:${statusFg(cur)}" onclick="event.stopPropagation();toggleStatusDropdown(this)">${escHtml(cur)} <span style="font-size:9px">▾</span></button>
+    <div class="st-dd-list" style="display:none">${itemsHtml}</div>
+  </div>`;
+}
+function idStatusDropdownHtml(inputId, value, options, defaultVal){
+  const cur = value || defaultVal;
+  const itemsHtml = options.map(o=>
+    `<div class="st-dd-item" style="background:${statusBg(o)};color:${statusFg(o)}" onclick="event.stopPropagation();setStatusDropdownValue(this,'${inputId}','${escAttr(o)}')">${escHtml(o)}</div>`
+  ).join('');
+  return `<div class="st-dd">
+    <input type="hidden" id="${inputId}" value="${escAttr(cur)}">
+    <button type="button" class="st-dd-btn" style="background:${statusBg(cur)};color:${statusFg(cur)}" onclick="event.stopPropagation();toggleStatusDropdown(this)">${escHtml(cur)} <span style="font-size:9px">▾</span></button>
+    <div class="st-dd-list" style="display:none">${itemsHtml}</div>
+  </div>`;
+}
+function toggleStatusDropdown(btn){
+  const list = btn.nextElementSibling;
+  const willOpen = list.style.display === 'none';
+  closeStatusDropdowns();
+  list.style.display = willOpen ? 'block' : 'none';
+}
+function closeStatusDropdowns(){
+  document.querySelectorAll('.st-dd-list').forEach(el=>{ el.style.display = 'none'; });
+}
+function setStatusDropdownValue(itemEl, inputId, value){
+  const input = document.getElementById(inputId);
+  if(input) input.value = value;
+  syncStatusDropdownButton(inputId);
+  closeStatusDropdowns();
+}
+// idStatusDropdownHtml()で作った非表示inputに対し、document.getElementById(id).value=... の
+// ように直接値をセットするだけの既存コード(モーダルを開く際の初期値設定等)からでも、
+// 見た目のボタン(色・ラベル)を追従させたい場合に呼ぶ。
+function syncStatusDropdownButton(inputId){
+  const input = document.getElementById(inputId);
+  if(!input) return;
+  const wrap = input.closest('.st-dd');
+  if(!wrap) return;
+  const btn = wrap.querySelector('.st-dd-btn');
+  if(!btn) return;
+  const value = input.value;
+  btn.style.background = statusBg(value);
+  btn.style.color = statusFg(value);
+  btn.innerHTML = `${escHtml(value)} <span style="font-size:9px">▾</span>`;
+}
+document.addEventListener('click', ()=>{ closeStatusDropdowns(); });
 function _positionDropdownNearInput(input, dd){
   if(!input || !dd) return;
   const rect = input.getBoundingClientRect();
@@ -7247,7 +7325,7 @@ function renderHotelTable(){
         <td data-label="金額" style="text-align:right;white-space:nowrap" data-hotel-amount="${i}">${yen(it.amount||0)}</td>
         ${arrPaymentMethodSelectHtml('bdHotelItems', i, it.payment_method)}
         <td data-label="確認番号"><input value="${escAttr(it.confirmation_no)}" oninput="bdHotelItems[${i}].confirmation_no=this.value" style="width:100%"></td>
-        <td data-label="ステータス"><select onchange="bdHotelItems[${i}].status=this.value;this.style.background=statusBg(this.value);this.style.color=statusFg(this.value)" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px;${statusSelectStyle(it.status||'回答待ち')}"><option value="未予約" ${it.status==='未予約'?'selected':''} style="background:${statusBg('未予約')};color:${statusFg('未予約')}">未予約</option><option value="回答待ち" ${!it.status||it.status==='回答待ち'?'selected':''} style="background:${statusBg('回答待ち')};color:${statusFg('回答待ち')}">回答待ち</option><option value="手配OK" ${it.status==='手配OK'?'selected':''} style="background:${statusBg('手配OK')};color:${statusFg('手配OK')}">手配OK</option><option value="FNL済" ${it.status==='FNL済'?'selected':''} style="background:${statusBg('FNL済')};color:${statusFg('FNL済')}">FNL済</option><option value="NG回答" ${it.status==='NG回答'?'selected':''} style="background:${statusBg('NG回答')};color:${statusFg('NG回答')}">NG回答</option><option value="キャンセル" ${it.status==='キャンセル'?'selected':''} style="background:${statusBg('キャンセル')};color:${statusFg('キャンセル')}">キャンセル</option></select></td>
+        <td data-label="ステータス">${arrStatusDropdownHtml('bdHotelItems', i, it.status, ['未予約','回答待ち','手配OK','FNL済','NG回答','キャンセル'], '回答待ち', 'renderHotelTable')}</td>
         <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdHotelItems[${i}].memo=this.value" style="width:100%"></td>
         ${arrDelBtnHtml('bdHotelItems', i, 'renderHotelTable', escAttr([it.hotel_name, it.room_type, [it.check_in, it.check_out].filter(Boolean).join('〜')].filter(Boolean).join(' '))+' の行を削除しますか？')}
       </tr>`;
@@ -7337,7 +7415,7 @@ function renderBusTable(){
       <td data-label="終了日"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.end_date||''}" onchange="bdBusItems[${i}].end_date=this.value"></td>
       <td data-label="金額"><input type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="busAmountCalc(${i},this)"></td>
       ${arrPaymentMethodSelectHtml('bdBusItems', i, it.payment_method)}
-      <td data-label="ステータス"><select onchange="bdBusItems[${i}].status=this.value;this.style.background=statusBg(this.value);this.style.color=statusFg(this.value)" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px;${statusSelectStyle(it.status||'問い合わせ中')}"><option value="未予約" ${it.status==='未予約'?'selected':''} style="background:${statusBg('未予約')};color:${statusFg('未予約')}">未予約</option><option value="問い合わせ中" ${(it.status||'問い合わせ中')==='問い合わせ中'?'selected':''} style="background:${statusBg('問い合わせ中')};color:${statusFg('問い合わせ中')}">問い合わせ中</option><option value="手配OK" ${it.status==='手配OK'?'selected':''} style="background:${statusBg('手配OK')};color:${statusFg('手配OK')}">手配OK</option><option value="FNL済" ${it.status==='FNL済'?'selected':''} style="background:${statusBg('FNL済')};color:${statusFg('FNL済')}">FNL済</option><option value="NG回答" ${it.status==='NG回答'?'selected':''} style="background:${statusBg('NG回答')};color:${statusFg('NG回答')}">NG回答</option><option value="キャンセル" ${it.status==='キャンセル'?'selected':''} style="background:${statusBg('キャンセル')};color:${statusFg('キャンセル')}">キャンセル</option></select></td>
+      <td data-label="ステータス">${arrStatusDropdownHtml('bdBusItems', i, it.status, ['未予約','問い合わせ中','手配OK','FNL済','NG回答','キャンセル'], '問い合わせ中', 'renderBusTable')}</td>
       <td data-label="確認番号"><input value="${escAttr(it.confirmation_no)}" oninput="bdBusItems[${i}].confirmation_no=this.value" style="width:100%"></td>
       <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdBusItems[${i}].memo=this.value" style="width:100%"></td>
       ${arrDelBtnHtml('bdBusItems', i, 'renderBusTable', escAttr([it.bus_company, it.bus_type, [it.start_date, it.end_date].filter(Boolean).join('〜')].filter(Boolean).join(' '))+' の行を削除しますか？', 'duplicateBusRow')}
@@ -8937,7 +9015,7 @@ function showBusConfirmDialog(buses){
     <td data-label="開始日" style="padding:5px 4px"><input type="date" min="1900-01-01" max="9999-12-31" value="${b.start_date||''}" id="bus-c-start-${i}" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
     <td data-label="終了日" style="padding:5px 4px"><input type="date" min="1900-01-01" max="9999-12-31" value="${b.end_date||''}" id="bus-c-end-${i}" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
     <td data-label="金額" style="padding:5px 4px"><input type="number" value="${b.amount||0}" id="bus-c-amount-${i}" style="width:90px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;text-align:right"></td>
-    <td data-label="ステータス" style="padding:5px 4px"><select id="bus-c-status-${i}" style="font-size:11px;padding:3px;border:1px solid var(--border);border-radius:5px"><option value="未予約" ${b.status==='未予約'?'selected':''} style="background:${statusBg('未予約')};color:${statusFg('未予約')}">未予約</option><option value="問い合わせ中" ${(b.status||'問い合わせ中')==='問い合わせ中'?'selected':''} style="background:${statusBg('問い合わせ中')};color:${statusFg('問い合わせ中')}">問い合わせ中</option><option value="手配OK" ${b.status==='手配OK'?'selected':''} style="background:${statusBg('手配OK')};color:${statusFg('手配OK')}">手配OK</option><option value="FNL済" ${b.status==='FNL済'?'selected':''} style="background:${statusBg('FNL済')};color:${statusFg('FNL済')}">FNL済</option><option value="NG回答" ${b.status==='NG回答'?'selected':''} style="background:${statusBg('NG回答')};color:${statusFg('NG回答')}">NG回答</option><option value="キャンセル" ${b.status==='キャンセル'?'selected':''} style="background:${statusBg('キャンセル')};color:${statusFg('キャンセル')}">キャンセル</option></select></td>
+    <td data-label="ステータス" style="padding:5px 4px">${idStatusDropdownHtml('bus-c-status-'+i, b.status, ['未予約','問い合わせ中','手配OK','FNL済','NG回答','キャンセル'], '問い合わせ中')}</td>
     <td data-label="確認番号" style="padding:5px 4px"><input value="${escAttr(b.confirmation_no||'')}" id="bus-c-conf-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
     <td data-label="備考" style="padding:5px 4px"><input value="${escAttr(b.memo||'')}" id="bus-c-memo-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
   </tr>`).join('');
@@ -9038,7 +9116,7 @@ function renderRestaurantTable(){
       <td data-label="時刻"><input type="time" value="${it.reservation_time||''}" onchange="bdRestaurantItems[${i}].reservation_time=this.value" style="width:100%"></td>
       <td data-label="人数"><input type="number" value="${it.pax||0}" onchange="bdRestaurantItems[${i}].pax=Number(this.value)" style="width:100%"></td>
       <td data-label="金額"><input type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="restaurantAmountCalc(${i},this)"></td>
-      <td data-label="ステータス"><select onchange="bdRestaurantItems[${i}].status=this.value;this.style.background=statusBg(this.value);this.style.color=statusFg(this.value)" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px;${statusSelectStyle(it.status||'問い合わせ中')}"><option value="未予約" ${it.status==='未予約'?'selected':''} style="background:${statusBg('未予約')};color:${statusFg('未予約')}">未予約</option><option value="問い合わせ中" ${(it.status||'問い合わせ中')==='問い合わせ中'?'selected':''} style="background:${statusBg('問い合わせ中')};color:${statusFg('問い合わせ中')}">問い合わせ中</option><option value="手配OK" ${it.status==='手配OK'?'selected':''} style="background:${statusBg('手配OK')};color:${statusFg('手配OK')}">手配OK</option><option value="FNL済" ${it.status==='FNL済'?'selected':''} style="background:${statusBg('FNL済')};color:${statusFg('FNL済')}">FNL済</option><option value="NG回答" ${it.status==='NG回答'?'selected':''} style="background:${statusBg('NG回答')};color:${statusFg('NG回答')}">NG回答</option><option value="キャンセル" ${it.status==='キャンセル'?'selected':''} style="background:${statusBg('キャンセル')};color:${statusFg('キャンセル')}">キャンセル</option></select></td>
+      <td data-label="ステータス">${arrStatusDropdownHtml('bdRestaurantItems', i, it.status, ['未予約','問い合わせ中','手配OK','FNL済','NG回答','キャンセル'], '問い合わせ中', 'renderRestaurantTable')}</td>
       <td data-label="支払方法"><select onchange="bdRestaurantItems[${i}].payment_method=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px"><option value="" ${!it.payment_method?'selected':''}></option><option value="請求書払い" ${it.payment_method==='請求書払い'?'selected':''}>請求書払い</option><option value="現金払い" ${it.payment_method==='現金払い'?'selected':''}>現金払い</option><option value="その他" ${it.payment_method==='その他'?'selected':''}>その他</option></select></td>
       ${guideCell}
       <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdRestaurantItems[${i}].memo=this.value" style="width:100%"></td>
@@ -9265,7 +9343,7 @@ function showRestaurantConfirmDialog(restaurants){
     <td data-label="予約時刻" style="padding:5px 4px"><input type="time" value="${r.reservation_time||''}" id="rest-c-time-${i}" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
     <td data-label="人数" style="padding:5px 4px"><input type="number" value="${r.pax||0}" id="rest-c-pax-${i}" style="width:55px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;text-align:right"></td>
     <td data-label="金額" style="padding:5px 4px"><input type="number" value="${r.amount||0}" id="rest-c-amount-${i}" style="width:90px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;text-align:right"></td>
-    <td data-label="ステータス" style="padding:5px 4px"><select id="rest-c-status-${i}" style="font-size:11px;padding:3px;border:1px solid var(--border);border-radius:5px"><option value="未予約" ${r.status==='未予約'?'selected':''} style="background:${statusBg('未予約')};color:${statusFg('未予約')}">未予約</option><option value="問い合わせ中" ${(r.status||'問い合わせ中')==='問い合わせ中'?'selected':''} style="background:${statusBg('問い合わせ中')};color:${statusFg('問い合わせ中')}">問い合わせ中</option><option value="手配OK" ${r.status==='手配OK'?'selected':''} style="background:${statusBg('手配OK')};color:${statusFg('手配OK')}">手配OK</option><option value="FNL済" ${r.status==='FNL済'?'selected':''} style="background:${statusBg('FNL済')};color:${statusFg('FNL済')}">FNL済</option><option value="NG回答" ${r.status==='NG回答'?'selected':''} style="background:${statusBg('NG回答')};color:${statusFg('NG回答')}">NG回答</option><option value="キャンセル" ${r.status==='キャンセル'?'selected':''} style="background:${statusBg('キャンセル')};color:${statusFg('キャンセル')}">キャンセル</option></select></td>
+    <td data-label="ステータス" style="padding:5px 4px">${idStatusDropdownHtml('rest-c-status-'+i, r.status, ['未予約','問い合わせ中','手配OK','FNL済','NG回答','キャンセル'], '問い合わせ中')}</td>
     <td data-label="備考" style="padding:5px 4px"><input value="${escAttr(r.memo||'')}" id="rest-c-memo-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
   </tr>`).join('');
   document.getElementById('rest-confirm-modal')?.remove();
@@ -9336,7 +9414,7 @@ function renderFacilityTable(){
       <td data-label="日付"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.date||''}" onchange="bdFacilityItems[${i}].date=this.value"></td>
       <td data-label="人数"><input type="number" value="${it.pax||0}" onchange="bdFacilityItems[${i}].pax=Number(this.value)" style="width:100%"></td>
       <td data-label="金額"><input type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="facilityAmountCalc(${i},this)"></td>
-      <td data-label="ステータス"><select onchange="bdFacilityItems[${i}].status=this.value;this.style.background=statusBg(this.value);this.style.color=statusFg(this.value)" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px;${statusSelectStyle(it.status||'問い合わせ中')}"><option value="未予約" ${it.status==='未予約'?'selected':''} style="background:${statusBg('未予約')};color:${statusFg('未予約')}">未予約</option><option value="問い合わせ中" ${(it.status||'問い合わせ中')==='問い合わせ中'?'selected':''} style="background:${statusBg('問い合わせ中')};color:${statusFg('問い合わせ中')}">問い合わせ中</option><option value="手配OK" ${it.status==='手配OK'?'selected':''} style="background:${statusBg('手配OK')};color:${statusFg('手配OK')}">手配OK</option><option value="FNL済" ${it.status==='FNL済'?'selected':''} style="background:${statusBg('FNL済')};color:${statusFg('FNL済')}">FNL済</option><option value="NG回答" ${it.status==='NG回答'?'selected':''} style="background:${statusBg('NG回答')};color:${statusFg('NG回答')}">NG回答</option><option value="予約不要" ${it.status==='予約不要'?'selected':''} style="background:${statusBg('予約不要')};color:${statusFg('予約不要')}">予約不要</option><option value="キャンセル" ${it.status==='キャンセル'?'selected':''} style="background:${statusBg('キャンセル')};color:${statusFg('キャンセル')}">キャンセル</option></select></td>
+      <td data-label="ステータス">${arrStatusDropdownHtml('bdFacilityItems', i, it.status, ['未予約','問い合わせ中','手配OK','FNL済','NG回答','予約不要','キャンセル'], '問い合わせ中', 'renderFacilityTable')}</td>
       <td data-label="確認番号"><input value="${escAttr(it.confirmation_no)}" oninput="bdFacilityItems[${i}].confirmation_no=this.value" style="width:100%"></td>
       <td data-label="期限日"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.deadline_date||''}" onchange="bdFacilityItems[${i}].deadline_date=this.value"></td>
       <td data-label="支払方法"><select onchange="bdFacilityItems[${i}].payment_method=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px"><option value="" ${!it.payment_method?'selected':''}></option>${LOCAL_EXPENSE_PAYMENT_METHODS.map(m=>`<option value="${m}" ${it.payment_method===m?'selected':''}>${m}</option>`).join('')}</select></td>
@@ -9462,7 +9540,7 @@ function renderWaterTable(){
       <td data-label="単価"><input type="text" inputmode="numeric" value="${Number(it.unit_price||0).toLocaleString('ja-JP')}" onchange="bdWaterItems[${i}].unit_price=parseNum(this.value);this.value=bdWaterItems[${i}].unit_price.toLocaleString('ja-JP');waterAmountCalc(${i})"></td>
       <td data-label="金額" style="text-align:right;white-space:nowrap" data-water-amount="${i}">${yen(it.amount||0)}</td>
       ${arrPaymentMethodSelectHtml('bdWaterItems', i, it.payment_method)}
-      <td data-label="ステータス"><select onchange="bdWaterItems[${i}].status=this.value;this.style.background=statusBg(this.value);this.style.color=statusFg(this.value)" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px;${statusSelectStyle(it.status||'問い合わせ中')}"><option value="未予約" ${it.status==='未予約'?'selected':''} style="background:${statusBg('未予約')};color:${statusFg('未予約')}">未予約</option><option value="問い合わせ中" ${(it.status||'問い合わせ中')==='問い合わせ中'?'selected':''} style="background:${statusBg('問い合わせ中')};color:${statusFg('問い合わせ中')}">問い合わせ中</option><option value="手配OK" ${it.status==='手配OK'?'selected':''} style="background:${statusBg('手配OK')};color:${statusFg('手配OK')}">手配OK</option><option value="FNL済" ${it.status==='FNL済'?'selected':''} style="background:${statusBg('FNL済')};color:${statusFg('FNL済')}">FNL済</option><option value="NG回答" ${it.status==='NG回答'?'selected':''} style="background:${statusBg('NG回答')};color:${statusFg('NG回答')}">NG回答</option><option value="予約不要" ${it.status==='予約不要'?'selected':''} style="background:${statusBg('予約不要')};color:${statusFg('予約不要')}">予約不要</option><option value="キャンセル" ${it.status==='キャンセル'?'selected':''} style="background:${statusBg('キャンセル')};color:${statusFg('キャンセル')}">キャンセル</option></select></td>
+      <td data-label="ステータス">${arrStatusDropdownHtml('bdWaterItems', i, it.status, ['未予約','問い合わせ中','手配OK','FNL済','NG回答','予約不要','キャンセル'], '問い合わせ中', 'renderWaterTable')}</td>
       <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdWaterItems[${i}].memo=this.value" style="width:100%"></td>
       ${arrDelBtnHtml('bdWaterItems', i, 'renderWaterTable', escAttr([it.item_name, it.date].filter(Boolean).join(' '))+' の行を削除しますか？', 'duplicateWaterRow')}
     </tr>`).join('');
@@ -9603,7 +9681,7 @@ function showFacilityConfirmDialog(facilities){
     <td data-label="日付" style="padding:5px 4px"><input type="date" min="1900-01-01" max="9999-12-31" value="${f.date||''}" id="fac-c-date-${i}" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
     <td data-label="人数" style="padding:5px 4px"><input type="number" value="${f.pax||0}" id="fac-c-pax-${i}" style="width:55px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;text-align:right"></td>
     <td data-label="金額" style="padding:5px 4px"><input type="number" value="${f.amount||0}" id="fac-c-amount-${i}" style="width:90px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;text-align:right"></td>
-    <td data-label="ステータス" style="padding:5px 4px"><select id="fac-c-status-${i}" style="font-size:11px;padding:3px;border:1px solid var(--border);border-radius:5px"><option value="未予約" ${f.status==='未予約'?'selected':''} style="background:${statusBg('未予約')};color:${statusFg('未予約')}">未予約</option><option value="問い合わせ中" ${(f.status||'問い合わせ中')==='問い合わせ中'?'selected':''} style="background:${statusBg('問い合わせ中')};color:${statusFg('問い合わせ中')}">問い合わせ中</option><option value="手配OK" ${f.status==='手配OK'?'selected':''} style="background:${statusBg('手配OK')};color:${statusFg('手配OK')}">手配OK</option><option value="FNL済" ${f.status==='FNL済'?'selected':''} style="background:${statusBg('FNL済')};color:${statusFg('FNL済')}">FNL済</option><option value="NG回答" ${f.status==='NG回答'?'selected':''} style="background:${statusBg('NG回答')};color:${statusFg('NG回答')}">NG回答</option><option value="予約不要" ${f.status==='予約不要'?'selected':''} style="background:${statusBg('予約不要')};color:${statusFg('予約不要')}">予約不要</option><option value="キャンセル" ${f.status==='キャンセル'?'selected':''} style="background:${statusBg('キャンセル')};color:${statusFg('キャンセル')}">キャンセル</option></select></td>
+    <td data-label="ステータス" style="padding:5px 4px">${idStatusDropdownHtml('fac-c-status-'+i, f.status, ['未予約','問い合わせ中','手配OK','FNL済','NG回答','予約不要','キャンセル'], '問い合わせ中')}</td>
     <td data-label="確認番号" style="padding:5px 4px"><input value="${escAttr(f.confirmation_no||'')}" id="fac-c-conf-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
     <td data-label="備考" style="padding:5px 4px"><input value="${escAttr(f.memo||'')}" id="fac-c-memo-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
   </tr>`).join('');
@@ -9669,7 +9747,6 @@ function renderBulletTrainTable(){
     document.getElementById('bd-bullet-total').textContent = yen(0);
     return;
   }
-  const stStyle = s => statusSelectStyle(s);
   tbody.innerHTML = bdBulletTrainItems.map((it,i)=>`<tr>
     <td data-label="乗車日"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.ride_date||''}" onchange="bdBulletTrainItems[${i}].ride_date=this.value"></td>
     <td data-label="列車名"><input value="${escAttr(it.train_name)}" oninput="bdBulletTrainItems[${i}].train_name=this.value" style="width:100%" placeholder="のぞみ"></td>
@@ -9684,15 +9761,7 @@ function renderBulletTrainTable(){
     <td data-label="割引率(%)"><input type="number" value="${it.discount_rate||0}" onchange="bdBulletTrainItems[${i}].discount_rate=Number(this.value)" style="width:100%;text-align:right"></td>
     <td data-label="金額"><input type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="bulletTrainAmountCalc(${i},this)"></td>
     ${arrPaymentMethodSelectHtml('bdBulletTrainItems', i, it.payment_method)}
-    <td data-label="ステータス"><select style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px;font-weight:600;${stStyle(it.status||'回答待ち')}"
-      onchange="bdBulletTrainItems[${i}].status=this.value;renderBulletTrainTable()">
-      <option value="未予約" ${it.status==='未予約'?'selected':''} style="background:${statusBg('未予約')};color:${statusFg('未予約')}">未予約</option>
-      <option value="回答待ち" ${(it.status||'回答待ち')==='回答待ち'?'selected':''} style="background:${statusBg('回答待ち')};color:${statusFg('回答待ち')}">回答待ち</option>
-      <option value="手配OK" ${it.status==='手配OK'?'selected':''} style="background:${statusBg('手配OK')};color:${statusFg('手配OK')}">手配OK</option>
-      <option value="FNL済" ${it.status==='FNL済'?'selected':''} style="background:${statusBg('FNL済')};color:${statusFg('FNL済')}">FNL済</option>
-      <option value="NG回答" ${it.status==='NG回答'?'selected':''} style="background:${statusBg('NG回答')};color:${statusFg('NG回答')}">NG回答</option>
-      <option value="キャンセル" ${it.status==='キャンセル'?'selected':''} style="background:${statusBg('キャンセル')};color:${statusFg('キャンセル')}">キャンセル</option>
-    </select></td>
+    <td data-label="ステータス">${arrStatusDropdownHtml('bdBulletTrainItems', i, it.status, ['未予約','回答待ち','手配OK','FNL済','NG回答','キャンセル'], '回答待ち', 'renderBulletTrainTable')}</td>
     <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdBulletTrainItems[${i}].memo=this.value" style="width:100%"></td>
     ${arrDelBtnHtml('bdBulletTrainItems', i, 'renderBulletTrainTable', escAttr([it.ride_date, it.train_name, it.train_number, [it.departure_station, it.arrival_station].filter(Boolean).join('→')].filter(Boolean).join(' '))+' の行を削除しますか？', 'duplicateBulletTrainRow')}
   </tr>`).join('');
@@ -9878,7 +9947,7 @@ function renderGuideTable(){
       <td data-label="担当日(To)"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.end_date||''}" onchange="bdGuideItems[${i}].end_date=this.value"></td>
       <td data-label="金額"><input type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="guideAmountCalc(${i},this)"></td>
       ${arrPaymentMethodSelectHtml('bdGuideItems', i, it.payment_method)}
-      <td data-label="ステータス"><select onchange="bdGuideItems[${i}].status=this.value;this.style.background=statusBg(this.value);this.style.color=statusFg(this.value)" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px;${statusSelectStyle(it.status||'回答待ち')}"><option value="未予約" ${it.status==='未予約'?'selected':''} style="background:${statusBg('未予約')};color:${statusFg('未予約')}">未予約</option><option value="回答待ち" ${!it.status||it.status==='回答待ち'?'selected':''} style="background:${statusBg('回答待ち')};color:${statusFg('回答待ち')}">回答待ち</option><option value="手配OK" ${it.status==='手配OK'?'selected':''} style="background:${statusBg('手配OK')};color:${statusFg('手配OK')}">手配OK</option><option value="FNL済" ${it.status==='FNL済'?'selected':''} style="background:${statusBg('FNL済')};color:${statusFg('FNL済')}">FNL済</option><option value="NG回答" ${it.status==='NG回答'?'selected':''} style="background:${statusBg('NG回答')};color:${statusFg('NG回答')}">NG回答</option><option value="キャンセル" ${it.status==='キャンセル'?'selected':''} style="background:${statusBg('キャンセル')};color:${statusFg('キャンセル')}">キャンセル</option></select></td>
+      <td data-label="ステータス">${arrStatusDropdownHtml('bdGuideItems', i, it.status, ['未予約','回答待ち','手配OK','FNL済','NG回答','キャンセル'], '回答待ち', 'renderGuideTable')}</td>
       <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdGuideItems[${i}].memo=this.value" style="width:100%"></td>
       ${arrDelBtnHtml('bdGuideItems', i, 'renderGuideTable', escAttr([guideRowDisplayName(it), [it.start_date, it.end_date].filter(Boolean).join('〜')].filter(Boolean).join(' '))+' の行を削除しますか？')}
     </tr>`;
@@ -12378,7 +12447,7 @@ async function showHotelConfirmDialog(hotels){
       <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:11px">
         <span style="font-weight:600">${yen(amount)}</span>
         <span style="color:var(--text3)">確認番号: ${escHtml(h.confirmation_no||'')}</span>
-        <span>ステータス: <select id="hm-confirm-status-${i}" style="font-size:10px;padding:3px"><option value="未予約" style="background:${statusBg('未予約')};color:${statusFg('未予約')}">未予約</option><option value="回答待ち" style="background:${statusBg('回答待ち')};color:${statusFg('回答待ち')}">回答待ち</option><option value="手配OK" style="background:${statusBg('手配OK')};color:${statusFg('手配OK')}">手配OK</option><option value="FNL済" style="background:${statusBg('FNL済')};color:${statusFg('FNL済')}">FNL済</option><option value="NG回答" style="background:${statusBg('NG回答')};color:${statusFg('NG回答')}">NG回答</option><option value="キャンセル" style="background:${statusBg('キャンセル')};color:${statusFg('キャンセル')}">キャンセル</option></select></span>
+        <span>ステータス: ${idStatusDropdownHtml('hm-confirm-status-'+i, '', ['未予約','回答待ち','手配OK','FNL済','NG回答','キャンセル'], '回答待ち')}</span>
       </div>
     </div>`;
   }).join('');
@@ -13797,6 +13866,7 @@ function openBtModal(id){
   document.getElementById('bt-m-pax-free').value     = r.pax_free||0;
   document.getElementById('bt-m-discount').value     = r.discount_rate||0;
   document.getElementById('bt-m-status').value       = r.status||'回答待ち';
+  syncStatusDropdownButton('bt-m-status');
   document.getElementById('bt-m-memo').value         = r.memo||'';
   document.getElementById('bt-edit-modal').classList.add('open');
 }
