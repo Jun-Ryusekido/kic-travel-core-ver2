@@ -3371,8 +3371,8 @@ function isFreePaymentMethod(pm){
   return String(pm||'').includes('無料');
 }
 const ARR_COST_SECTION_MAP = {
-  hotel: {table:'booking_hotels', nameField:'hotel_name', dateField:'check_in', label:'ホテル'},
-  bus:   {table:'booking_buses', nameField:'bus_company', dateField:'start_date', label:'バス'},
+  hotel: {table:'booking_hotels', nameField:'hotel_name', dateField:'check_in', dateField2:'check_out', label:'ホテル'},
+  bus:   {table:'booking_buses', nameField:'bus_company', dateField:'start_date', dateField2:'end_date', label:'バス'},
   rest:  {table:'booking_restaurants', nameField:'restaurant_name', dateField:'date', label:'レストラン'},
   fac:   {table:'booking_facilities', nameField:'facility_name', dateField:'date', label:'観光施設・バス駐車場等'},
   water: {table:'booking_water_items', nameField:'item_name', dateField:'date', label:'ミネラルウォーター'},
@@ -3388,11 +3388,16 @@ function arrCostCheckboxHtml(arrName, i, it, kind){
   const sec = ARR_COST_SECTION_MAP[kind];
   // 出金日は経理担当者が実際の支払日を後から手入力する欄で、手配行の日付
   // (チェックイン日・利用日等)とは無関係のため、自動反映時には値を入れない(空欄のまま)。
+  // 備考欄には支払方法ではなく日付情報を入れる(全セクション共通フォーマット)。
+  const d1 = sanitizeDateField(it[sec.dateField]) || '';
+  const d2raw = sec.dateField2 ? (sanitizeDateField(it[sec.dateField2]) || '') : '';
+  const d2 = (d2raw && d2raw!==d1) ? d2raw : '';
+  const dateDisplay = d2 ? `${d1}〜${d2}` : d1;
   const payload = {
     table: sec.table,
     rowId: it.id || null,
     itemName: it[sec.nameField] || '',
-    paymentMethod: it.payment_method || '未設定',
+    dateDisplay: dateDisplay,
     label: sec.label
   };
   const json = JSON.stringify(payload).replace(/'/g,'&apos;');
@@ -3410,7 +3415,7 @@ async function addArrRowToCostNow(payload, btnEl, onSuccess){
       item_name: payload.itemName,
       amount: 0,
       payment_date: null,
-      memo: `${payload.label}手配（支払方法: ${payload.paymentMethod}）から自動反映`,
+      memo: `${payload.dateDisplay ? payload.dateDisplay+'、' : ''}${payload.label}手配から自動反映`,
       status: 'pending'
     };
     const insResult = await bookingCostsApiCall('insert', { rows: [newCostRow] });
