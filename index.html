@@ -188,10 +188,13 @@ th.sortable:hover{color:var(--blue)}
 .li-table input:focus{outline:none;border-color:var(--blue)}
 .li-table .li-del{white-space:nowrap;text-align:center;width:36px}
 .li-table .li-amt{white-space:nowrap;text-align:right;width:64px}
-/* 新幹線タブは列数が多く(min-width:1200px)、削除ボタンが表の右端にあると
-   横スクロールしないと見えないため、この表に限り削除ボタン列を画面右端に
-   固定表示(sticky)する。他のタブは列数が少なく通常の画面幅に収まるため対象外。 */
-#arrtab-bullet td.li-del, #arrtab-bullet th.li-del{position:sticky;right:0;background:var(--card);z-index:2;box-shadow:-2px 0 4px rgba(0,0,0,.08)}
+/* 新幹線・レストランタブは列数が多く、削除ボタンが表の右端にあると横スクロール
+   しないと見えないため、これらの表に限り削除ボタン列を画面右端に固定表示(sticky)
+   する。列幅の微調整だけでは画面幅によって隠れてしまう場合があったため、
+   幅に関わらず確実に操作できるようこの方式に統一する。他のタブは列数が少なく
+   通常の画面幅に収まるため対象外。 */
+#arrtab-bullet td.li-del, #arrtab-bullet th.li-del,
+#arrtab-rest td.li-del, #arrtab-rest th.li-del{position:sticky;right:0;background:var(--card);z-index:2;box-shadow:-2px 0 4px rgba(0,0,0,.08)}
 .li-total{text-align:right;margin-top:4px;font-size:11px;font-weight:700}
 @media(max-width:600px){.detail-summary{grid-template-columns:1fr 1fr}.detail-cols{grid-template-columns:1fr}}
 @media(max-width:768px){
@@ -396,8 +399,9 @@ input[type=number]{-moz-appearance:textfield}
   .confirm-table td[data-label="追加"]::before{display:none}
   .confirm-table tr.cost-sort-row{display:none}
   .confirm-table tr.section-row{border:none;border-radius:6px;padding:0;margin:12px 0 8px}
-  /* カード表示ではそもそも横スクロールが発生しないため、新幹線タブのsticky指定は解除する */
-  #arrtab-bullet td.li-del{position:static;box-shadow:none}
+  /* カード表示ではそもそも横スクロールが発生しないため、新幹線・レストランタブの
+     sticky指定は解除する */
+  #arrtab-bullet td.li-del, #arrtab-rest td.li-del{position:static;box-shadow:none}
   .confirm-table tr.section-row td{display:block!important;padding:6px 8px!important}
 }
 /* ===== エラートースト（画面右下、スマホは下部中央） ===== */
