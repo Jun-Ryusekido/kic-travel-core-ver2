@@ -4399,15 +4399,23 @@ async function generateLocalExpensesFromArrangements(){
   }
 
   const rows = [];
-  const mk = (expense_date, expense_type, content, category, amount, payment_method, needsCheck) => {
+  // 仮払い一覧表は「ガイドが現地で現金で支払う金額」の一覧のため、支払方法が「現地払い」
+  // 以外(請求書払い・全旅クーポン・事前決済・無料(FREE)・未設定等)の行は、行自体は
+  // 表示するが金額は0円にする(現地で現金を払う必要が無いことが一目で分かるようにするため)。
+  // 元の仕入明細(booking_costs)側の金額データ自体は一切変更しない(表示側のみの処理)。
+  // guide_settlementsの仮払金・追加仮払金はこの絞り込みの対象外(ガイドへの現金仮払い
+  // そのものであり、支払方法という概念を持たないため、skipPaymentFilter=trueで常に計上する)。
+  const mk = (expense_date, expense_type, content, category, amount, payment_method, needsCheck, skipPaymentFilter) => {
+    const rawAmount = Number(amount)||0;
+    const displayAmount = (skipPaymentFilter || payment_method==='現地払い') ? rawAmount : 0;
     rows.push({
       expense_date: expense_date||'',
       expense_type,
       content: needsCheck ? `${content}（要確認）` : content,
       category,
-      unit_price: Number(amount)||0,
+      unit_price: displayAmount,
       qty: 1,
-      amount: Number(amount)||0,
+      amount: displayAmount,
       payment_method: payment_method||'',
     });
   };
@@ -4464,8 +4472,8 @@ async function generateLocalExpensesFromArrangements(){
   // これは今回の「金額0円/未入力でも含める」対象タブ(ホテル・レストラン・観光施設・
   // ミネラルウォーター・バス・新幹線)には含まれないため、従来通り金額0円は対象外のままとする。
   guideSettlementRows.forEach(gs=>{
-    if(Number(gs.advance_payment)) mk(fallbackDate, 'その他', `${gs.guide_name||'ガイド'} 仮払金`, 'ゲスト', gs.advance_payment, '', true);
-    if(Number(gs.additional_advance_payment)) mk(fallbackDate, 'その他', `${gs.guide_name||'ガイド'} 仮払金追加`, 'ゲスト', gs.additional_advance_payment, '', true);
+    if(Number(gs.advance_payment)) mk(fallbackDate, 'その他', `${gs.guide_name||'ガイド'} 仮払金`, 'ゲスト', gs.advance_payment, '', true, true);
+    if(Number(gs.additional_advance_payment)) mk(fallbackDate, 'その他', `${gs.guide_name||'ガイド'} 仮払金追加`, 'ゲスト', gs.additional_advance_payment, '', true, true);
   });
 
   // 重複防止: 仮払い一覧表の「内容」列に既に同じ内容の行がある場合は、その項目は追加しない
