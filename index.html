@@ -1779,7 +1779,6 @@ input[type=number]{-moz-appearance:textfield}
       <button class="btn" style="font-size:10px;margin-top:4px" onclick="addBulletTrainRow()">＋ 行追加</button>
       <button class="btn" style="font-size:10px;margin-top:4px" onclick="triggerBdBulletCsvImport()">📥 CSV取込</button>
       <input type="file" id="bd-bullet-csv-file" accept=".csv" style="display:none" onchange="onBdBulletCsvFileSelected(event)">
-      <div style="font-size:10px;color:var(--text3);margin-top:4px">※このタブは1予約用のシンプルなCSV専用です。VIEW/びゅうのエクスポートファイルはサイドバー「新幹線手配」ページからご利用ください。</div>
       <div class="li-total">新幹線合計: <span id="bd-bullet-total">¥0</span></div>
     </div>
 
@@ -9854,12 +9853,18 @@ async function saveBulletTrainItems(){
   }
 }
 
-// 予約詳細モーダル内「新幹線」タブ用のCSV取込。サイドメニューの独立した「新幹線手配」
-// 一覧ページのCSV取込(VIEW/びゅう GroupTour CSV、複数REF#にまたがる専用フォーマット)とは別に、
-// この予約(現在開いているREF#固定)向けのシンプルなフラットCSV(1行1件、ヘッダー行あり)を
-// 取り込む。列名は日毎明細の入力項目(乗車日・列車名・号数・出発駅・出発時刻・到着駅・
-// 到着時刻・大人・小人・無償/無賃・割引率・金額・支払方法・ステータス・備考)にそのまま対応させる。
-// パース自体は既存のparseCsvRow/btNormalizeDate/btNormalizeTimeを流用する。
+// 予約詳細モーダル内「新幹線」タブ用のCSV取込。実運用ではVIEW/びゅうのエクスポートCSV
+// (複数REF#にまたがる専用フォーマット)しか使われていなかったため、サイドメニュー
+// 「新幹線手配」一覧ページと同じパース処理(parseViewCsv/btExtractRef/btNormalizeDate/
+// btNormalizeTime/btCsvStatusToDb、いずれもサイドバー版と共通の関数)を流用する。
+// サイドバー版は複数REF#をまとめて確認・取り込む一覧画面だが、こちらは「現在開いている
+// 予約」向けなので、CSV内から該当REF#のブロックだけを自動抽出し、他の明細タブと同じく
+// まずbdBulletTrainItems(メモリ上の配列)に追加するだけに留め、実際のDB保存は
+// 予約詳細モーダル下部の「保存」ボタンで行う(サイドバー版のようにこの場で直接
+// bullet_train_arrangementsへinsertはしない)。
+// 以前使われていた、単一予約向けのシンプルなフラットCSV(乗車日・列車名等をそのまま
+// 列名とする形式)を使っているケースが万一残っていた場合に備え、VIEW/びゅう形式として
+// 該当データが見つからなかった場合のみ、後方互換としてこの旧形式でのパースにフォールバックする。
 function triggerBdBulletCsvImport(){
   const el = document.getElementById('bd-bullet-csv-file');
   el.value = '';
@@ -9869,6 +9874,9 @@ function triggerBdBulletCsvImport(){
 async function onBdBulletCsvFileSelected(e){
   const file = e.target.files[0];
   if(!file) return;
+  const b = findBookingById(currentDetailId);
+  if(!b){ alert('予約情報が取得できませんでした。'); e.target.value=''; return; }
+
   const buf = await file.arrayBuffer();
   let text;
   try { text = new TextDecoder('shift-jis').decode(buf); }
@@ -9877,14 +9885,65 @@ async function onBdBulletCsvFileSelected(e){
   // 返すだけのため、例外の有無だけではUTF-8のCSV(Googleスプレッドシート等からの
   // エクスポートに多い)を正しく検知できない。見出し行に想定する列名が1つも
   // 見当たらない場合は文字化けとみなし、UTF-8として読み直す。
-  if(!/乗車日|列車名|出発駅|到着駅|支払方法/.test(text)){
+  if(!/乗車日|列車名|出発駅|到着駅|支払方法|団体名|グループ名|列車乗車日/.test(text)){
     try { text = new TextDecoder('utf-8').decode(buf); } catch(_){}
   }
   text = text.replace(/^﻿/, '');
 
+  // 1) まずVIEW/びゅう形式としてパースを試みる。
+  const blocks = parseViewCsv(text);
+  if(blocks.length){
+    const matchedBlocks = blocks.filter(block=>{
+      const groupName = block.header['団体名']||block.header['グループ名']||'';
+      const extractedRef = btExtractRef(groupName);
+      return extractedRef && extractedRef === b.ref_no;
+    });
+    if(!matchedBlocks.length){
+      alert(`CSVの中に、現在開いている予約（${b.ref_no}）に該当するデータが見つかりませんでした。CSV内の団体名・グループ名の記載をご確認ください。`);
+      e.target.value = '';
+      return;
+    }
+    const rows = [];
+    matchedBlocks.forEach(block=>{
+      block.details.forEach(d=>{
+        rows.push({
+          ride_date: btNormalizeDate(d['列車乗車日']||''),
+          train_name: d['列車名']||'',
+          train_number: d['列車番号']||'',
+          departure_station: d['出発駅']||'',
+          departure_time: btNormalizeTime(d['出発時間']||''),
+          arrival_station: d['到着駅']||'',
+          arrival_time: btNormalizeTime(d['到着時間']||''),
+          pax_adult: Number(d['乗車人数大人'])||0,
+          pax_child: Number(d['乗車人数小人'])||0,
+          pax_free: Number(d['無賃'])||0,
+          discount_rate: Number(d['列車割引率'])||0,
+          amount: 0,
+          payment_method: '',
+          status: btCsvStatusToDb(d['ステータス']||''),
+          memo: ''
+        });
+      });
+    });
+    if(!rows.length){
+      alert(`予約（${b.ref_no}）に該当するブロックは見つかりましたが、取り込める明細行がありませんでした。`);
+      e.target.value = '';
+      return;
+    }
+    if(!confirm(`CSVから${rows.length}件の新幹線データを、現在開いている予約（${b.ref_no}）に追加します。よろしいですか？`)) { e.target.value=''; return; }
+    bdBulletTrainItems.push(...rows);
+    renderBulletTrainTable();
+    alert(`✓ ${rows.length}件を追加しました。内容を確認し、保存を忘れずに行ってください。`);
+    e.target.value = '';
+    return;
+  }
+
+  // 2) VIEW/びゅう形式として認識できなかった場合のみ、旧来のシンプルなフラットCSV形式に
+  //    フォールバックする(後方互換)。
   const lines = text.split(/\r?\n/).filter(l=>l.trim().length>0);
   if(lines.length < 2){
-    alert('CSVの形式が正しくありません。見出し行とデータ行が必要です。');
+    alert(`CSVの形式が正しくありません。現在開いている予約（${b.ref_no}）に該当するデータが見つかりませんでした。`);
+    e.target.value = '';
     return;
   }
   const header = parseCsvRow(lines[0]).map(h=>h.trim());
@@ -9892,7 +9951,8 @@ async function onBdBulletCsvFileSelected(e){
   const iRideDate = idx('乗車日');
   const iTrainName = idx('列車名');
   if(iRideDate<0 && iTrainName<0){
-    alert('CSVの形式が正しくありません。1行目の見出しに「乗車日」「列車名」等の列が見つかりません。\n\nVIEW/びゅうのエクスポートファイルを取り込みたい場合は、サイドバーの「新幹線手配」ページをご利用ください。');
+    alert(`CSVの形式が正しくありません。現在開いている予約（${b.ref_no}）に該当するデータが見つからず、1行目の見出しにも「乗車日」「列車名」等の列が見つかりません。`);
+    e.target.value = '';
     return;
   }
   const iTrainNumber = idx('号数');
@@ -9936,15 +9996,16 @@ async function onBdBulletCsvFileSelected(e){
 
   if(!rows.length){
     alert('取り込めるデータ行が見つかりませんでした。CSVの内容を確認してください。');
+    e.target.value = '';
     return;
   }
 
-  const b = findBookingById(currentDetailId);
-  if(!confirm(`CSVから${rows.length}件の新幹線データを、現在開いている予約${b&&b.ref_no?'（'+b.ref_no+'）':''}に追加します。よろしいですか？`)) return;
+  if(!confirm(`CSVから${rows.length}件の新幹線データを、現在開いている予約（${b.ref_no}）に追加します。よろしいですか？`)) { e.target.value=''; return; }
 
   bdBulletTrainItems.push(...rows);
   renderBulletTrainTable();
   alert(`✓ ${rows.length}件を追加しました。内容を確認し、保存を忘れずに行ってください。`);
+  e.target.value = '';
 }
 
 // ─── ガイド ─────────────────────────────────────────────────────────────
