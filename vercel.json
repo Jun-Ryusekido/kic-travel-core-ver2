@@ -14,6 +14,7 @@
     { "src": "/api/extract-partner", "dest": "/api/extract-partner.js" },
     { "src": "/api/extract-receipt", "dest": "/api/extract-receipt.js" },
     { "src": "/api/extract-bankbook", "dest": "/api/extract-bankbook.js" },
+    { "src": "/api/extract-cardstatement", "dest": "/api/extract-cardstatement.js" },
     { "src": "/api/extract-email-refs", "dest": "/api/extract-email-refs.js" },
     { "src": "/api/classify-email-relevance", "dest": "/api/classify-email-relevance.js" },
     { "src": "/api/login", "dest": "/api/login.js" },
