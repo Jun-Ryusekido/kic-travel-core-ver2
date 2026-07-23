@@ -11,7 +11,7 @@
 <script src="arrangement_excel.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-:root{--blue:#185FA5;--blue-lt:#E6F1FB;--blue-bd:#B5D4F4;--green:#0F6E56;--green-lt:#EAF3DE;--green2:#2E7D32;--green2-lt:#E3F2E3;--amber:#854F0B;--amber-lt:#FAEEDA;--red:#A32D2D;--red-lt:#FCEBEB;--bg:#F4F3EE;--card:#FFFFFF;--border:#E3E1D9;--text:#1F1E1B;--text2:#5F5E5A;--text3:#9B998F}
+:root{--blue:#185FA5;--blue-lt:#E6F1FB;--blue-bd:#B5D4F4;--green:#0F6E56;--green-lt:#EAF3DE;--green2:#2E7D32;--green2-lt:#E3F2E3;--amber:#854F0B;--amber-lt:#FAEEDA;--red:#A32D2D;--red-lt:#FCEBEB;--grey:#5F5E5A;--grey-lt:#ECEAE4;--orange:#B35C00;--orange-lt:#FDEBD8;--purple:#6A3FA0;--purple-lt:#F1E9FA;--bg:#F4F3EE;--card:#FFFFFF;--border:#E3E1D9;--text:#1F1E1B;--text2:#5F5E5A;--text3:#9B998F}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Hiragino Kaku Gothic ProN",Meiryo,sans-serif;font-size:13px;color:var(--text);background:var(--bg)}
 #screen-login{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
 .login-box{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:32px 28px;width:100%;max-width:360px;box-shadow:0 2px 12px rgba(0,0,0,.04)}
@@ -1112,9 +1112,11 @@ input[type=number]{-moz-appearance:textfield}
               <select id="hm-matrix-ym" onchange="renderHmMatrix()" style="padding:6px 10px;border-radius:8px;border:1px solid var(--border);font-size:12px"></select>
               <span style="font-size:11px;color:var(--text3)">凡例：</span>
               <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:var(--green-lt);color:var(--green)">手配OK</span>
-              <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:var(--green2-lt);color:var(--green2)">FNL済</span>
+              <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:var(--blue-lt);color:var(--blue)">FNL済</span>
               <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:var(--amber-lt);color:var(--amber)">回答待ち</span>
-              <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:var(--red-lt);color:var(--red)">未予約・NG回答・キャンセル</span>
+              <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:var(--grey-lt);color:var(--grey)">未予約</span>
+              <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:var(--orange-lt);color:var(--orange)">NG回答</span>
+              <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:var(--red-lt);color:var(--red)">キャンセル</span>
             </div>
             <div id="hm-matrix-body" style="overflow-x:auto"></div>
           </div>
@@ -1125,9 +1127,11 @@ input[type=number]{-moz-appearance:textfield}
               <input id="hm-tour-search" placeholder="ツアーコードで絞り込み" oninput="renderHmTourTab()" style="padding:6px 10px;border-radius:8px;border:1px solid var(--border);font-size:12px;width:200px">
               <span style="font-size:11px;color:var(--text3)">凡例：</span>
               <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:var(--green-lt);color:var(--green)">手配OK</span>
-              <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:var(--green2-lt);color:var(--green2)">FNL済</span>
+              <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:var(--blue-lt);color:var(--blue)">FNL済</span>
               <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:var(--amber-lt);color:var(--amber)">回答待ち</span>
-              <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:var(--red-lt);color:var(--red)">未予約・NG回答・キャンセル</span>
+              <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:var(--grey-lt);color:var(--grey)">未予約</span>
+              <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:var(--orange-lt);color:var(--orange)">NG回答</span>
+              <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:var(--red-lt);color:var(--red)">キャンセル</span>
             </div>
             <div id="hm-tour-body" style="overflow-x:auto"></div>
           </div>
@@ -1190,11 +1194,11 @@ input[type=number]{-moz-appearance:textfield}
                 <input type="hidden" id="bt-m-status" value="回答待ち">
                 <button type="button" class="st-dd-btn" style="background:var(--amber-lt);color:var(--amber)" onclick="event.stopPropagation();toggleStatusDropdown(this)">回答待ち <span style="font-size:9px">▾</span></button>
                 <div class="st-dd-list" style="display:none">
-                  <div class="st-dd-item" style="background:var(--red-lt);color:var(--red)" onclick="event.stopPropagation();setStatusDropdownValue(this,'bt-m-status','未予約')">未予約</div>
+                  <div class="st-dd-item" style="background:var(--grey-lt);color:var(--grey)" onclick="event.stopPropagation();setStatusDropdownValue(this,'bt-m-status','未予約')">未予約</div>
                   <div class="st-dd-item" style="background:var(--amber-lt);color:var(--amber)" onclick="event.stopPropagation();setStatusDropdownValue(this,'bt-m-status','回答待ち')">回答待ち</div>
                   <div class="st-dd-item" style="background:var(--green-lt);color:var(--green)" onclick="event.stopPropagation();setStatusDropdownValue(this,'bt-m-status','手配OK')">手配OK</div>
-                  <div class="st-dd-item" style="background:var(--green2-lt);color:var(--green2)" onclick="event.stopPropagation();setStatusDropdownValue(this,'bt-m-status','FNL済')">FNL済</div>
-                  <div class="st-dd-item" style="background:var(--red-lt);color:var(--red)" onclick="event.stopPropagation();setStatusDropdownValue(this,'bt-m-status','NG回答')">NG回答</div>
+                  <div class="st-dd-item" style="background:var(--blue-lt);color:var(--blue)" onclick="event.stopPropagation();setStatusDropdownValue(this,'bt-m-status','FNL済')">FNL済</div>
+                  <div class="st-dd-item" style="background:var(--orange-lt);color:var(--orange)" onclick="event.stopPropagation();setStatusDropdownValue(this,'bt-m-status','NG回答')">NG回答</div>
                   <div class="st-dd-item" style="background:var(--red-lt);color:var(--red)" onclick="event.stopPropagation();setStatusDropdownValue(this,'bt-m-status','キャンセル')">キャンセル</div>
                 </div>
               </div>
@@ -2161,14 +2165,31 @@ function yen(n){ return '¥' + Number(n||0).toLocaleString('ja-JP'); }
 function escHtml(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function escAttr(s){ return escHtml(s).replace(/"/g,'&quot;'); }
 // 手配ステータスの色分け（アプリ全体で統一する共通ルール）。
-// ダッシュボードの到着日アラート等、既存の色分け慣習に合わせ、危険度・緊急度が
-// 高いものほど警告色に近づける: 手配OK/確定=緑(完了・安全)、FNL済=緑(別トーン、
-// 確定より強い完了状態)、予約不要=青(対応不要・情報のみ、到着日アラートの
-// 遠い将来=青と同じ「急がない」トーン)、回答待ち/問い合わせ中=黄(未確定・要フォロー、
-// 到着日アラートの中間トーンと同じ「注意」)、未予約/NG回答/キャンセル=赤(最重要・
-// 要対応、到着日アラートの8日以内=赤と同じ「危険」トーン)。
-function statusBg(s){ return (s==='手配OK'||s==='確定') ? 'var(--green-lt)' : s==='FNL済' ? 'var(--green2-lt)' : s==='予約不要' ? 'var(--blue-lt)' : (s==='NG回答'||s==='キャンセル'||s==='未予約') ? 'var(--red-lt)' : 'var(--amber-lt)'; }
-function statusFg(s){ return (s==='手配OK'||s==='確定') ? 'var(--green)' : s==='FNL済' ? 'var(--green2)' : s==='予約不要' ? 'var(--blue)' : (s==='NG回答'||s==='キャンセル'||s==='未予約') ? 'var(--red)' : 'var(--amber)'; }
+// 以前はNG回答/キャンセル/未予約がまとめて赤、手配OK/FNL済がまとめて緑系だったため、
+// ドロップダウンで選択肢同士の見分けがつかない問題があった。実際に使われている7種類の
+// ステータス値それぞれに視覚的に明確に異なる色を1つずつ割り当てる:
+// 未予約=グレー(未着手)、回答待ち/問い合わせ中=黄(未確定・要フォロー)、
+// 手配OK/確定=緑(完了・安全)、FNL済=青(確定より強い完了状態、緑と混同しないよう別系統)、
+// NG回答=オレンジ(要対応・ただしキャンセルほど致命的ではない)、
+// キャンセル=赤(最重要・要対応)、予約不要=紫(対応不要・情報のみ、他の全色と系統が被らない)。
+function statusBg(s){
+  if(s==='手配OK'||s==='確定') return 'var(--green-lt)';
+  if(s==='FNL済') return 'var(--blue-lt)';
+  if(s==='NG回答') return 'var(--orange-lt)';
+  if(s==='キャンセル') return 'var(--red-lt)';
+  if(s==='未予約') return 'var(--grey-lt)';
+  if(s==='予約不要') return 'var(--purple-lt)';
+  return 'var(--amber-lt)'; // 回答待ち・問い合わせ中
+}
+function statusFg(s){
+  if(s==='手配OK'||s==='確定') return 'var(--green)';
+  if(s==='FNL済') return 'var(--blue)';
+  if(s==='NG回答') return 'var(--orange)';
+  if(s==='キャンセル') return 'var(--red)';
+  if(s==='未予約') return 'var(--grey)';
+  if(s==='予約不要') return 'var(--purple)';
+  return 'var(--amber)'; // 回答待ち・問い合わせ中
+}
 function statusSelectStyle(s){ return `background:${statusBg(s)};color:${statusFg(s)}`; }
 
 // ステータスのカスタムドロップダウン。ネイティブ<select>のoptionごとの背景色指定は
