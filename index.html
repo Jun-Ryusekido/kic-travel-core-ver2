@@ -3285,6 +3285,21 @@ async function bookingSalesApiCall(action, payload){
   if(!resp.ok || data.error) throw new Error(data.error || '売上明細の処理でサーバーエラーが発生しました');
   return data;
 }
+// booking_costs(仕入明細)への書き込み(セキュリティ中長期対応フェーズ1、booking_salesと
+// 同じパターン)。anonロールによる直接INSERT/UPDATE/DELETEをRLSで禁止したため、書き込みは
+// service_role key経由の/api/booking-costsを通す。読み取り(select)は
+// 従来通りsb.from('booking_costs')の直接呼び出しのまま変更しない。
+async function bookingCostsApiCall(action, payload){
+  const token = currentUser ? currentUser.token : null;
+  const resp = await fetch('/api/booking-costs', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ action, token, ...payload })
+  });
+  const data = await parseJsonResponseSafe(resp);
+  if(!resp.ok || data.error) throw new Error(data.error || '仕入明細の処理でサーバーエラーが発生しました');
+  return data;
+}
 
 let bdLocalExpenses = [];
 const LOCAL_EXPENSE_CATEGORIES = ['D（ドライバー）','ゲスト','ゲスト・TG','その他'];
@@ -5358,7 +5373,7 @@ async function deleteBookingData(){
     // Invoice・売上明細・仕入明細
     await sb.from('invoices').delete().eq('booking_id', b.id);
     await bookingSalesApiCall('deleteByBooking', { bookingId: b.id });
-    await sb.from('booking_costs').delete().eq('booking_id', b.id);
+    await bookingCostsApiCall('deleteByBooking', { bookingId: b.id });
 
     // 予約本体
     const {error} = await sb.from('bookings').delete().eq('id', b.id);
@@ -6175,7 +6190,8 @@ async function reflectVoucherToCost(settlementId, guideIndex){
   if(guideFee>0) rows.push({booking_id:b.id, item_name:`ガイド費（${escHtml(g.name||'')}）`, amount:guideFee, payment_date:null, memo:'伝票より反映'});
   if(advanceTotal>0) rows.push({booking_id:b.id, item_name:`仮払金戻し（${escHtml(g.name||'')}）`, amount:-advanceTotal, payment_date:null, memo:'伝票より反映'});
   if(rows.length===0){ alert('反映する金額がありません'); return; }
-  const {error} = await sb.from('booking_costs').insert(rows);
+  let error;
+  try { await bookingCostsApiCall('insert', { rows }); } catch(e) { error = e; }
   if(error){ alert('反映に失敗しました: '+error.message); return; }
   const {data: allCosts} = await sb.from('booking_costs').select('amount').eq('booking_id', b.id);
   const newGrossCost = (allCosts||[]).reduce((sum,c)=>sum+Number(c.amount||0),0);
@@ -6207,7 +6223,8 @@ async function reflectCheckedGuideItems(settlementId){
     payment_date: it.expense_date||null,
     memo: 'ガイド精算より自動反映'
   }));
-  const {error} = await sb.from('booking_costs').insert(rows);
+  let error;
+  try { await bookingCostsApiCall('insert', { rows }); } catch(e) { error = e; }
   if(error){ alert('反映に失敗しました: '+error.message); return; }
   await sb.from('guide_settlement_items').update({reflected:true}).in('id', targets.map(it=>it.id));
   const {data: allCosts} = await sb.from('booking_costs').select('amount').eq('booking_id', b.id);
@@ -6277,7 +6294,8 @@ async function reflectGuideItems(settlementId){
     payment_date: it.expense_date || null,
     memo: 'ガイド精算より自動反映'
   }));
-  const {error} = await sb.from('booking_costs').insert(rows);
+  let error;
+  try { await bookingCostsApiCall('insert', { rows }); } catch(e) { error = e; }
   if(error){ alert('仕入明細への反映に失敗しました: '+error.message); return; }
 
   await sb.from('guide_settlement_items').update({reflected:true}).in('id', targets.map(it=>it.id));
@@ -11554,7 +11572,7 @@ async function saveBookingDetail(){
       payment_date: sanitizeDateField(it.payment_date), memo: it.memo||'', status: it.status||'pending'
     }));
     await bookingSalesApiCall('replace', { bookingId, rows: salesToInsert });
-    await safeReplaceBookingRows('booking_costs', bookingId, costToInsert, '仕入明細');
+    await bookingCostsApiCall('replace', { bookingId, rows: costToInsert });
 
     const bForSync = findBookingById(bookingId);
     if(bForSync) await syncAdvancePaymentsFromCosts(bookingId, bForSync.ref_no);
@@ -13412,7 +13430,8 @@ async function saveCostFromOcr(count){
   }
 
   if(!rows.length){ alert('追加する行がありません'); return; }
-  const {error} = await sb.from('booking_costs').insert(rows);
+  let error;
+  try { await bookingCostsApiCall('insert', { rows }); } catch(e) { error = e; }
   if(error){ alert('保存エラー:\n'+error.message); statusEl.textContent = '保存エラー: '+error.message; statusEl.style.color = 'var(--red)'; return; }
   for(const it of rows){
     if(it.item_name) await registerNewSupplier(it.item_name);
@@ -13697,7 +13716,8 @@ async function saveInvoiceConfirm(){
     if(!costRows.length){
       statusEl.textContent = '保存できる行がありません'; statusEl.style.color = 'var(--red)'; return;
     }
-    const {error} = await sb.from('booking_costs').insert(costRows);
+    let error;
+    try { await bookingCostsApiCall('insert', { rows: costRows }); } catch(e) { error = e; }
     if(error){
       alert('保存エラー:\n'+error.message);
       statusEl.textContent = '保存エラー: '+error.message; statusEl.style.color = 'var(--red)';
