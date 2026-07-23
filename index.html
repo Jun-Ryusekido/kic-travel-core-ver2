@@ -662,6 +662,7 @@ input[type=number]{-moz-appearance:textfield}
               </div>
             </div>
             <div class="form-field"><label>Agent / Group</label><input id="nb-agent" placeholder="e.g. Kesari Tours Pvt. Ltd."></div>
+            <div class="form-field"><label>Tour Code</label><input id="nb-tour-code" placeholder="e.g. KIC0967_TC"></div>
             <div class="form-field"><label>Tour Name</label><input id="nb-tour" placeholder="e.g. Kyoto Classic 5D"></div>
             <div class="form-field" style="grid-column:1/-1">
               <div class="pax-row">
@@ -1534,7 +1535,9 @@ input[type=number]{-moz-appearance:textfield}
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
           <div class="form-field" style="flex:0 1 120px"><label>REF#</label><input id="bd-ref-input" disabled></div>
           <div class="form-field" style="flex:0 1 220px"><label>Agent</label><input id="bd-agent"></div>
-          <div class="form-field" style="flex:1 1 260px"><label>Tour Name</label><input id="bd-tour"></div>
+          <div class="form-field" style="flex:0 1 130px"><label>Tour Code</label><input id="bd-tour-code"></div>
+          <div class="form-field" style="flex:1 1 220px"><label>Tour Name</label><input id="bd-tour"></div>
+          <div class="form-field" style="flex:2 1 280px"><label>Memo</label><textarea id="bd-memo" rows="3" placeholder="内部メモ・特記事項など" style="min-height:64px"></textarea></div>
         </div>
       </div>
       <div class="form-field" style="grid-column:1/-1">
@@ -1544,7 +1547,7 @@ input[type=number]{-moz-appearance:textfield}
           <div class="form-field" style="flex:0 1 180px"><label>子供年齢 (Age of CHD)</label><input id="bd-children-ages" placeholder="例: 8, 5, 12"></div>
           <div class="form-field"><label>乳児 (INF)</label><input id="bd-pax-inf" type="number" min="0" oninput="updateBdPaxTotal()"></div>
           <div class="form-field"><label>合計 (TCP)</label><input id="bd-pax-total" type="number" disabled></div>
-          <div class="form-field" style="flex:1 1 160px;max-width:200px">
+          <div class="form-field" style="flex:0 1 130px;max-width:130px">
             <label>手配状況 / Status</label>
             <div class="st-dd">
               <input type="hidden" id="bd-status" value="open">
@@ -1555,12 +1558,11 @@ input[type=number]{-moz-appearance:textfield}
       </div>
       <div class="form-field" style="grid-column:1/-1">
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start">
-          <div class="form-field" style="flex:0 1 150px"><label>ツアー担当者（社内）</label><input id="bd-staff" placeholder="例: 熊谷"></div>
-          <div class="form-field" style="flex:0 1 155px"><label>In-Date</label><input id="bd-in" type="date" min="1900-01-01" max="9999-12-31" autocomplete="off" onchange="updateBdNightsDays()"></div>
-          <div class="form-field" style="flex:0 1 155px"><label>Out-Date</label><input id="bd-out" type="date" min="1900-01-01" max="9999-12-31" autocomplete="off" onchange="updateBdNightsDays()"></div>
-          <div class="form-field" style="flex:0 1 160px"><label>宿泊日数</label><input id="bd-nights-days" type="text" disabled style="background:var(--bg);color:var(--text)"></div>
-          <div class="form-field" style="flex:0 1 160px"><label>入金合計 (Deposit, JPY)</label><input id="bd-deposit" type="number" disabled style="background:var(--bg);color:var(--text)"></div>
-          <div class="form-field" style="flex:2 1 200px"><label>Memo</label><textarea id="bd-memo" rows="2" placeholder="内部メモ・特記事項など"></textarea></div>
+          <div class="form-field" style="flex:0 1 90px"><label>ツアー担当者（社内）</label><input id="bd-staff" placeholder="例: 熊谷"></div>
+          <div class="form-field" style="flex:0 1 130px"><label>In-Date</label><input id="bd-in" type="date" min="1900-01-01" max="9999-12-31" autocomplete="off" onchange="updateBdNightsDays()"></div>
+          <div class="form-field" style="flex:0 1 130px"><label>Out-Date</label><input id="bd-out" type="date" min="1900-01-01" max="9999-12-31" autocomplete="off" onchange="updateBdNightsDays()"></div>
+          <div class="form-field" style="flex:0 1 145px"><label>宿泊日数</label><input id="bd-nights-days" type="text" disabled style="background:var(--bg);color:var(--text)"></div>
+          <div class="form-field" style="flex:0 1 130px"><label>入金合計 (Deposit, JPY)</label><input id="bd-deposit" type="number" disabled style="background:var(--bg);color:var(--text)"></div>
         </div>
       </div>
     </div>
@@ -4683,6 +4685,7 @@ async function openBookingDetail(id){
   document.getElementById('bd-ref').textContent = b.ref_no;
   document.getElementById('bd-ref-input').value = b.ref_no;
   document.getElementById('bd-agent').value = b.agent_name||'';
+  document.getElementById('bd-tour-code').value = b.tour_code||'';
   document.getElementById('bd-tour').value = b.tour_name||'';
   document.getElementById('bd-pax-adt').value = b.pax_adult||0;
   document.getElementById('bd-pax-chd').value = b.pax_child||0;
@@ -11602,6 +11605,7 @@ async function saveBookingDetail(){
 
   const payload = {
     agent_name: document.getElementById('bd-agent').value.trim(),
+    tour_code: document.getElementById('bd-tour-code').value.trim() || null,
     tour_name: document.getElementById('bd-tour').value.trim(),
     pax: adt+chd+inf,
     pax_adult: adt,
@@ -11730,6 +11734,7 @@ async function saveBooking(){
   const payload = {
     ref_no: ref,
     agent_name: document.getElementById('nb-agent').value.trim(),
+    tour_code: document.getElementById('nb-tour-code').value.trim() || null,
     tour_name: document.getElementById('nb-tour').value.trim(),
     pax: adt+chd+inf,
     pax_adult: adt,
@@ -11749,7 +11754,7 @@ async function saveBooking(){
   setTimeout(()=>document.getElementById('nb-msg').style.display='none', 3000);
 
   // フォームクリア
-  ['nb-ref','nb-agent','nb-tour','nb-pax-adt','nb-pax-chd','nb-pax-inf','nb-pax-total','nb-in','nb-out','nb-sales','nb-cost'].forEach(id=>document.getElementById(id).value='');
+  ['nb-ref','nb-agent','nb-tour-code','nb-tour','nb-pax-adt','nb-pax-chd','nb-pax-inf','nb-pax-total','nb-in','nb-out','nb-sales','nb-cost'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('nb-status').value='open';
 }
 
