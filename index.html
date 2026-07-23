@@ -180,7 +180,10 @@ th.sortable:hover{color:var(--blue)}
 .detail-cols h4{font-size:11px;font-weight:700;margin-bottom:6px;padding:4px 8px;border-radius:4px}
 .detail-cols h4.green{background:var(--green-lt)}
 .detail-cols h4.red{background:var(--red-lt)}
-.li-table{font-size:10px;table-layout:fixed;width:100%;min-width:720px;border-collapse:collapse}
+/* position:sticky(削除ボタン列の右端固定)はborder-collapse:collapseと組み合わせると
+   ブラウザによって固定が効かない/不安定になる既知の問題があるため、separate+スペース0で
+   見た目(下線のみ・縦線なし)を変えずにsticky列を確実に機能させる。 */
+.li-table{font-size:10px;table-layout:fixed;width:100%;min-width:720px;border-collapse:separate;border-spacing:0}
 .li-table th{padding:3px 4px;font-size:9px;border-bottom:2px solid var(--border)}
 .li-table td{padding:2px 3px;overflow:hidden;border-bottom:1px solid var(--border)}
 .li-table tbody tr:nth-child(even){background:rgba(0,0,0,.025)}
