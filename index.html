@@ -1558,8 +1558,9 @@ input[type=number]{-moz-appearance:textfield}
       <div class="form-field" style="grid-column:1/-1">
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start">
           <div class="form-field" style="flex:0 1 150px"><label>ツアー担当者（社内）</label><input id="bd-staff" placeholder="例: 熊谷"></div>
-          <div class="form-field" style="flex:0 1 155px"><label>In-Date</label><input id="bd-in" type="date" min="1900-01-01" max="9999-12-31" autocomplete="off"></div>
-          <div class="form-field" style="flex:0 1 155px"><label>Out-Date</label><input id="bd-out" type="date" min="1900-01-01" max="9999-12-31" autocomplete="off"></div>
+          <div class="form-field" style="flex:0 1 155px"><label>In-Date</label><input id="bd-in" type="date" min="1900-01-01" max="9999-12-31" autocomplete="off" onchange="updateBdNightsDays()"></div>
+          <div class="form-field" style="flex:0 1 155px"><label>Out-Date</label><input id="bd-out" type="date" min="1900-01-01" max="9999-12-31" autocomplete="off" onchange="updateBdNightsDays()"></div>
+          <div class="form-field" style="flex:0 1 160px"><label>宿泊日数</label><input id="bd-nights-days" type="text" disabled style="background:var(--bg);color:var(--text)"></div>
           <div class="form-field" style="flex:0 1 160px"><label>入金合計 (Deposit, JPY)</label><input id="bd-deposit" type="number" disabled style="background:var(--bg);color:var(--text)"></div>
           <div class="form-field" style="flex:2 1 200px"><label>Memo</label><textarea id="bd-memo" rows="2" placeholder="内部メモ・特記事項など"></textarea></div>
         </div>
@@ -3392,6 +3393,22 @@ function updateBdPaxTotal(){
   document.getElementById('bd-pax-total').value = adt+chd+inf;
 }
 
+// In-Date/Out-Dateから宿泊日数(〇泊〇日 / 〇 nights, 〇 days)を自動計算して表示する。
+// 手入力欄ではなく表示専用(bd-nights-daysはdisabled)。どちらか未入力の場合は空欄にする。
+function updateBdNightsDays(){
+  const out = document.getElementById('bd-nights-days');
+  if(!out) return;
+  const inVal = document.getElementById('bd-in')?.value || '';
+  const outVal = document.getElementById('bd-out')?.value || '';
+  if(!inVal || !outVal){ out.value = ''; return; }
+  const inD = new Date(inVal+'T00:00:00');
+  const outD = new Date(outVal+'T00:00:00');
+  if(isNaN(inD.getTime()) || isNaN(outD.getTime())){ out.value = ''; return; }
+  const nights = Math.round((outD - inD) / (1000*60*60*24));
+  if(nights < 0){ out.value = ''; return; }
+  const days = nights + 1;
+  out.value = `${nights}泊${days}日 / ${nights} nights, ${days} days`;
+}
 function applyBdStatusColor(){
   const sel = document.getElementById('bd-status');
   if(!sel) return;
@@ -4587,6 +4604,7 @@ async function openBookingDetail(id){
   applyBdStatusColor();
   setDateInputValue('bd-in', b.in_date);
   setDateInputValue('bd-out', b.out_date);
+  updateBdNightsDays();
   document.getElementById('bd-staff').value = b.staff_in_charge||'';
   document.getElementById('bd-memo').value = b.memo||'';
   // deposit reset handled after sales load
