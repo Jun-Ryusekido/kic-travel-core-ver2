@@ -8633,6 +8633,7 @@ async function renderEmailInboxPage(){
     const catGuess = guessEmailCategory(m.subject, m.body, m.sender);
     const catOptions = ['<option value=""'+(catGuess.category?'':' selected')+'>-- 未分類 --</option>']
       .concat(Object.keys(EMAIL_INBOX_CATEGORY_MAP).map(c=>`<option value="${escAttr(c)}" ${catGuess.category===c?'selected':''}>${escHtml(c)}</option>`))
+      .concat(['<option value="取引先マスタ">取引先マスタ</option>'])
       .join('');
     const catReasonHtml = catGuess.category
       ? `<span style="font-size:10px;color:var(--text3)" title="件名・送信者・本文のキーワードから推定">カテゴリ根拠: ${escHtml(catGuess.reasons.join('・'))}</span>`
@@ -8647,7 +8648,7 @@ async function renderEmailInboxPage(){
         <div style="font-size:11px;color:var(--text3);margin-bottom:4px">${escHtml(m.sender||'')} ・ ${escHtml(received)}</div>
         <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
           <input id="email-inbox-ref-${m.id}" placeholder="REF# 例: #1374" style="font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px;width:140px">
-          <select id="email-inbox-cat-${m.id}" style="font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px">${catOptions}</select>
+          <select id="email-inbox-cat-${m.id}" onchange="toggleEmailInboxRefForCategory('${m.id}')" style="font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px">${catOptions}</select>
           ${catReasonHtml}
           <button class="btn btn-p" id="email-inbox-send-${m.id}" style="font-size:11px" onclick="sendEmailToBooking('${m.id}')">📤 送る</button>
           <button class="btn" style="font-size:11px;color:var(--red)" onclick="if(confirm('このメールを一覧から除外しますか？')){ignoreEmailInboxItem('${m.id}')}">🗑 無視</button>
@@ -8730,11 +8731,24 @@ async function fetchEmailSplitCandidates(subject, body){
 // 指定されたメールを送る。まず軽量な事前チェックで複数REF#混在の可能性があるかを見て、
 // 可能性がある場合のみAIに本文を渡して最終判定させる（「送る」ボタンにローディング表示を出す）。
 // AIが複数件と判定した場合は分割確認モーダルを表示し、それ以外は入力されたREF#へそのまま送る。
+// 「取引先マスタ」カテゴリはREF#に紐づく予約手配タブではなく取引先マスタ(business_partners)
+// 自体への新規登録・更新のため、この欄は不要(disabledにする)。
+function toggleEmailInboxRefForCategory(emailId){
+  const cat = document.getElementById('email-inbox-cat-'+emailId)?.value;
+  const refInput = document.getElementById('email-inbox-ref-'+emailId);
+  if(!refInput) return;
+  const isPartner = cat === '取引先マスタ';
+  refInput.disabled = isPartner;
+  refInput.placeholder = isPartner ? '(取引先マスタでは不要)' : 'REF# 例: #1374';
+  refInput.style.background = isPartner ? 'var(--bg)' : '';
+}
+
 async function sendEmailToBooking(emailId){
   const refInput = document.getElementById('email-inbox-ref-'+emailId);
   const catSelect = document.getElementById('email-inbox-cat-'+emailId);
-  const refNo = refInput ? refInput.value.trim() : '';
   const category = catSelect ? catSelect.value : '';
+  if(category === '取引先マスタ'){ await sendEmailToPartnerMaster(emailId); return; }
+  const refNo = refInput ? refInput.value.trim() : '';
   if(!refNo){ alert('REF#を入力してください'); return; }
   const map = EMAIL_INBOX_CATEGORY_MAP[category];
   if(!map){ alert('カテゴリを選択してください'); return; }
@@ -8794,6 +8808,75 @@ async function performSingleEmailSend(emailId, refNo, map, body){
   emailInboxRawList = emailInboxRawList.filter(m=>m.id!==emailId);
   emailInboxIndex = emailInboxIndex.filter(m=>m.id!==emailId);
   renderEmailInboxPage();
+}
+
+// メールを軸に、AIでメール本文から取引先マスタ(business_partners)の項目を抽出し、
+// 既存の取引先編集モーダル(#partner-modal/openPartnerEditor/savePartner)をそのまま使って
+// 確認・編集してから保存できるようにする(取引先マスタ自体の入力項目・保存ロジックは無変更)。
+// 会社名が既存の取引先(business_partners)と一致すれば「更新」、一致しなければ「新規登録」として
+// 編集モーダルを開き、AIの抽出結果を上書きプリセットする。
+function _findMatchingPartner(name, nameEn){
+  const norm = s => String(s||'').normalize('NFKC').toLowerCase().replace(/[\s　・.,()（）]/g,'');
+  const targets = [norm(name), norm(nameEn)].filter(Boolean);
+  if(!targets.length) return null;
+  return partnersCache.find(p=>{
+    const cands = [norm(p.company_name), norm(p.company_name_en)].filter(Boolean);
+    return cands.some(c=>targets.some(t=>t && c && (c.includes(t) || t.includes(c))));
+  }) || null;
+}
+async function sendEmailToPartnerMaster(emailId){
+  const sendBtn = document.getElementById('email-inbox-send-'+emailId);
+  const origLabel = sendBtn ? sendBtn.innerHTML : '';
+  if(sendBtn){ sendBtn.disabled = true; sendBtn.innerHTML = '⏳ AI解析中...'; }
+  try{
+    const {data: emailRow, error: eErr} = await sb.from('email_import_queue').select('subject,body').eq('id', emailId).single();
+    if(eErr){ alert('メール本文の取得に失敗しました: '+eErr.message); return; }
+    const subject = emailRow.subject||'';
+    const body = emailRow.body||'';
+
+    const resp = await fetch('/api/extract-partner', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ text: `件名: ${subject}\n\n${body}` })
+    });
+    const data = await resp.json();
+    if(data.error){ alert('AI読み取りに失敗しました: '+data.error); return; }
+    const p = data.partner || {};
+
+    if(!partnersCache.length) await loadPartners();
+    const match = _findMatchingPartner(p.company_name, p.company_name_en);
+
+    // 既存の取引先編集モーダルを、一致すれば編集モード・一致しなければ新規登録モードで開く。
+    // 開いた直後はmatch(または空欄)の内容が入っているため、AIの抽出結果で上書きする
+    // (項目が空文字のものは上書きしない＝既存値やユーザーの手入力内容を消さない)。
+    openPartnerEditor(match ? match.id : null);
+    const setIfPresent = (id, val) => { if(val){ const el = document.getElementById(id); if(el) el.value = val; } };
+    setIfPresent('pt-company', p.company_name);
+    setIfPresent('pt-company-en', p.company_name_en);
+    setIfPresent('pt-branch', p.branch_name);
+    setIfPresent('pt-branch-en', p.branch_name_en);
+    setIfPresent('pt-contact', p.contact_person);
+    setIfPresent('pt-contact-en', p.contact_person_en);
+    setIfPresent('pt-position', p.position);
+    setIfPresent('pt-position-en', p.position_en);
+    setIfPresent('pt-company-phone', p.company_phone);
+    setIfPresent('pt-phone', p.phone);
+    setIfPresent('pt-fax', p.fax);
+    setIfPresent('pt-email', p.email);
+    setIfPresent('pt-address', p.address);
+    setIfPresent('pt-address-en', p.address_en);
+    setIfPresent('pt-notes', p.notes);
+    document.getElementById('partner-modal-title').textContent += match ? '（メールから更新・確認してください）' : '（メールから新規登録・確認してください）';
+
+    const {error: updErr} = await sb.from('email_import_queue').update({imported:true}).eq('id', emailId);
+    if(updErr){ alert('取り込み済みへの更新に失敗しました: '+updErr.message); }
+    emailInboxRawList = emailInboxRawList.filter(m=>m.id!==emailId);
+    emailInboxIndex = emailInboxIndex.filter(m=>m.id!==emailId);
+    renderEmailInboxPage();
+  }catch(e){
+    alert('取引先マスタへの反映処理でエラーが発生しました: '+e.message);
+  }finally{
+    if(sendBtn){ sendBtn.disabled = false; sendBtn.innerHTML = origLabel; }
+  }
 }
 
 // ─── メール受信箱: 1通に複数REF#が混在する場合の自動振り分け ─────────
