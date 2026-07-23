@@ -10095,7 +10095,10 @@ async function submitNewGuide(){
   } else if(ctx==='settle'){
     // ガイド精算セクションからの追加登録。ガイドタブ(booking_guides)にも新規行として
     // 追加し、両方の画面で即座に選択できるようにする(保存はいずれも通常の「保存」ボタン経由)。
-    bdGuideItems.push({guide_id:data.id, guide_name_freetext:'', start_date:'', end_date:'', status:'回答待ち', memo:'', payment_method:'', amount:0, _freetextMode:false});
+    // 担当日(From/To)はaddGuideRow()と同様、この予約のIN-DATE/OUT-DATEで初期化する。
+    const defaultStart = document.getElementById('bd-in')?.value || '';
+    const defaultEnd = document.getElementById('bd-out')?.value || '';
+    bdGuideItems.push({guide_id:data.id, guide_name_freetext:'', start_date:defaultStart, end_date:defaultEnd, status:'回答待ち', memo:'', payment_method:'', amount:0, _freetextMode:false});
     renderGuideTable();
     renderBdNewGuideFromBookingSelect();
   } else if(i!=null && bdGuideItems[i]){
@@ -10107,8 +10110,14 @@ async function submitNewGuide(){
   document.getElementById('new-guide-modal')?.remove();
 }
 
+// 行追加時の担当日(From/To)は、この予約のIN-DATE/OUT-DATE(bd-in/bd-out)で初期化する。
+// ツアー全体に同行するケースが大半のため、都度手入力する手間を省くための初期値であり、
+// 必要に応じて行ごとに自由に変更できる(この初期値をセットするだけで、以降の編集・保存の
+// 挙動には一切影響しない)。
 function addGuideRow(){
-  bdGuideItems.push({guide_id:null, guide_name_freetext:'', start_date:'', end_date:'', status:'回答待ち', memo:'', payment_method:'', amount:0, _freetextMode:false});
+  const defaultStart = document.getElementById('bd-in')?.value || '';
+  const defaultEnd = document.getElementById('bd-out')?.value || '';
+  bdGuideItems.push({guide_id:null, guide_name_freetext:'', start_date:defaultStart, end_date:defaultEnd, status:'回答待ち', memo:'', payment_method:'', amount:0, _freetextMode:false});
   renderGuideTable();
 }
 
