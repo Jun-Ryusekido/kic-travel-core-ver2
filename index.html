@@ -3147,6 +3147,24 @@ async function safeReplaceRowsByKey(table, keyCol, keyVal, rows, label){
     if(delErr) throw new Error(appendSchemaErrorHint(label+'の旧データ削除に失敗（新データは保存済みのため重複している可能性があります）: '+delErr.message));
   }
 }
+// booking_sales(売上明細)への書き込み(セキュリティ中長期対応フェーズ1)。
+// anonロールによる直接INSERT/UPDATE/DELETEをRLSで禁止したため、書き込みは
+// service_role key経由の/api/booking-salesを通す。読み取り(select)は
+// 従来通りsb.from('booking_sales')の直接呼び出しのまま変更しない。
+// ログイン時に発行された署名付きトークン(currentUser.token)を毎回添えることで、
+// サーバー側が正当なログインユーザーからのリクエストであることを検証する。
+async function bookingSalesApiCall(action, payload){
+  const token = currentUser ? currentUser.token : null;
+  const resp = await fetch('/api/booking-sales', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ action, token, ...payload })
+  });
+  const data = await parseJsonResponseSafe(resp);
+  if(!resp.ok || data.error) throw new Error(data.error || '売上明細の処理でサーバーエラーが発生しました');
+  return data;
+}
+
 let bdLocalExpenses = [];
 const LOCAL_EXPENSE_CATEGORIES = ['D（ドライバー）','ゲスト','ゲスト・TG','その他'];
 const LOCAL_EXPENSE_PAYMENT_METHODS = ['現地払い','事前決済','請求書払い','全旅クーポン','無料(FREE)'];
@@ -4009,8 +4027,7 @@ async function applyDashboardBankbookEntry(k){
     const row = salesRows[0];
     const payments = Array.isArray(row.payments) ? [...row.payments] : [];
     payments.push({date: p.date||'', amount: Number(p.amount)||0, bank: p.bank||''});
-    const {error: updErr} = await sb.from('booking_sales').update({payments}).eq('id', row.id);
-    if(updErr) throw updErr;
+    await bookingSalesApiCall('updatePayments', { rowId: row.id, payments });
     statusEl.textContent = '✓ 反映済み';
     statusEl.style.color = 'var(--green)';
     const inputEl = document.getElementById('db-bb-input-'+k);
@@ -5219,7 +5236,7 @@ async function deleteBookingData(){
 
     // Invoice・売上明細・仕入明細
     await sb.from('invoices').delete().eq('booking_id', b.id);
-    await sb.from('booking_sales').delete().eq('booking_id', b.id);
+    await bookingSalesApiCall('deleteByBooking', { bookingId: b.id });
     await sb.from('booking_costs').delete().eq('booking_id', b.id);
 
     // 予約本体
@@ -11353,7 +11370,7 @@ async function saveBookingDetail(){
       booking_id: bookingId, item_name: it.item_name||'', amount: Number(it.amount)||0,
       payment_date: sanitizeDateField(it.payment_date), memo: it.memo||'', status: it.status||'pending'
     }));
-    await safeReplaceBookingRows('booking_sales', bookingId, salesToInsert, '売上明細');
+    await bookingSalesApiCall('replace', { bookingId, rows: salesToInsert });
     await safeReplaceBookingRows('booking_costs', bookingId, costToInsert, '仕入明細');
 
     const bForSync = findBookingById(bookingId);

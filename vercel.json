@@ -19,6 +19,7 @@
     { "src": "/api/change-password", "dest": "/api/change-password.js" },
     { "src": "/api/list-users", "dest": "/api/list-users.js" },
     { "src": "/api/add-user", "dest": "/api/add-user.js" },
+    { "src": "/api/booking-sales", "dest": "/api/booking-sales.js" },
     { "src": "/guide_settlement_jp.pdf", "dest": "/public/guide_settlement_jp.pdf" },
     { "src": "/guide_settlement_en.pdf", "dest": "/public/guide_settlement_en.pdf" },
     { "src": "/kic-logo.png", "dest": "/public/kic-logo.png" },

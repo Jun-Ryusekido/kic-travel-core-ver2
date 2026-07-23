@@ -1,5 +1,6 @@
 import bcrypt from 'bcryptjs';
 import { appUsersFetch, getServiceKey, looksLikeBcryptHash } from './lib/app-users-db.js';
+import { issueSessionToken } from './lib/session-token.js';
 
 // ログイン専用API。anonキーからapp_usersへの直接select/update権限を廃止したため、
 // ログイン時の照合とlast_login更新はすべてこのサーバー側関数(service_role key)で行う。
@@ -49,6 +50,10 @@ export default async function handler(req, res) {
 
     const { password: _pw, ...safeUser } = user;
     safeUser.last_login = nowIso;
+    // service_role経由の書き込みAPI(/api/booking-sales等)向けに、署名付きセッション
+    // トークンを発行する。currentUserとして丸ごとlocalStorageに保存されるため、
+    // 以後このトークンをリクエストに添えるだけで済む。
+    safeUser.token = issueSessionToken(safeUser);
     return res.status(200).json({ user: safeUser });
   } catch (e) {
     return res.status(500).json({ error: e.message });
