@@ -1546,17 +1546,10 @@ input[type=number]{-moz-appearance:textfield}
           <div class="form-field"><label>合計 (TCP)</label><input id="bd-pax-total" type="number" disabled></div>
           <div class="form-field" style="flex:1 1 160px;max-width:200px">
             <label>手配状況 / Status</label>
-            <select id="bd-status" onchange="applyBdStatusColor()">
-              <option value="open">Open / 新規</option>
-              <option value="pending">Pending / 手配中</option>
-              <option value="confirmed">Confirmed / 催行確定</option>
-              <option value="finalized">Finalized / ファイナル済み</option>
-              <option value="invoiced">Invoiced / 請求済</option>
-              <option value="paid">Paid / 入金済</option>
-              <option value="settlement">Settlement / 精算中</option>
-              <option value="closed">Closed / 完了</option>
-              <option value="cancelled">Cancelled / 中止</option>
-            </select>
+            <div class="st-dd">
+              <input type="hidden" id="bd-status" value="open">
+              <button type="button" class="st-dd-btn" style="background:#f0f0f0;color:#555555;width:100%;text-align:left" data-dd-items="<div class='st-dd-item' style='background:#f0f0f0;color:#555555' onclick='event.stopPropagation();setBdStatusValueByIndex(0)'>Open / 新規</div><div class='st-dd-item' style='background:#fff3cd;color:#856404' onclick='event.stopPropagation();setBdStatusValueByIndex(1)'>Pending / 手配中</div><div class='st-dd-item' style='background:#d4edda;color:#155724' onclick='event.stopPropagation();setBdStatusValueByIndex(2)'>Confirmed / 催行確定</div><div class='st-dd-item' style='background:#ccf0f5;color:#0e7490' onclick='event.stopPropagation();setBdStatusValueByIndex(3)'>Finalized / ファイナル済み</div><div class='st-dd-item' style='background:#cce5ff;color:#004085' onclick='event.stopPropagation();setBdStatusValueByIndex(4)'>Invoiced / 請求済</div><div class='st-dd-item' style='background:#d1ecf1;color:#0c5460' onclick='event.stopPropagation();setBdStatusValueByIndex(5)'>Paid / 入金済</div><div class='st-dd-item' style='background:#e2d9f3;color:#6f42c1' onclick='event.stopPropagation();setBdStatusValueByIndex(6)'>Settlement / 精算中</div><div class='st-dd-item' style='background:#e2e3e5;color:#383d41' onclick='event.stopPropagation();setBdStatusValueByIndex(7)'>Closed / 完了</div><div class='st-dd-item' style='background:#f8d7da;color:#721c24' onclick='event.stopPropagation();setBdStatusValueByIndex(8)'>Cancelled / 中止</div>" onclick="event.stopPropagation();toggleStatusDropdown(this)">Open / 新規 <span style="font-size:9px">▾</span></button>
+            </div>
           </div>
         </div>
       </div>
@@ -3413,23 +3406,45 @@ function updateBdNightsDays(){
   const days = nights + 1;
   out.value = `${nights}泊${days}日 / ${nights} nights, ${days} days`;
 }
+// 「手配状況/STATUS」(9種類)は、以前はネイティブ<select>のoptionごとの背景色指定に
+// 頼っていたが、ブラウザ(特にWindows版Chrome)がoption個別の背景色を無視し、開いた
+// 一覧全体が<select>自身の背景色一色になってしまう既知の問題があり、何度色分けを
+// 実装しても実際には反映されていなかった(git logで確認: この色付けロジックは
+// commit c19d128で導入されて以来、<select>要素自身の背景色を変えるだけで、
+// 一度もoptionごとの色分けやカスタムUIへの置き換えは行われていなかった)。
+// 他のステータス列(ホテル/バス/レストラン等の手配タブ)で既に確立済みの
+// button+リストのカスタムドロップダウン(.st-dd/.st-dd-list、toggleStatusDropdown等)
+// と同じ仕組みに統一し、9色それぞれを個別のdiv(.st-dd-item)としてbody直下に描画する
+// ことで、ネイティブ<select>のoption色無視問題を根本的に回避する。
+const BD_STATUS_ORDER = ['open','pending','confirmed','finalized','invoiced','paid','settlement','closed','cancelled'];
+const BD_STATUS_COLORS = {
+  open:       {bg:'#f0f0f0', fg:'#555555', label:'Open / 新規'},
+  pending:    {bg:'#fff3cd', fg:'#856404', label:'Pending / 手配中'},
+  confirmed:  {bg:'#d4edda', fg:'#155724', label:'Confirmed / 催行確定'},
+  finalized:  {bg:'#ccf0f5', fg:'#0e7490', label:'Finalized / ファイナル済み'},
+  invoiced:   {bg:'#cce5ff', fg:'#004085', label:'Invoiced / 請求済'},
+  paid:       {bg:'#d1ecf1', fg:'#0c5460', label:'Paid / 入金済'},
+  settlement: {bg:'#e2d9f3', fg:'#6f42c1', label:'Settlement / 精算中'},
+  closed:     {bg:'#e2e3e5', fg:'#383d41', label:'Closed / 完了'},
+  cancelled:  {bg:'#f8d7da', fg:'#721c24', label:'Cancelled / 中止'},
+};
+function setBdStatusValueByIndex(idx){
+  const value = BD_STATUS_ORDER[idx];
+  if(!value) return;
+  document.getElementById('bd-status').value = value;
+  applyBdStatusColor();
+  closeStatusDropdowns();
+}
 function applyBdStatusColor(){
-  const sel = document.getElementById('bd-status');
-  if(!sel) return;
-  const colors = {
-    open:       {bg:'#f0f0f0', fg:'#555555'},
-    pending:    {bg:'#fff3cd', fg:'#856404'},
-    confirmed:  {bg:'#d4edda', fg:'#155724'},
-    finalized:  {bg:'#ccf0f5', fg:'#0e7490'},
-    invoiced:   {bg:'#cce5ff', fg:'#004085'},
-    paid:       {bg:'#d1ecf1', fg:'#0c5460'},
-    settlement: {bg:'#e2d9f3', fg:'#6f42c1'},
-    closed:     {bg:'#e2e3e5', fg:'#383d41'},
-    cancelled:  {bg:'#f8d7da', fg:'#721c24'},
-  };
-  const c = colors[sel.value] || {bg:'', fg:''};
-  sel.style.background = c.bg;
-  sel.style.color = c.fg;
+  const input = document.getElementById('bd-status');
+  if(!input) return;
+  const wrap = input.closest('.st-dd');
+  const btn = wrap ? wrap.querySelector('.st-dd-btn') : null;
+  if(!btn) return;
+  const c = BD_STATUS_COLORS[input.value] || {bg:'', fg:'', label:input.value};
+  btn.style.background = c.bg;
+  btn.style.color = c.fg;
+  btn.innerHTML = `${escHtml(c.label)} <span style="font-size:9px">▾</span>`;
 }
 
 function updateDetailGrossPreview(){
