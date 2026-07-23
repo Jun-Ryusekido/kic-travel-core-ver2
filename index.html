@@ -1928,7 +1928,7 @@ input[type=number]{-moz-appearance:textfield}
       <button class="btn" style="font-size:10px" onclick="printLocalExpenses()">🖨 印刷</button>
     </div>
     <div id="local-expenses-print-area">
-    <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:800px">
+    <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:830px">
       <thead><tr>
         <th style="width:100px">日付</th>
         <th style="width:90px">費用種類</th>
@@ -1938,7 +1938,7 @@ input[type=number]{-moz-appearance:textfield}
         <th style="width:50px">数量</th>
         <th style="width:70px" class="li-amt">金額</th>
         <th style="width:100px">支払方法</th>
-        <th class="li-del"></th>
+        <th class="li-del" style="width:66px"></th>
       </tr></thead>
       <tbody id="bd-local-tbody"></tbody>
     </table></div>
@@ -4340,9 +4340,7 @@ function renderLocalExpenses(){
         <td data-label="支払方法"><select onchange="bdLocalExpenses[${i}].payment_method=this.value" style="width:100%">
           ${LOCAL_EXPENSE_PAYMENT_METHODS.map(m=>`<option value="${m}" ${it.payment_method===m?'selected':''}>${m}</option>`).join('')}
         </select></td>
-        <td class="li-del">
-          <span class="lnk" style="font-size:10px" onclick="if(confirm('この行を削除しますか？')){bdLocalExpenses.splice(${i},1);renderLocalExpenses()}">削除</span>
-        </td>
+        ${arrDelBtnHtml('bdLocalExpenses', i, 'renderLocalExpenses', escAttr([it.expense_date, it.expense_type, it.content].filter(Boolean).join(' '))+' の行を削除しますか？', 'duplicateLocalExpenseRow')}
       </tr>`).join('');
   }
   document.getElementById('bd-local-total').textContent = yen(total);
@@ -4360,6 +4358,9 @@ function addLocalExpenseRow(){
   bdLocalExpenses.push({expense_date:'', expense_type:'', content:'', category:'ゲスト', unit_price:0, qty:1, amount:0, payment_method:'現地払い'});
   renderLocalExpenses();
 }
+// 仮払い一覧表の行複製(他タブの⧉コピーボタンと同じ挙動)。「内容」列を基準に
+// duplicateArrRowの班番号付与ロジックをそのまま流用する。
+function duplicateLocalExpenseRow(i){ duplicateArrRow(bdLocalExpenses, i, 'content', renderLocalExpenses); }
 
 // 「内容」欄末尾の「(N班)」ラベルを検出する正規表現。既にラベルが付いている行を
 // 複製する際、まずこのラベルを取り除いてから新しい班番号を付け直すために使う。
