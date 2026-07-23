@@ -3372,11 +3372,12 @@ function arrCostCheckboxHtml(arrName, i, it, kind){
     return `<td data-label="仕入明細へ" style="text-align:center"><button class="btn" disabled style="${btnStyleBase}" title="支払方法が無料(FREE)のため仕入対象外です">追加</button></td>`;
   }
   const sec = ARR_COST_SECTION_MAP[kind];
+  // 出金日は経理担当者が実際の支払日を後から手入力する欄で、手配行の日付
+  // (チェックイン日・利用日等)とは無関係のため、自動反映時には値を入れない(空欄のまま)。
   const payload = {
     table: sec.table,
     rowId: it.id || null,
     itemName: it[sec.nameField] || '',
-    paymentDate: sanitizeDateField(it[sec.dateField]),
     paymentMethod: it.payment_method || '未設定',
     label: sec.label
   };
@@ -3394,7 +3395,7 @@ async function addArrRowToCostNow(payload, btnEl, onSuccess){
       booking_id: bookingId,
       item_name: payload.itemName,
       amount: 0,
-      payment_date: payload.paymentDate,
+      payment_date: null,
       memo: `${payload.label}手配（支払方法: ${payload.paymentMethod}）から自動反映`,
       status: 'pending'
     };
