@@ -4494,6 +4494,11 @@ async function generateLocalExpensesFromArrangements(){
   rows.length = 0;
   rows.push(...rowsDeduped);
 
+  // 費用種類ごとのグループ化(交通費→ホテル代→食事代…の生成順)をやめ、日付の昇順に
+  // 並べ替える。Array.sortは安定ソートのため、同じ日付内の並び順は上記で生成した
+  // 順序(費用種類の分類順)のまま維持される。日付未設定の行は空文字として先頭に来る。
+  rows.sort((a,b) => (a.expense_date||'').localeCompare(b.expense_date||''));
+
   // 「よく使う項目を追加」ボタンと同じ7項目を、この生成ボタンでも同時に追加する
   // (既に仮払い一覧表にいずれか1つでも存在する場合は重複防止のため追加しない)。
   // 日付はこのツアーのIN-DATEを初期値とし、バス手配タブにデータがあれば
