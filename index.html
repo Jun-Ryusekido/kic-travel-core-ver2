@@ -574,7 +574,7 @@ input[type=number]{-moz-appearance:textfield}
     <div class="sb-sec">分析 <span class="sb-en">/ Analytics</span></div>
     <div class="sb-item admin-only" data-pg="gross" onclick="go('gross')">📈 GROSS / 粗利</div>
     <div class="sb-item accounting-only" data-pg="payment" onclick="go('payment')">💱 入出金管理<span class="sb-en">/ Payment</span></div>
-    <div class="sb-item accounting-only" data-pg="credit-card-statements" onclick="go('credit-card-statements')">💳 クレジットカード明細<span class="sb-en">/ Credit Card</span></div>
+    <div class="sb-item" data-pg="credit-card-statements" onclick="go('credit-card-statements')">💳 クレジットカード明細<span class="sb-en">/ Credit Card</span></div>
     <div class="sb-sec admin-only">管理 <span class="sb-en">/ Admin</span></div>
     <div class="sb-item admin-only" data-pg="accounts" onclick="go('accounts')">🔐 アカウント管理<span class="sb-en">/ Accounts</span></div>
     <div class="sb-item admin-only" data-pg="logs" onclick="go('logs')">📜 アクセスログ<span class="sb-en">/ Logs</span></div>
@@ -2692,7 +2692,6 @@ function go(id){
   if((id==='accounts'||id==='logs'||id==='gross') && currentUser && currentUser.role!=='admin') return;
   if(id==='error-logs' && !isErrorLogViewer()) return;
   if(id==='payment' && !isAccountingUser()) return;
-  if(id==='credit-card-statements' && !isAccountingUser()) return;
   if(!document.getElementById('pg-'+id)) return;
   currentPageId = id;
   document.querySelectorAll('.page').forEach(el=>el.style.display='none');
