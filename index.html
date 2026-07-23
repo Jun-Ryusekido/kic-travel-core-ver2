@@ -1554,7 +1554,7 @@ input[type=number]{-moz-appearance:textfield}
             <div class="form-field" style="flex:0 0 70px"><label>REF#</label><input id="bd-ref-input" disabled style="width:100%;box-sizing:border-box"></div>
             <div class="form-field" style="flex:0 0 220px"><label>Agent</label><input id="bd-agent" style="width:100%;box-sizing:border-box"></div>
             <div class="form-field" style="flex:0 0 130px"><label>Tour Code</label><input id="bd-tour-code" style="width:100%;box-sizing:border-box"></div>
-            <div class="form-field" style="flex:0 0 175px"><label>Tour Name</label><input id="bd-tour" style="width:100%;box-sizing:border-box"></div>
+            <div class="form-field" style="flex:0 0 205px"><label>Tour Name</label><input id="bd-tour" style="width:100%;box-sizing:border-box"></div>
           </div>
           <div class="pax-row" style="margin-top:6px">
             <div class="form-field"><label>大人 (ADT)</label><input id="bd-pax-adt" type="number" min="0" oninput="updateBdPaxTotal()"></div>
@@ -1562,7 +1562,7 @@ input[type=number]{-moz-appearance:textfield}
             <div class="form-field" style="flex:0 1 180px"><label>子供年齢 (Age of CHD)</label><input id="bd-children-ages" placeholder="例: 8, 5, 12"></div>
             <div class="form-field"><label>乳児 (INF)</label><input id="bd-pax-inf" type="number" min="0" oninput="updateBdPaxTotal()"></div>
             <div class="form-field"><label>合計 (TCP)</label><input id="bd-pax-total" type="number" disabled></div>
-            <div class="form-field" style="flex:0 0 119px">
+            <div class="form-field" style="flex:0 0 149px">
               <label>手配状況 / Status</label>
               <div class="st-dd">
                 <input type="hidden" id="bd-status" value="open">
@@ -1575,9 +1575,9 @@ input[type=number]{-moz-appearance:textfield}
             <div class="form-field" style="flex:0 0 100px"><label>In-Date</label><input id="bd-in" type="date" min="1900-01-01" max="9999-12-31" autocomplete="off" onchange="updateBdNightsDays()" style="width:100%;box-sizing:border-box"></div>
             <div class="form-field" style="flex:0 0 100px"><label>Out-Date</label><input id="bd-out" type="date" min="1900-01-01" max="9999-12-31" autocomplete="off" onchange="updateBdNightsDays()" style="width:100%;box-sizing:border-box"></div>
             <div class="form-field" style="flex:0 1 145px"><label>宿泊日数</label><input id="bd-nights-days" type="text" disabled style="background:var(--bg);color:var(--text);width:100%;box-sizing:border-box"></div>
-            <div class="form-field" style="flex:0 0 90px"><label>入金合計 (Deposit, JPY)</label><input id="bd-deposit" type="number" disabled style="background:var(--bg);color:var(--text);width:100%;box-sizing:border-box"></div>
+            <div class="form-field" style="flex:0 0 120px"><label>入金合計 (Deposit, JPY)</label><input id="bd-deposit" type="number" disabled style="background:var(--bg);color:var(--text);width:100%;box-sizing:border-box"></div>
           </div>
-          <div class="form-field bd-memo-field" style="position:absolute;top:0;left:627px;width:280px">
+          <div class="form-field bd-memo-field" style="position:absolute;top:0;left:657px;width:300px">
             <label>Memo</label>
             <textarea id="bd-memo" placeholder="内部メモ・特記事項など" style="width:100%;height:170px;box-sizing:border-box;resize:vertical"></textarea>
           </div>
@@ -3542,7 +3542,7 @@ function updateBdNightsDays(){
   const nights = Math.round((outD - inD) / (1000*60*60*24));
   if(nights < 0){ out.value = ''; return; }
   const days = nights + 1;
-  out.value = `${nights}泊${days}日 / ${nights} nights, ${days} days`;
+  out.value = `${nights}泊${days}日 / ${nights}Nts, ${days}Days`;
 }
 // 「手配状況/STATUS」(9種類)は、以前はネイティブ<select>のoptionごとの背景色指定に
 // 頼っていたが、ブラウザ(特にWindows版Chrome)がoption個別の背景色を無視し、開いた
