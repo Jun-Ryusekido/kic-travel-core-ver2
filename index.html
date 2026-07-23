@@ -1958,24 +1958,14 @@ input[type=number]{-moz-appearance:textfield}
     <div style="border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:6px">
       <div style="font-size:10px;color:var(--text3);font-weight:600;margin-bottom:6px">新しく精算リンクを発行（このツアーを担当するガイドを1名以上登録）</div>
       <div id="bd-new-guide-list" style="display:flex;flex-direction:column;gap:4px;margin-bottom:6px"></div>
-      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
-        <label style="font-size:10px;color:var(--text3);white-space:nowrap">ガイドタブから選択</label>
-        <select id="bd-new-guide-from-booking-select" onchange="addBookingGuideToNewList(this)" style="font-size:11px;padding:6px;border-radius:8px;border:1px solid var(--border);max-width:220px">
-          <option value="">-- 選択してください --</option>
-        </select>
-        <a id="bd-new-guide-from-booking-empty-hint" href="#" onclick="switchArrangTab('guide');return false;" style="display:none;font-size:11px;color:var(--blue,#2563eb);text-decoration:underline;cursor:pointer">ガイドタブで登録してください</a>
-        <button class="btn" style="font-size:10px" onclick="openNewGuideModal(null,'settle')">＋ ガイドを追加</button>
-      </div>
-      <div style="font-size:9px;color:var(--text3);margin-bottom:4px">↑ このツアーの「ガイド」タブに登録済みのガイド。未登録のガイドは以下から自由入力できます</div>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-        <input id="bd-new-guide-name" placeholder="ガイド名" style="max-width:160px;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:12px">
-        <input id="bd-new-guide-phone" placeholder="電話番号" style="max-width:130px;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:12px">
-        <div style="display:inline-flex;flex-direction:column;gap:2px">
-          <input id="bd-guide-search" placeholder="🔍 絞り込み" oninput="filterGuideSelect(this,document.getElementById('bd-new-guide-select'))" style="font-size:11px;padding:4px 6px;border-radius:6px;border:1px solid var(--border);width:90px">
-          <select id="bd-new-guide-select" onchange="applyGuideFromRegistryAndAdd(this)" style="width:90px;font-size:11px;padding:6px;border-radius:8px;border:1px solid var(--border)">
-            <option value="">登録一覧</option>
-          </select>
+        <div style="position:relative;flex:1 1 220px;max-width:260px">
+          <input id="bd-new-guide-name" placeholder="ガイド名を検索または入力" autocomplete="off"
+                 oninput="filterBdNewGuideSuggest()" onfocus="showBdNewGuideSuggest()" onblur="setTimeout(hideBdNewGuideSuggest,200)"
+                 style="width:100%;box-sizing:border-box;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:12px">
+          <div id="bd-new-guide-dd" style="display:none;position:fixed;background:var(--card,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:99999;max-height:220px;overflow-y:auto"></div>
         </div>
+        <input id="bd-new-guide-phone" placeholder="電話番号" style="max-width:130px;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:12px">
         <button class="btn" style="font-size:10px" onclick="addGuideToNewList()">＋ ガイドを追加</button>
       </div>
       <div style="margin-top:6px">
@@ -4741,7 +4731,7 @@ async function openBookingDetail(id){
   await loadSuppliersCache();
 
   // ガイド登録一覧プルダウンを読み込み
-  await populateGuideRegistrySelects([document.getElementById('bd-new-guide-select')]);
+  await populateGuideRegistrySelects([]);
   bdNewGuideList = [];  renderBdNewGuideList();
 
   // ガイドを読み込み（guideRegistryCacheは直前のpopulateGuideRegistrySelects()で読み込み済み）
@@ -6207,9 +6197,21 @@ function addGuideToNewList(){
   const name = document.getElementById('bd-new-guide-name').value.trim();
   const phone = document.getElementById('bd-new-guide-phone').value.trim();
   if(!name){ alert('ガイド名を入力してください'); return; }
-  bdNewGuideList.push({name, phone, guide_id:null});
+  // 検索欄から候補を選択した状態のまま(名前を書き換えずに)追加した場合のみ、
+  // そのguide_id(ガイドタブ登録済み/マスタ)を引き継ぐ。名前を編集した場合は自由入力扱い。
+  let guideId = null;
+  if(window._bdNewGuideSelectedId){
+    const matched = _bdNewGuideCandidates().find(g=>String(g.guide_id)===String(window._bdNewGuideSelectedId));
+    if(matched && matched.name===name) guideId = matched.guide_id;
+  }
+  if(guideId && bdNewGuideList.some(x=>x.guide_id && String(x.guide_id)===String(guideId))){
+    alert('このガイドは既に追加されています');
+    return;
+  }
+  bdNewGuideList.push({name, phone, guide_id: guideId});
   document.getElementById('bd-new-guide-name').value='';
   document.getElementById('bd-new-guide-phone').value='';
+  window._bdNewGuideSelectedId = null;
   renderBdNewGuideList();
 }
 
@@ -6218,47 +6220,58 @@ function removeGuideFromNewList(i){
   renderBdNewGuideList();
 }
 
-// 登録一覧(guidesマスタ全体)から選択 → 名前/電話番号欄に反映(自由入力欄経由、guide_idは持たない)
-function applyGuideFromRegistryAndAdd(selectEl){
-  if(!selectEl.value) return;
-  const g = JSON.parse(selectEl.value);
-  document.getElementById('bd-new-guide-name').value = g.name || '';
-  document.getElementById('bd-new-guide-phone').value = g.phone || '';
-  selectEl.value = '';
-  const searchEl = document.getElementById('bd-guide-search');
-  if(searchEl){ searchEl.value=''; filterGuideSelect(searchEl, selectEl); }
-}
-
-// 「ガイドタブから選択」プルダウンを、現在のbdGuideItems(booking_guides)の内容で埋める。
-// booking_guides側でguide_idが設定されている行のみを対象にする(自由入力のみの行は
-// guide_idが無く突合できないため対象外。その場合は下の自由入力欄から追加する)。
-function renderBdNewGuideFromBookingSelect(){
-  const sel = document.getElementById('bd-new-guide-from-booking-select');
-  if(!sel) return;
-  const candidates = bdGuideItems.filter(g=>g.guide_id);
-  const options = candidates.map(g=>{
+// 新規ガイド精算リンク発行の単一検索欄用の候補一覧。このツアーの「ガイド」タブ
+// 登録済み(booking_guidesでguide_idが設定されている行)と、全体のガイドマスタ
+// (guideRegistryCache)の両方を横断して検索できるよう、1つの配列にまとめる
+// (同じガイドが両方に存在する場合はガイドタブ側を優先し重複させない)。
+function _bdNewGuideCandidates(){
+  const seen = new Set();
+  const list = [];
+  (bdGuideItems||[]).filter(g=>g.guide_id).forEach(g=>{
     const master = guideRegistryCache.find(x=>String(x.id)===String(g.guide_id));
-    const name = master ? master.name : '(氏名不明)';
-    const phone = master ? (master.phone||'') : '';
-    return `<option value='${escAttr(JSON.stringify({guide_id:g.guide_id, name, phone}))}'>${escHtml(name)}</option>`;
-  }).join('');
-  sel.innerHTML = '<option value="">-- 選択してください --</option>' + options;
-  const hint = document.getElementById('bd-new-guide-from-booking-empty-hint');
-  if(hint){ hint.style.display = candidates.length===0 ? '' : 'none'; }
-  sel.style.display = candidates.length===0 ? 'none' : '';
+    if(!master || seen.has(String(g.guide_id))) return;
+    seen.add(String(g.guide_id));
+    list.push({guide_id:g.guide_id, name:master.name, phone:master.phone||'', fromBooking:true});
+  });
+  (guideRegistryCache||[]).forEach(g=>{
+    if(seen.has(String(g.id))) return;
+    seen.add(String(g.id));
+    list.push({guide_id:g.id, name:g.name, phone:g.phone||'', fromBooking:false});
+  });
+  return list;
 }
-
-function addBookingGuideToNewList(selectEl){
-  if(!selectEl.value) return;
-  const g = JSON.parse(selectEl.value);
-  if(bdNewGuideList.some(x=>x.guide_id && String(x.guide_id)===String(g.guide_id))){
-    alert('このガイドは既に追加されています');
-    selectEl.value='';
-    return;
-  }
-  bdNewGuideList.push({name:g.name, phone:g.phone||'', guide_id:g.guide_id});
-  selectEl.value='';
-  renderBdNewGuideList();
+function filterBdNewGuideSuggest(){
+  window._bdNewGuideSelectedId = null;
+  renderBdNewGuideDropdown(document.getElementById('bd-new-guide-name').value);
+}
+function showBdNewGuideSuggest(){
+  renderBdNewGuideDropdown(document.getElementById('bd-new-guide-name').value);
+}
+function hideBdNewGuideSuggest(){
+  const dd = document.getElementById('bd-new-guide-dd');
+  if(dd) dd.style.display = 'none';
+}
+function renderBdNewGuideDropdown(q){
+  const dd = document.getElementById('bd-new-guide-dd');
+  if(!dd) return;
+  const query = toHalfWidth((q||'').trim().toLowerCase());
+  const candidates = _bdNewGuideCandidates();
+  const filtered = query
+    ? candidates.filter(g=>toHalfWidth(`${g.name||''} ${g.phone||''}`.toLowerCase()).includes(query))
+    : candidates.slice(0,50);
+  dd.innerHTML = filtered.length
+    ? filtered.slice(0,100).map(g=>`<div onmousedown="selectBdNewGuideCandidate('${escAttr(String(g.guide_id))}')" style="padding:8px 10px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''"><b>${escHtml(g.name)}</b>${g.phone?` <span style="color:var(--text3);font-size:10px">${escHtml(g.phone)}</span>`:''}${g.fromBooking?' <span style="color:var(--text3);font-size:9px">(ガイドタブ登録済み)</span>':''}</div>`).join('')
+    : `<div style="padding:8px 10px;font-size:11px;color:var(--text3)">候補なし（そのまま自由入力できます）</div>`;
+  _positionDropdownNearInput(document.getElementById('bd-new-guide-name'), dd);
+  dd.style.display = 'block';
+}
+function selectBdNewGuideCandidate(guideId){
+  const g = _bdNewGuideCandidates().find(x=>String(x.guide_id)===String(guideId));
+  if(!g) return;
+  document.getElementById('bd-new-guide-name').value = g.name;
+  document.getElementById('bd-new-guide-phone').value = g.phone||'';
+  window._bdNewGuideSelectedId = g.guide_id;
+  hideBdNewGuideSuggest();
 }
 
 async function createGuideSettlement(){
@@ -10119,7 +10132,6 @@ function guideRowDisplayName(it){
 }
 
 function renderGuideTable(){
-  renderBdNewGuideFromBookingSelect();
   const tbody = document.getElementById('bd-guides-tbody');
   if(!tbody) return;
   if(bdGuideItems.length===0){
@@ -10270,7 +10282,6 @@ async function submitNewGuide(){
     const defaultEnd = document.getElementById('bd-out')?.value || '';
     bdGuideItems.push({guide_id:data.id, guide_name_freetext:'', start_date:defaultStart, end_date:defaultEnd, status:'回答待ち', memo:'', payment_method:'', amount:0, _freetextMode:false});
     renderGuideTable();
-    renderBdNewGuideFromBookingSelect();
   } else if(i!=null && bdGuideItems[i]){
     bdGuideItems[i].guide_id = data.id;
     bdGuideItems[i].guide_name_freetext = '';
