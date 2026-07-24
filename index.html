@@ -1048,11 +1048,11 @@ input[type=number]{-moz-appearance:textfield}
       <div id="pg-credit-card-statements" class="page" style="display:none">
         <div class="card">
           <div class="card-title">クレジットカード明細をAIで読み取り</div>
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
-            <div class="form-field" style="margin:0"><label>名義人（card holder）</label><input id="cc-card-holder" placeholder="例: 山田太郎" style="width:180px"></div>
+          <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-bottom:8px">
             <label class="btn" style="font-size:11px;cursor:pointer">📎 PDFから読み取り<input type="file" accept=".pdf" style="display:none" onchange="extractCcStatementFromFile(event,'pdf')"></label>
             <label class="btn" style="font-size:11px;cursor:pointer">🖼 画像から読み取り<input type="file" accept="image/*" style="display:none" onchange="extractCcStatementFromFile(event,'image')"></label>
             <span id="cc-file-status" style="font-size:11px;color:var(--text3)"></span>
+            <div class="form-field" style="margin:0 0 0 auto"><label>名義人（card holder）</label><input id="cc-card-holder" placeholder="例: 山田太郎" style="width:180px;height:31px;box-sizing:border-box;padding:6px 9px;font-size:11px"></div>
           </div>
           <div id="cc-ocr-results"></div>
         </div>
