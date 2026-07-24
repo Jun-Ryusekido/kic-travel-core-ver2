@@ -1630,7 +1630,7 @@ input[type=number]{-moz-appearance:textfield}
               <label>手配状況 / Status</label>
               <div class="st-dd">
                 <input type="hidden" id="bd-status" value="open">
-                <button type="button" class="st-dd-btn" style="background:#f0f0f0;color:#555555;width:100%;box-sizing:border-box;text-align:left;padding:7px 9px;font-size:12px;height:29.33px;line-height:15px" data-dd-items="<div class='st-dd-item' style='background:#f0f0f0;color:#555555' onclick='event.stopPropagation();setBdStatusValueByIndex(0)'>Open / 新規</div><div class='st-dd-item' style='background:#fff3cd;color:#856404' onclick='event.stopPropagation();setBdStatusValueByIndex(1)'>Pending / 手配中</div><div class='st-dd-item' style='background:#d4edda;color:#155724' onclick='event.stopPropagation();setBdStatusValueByIndex(2)'>Confirmed / 催行確定</div><div class='st-dd-item' style='background:#ccf0f5;color:#0e7490' onclick='event.stopPropagation();setBdStatusValueByIndex(3)'>Finalized / ファイナル済み</div><div class='st-dd-item' style='background:#cce5ff;color:#004085' onclick='event.stopPropagation();setBdStatusValueByIndex(4)'>Invoiced / 請求済</div><div class='st-dd-item' style='background:#d1ecf1;color:#0c5460' onclick='event.stopPropagation();setBdStatusValueByIndex(5)'>Paid / 入金済</div><div class='st-dd-item' style='background:#e2d9f3;color:#6f42c1' onclick='event.stopPropagation();setBdStatusValueByIndex(6)'>Settlement / 精算中</div><div class='st-dd-item' style='background:#e2e3e5;color:#383d41' onclick='event.stopPropagation();setBdStatusValueByIndex(7)'>Closed / 完了</div><div class='st-dd-item' style='background:#f8d7da;color:#721c24' onclick='event.stopPropagation();setBdStatusValueByIndex(8)'>Cancelled / 中止</div>" onclick="event.stopPropagation();toggleStatusDropdown(this)">Open / 新規 <span style="font-size:9px">▾</span></button>
+                <button type="button" class="st-dd-btn" style="width:100%;box-sizing:border-box;text-align:left;padding:7px 9px;font-size:12px;height:29.33px;line-height:15px" onclick="event.stopPropagation();toggleStatusDropdown(this)">Open / 新規 <span style="font-size:9px">▾</span></button>
               </div>
             </div>
           </div>
@@ -3384,20 +3384,18 @@ function listGoPage(prefix,p){
 }
 
 
+// Booking List・ダッシュボード・GROSS等の一覧バッジの色は、予約詳細の「手配状況/STATUS」
+// ドロップダウンと同じ色になるよう、共通定義STATUS_COLORSから取得する(色コードの二重管理を防ぐ)。
+// 表示ラベルは一覧の省スペースのため短縮表記のまま維持する(色のみ統一対象)。
 function statusPill(status){
-  const map={
-    open:['s-open','Open'],
-    pending:['s-pending','Pending'],
-    confirmed:['s-paid','Confirmed'],
-    finalized:['s-finalized','Finalized'],
-    invoiced:['s-invoiced','Invoiced'],
-    paid:['s-paid','Paid'],
-    settlement:['s-pending','精算中'],
-    closed:['s-closed','Closed'],
-    cancelled:['s-closed','中止']
+  const shortLabels={
+    open:'Open', pending:'Pending', confirmed:'Confirmed', finalized:'Finalized',
+    invoiced:'Invoiced', paid:'Paid', settlement:'精算中', closed:'Closed', cancelled:'中止'
   };
-  const [cls,label] = map[status] || ['s-open',status];
-  return `<span class="pill ${cls}">${label}</span>`;
+  const c = STATUS_COLORS[status];
+  const label = shortLabels[status] || status;
+  if(!c) return `<span class="pill s-open">${escHtml(label)}</span>`;
+  return `<span class="pill" style="background:${c.bg};color:${c.fg}">${escHtml(label)}</span>`;
 }
 
 // ===== 予約台帳モーダル =====
@@ -3695,8 +3693,8 @@ function updateBdNightsDays(){
 // button+リストのカスタムドロップダウン(.st-dd/.st-dd-list、toggleStatusDropdown等)
 // と同じ仕組みに統一し、9色それぞれを個別のdiv(.st-dd-item)としてbody直下に描画する
 // ことで、ネイティブ<select>のoption色無視問題を根本的に回避する。
-const BD_STATUS_ORDER = ['open','pending','confirmed','finalized','invoiced','paid','settlement','closed','cancelled'];
-const BD_STATUS_COLORS = {
+const STATUS_ORDER = ['open','pending','confirmed','finalized','invoiced','paid','settlement','closed','cancelled'];
+const STATUS_COLORS = {
   open:       {bg:'#f0f0f0', fg:'#555555', label:'Open / 新規'},
   pending:    {bg:'#fff3cd', fg:'#856404', label:'Pending / 手配中'},
   confirmed:  {bg:'#d4edda', fg:'#155724', label:'Confirmed / 催行確定'},
@@ -3708,11 +3706,21 @@ const BD_STATUS_COLORS = {
   cancelled:  {bg:'#f8d7da', fg:'#721c24', label:'Cancelled / 中止'},
 };
 function setBdStatusValueByIndex(idx){
-  const value = BD_STATUS_ORDER[idx];
+  const value = STATUS_ORDER[idx];
   if(!value) return;
   document.getElementById('bd-status').value = value;
   applyBdStatusColor();
   closeStatusDropdowns();
+}
+// STATUS_COLORS(共通定義)からドロップダウンの9項目分のHTMLを毎回生成する。
+// 以前はこのHTMLがindex.htmlの静的マークアップに色コード込みで直書きされており、
+// Booking List等の別画面の色（statusPill）と食い違う原因になっていたため、
+// この関数を唯一の生成元とし、呼ぶたびにSTATUS_COLORSの内容で作り直す。
+function bdStatusDropdownItemsHtml(){
+  return STATUS_ORDER.map((key,i)=>{
+    const c = STATUS_COLORS[key];
+    return `<div class="st-dd-item" style="background:${c.bg};color:${c.fg}" onclick="event.stopPropagation();setBdStatusValueByIndex(${i})">${escHtml(c.label)}</div>`;
+  }).join('');
 }
 function applyBdStatusColor(){
   const input = document.getElementById('bd-status');
@@ -3720,10 +3728,11 @@ function applyBdStatusColor(){
   const wrap = input.closest('.st-dd');
   const btn = wrap ? wrap.querySelector('.st-dd-btn') : null;
   if(!btn) return;
-  const c = BD_STATUS_COLORS[input.value] || {bg:'', fg:'', label:input.value};
+  const c = STATUS_COLORS[input.value] || {bg:'', fg:'', label:input.value};
   btn.style.background = c.bg;
   btn.style.color = c.fg;
   btn.innerHTML = `${escHtml(c.label)} <span style="font-size:9px">▾</span>`;
+  btn.dataset.ddItems = bdStatusDropdownItemsHtml();
 }
 
 function updateDetailGrossPreview(){
