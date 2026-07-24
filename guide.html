@@ -181,7 +181,7 @@ function render(){
     </div>` : `<div class="tour-info">担当ガイド: <b>${escHtml(guideList.map(g=>g.name).join('・')||'')}</b></div>`;
 
   const formHtml = closed ? '' : `
-    <div class="card">
+    <div class="card" id="receipt-upload-card">
       <div class="card-title">領収書を読み取る</div>
       <div style="margin-bottom:12px">
         <label class="btn btn-p" style="display:block;cursor:pointer;text-align:center">
@@ -193,6 +193,7 @@ function render(){
           <input type="file" accept="image/*,application/pdf" multiple style="display:none" onchange="handleReceiptImages(this)">
         </label>
         <div style="font-size:11px;color:var(--text3);text-align:center;margin-top:4px">番号を振った領収書をまとめて1枚で撮影してください</div>
+        <div style="font-size:11px;color:var(--text3);text-align:center;margin-top:4px">📋 このカード内をクリックしてCtrl+Vでも画像を貼り付けられます（PC利用時）</div>
       </div>
       <img id="preview-img" class="preview-img">
       <div id="reading-status" class="reading-status">AI読み取り中...</div>
@@ -225,6 +226,8 @@ function render(){
       <div class="total-row"><span>合計</span><span>${yen(total)}</span></div>
     </div>
   `;
+  const uploadCard = document.getElementById('receipt-upload-card');
+  if(uploadCard) enablePasteUpload(uploadCard, files=>processReceiptFiles(files));
 }
 
 function compressImageGuide(file){
@@ -254,7 +257,28 @@ function compressImageGuide(file){
 
 async function handleReceiptImages(input){
   if(!input.files || !input.files.length) return;
-  const files = Array.from(input.files);
+  await processReceiptFiles(Array.from(input.files));
+  input.value = '';
+}
+
+function enablePasteUpload(containerEl, onFiles){
+  if(!containerEl || containerEl.dataset.pasteBound) return;
+  containerEl.dataset.pasteBound = '1';
+  if(!containerEl.hasAttribute('tabindex')) containerEl.setAttribute('tabindex','-1');
+  containerEl.style.outline = 'none';
+  containerEl.addEventListener('paste', (e)=>{
+    const items = e.clipboardData && e.clipboardData.items;
+    if(!items) return;
+    const files = [];
+    for(const item of items){
+      if(item.kind === 'file'){ const f = item.getAsFile(); if(f) files.push(f); }
+    }
+    if(files.length){ e.preventDefault(); onFiles(files); }
+  });
+}
+
+async function processReceiptFiles(files){
+  if(!files || !files.length) return;
   pendingReceipts = [];
   const status = document.getElementById('reading-status');
   const result = document.getElementById('receipt-result');
