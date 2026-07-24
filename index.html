@@ -2447,6 +2447,44 @@ function enablePasteUpload(containerEl, onFile){
 function pasteDropZoneHtml(id, formats){
   return `<div id="${id}" class="paste-drop-zone" tabindex="-1">📋 ここをクリックしてCtrl+Vで${formats}ファイルを貼り付け（ドラッグ&ドロップも可）</div>`;
 }
+// AI応答のJSON配列を寛容にパースする共通ヘルパー。AIが値中の改行・制御文字を正しく
+// エスケープせずに返してしまいJSON.parseが失敗するケースへの対策。
+// 1. コードブロック記号除去 → そのままパース
+// 2. 失敗時: 文字列リテラル内の生の改行/タブ/制御文字だけをエスケープ表現に置換して再パース
+//    （文字列の外側にある本来のJSON整形用の改行はそのまま保持する）
+// 3. それでも失敗する場合は、正規表現でオブジェクト単位に分割し、パースできた行だけを採用する
+//    （1行の破損で全件が失敗する事態を避ける。フラットな{...}の配列専用の簡易フォールバック）
+function parseAiJsonArrayLenient(rawText){
+  const cleaned = String(rawText||'').replace(/```json|```/g,'').trim();
+  try{ return JSON.parse(cleaned); }catch(e){ /* fall through */ }
+  // 文字列リテラル内部の生の制御文字だけをエスケープして再トライ
+  let inString = false, escaped = false, fixed = '';
+  for(const ch of cleaned){
+    if(inString){
+      if(escaped){ fixed += ch; escaped = false; continue; }
+      if(ch === '\\'){ fixed += ch; escaped = true; continue; }
+      if(ch === '"'){ inString = false; fixed += ch; continue; }
+      if(ch === '\n'){ fixed += '\\n'; continue; }
+      if(ch === '\r'){ fixed += '\\r'; continue; }
+      if(ch === '\t'){ fixed += '\\t'; continue; }
+      if(ch.charCodeAt(0) < 0x20){ continue; }
+      fixed += ch;
+    }else{
+      if(ch === '"'){ inString = true; }
+      fixed += ch;
+    }
+  }
+  try{ return JSON.parse(fixed); }catch(e){ /* fall through */ }
+  // 最終フォールバック: フラットな{...}オブジェクト単位に分割し、パースできた行だけ採用する
+  const objs = [];
+  const re = /\{[^{}]*\}/g;
+  let m;
+  while((m = re.exec(fixed))){
+    try{ objs.push(JSON.parse(m[0])); }catch(_){ /* この行だけスキップ */ }
+  }
+  if(objs.length) return objs;
+  throw new Error('AIの応答をJSONとして解析できませんでした');
+}
 function compressImageToBase64(file, maxDim){
   maxDim = maxDim || 1800;
   return new Promise((resolve, reject) => {
@@ -13438,8 +13476,8 @@ async function processCcStatementFile(file, mode){
     });
     if(!response.ok){ const e = await response.json(); throw new Error(e.error||'サーバーエラー'); }
     const data = await response.json();
+    const parsed = parseAiJsonArrayLenient(data.text);
     const cleaned = (data.text||'').replace(/```json|```/g,'').trim();
-    const parsed = JSON.parse(cleaned);
     ccExtracted = (Array.isArray(parsed) ? parsed : [parsed]).map(p=>({
       transaction_date: p.date||'', date_raw: p.date_raw||'', needs_review: !!p.needs_review || !p.date,
       merchant_name: p.merchant||'', amount: Number(p.amount)||0, raw_ocr_text: cleaned
