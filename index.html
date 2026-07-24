@@ -1219,7 +1219,6 @@ input[type=number]{-moz-appearance:textfield}
           <!-- ツアー別タブ -->
           <div id="hm-tab-tour" style="display:none">
             <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
-              <select id="hm-tour-ym" onchange="renderHmTourTab()" style="padding:6px 10px;border-radius:8px;border:1px solid var(--border);font-size:12px"></select>
               <input id="hm-tour-search" placeholder="ツアーコードで絞り込み" oninput="renderHmTourTab()" style="padding:6px 10px;border-radius:8px;border:1px solid var(--border);font-size:12px;width:200px">
               <span style="font-size:11px;color:var(--text3)">凡例：</span>
               <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:var(--green-lt);color:var(--green)">手配OK</span>
@@ -15768,27 +15767,16 @@ function renderHmMatrix(){
 }
 
 function initHmTourTab(){
-  const sel = document.getElementById('hm-tour-ym');
-  const now = new Date();
-  const months = [];
-  for(let i=-2;i<=12;i++){
-    const d = new Date(now.getFullYear(),now.getMonth()+i,1);
-    months.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);
-  }
-  const cur = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-  sel.innerHTML = months.map(ym=>`<option value="${ym}" ${ym===cur?'selected':''}>${ym.replace('-','年')}月</option>`).join('');
   renderHmTourTab();
 }
 
+// 月選択プルダウンは廃止（月をまたぐツアーの日程が分断されて表示される問題があったため）。
+// 検索欄が空の場合は全ツアーをチェックイン日の近い順（昇順）で表示し、各ツアーのIn-Date〜
+// Out-Dateの全日程（複数ホテルにまたがる場合も含め）をそのまま表示する。ツアーコードで
+// 検索した場合は該当ツアーのみに絞り込む。
 function renderHmTourTab(){
-  const ym = document.getElementById('hm-tour-ym')?.value;
-  if(!ym) return;
   const q = (document.getElementById('hm-tour-search')?.value||'').trim().toLowerCase();
-  const [year,month] = ym.split('-').map(Number);
-  const daysInMonth = new Date(year,month,0).getDate();
-  const monthStart = `${ym}-01`;
-  const monthEnd = `${ym}-${String(daysInMonth).padStart(2,'0')}`;
-  const relevant = hotelManagementCache.filter(r=>r.check_in&&r.check_out&&r.check_in<=monthEnd&&r.check_out>monthStart);
+  const relevant = hotelManagementCache.filter(r=>r.check_in && r.check_out);
   const bookingMap = new Map();
   relevant.forEach(r=>{
     const bid = r.booking_id;
@@ -15804,39 +15792,29 @@ function renderHmTourTab(){
     }
     bookingMap.get(bid).hotels.push(r);
   });
-  let bookings = [...bookingMap.values()].sort((a,b)=>(a.ref_no||'').localeCompare(b.ref_no||''));
+  let bookings = [...bookingMap.values()];
+  bookings.forEach(bk=>{
+    bk.hotels.sort((a,b)=>(a.check_in||'').localeCompare(b.check_in||''));
+    bk.minCheckIn = bk.hotels[0]?.check_in || '';
+  });
+  bookings.sort((a,b)=>(a.minCheckIn||'').localeCompare(b.minCheckIn||''));
   if(q) bookings = bookings.filter(b=>
     (b.ref_no||'').toLowerCase().includes(q)||
     (b.agent_name||'').toLowerCase().includes(q)
   );
   const body = document.getElementById('hm-tour-body');
-  if(bookings.length===0){ body.innerHTML='<p style="color:var(--text3);font-size:12px">この月のツアーデータはありません</p>'; return; }
-  const days = Array.from({length:daysInMonth},(_,i)=>i+1);
+  if(bookings.length===0){ body.innerHTML='<p style="color:var(--text3);font-size:12px">該当するツアーがありません</p>'; return; }
   const bgFn=statusBg;
   const fgFn=statusFg;
-  const thead=`<thead><tr><th style="min-width:150px;padding:4px 6px;text-align:left;position:sticky;left:0;background:var(--card);z-index:2;border-right:2px solid var(--border)">ツアー</th>${days.map(d=>{const dt=new Date(year,month-1,d);const dow=['日','月','火','水','木','金','土'][dt.getDay()];const we=dt.getDay()===0||dt.getDay()===6;return `<th style="min-width:36px;text-align:center;padding:3px 2px;font-size:10px;${we?'color:var(--blue)':''}">${d}<br><span style="font-size:9px">${dow}</span></th>`;}).join('')}</tr></thead>`;
+  const thead=`<thead><tr><th style="min-width:150px;padding:4px 6px;text-align:left;border-bottom:2px solid var(--border)">ツアー</th><th style="text-align:left;padding:4px 6px;border-bottom:2px solid var(--border)">日程・ホテル</th></tr></thead>`;
   const tbody=bookings.map(bk=>{
-    const hotels=[...bk.hotels].sort((a,b)=>(a.check_in||'').localeCompare(b.check_in||''));
-    let cells='';
-    let day=1;
-    while(day<=daysInMonth){
-      const ds=`${ym}-${String(day).padStart(2,'0')}`;
-      const h=hotels.find(r=>r.check_in<=ds&&r.check_out>ds);
-      if(h){
-        const coYm=h.check_out.slice(0,7);
-        const lastDay=coYm>ym ? daysInMonth : parseInt(h.check_out.slice(8,10))-1;
-        const colspan=lastDay-day+1;
-        cells+=`<td colspan="${colspan}" style="border:1px solid var(--border);padding:2px 4px;background:${bgFn(h.status)};cursor:pointer;text-align:center;vertical-align:middle" onclick="openBookingDetail('${h.booking_id}')" title="${escHtml(h.hotel_name||'')}｜${escHtml(h.status||'')}"><span style="font-size:9px;color:${fgFn(h.status)};white-space:nowrap;display:block">${escHtml(h.hotel_name||'')}</span></td>`;
-        day+=colspan;
-      } else {
-        cells+=`<td style="border:1px solid var(--border);padding:2px;min-width:36px"></td>`;
-        day++;
-      }
-    }
     const paxStr=bk.pax ? ` ${bk.pax}名` : '';
-    return `<tr><td style="padding:4px 6px;font-size:11px;white-space:nowrap;position:sticky;left:0;background:var(--card);border-right:2px solid var(--border);cursor:pointer" onclick="openBookingDetail('${bk.booking_id}')"><div style="font-weight:600;color:var(--blue)">${escHtml(bk.ref_no)}</div><div style="font-size:10px;color:var(--text2)">${escHtml(bk.agent_name)}${paxStr}</div></td>${cells}</tr>`;
+    const segs=bk.hotels.map(h=>
+      `<span style="display:inline-block;margin:2px 4px 2px 0;padding:3px 8px;border-radius:6px;background:${bgFn(h.status)};cursor:pointer" onclick="openBookingDetail('${h.booking_id}')" title="${escHtml(h.status||'')}"><span style="font-size:10px;color:${fgFn(h.status)};white-space:nowrap">${escHtml(h.check_in||'')}〜${escHtml(h.check_out||'')} ${escHtml(h.hotel_name||'(ホテル名未設定)')}</span></span>`
+    ).join('');
+    return `<tr><td style="padding:6px 8px;font-size:11px;white-space:nowrap;vertical-align:top;border-bottom:1px solid var(--border);cursor:pointer" onclick="openBookingDetail('${bk.booking_id}')"><div style="font-weight:600;color:var(--blue)">${escHtml(bk.ref_no)}</div><div style="font-size:10px;color:var(--text2)">${escHtml(bk.agent_name)}${paxStr}</div></td><td style="padding:6px 8px;border-bottom:1px solid var(--border)">${segs}</td></tr>`;
   }).join('');
-  body.innerHTML=`<table style="border-collapse:collapse;font-size:11px">${thead}<tbody>${tbody}</tbody></table>`;
+  body.innerHTML=`<table style="border-collapse:collapse;width:100%;font-size:11px">${thead}<tbody>${tbody}</tbody></table>`;
 }
 
 async function loadPartners(){
