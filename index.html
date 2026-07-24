@@ -8078,6 +8078,10 @@ const EMAIL_INBOX_PROMO_HARD_KEYWORDS = [
   // 手配業務とは無関係なため一律除外する）
   '不在票','不在のお知らせ','ご不在','再配達','お荷物のお届け','宅配便のお知らせ','荷物のお届けにあがりました',
   '佐川急便','ヤマト運輸','クロネコヤマト','日本郵便',
+  // 開発・インフラ・SaaSツール由来のシステム通知（Vercel等のデプロイ/ビルド結果通知が
+  // REF#の数字パターン誤マッチで受信箱に残ってしまった事例への対応。件名にこれらの語が
+  // 含まれる場合は、送信者の一致条件に関わらず一律除外する）
+  'production deployment','deployment failed','deployment succeeded','build failed','ビルドに失敗','デプロイに失敗','デプロイが失敗',
 ];
 const EMAIL_INBOX_PROMO_SOFT_KEYWORDS = ['導入事例','業務効率化','DX','システム導入'];
 const EMAIL_INBOX_PROMO_SENDER_PATTERNS = ['marketing@'];
@@ -8085,7 +8089,10 @@ const EMAIL_INBOX_PROMO_SENDER_PATTERNS = ['marketing@'];
 // 単独でも(件名のキーワードに関係なく)除外側に倒す送信者パターン。
 // (pr@/support@/no-reply@等。marketing@はEMAIL_INBOX_PROMO_SENDER_PATTERNS側でsoft keywordとの
 //  組み合わせ判定に残す)
-const EMAIL_INBOX_BULK_SENDER_PATTERNS = ['pr@','no-reply@','noreply@','no_reply@','news@','newsletter@','mail-magazine@','support@'];
+// notifications@/alerts@/do-not-reply@等は、Vercel・GitHub・AWS等の開発・インフラ・SaaSツールが
+// システム通知（デプロイ結果・ビルド結果・エラー通知・請求書発行通知等）の送信に使う代表的な
+// local-partのため、no-reply@系と同様に一律除外側の対象とする。
+const EMAIL_INBOX_BULK_SENDER_PATTERNS = ['pr@','no-reply@','noreply@','no_reply@','news@','newsletter@','mail-magazine@','support@','notifications@','notification@','notify@','do-not-reply@','donotreply@','alerts@','alert@','mailer-daemon@','automated@'];
 
 function isPromoEmailBySubjectSender(subject, sender){
   const lowerSubject = String(subject||'').toLowerCase();
@@ -8152,7 +8159,7 @@ function isRowAutoExcluded(row){
 }
 
 function emailInboxExcludeReason(row){
-  if(row.isAutoPromo) return '広告・メルマガ判定';
+  if(row.isAutoPromo) return '広告・メルマガ/システム通知判定';
   if(row.isOwnDomain) return '自社送信(@'+EMAIL_INBOX_OWN_DOMAIN+')';
   if(row.aiIrrelevant) return row.autoExcludeReason || 'REF#/ツアーコードなし、AI判定：無関係';
   return '';
