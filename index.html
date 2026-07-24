@@ -13434,10 +13434,12 @@ async function processCcStatementFile(file, mode){
     const cleaned = (data.text||'').replace(/```json|```/g,'').trim();
     const parsed = JSON.parse(cleaned);
     ccExtracted = (Array.isArray(parsed) ? parsed : [parsed]).map(p=>({
-      transaction_date: p.date||'', merchant_name: p.merchant||'', amount: Number(p.amount)||0, raw_ocr_text: cleaned
+      transaction_date: p.date||'', date_raw: p.date_raw||'', needs_review: !!p.needs_review || !p.date,
+      merchant_name: p.merchant||'', amount: Number(p.amount)||0, raw_ocr_text: cleaned
     }));
     renderCcExtractedResults();
-    statusEl.textContent = `✓ ${ccExtracted.length}件を読み取りました。内容を確認してください。`;
+    const reviewCount = ccExtracted.filter(p=>p.needs_review).length;
+    statusEl.textContent = `✓ ${ccExtracted.length}件を読み取りました。内容を確認してください。` + (reviewCount>0 ? ` ⚠ ${reviewCount}件は日付を確認できず「要確認」です。手動で入力してください。` : '');
     statusEl.classList.remove('ocr-loading');
     hideGlobalOcrBanner();
     statusEl.style.color = 'var(--green)';
@@ -13453,9 +13455,9 @@ async function processCcStatementFile(file, mode){
 function renderCcExtractedResults(){
   const el = document.getElementById('cc-ocr-results');
   if(!el || ccExtracted.length===0){ if(el) el.innerHTML=''; return; }
-  const rows = ccExtracted.map((p,i)=>`<tr>
+  const rows = ccExtracted.map((p,i)=>`<tr${p.needs_review?' style="background:var(--amber-lt,#FAEEDA)"':''}>
     <td data-label=""><input type="checkbox" id="cc-ext-chk-${i}" checked></td>
-    <td data-label="利用日"><input type="date" min="1900-01-01" max="9999-12-31" id="cc-ext-date-${i}" value="${_safeDate(p.transaction_date)}" style="width:100%;box-sizing:border-box"></td>
+    <td data-label="利用日"><input type="date" min="1900-01-01" max="9999-12-31" id="cc-ext-date-${i}" value="${_safeDate(p.transaction_date)}" style="width:100%;box-sizing:border-box${p.needs_review?';border-color:var(--amber,#854F0B)':''}">${p.needs_review?`<div style="font-size:9px;color:var(--amber,#854F0B);margin-top:2px">⚠ 要確認${p.date_raw?`（読取: ${escHtml(p.date_raw)}）`:''}</div>`:''}</td>
     <td data-label="店舗名"><input type="text" id="cc-ext-merchant-${i}" value="${escAttr(p.merchant_name)}" style="width:100%;box-sizing:border-box"></td>
     <td data-label="金額" style="text-align:right"><input type="number" id="cc-ext-amount-${i}" value="${p.amount}" style="width:100%;text-align:right;box-sizing:border-box"></td>
   </tr>`).join('');
