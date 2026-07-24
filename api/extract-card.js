@@ -1,6 +1,11 @@
 ﻿import XLSX from 'xlsx';
 import { isPdfEncrypted, decryptPdfToBase64, isExcelEncrypted, decryptExcelToSheetsText } from './lib/protected-file.js';
 
+// 既定のVercelサーバーレス関数タイムアウト(プランによっては10秒程度)では、行数の多い
+// Excel/PDFの抽出でAnthropic APIの応答生成が終わる前に関数自体が強制終了してしまうため、
+// 明示的に延長する。Hobbyプランでも指定可能な上限値。
+export const maxDuration = 60;
+
 // 1通のメールに複数日程・複数ツアー分の予約情報が混在しているケースで、今開いている予約と
 // 無関係な行まで抽出されてしまうのを防ぐための日付絞り込み許容日数。
 // 日付のズレ・表記ゆれを考慮した仮の値。調整する場合はこの値を変更する。

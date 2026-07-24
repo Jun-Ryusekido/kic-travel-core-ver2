@@ -9437,6 +9437,55 @@ async function parseExcelToSheetsText(file){
   }
 }
 
+// Excelの行数が多い場合、1回のAI呼び出しで全件を送るとサーバー側のタイムアウトを招くため、
+// シートごとに(ヘッダー行を保持したまま)maxRowsPerChunk行単位のテキストに分割する。
+// 総データ行数がmaxRowsPerChunk以下の場合は従来通り1件のチャンクのみを返す(挙動を変えない)。
+async function parseExcelToSheetsTextChunks(file, maxRowsPerChunk){
+  const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs');
+  try{
+    const arrayBuffer = await file.arrayBuffer();
+    const workbook = XLSX.read(arrayBuffer, {type:'array'});
+    // シートごとに [ヘッダー行, データ行の配列] を保持
+    const sheets = workbook.SheetNames.map(name=>{
+      const ws = workbook.Sheets[name];
+      const rows = XLSX.utils.sheet_to_json(ws, {header:1, raw:false, defval:''});
+      const header = rows.length ? rows[0] : [];
+      const dataRows = rows.slice(1);
+      return {name, header, dataRows};
+    });
+    const totalDataRows = sheets.reduce((s,sh)=>s+sh.dataRows.length, 0);
+    const toCsvLine = row => row.map(v=>{
+      const s = String(v==null?'':v);
+      return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
+    }).join(',');
+    if(totalDataRows <= maxRowsPerChunk){
+      const text = sheets.map(sh=>{
+        const lines = [sh.header, ...sh.dataRows].map(toCsvLine).join('\n');
+        return `[シート: ${sh.name}]\n${lines}`;
+      }).join('\n\n');
+      return [text];
+    }
+    // 各シートを独立してmaxRowsPerChunk行ずつに分割し、チャンクを積み上げていく
+    // (シートをまたいで1チャンクに混ぜても問題ないが、実装の単純さのためシート単位で分割する)
+    const chunks = [];
+    for(const sh of sheets){
+      if(sh.dataRows.length === 0){
+        chunks.push(`[シート: ${sh.name}]\n${toCsvLine(sh.header)}`);
+        continue;
+      }
+      for(let i=0; i<sh.dataRows.length; i+=maxRowsPerChunk){
+        const part = sh.dataRows.slice(i, i+maxRowsPerChunk);
+        const lines = [sh.header, ...part].map(toCsvLine).join('\n');
+        chunks.push(`[シート: ${sh.name}（${i+1}〜${i+part.length}行目 / 全${sh.dataRows.length}行）]\n${lines}`);
+      }
+    }
+    return chunks;
+  }catch(e){
+    if(/password/i.test(e.message||'')) e.isPasswordProtected = true;
+    throw e;
+  }
+}
+
 // statusElの直後にパスワード入力欄＋再試行ボタンを表示し、ユーザーが再試行を押すまで待つ
 // （通常時はこの要素自体が存在しないため、パスワード入力欄は非表示のまま）。
 // 戻り値: ユーザーが入力したパスワード文字列
@@ -11682,11 +11731,12 @@ function checkBulkReadSanity(items, dateField){
 // サーバー応答が来ないまま「読み取り中」で固まらないよう、タイムアウト付きfetch
 async function fetchWithTimeout(url, opts, timeoutMs){
   const controller = new AbortController();
-  const timer = setTimeout(()=>controller.abort(), timeoutMs||45000);
+  const effectiveTimeoutMs = timeoutMs || 90000;
+  const timer = setTimeout(()=>controller.abort(), effectiveTimeoutMs);
   try{
     return await fetch(url, Object.assign({}, opts, {signal: controller.signal}));
   }catch(e){
-    if(e.name === 'AbortError') throw new Error('サーバーからの応答がタイムアウトしました（45秒）。ファイルサイズが大きい場合は分割するか、時間をおいて再度お試しください。');
+    if(e.name === 'AbortError') throw new Error(`サーバーからの応答がタイムアウトしました（${Math.round(effectiveTimeoutMs/1000)}秒）。ファイルサイズが大きい場合は分割するか、時間をおいて再度お試しください。`);
     throw e;
   }finally{
     clearTimeout(timer);
@@ -12917,6 +12967,29 @@ async function extractHotelFromFileHmParsed(buildBody, statusEl){
   showHotelConfirmDialog(hotels);
 }
 
+// 1回のAI呼び出しに送るExcelの最大データ行数。これを超える場合はバッチ分割する
+// (サーバーレス関数のタイムアウト回避のため。値は処理時間と分割回数のバランスを見て調整可能)。
+const HOTEL_EXCEL_CHUNK_ROWS = 40;
+
+// 行数の多いExcelをHOTEL_EXCEL_CHUNK_ROWS行ずつのチャンクに分割し、順番にAI読み取りを行う。
+// 各チャンクの結果をマージしてから、最後に1回だけ確認ダイアログを表示する。
+// 進捗は件数ではなくバッチ番号でステータス表示する(全体の件数は最後まで確定しないため)。
+async function extractHotelFromFileHmBatched(chunks, statusEl){
+  let allHotels = [];
+  for(let i=0; i<chunks.length; i++){
+    statusEl.textContent = `⏳ 読み取り中... (バッチ ${i+1}/${chunks.length})`;
+    const data = await fetchExtractCardWithPasswordSupport(pw => pw ? {hotelText:chunks[i], password:pw} : {hotelText:chunks[i]}, statusEl);
+    const textBlock = data.content.find(b=>b.type==='text');
+    const parsed = parseAiJsonResponse(textBlock.text);
+    allHotels = allHotels.concat(Array.isArray(parsed) ? parsed : [parsed]);
+  }
+  statusEl.textContent = `✓ ${allHotels.length}件を読み取りました（${chunks.length}バッチに分割して処理）。内容を確認してください。`;
+  statusEl.classList.remove('ocr-loading');
+  hideGlobalOcrBanner();
+  statusEl.style.color = 'var(--green)';
+  showHotelConfirmDialog(allHotels);
+}
+
 async function showHotelConfirmDialog(hotels){
   window._pendingHotels = hotels;
   allBookingsCache = await fetchAllBookings();
@@ -13407,13 +13480,26 @@ async function extractHotelFromFileHm(event, mode){
       const base64 = await readFileAsBase64(file);
       bodyBase = { hotelPdfBase64: base64 };
     }else{
+      // 行数が多いExcelを1回のAI呼び出しにまとめて送るとサーバー側の処理時間が
+      // 長くなりタイムアウトしやすいため、HOTEL_EXCEL_CHUNK_ROWS行を超える場合は
+      // 複数バッチに分割して順に読み取り、結果をマージしてから確認ダイアログを開く。
+      let chunks;
       try{
-        const sheets = await parseExcelToSheetsText(file);
-        bodyBase = { hotelText: sheets };
+        chunks = await parseExcelToSheetsTextChunks(file, HOTEL_EXCEL_CHUNK_ROWS);
       }catch(e){
         if(!e.isPasswordProtected) throw e;
         const base64 = await readFileAsBase64(file);
         bodyBase = { hotelExcelBase64: base64 };
+        chunks = null;
+      }
+      if(chunks){
+        if(chunks.length === 1){
+          bodyBase = { hotelText: chunks[0] };
+        }else{
+          await extractHotelFromFileHmBatched(chunks, statusEl);
+          event.target.value = '';
+          return;
+        }
       }
     }
     await extractHotelFromFileHmParsed(pw => pw ? {...bodyBase, password: pw} : bodyBase, statusEl);
