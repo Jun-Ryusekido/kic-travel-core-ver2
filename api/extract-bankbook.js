@@ -3,11 +3,11 @@ export const config = { runtime: 'edge' };
 export default async function handler(req) {
   if(req.method !== 'POST') return new Response('Method Not Allowed', {status:405});
   try{
-    const { imageBase64, mediaType, pdfBase64, text } = await req.json();
+    const { imageBase64, mediaType, pdfBase64, text: inputText } = await req.json();
     const contentItem = pdfBase64
       ? {type:'document', source:{type:'base64', media_type:'application/pdf', data:pdfBase64}}
-      : text
-      ? {type:'text', text}
+      : inputText
+      ? {type:'text', text: inputText}
       : {type:'image', source:{type:'base64', media_type:mediaType, data:imageBase64}};
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
