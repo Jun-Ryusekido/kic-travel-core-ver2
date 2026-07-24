@@ -4251,8 +4251,8 @@ async function extractBankbookFromFile(event){
       r.onerror = reject;
       r.readAsDataURL(file);
     });
-    const body = isPdf ? {pdfBase64: base64} : {imageBase64: base64, mediaType: file.type};
-    const response = await fetch('/api/extract-bankbook', {
+    const body = isPdf ? {bankbookPdfBase64: base64} : {bankbookImageBase64: base64, bankbookMediaType: file.type};
+    const response = await fetch('/api/extract-card', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(body)
@@ -4337,18 +4337,18 @@ async function processDashboardBankbookFile(file){
     let body;
     if(isExcel){
       const sheets = await parseExcelToSheetsText(file);
-      body = { text: sheets };
+      body = { bankbookText: sheets };
     } else if(isWord){
       const docText = await extractDocxText(file);
-      body = { text: docText };
+      body = { bankbookText: docText };
     } else if(isPdf){
       const base64 = await readFileAsBase64(file);
-      body = {pdfBase64: base64};
+      body = {bankbookPdfBase64: base64};
     } else {
       const base64 = await readFileAsBase64(file);
-      body = {imageBase64: base64, mediaType: file.type};
+      body = {bankbookImageBase64: base64, bankbookMediaType: file.type};
     }
-    const response = await fetch('/api/extract-bankbook', {
+    const response = await fetch('/api/extract-card', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(body)
@@ -9158,9 +9158,9 @@ async function sendEmailToPartnerMaster(emailId){
     const subject = emailRow.subject||'';
     const body = emailRow.body||'';
 
-    const resp = await fetch('/api/extract-partner', {
+    const resp = await fetch('/api/extract-card', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ text: `件名: ${subject}\n\n${body}` })
+      body: JSON.stringify({ partnerText: `件名: ${subject}\n\n${body}` })
     });
     const data = await resp.json();
     if(data.error){ alert('AI読み取りに失敗しました: '+data.error); return; }
@@ -13655,13 +13655,13 @@ async function processCcStatementFile(file, mode){
     let body;
     if(isExcel){
       const sheets = await parseExcelToSheetsText(file);
-      body = { text: sheets };
+      body = { cardstatementText: sheets };
     } else if(isWord){
       const docText = await extractDocxText(file);
-      body = { text: docText };
+      body = { cardstatementText: docText };
     } else if(mode==='pdf' || name.endsWith('.pdf')){
       const base64 = await readFileAsBase64(file);
-      body = {pdfBase64: base64};
+      body = {cardstatementPdfBase64: base64};
     } else {
       const base64 = await new Promise((resolve,reject)=>{
         const r = new FileReader();
@@ -13669,9 +13669,9 @@ async function processCcStatementFile(file, mode){
         r.onerror = reject;
         r.readAsDataURL(file);
       });
-      body = {imageBase64: base64, mediaType: file.type||'image/jpeg'};
+      body = {cardstatementImageBase64: base64, cardstatementMediaType: file.type||'image/jpeg'};
     }
-    const response = await fetch('/api/extract-cardstatement', {
+    const response = await fetch('/api/extract-card', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(body)
@@ -16097,12 +16097,12 @@ async function processCardFile(file){
     let parsed;
 
     if(_isExcelCard || _isWordCard){
-      // Excel/Wordにまとまった名刺情報はテキスト抽出し、/api/extract-partner（テキストベース）で読み取る
+      // Excel/Wordにまとまった名刺情報はテキスト抽出し、/api/extract-card（partnerText、テキストベース）で読み取る
       const text = _isExcelCard ? await parseExcelToSheetsText(file) : await extractDocxText(file);
-      const presp = await fetch('/api/extract-partner', {
+      const presp = await fetch('/api/extract-card', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ text })
+        body: JSON.stringify({ partnerText: text })
       });
       if(!presp.ok){
         const errData = await presp.json();
@@ -16300,10 +16300,10 @@ async function handleMultiLocationUpload(event){
 
   try {
     const base64 = await compressImage(file);
-    const response = await fetch('/api/extract-multi-locations', {
+    const response = await fetch('/api/extract-card', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ base64, mediaType: 'image/jpeg' })
+      body: JSON.stringify({ multiLocBase64: base64, multiLocMediaType: 'image/jpeg' })
     });
     if(!response.ok){ const e = await response.json(); throw new Error(e.error || 'サーバーエラー'); }
     const data = await response.json();
@@ -16389,10 +16389,10 @@ async function handleMultiLocBatchUpload(event){
 
   try{
     const base64 = await compressImage(file);
-    const response = await fetch('/api/extract-multi-locations', {
+    const response = await fetch('/api/extract-card', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ base64, mediaType: 'image/jpeg', returnJson: true })
+      body: JSON.stringify({ multiLocBase64: base64, multiLocMediaType: 'image/jpeg', multiLocReturnJson: true })
     });
     if(!response.ok){ const e = await response.json(); throw new Error(e.error || 'サーバーエラー'); }
     const data = await response.json();

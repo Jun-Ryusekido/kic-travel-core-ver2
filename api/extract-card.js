@@ -51,7 +51,12 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
   try {
-    const { variants, mediaType, base64, hotelText, hotelPdfBase64, hotelExcelBase64, hotelImageBase64, hotelImageMediaType, facilityText, facilityPdfBase64, facilityExcelBase64, facilityImageBase64, facilityImageMediaType, busText, busPdfBase64, busExcelBase64, busImageBase64, busImageMediaType, restaurantText, restaurantPdfBase64, restaurantExcelBase64, restaurantImageBase64, restaurantImageMediaType, invoiceText, invoicePdfBase64, invoiceExcelBase64, invoiceImageBase64, invoiceImageMediaType, targetCheckIn, targetCheckOut, password } = req.body;
+    const { variants, mediaType, base64, hotelText, hotelPdfBase64, hotelExcelBase64, hotelImageBase64, hotelImageMediaType, facilityText, facilityPdfBase64, facilityExcelBase64, facilityImageBase64, facilityImageMediaType, busText, busPdfBase64, busExcelBase64, busImageBase64, busImageMediaType, restaurantText, restaurantPdfBase64, restaurantExcelBase64, restaurantImageBase64, restaurantImageMediaType, invoiceText, invoicePdfBase64, invoiceExcelBase64, invoiceImageBase64, invoiceImageMediaType, targetCheckIn, targetCheckOut, password,
+      bankbookImageBase64, bankbookMediaType, bankbookPdfBase64, bankbookText,
+      cardstatementImageBase64, cardstatementMediaType, cardstatementPdfBase64, cardstatementText,
+      receiptImageBase64, receiptMediaType,
+      multiLocBase64, multiLocMediaType, multiLocReturnJson,
+      partnerText } = req.body;
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
       return res.status(500).json({ error: 'サーバー側にAPIキーが設定されていません' });
@@ -83,6 +88,169 @@ export default async function handler(req, res) {
       }
       return data;
     };
+
+    // ─── 通帳OCRモード（旧 /api/extract-bankbook.js を統合。Vercel Hobbyプランの
+    // サーバーレス関数数上限(12個)対策で、役割の近いAI抽出系エンドポイントを1つに集約した） ───
+    const resolvedBankbookContent = bankbookPdfBase64
+      ? {type:'document', source:{type:'base64', media_type:'application/pdf', data:bankbookPdfBase64}}
+      : bankbookText
+      ? {type:'text', text: bankbookText}
+      : bankbookImageBase64
+      ? {type:'image', source:{type:'base64', media_type:bankbookMediaType, data:bankbookImageBase64}}
+      : null;
+    if (resolvedBankbookContent) {
+      const data = await callClaude([
+        resolvedBankbookContent,
+        {type:'text', text:'この通帳または銀行明細から入金（振込入金・着金）の記録のみを読み取ってください。出金・引き出しは除外してください。各入金について日付・金額・振込元または取引内容を読み取り、以下のJSON形式のみで返してください。日付はYYYY-MM-DD形式。読み取れない項目はnullにしてください。他のテキストは一切含めないでください。\n[{"date":"2026-05-20","amount":1000000,"bank":"〇〇株式会社"},{"date":"2026-05-25","amount":500000,"bank":null}]'}
+      ], 1000);
+      const text = data.content?.[0]?.text || '';
+      return res.status(200).json({ text });
+    }
+
+    // ─── クレジットカード明細OCRモード（旧 /api/extract-cardstatement.js を統合） ───
+    const resolvedCardstatementContent = cardstatementPdfBase64
+      ? {type:'document', source:{type:'base64', media_type:'application/pdf', data:cardstatementPdfBase64}}
+      : cardstatementText
+      ? {type:'text', text: cardstatementText}
+      : cardstatementImageBase64
+      ? {type:'image', source:{type:'base64', media_type:cardstatementMediaType, data:cardstatementImageBase64}}
+      : null;
+    if (resolvedCardstatementContent) {
+      const data = await callClaude([
+        resolvedCardstatementContent,
+        {type:'text', text:`このクレジットカード利用明細から、各取引（利用日・利用店舗名・利用金額）をすべて読み取ってください。複数の取引行がある場合はすべて抽出してください。
+
+【日付の抽出ルール（最重要・厳守）】
+- 明細の「ご利用日」欄は「5/21」「05 21」のように月/日のみで年が書かれていないことが多い。この場合、行ごとに実際に印字されている月・日をそのまま読み取り、絶対に他の行と同じ日付を使い回さないこと。1行ごとに個別に読み取ること。
+- 年が明記されていない場合は、明細書のヘッダー等に記載された発行年月・請求年月・対象年月（例:「2026年6月分」「ご請求予定日 2026/07/10」等）を探し、そこから各取引の年を推定すること。請求月より後の月（例: 請求が7月分で取引が12月）の場合は前年と判断すること。
+- 【和暦/西暦の判別（重要）】クレジットカード会社によっては、年の表記が西暦（2026、桁数4桁）ではなく
+  和暦（令和8年、または元号を省略して単に「8」とだけ印字）になっている場合がある。明細ヘッダーの
+  発行年月・請求年月の表記（「令和」の文字の有無、年の桁数が1〜2桁か4桁か等）を手がかりに、
+  西暦・和暦のどちらの形式で書かれた明細かを最初に判断すること。
+  - 和暦と判断した場合、令和の年数を西暦に変換する（変換式: 令和の年数 + 2018 = 西暦。
+    例: 令和8年 → 2026年）。「令和」の文字がなくても、ヘッダーに単独で1〜2桁の数字
+    （例:「8」）が年として印字され、他に4桁の西暦表記が見当たらない明細は、和暦（元号省略）の
+    可能性が高いと判断してよい
+  - 表のレイアウトによっては「年」の列と「月日」の列が別々のセル・別々の位置に分かれて印字されて
+    いることがある。この場合、隣接する数字を安易にそのまま連結して1つの日付にしてはならない
+    （例: 年欄の「8」と月日欄の「5 21」を混同して「8521」のような無意味な数値を作らないこと）。
+    必ず表全体の列構造・ヘッダー行（「ご利用日」が年月日のうちどこまでを含む列なのか等）を踏まえて、
+    年・月・日を正しく組み立てること
+- ヘッダーにも年月の手がかりが全く見つからない場合や、和暦/西暦の判別・年の推定に確信が持てない
+  場合は、絶対に無関係な年（現在の年など）や固定の日付を埋めないこと。その場合は "date" を null に
+  し、"date_raw" に実際に印字されていた文字列（列が分かれている場合はそれぞれの値を「/」区切り等
+  で分かる形にして、例:"8/5 21"のように）そのまま入れ、"needs_review" を true にすること。
+- 全ての行に同一の日付を返すことは、明細の実態と一致しない限り誤りである可能性が非常に高い。行ごとに異なる日付が印字されている場合は、それぞれ正確に区別して抽出すること。
+
+【出力ルール（JSON構文が壊れると読み取り自体が全件失敗するため厳守）】
+- 金額は数値のみ（カンマ・円記号なし）
+- 店舗名が読み取れない場合はnullにする
+- 日付が確実に分かる場合は"date"をYYYY-MM-DD形式にし、"date_raw"はnull、"needs_review"はfalseにする
+- "date_raw"や"merchant"の値に、二重引用符(")・バックスラッシュ(\\)・改行がそのまま含まれる場合は、
+  必ずJSON文字列として正しくエスケープすること（例: 引用符は\\"、改行は\\nにする）。生の改行文字を
+  そのまま値の中に含めてはならない
+- 出力は有効なJSON配列そのものだけとし、説明文・注釈・コードブロック記号(\`\`\`)は一切含めないこと
+- 他のテキストは一切含めず、以下のJSON形式のみで返すこと
+
+[{"date":"2026-05-20","date_raw":null,"needs_review":false,"merchant":"〇〇株式会社","amount":15000},{"date":null,"date_raw":"5/25","needs_review":true,"merchant":"△△商店","amount":3200}]`}
+      ], 2000);
+      const text = data.content?.[0]?.text || '';
+      return res.status(200).json({ text });
+    }
+
+    // ─── レシートOCRモード（旧 /api/extract-receipt.js を統合。guide.htmlのガイド精算画面から使用） ───
+    if (receiptImageBase64) {
+      const data = await callClaude([
+        {type:'image', source:{type:'base64', media_type:receiptMediaType||'image/jpeg', data:receiptImageBase64}},
+        {type:'text', text:'この画像に写っている領収書を読み取ってください。各領収書について以下の情報を抽出し、JSON形式のみで返してください。他のテキストは一切含めないでください。\n\n【抽出ルール】\n番号(no)：領収書に印字または手書きで明記されている番号のみ。連番や推測は不可。書かれていない場合はnullにしてください。\n日付(date)：発行日をYYYY-MM-DD形式で。読み取れない場合はnullにしてください。\n内容(description)：発行元の会社名・店舗名、または購入した商品・サービスの具体的な内容を記載してください。「領収書」「receipt」「レシート」という単語は絶対に内容欄に入れてはいけません。発行元が不明な場合は購入内容を記載し、それも不明な場合は空文字にしてください。\nカテゴリ(category)：「食事代」「交通費」「駐車場代」「高速・有料道路代」「入場料・拝観料」「ガイド費」「宿泊代」「その他」のいずれかを内容から判断して選んでください。\n金額(amount)：合計金額（税込）を数値で。読み取れない場合は0にしてください。\n\n[{"no":"1","date":"2026-05-20","description":"〇〇レストラン 昼食","category":"食事代","amount":3500},{"no":null,"date":"2026-05-21","description":"〇〇駐車場","category":"駐車場代","amount":800}]'}
+      ], 4000);
+      const text = data.content?.[0]?.text || '';
+      if (!text) return res.status(502).json({ error: 'AIからの応答が空でした。もう一度お試しください。' });
+      return res.status(200).json({ text });
+    }
+
+    // ─── 複数拠点抽出モード（旧 /api/extract-multi-locations.js を統合。取引先マスタ画面から使用） ───
+    if (multiLocBase64) {
+      const multiLocPrompt = multiLocReturnJson
+        ? `この画像には複数の拠点（ホテル・バス会社・レストラン等の各支店や施設）の連絡先情報が記載されています。
+各拠点の情報を抽出してJSON配列で返してください。
+フィールド：company_name（会社名・拠点名）, branch_name（支店名・フロア名等、なければ空文字）, address（住所）, company_phone（電話番号）, fax（FAX番号）
+・記載がない項目は空文字にしてください
+・日本語で出力してください
+・JSONのみ返し、コードブロック記号・説明文は不要です`
+        : `この画像には複数の拠点（ホテル・バス会社・レストラン等の各支店や施設）の連絡先情報が記載されています。
+各拠点の情報を1件ずつ読み取り、以下の形式でまとめてください。
+
+出力形式（拠点ごとに「---」で区切る）：
+---
+拠点名：
+住所：
+電話番号：
+FAX番号：
+その他：
+---
+
+・記載がない項目は空欄のままにしてください
+・拠点名が不明な場合は「（不明）」としてください
+・日本語で出力してください
+・コードブロックや余分な説明は不要です。上記フォーマットのテキストのみ返してください`;
+      const data = await callClaude([
+        {type:'image', source:{type:'base64', media_type:multiLocMediaType||'image/jpeg', data:multiLocBase64}},
+        {type:'text', text: multiLocPrompt}
+      ], 2000);
+      const raw = data.content?.[0]?.text || '';
+      if (multiLocReturnJson) {
+        const cleaned = raw.replace(/```json|```/g, '').trim();
+        let locations;
+        try { locations = JSON.parse(cleaned); } catch { locations = []; }
+        if (!Array.isArray(locations)) locations = [];
+        return res.status(200).json({ locations });
+      }
+      return res.status(200).json({ text: raw });
+    }
+
+    // ─── 取引先マスタ抽出モード（旧 /api/extract-partner.js を統合。メール本文/Excel/Wordのテキストから） ───
+    if (partnerText) {
+      const data = await callClaude([{
+        type: 'text',
+        text: `以下はホテル・バス会社・レストラン等の取引先(仕入先)からの連絡メールです。
+このメールの送信元・署名欄等から、取引先マスタに登録するための情報を抽出してください。
+
+フィールド：
+company_name（会社名。日本語表記）
+company_name_en（会社名の英語表記、なければ空文字）
+branch_name（支店名・営業所名等、なければ空文字）
+branch_name_en（支店名の英語表記、なければ空文字）
+contact_person（担当者名、なければ空文字）
+contact_person_en（担当者名の英語表記、なければ空文字）
+position（担当者の役職、なければ空文字）
+position_en（役職の英語表記、なければ空文字）
+company_phone（会社の代表電話番号、なければ空文字）
+phone（担当者の直通・携帯電話番号、なければ空文字）
+fax（FAX番号、なければ空文字）
+email（担当者またはメール送信元のメールアドレス、なければ空文字）
+address（住所。日本語表記、なければ空文字）
+address_en（住所の英語表記、なければ空文字）
+notes（その他、業種・取扱商品等の参考情報、なければ空文字）
+
+・記載がない項目は空文字にしてください（推測で埋めないでください）
+・JSON1件分のオブジェクトのみ返してください（配列にしない）
+・JSONのみ返し、コードブロック記号・説明文は不要です
+
+メール本文:
+"""
+${partnerText}
+"""`
+      }], 1500);
+      const raw = data.content?.[0]?.text || '';
+      const cleaned = raw.replace(/```json|```/g, '').trim();
+      let partner;
+      try { partner = JSON.parse(cleaned); } catch { partner = null; }
+      if (!partner || typeof partner !== 'object' || Array.isArray(partner)) {
+        return res.status(500).json({ error: 'AIの応答を解析できませんでした' });
+      }
+      return res.status(200).json({ partner });
+    }
 
     // ホテルテキスト解析モード（クライアント側でパスワード保護されたExcelを検知できなかった場合、
     // hotelExcelBase64として生データが渡ってくるので、ここでサーバー側で復号してテキスト化する）
