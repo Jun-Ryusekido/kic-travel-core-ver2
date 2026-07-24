@@ -6,9 +6,9 @@
 -- だった。ブラウザの開発者ツール等からSupabase URLとanonキーを使えば、誰でもこれらの
 -- 情報を直接閲覧・改ざんできてしまうリスクがあった。
 --
--- 対応: 一覧取得・新規作成/更新・削除を、すべてservice_role keyを使うサーバーレス関数
--- (/api/parking-reservations-list, /api/parking-reservations-save,
---  /api/parking-reservations-delete)経由に変更したため、anon/authenticatedロールからの
+-- 対応: 一覧取得(action:list)・新規作成/更新(action:save)・削除(action:delete)を、
+-- すべてservice_role keyを使うサーバーレス関数(/api/parking-reservations、
+-- actionパラメータで分岐)経由に変更したため、anon/authenticatedロールからの
 -- parking_reservations直接アクセスを完全に遮断する(app_usersのlock_down_app_users.sqlと
 -- 同じパターン)。
 --

@@ -7992,12 +7992,12 @@ function parkingNowFacilityTypeLabel(t){
 // セキュリティ対応フェーズ1により、anonロールの直接アクセスを廃止しservice_role key経由の
 // /api/parking-reservations-*（list/save/delete）を通す。booking_sales/booking_costsと
 // 同じ、ログイン時発行の署名付きトークン(currentUser.token)による認証パターンを踏襲する。
-async function parkingReservationsApiCall(endpoint, payload){
+async function parkingReservationsApiCall(action, payload){
   const token = currentUser ? currentUser.token : null;
-  const resp = await fetch('/api/parking-reservations-'+endpoint, {
+  const resp = await fetch('/api/parking-reservations', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ token, ...payload })
+    body: JSON.stringify({ action, token, ...payload })
   });
   const data = await parseJsonResponseSafe(resp);
   if(!resp.ok || data.error) throw new Error(data.error || '駐車場予約の処理でサーバーエラーが発生しました');
