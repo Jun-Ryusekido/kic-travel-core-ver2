@@ -138,6 +138,12 @@ tr:hover td{background:var(--bg)}
   .bd-basicinfo-wrap{min-height:0!important}
   .bd-memo-field textarea{height:120px!important}
 }
+/* クレジットカード明細: 名義人欄はPCではボタン列の右端に配置するが、768px未満では
+   幅が足りずラベル文字が枠からはみ出すため、他の項目の下に積む1カラム表示に切り替える。 */
+@media(max-width:768px){
+  .cc-cardholder-field{width:100%!important;margin:8px 0 0 0!important}
+  .cc-cardholder-field input{width:100%!important}
+}
 .form-field{display:flex;flex-direction:column;gap:4px}
 .form-field label{font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.5px}
 .form-field input,.form-field select{padding:7px 9px;border-radius:8px;border:1px solid var(--border);background:#fff;font-size:12px;color:var(--text)}
@@ -1052,7 +1058,7 @@ input[type=number]{-moz-appearance:textfield}
             <label class="btn" style="font-size:11px;cursor:pointer">📎 PDFから読み取り<input type="file" accept=".pdf" style="display:none" onchange="extractCcStatementFromFile(event,'pdf')"></label>
             <label class="btn" style="font-size:11px;cursor:pointer">🖼 画像から読み取り<input type="file" accept="image/*" style="display:none" onchange="extractCcStatementFromFile(event,'image')"></label>
             <span id="cc-file-status" style="font-size:11px;color:var(--text3)"></span>
-            <div class="form-field" style="margin:0 0 0 auto"><label>名義人（card holder）</label><input id="cc-card-holder" placeholder="例: 山田太郎" style="width:180px;height:31px;box-sizing:border-box;padding:6px 9px;font-size:11px"></div>
+            <div class="form-field cc-cardholder-field" style="margin:0 0 0 auto;min-width:0"><label style="white-space:nowrap">名義人（card holder）</label><input id="cc-card-holder" placeholder="例: 山田太郎" style="width:180px;height:31px;box-sizing:border-box;padding:6px 9px;font-size:11px"></div>
           </div>
           <div id="cc-ocr-results"></div>
         </div>
