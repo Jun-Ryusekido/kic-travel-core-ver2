@@ -8815,7 +8815,18 @@ async function applyEmailInboxSearch(term){
   await renderEmailInboxPage();
 }
 
+// renderEmailInboxPage()は本文取得・REF#候補インデックス構築等のawaitを挟むため、
+// ページ送りボタンを連打した場合や、直前のページの読み込みがまだ完了していないうちに
+// 別の再描画(ページ送り・検索・自動除外判定の完了時の再描画等)が呼ばれた場合、後から
+// 呼んだはずの新しいページの描画より前に、遅れて完了した古い呼び出しがDOMを上書きして
+// しまい、内部の emailInboxPage 変数自体は正しく更新されているのに画面表示だけ古いページの
+// ままになってしまう競合状態が起きていた(「次へ」を押しても反応がないように見える不具合の原因)。
+// openBookingDetailと同じ「呼び出しごとの連番トークン」方式で、古い呼び出しの描画を破棄する。
+let _emailInboxRenderSeq = 0;
+
 async function renderEmailInboxPage(){
+  const _myRenderSeq = ++_emailInboxRenderSeq;
+  const _staleRender = () => _myRenderSeq !== _emailInboxRenderSeq;
   const el = document.getElementById('email-inbox-list');
   const pager = document.getElementById('email-inbox-pagination');
   if(!el) return;
@@ -8859,6 +8870,7 @@ async function renderEmailInboxPage(){
   const needBodyIds = pageItems.filter(m=>m.body==null).map(m=>m.id);
   if(needBodyIds.length){
     const {data: bodyRows, error: bodyErr} = await sb.from('email_import_queue').select('id,body').in('id', needBodyIds);
+    if(_staleRender()) return;
     if(!bodyErr && bodyRows){
       const bodyMap = new Map(bodyRows.map(r=>[r.id, r.body]));
       pageItems.forEach(m=>{ if(m.body==null) m.body = bodyMap.get(m.id)||''; });
@@ -8866,6 +8878,7 @@ async function renderEmailInboxPage(){
   }
 
   const suggestIndex = emailInboxViewMode==='autofiltered' ? null : await ensureEmailInboxSuggestIndex();
+  if(_staleRender()) return;
   el.innerHTML = pageItems.map(m=>{
     const preview = String(m.body||'').replace(/\s+/g,' ').trim().slice(0,80);
     const received = m.received_at ? new Date(m.received_at).toLocaleString('ja-JP') : '';
