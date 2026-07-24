@@ -525,6 +525,26 @@ input[type=number]{-moz-appearance:textfield}
   0%,100%{opacity:1}
   50%{opacity:.4}
 }
+.paste-drop-zone{
+  margin-top:8px;
+  border:2px dashed var(--border);
+  border-radius:8px;
+  padding:14px;
+  text-align:center;
+  font-size:11px;
+  color:var(--text3);
+  cursor:pointer;
+  transition:background .15s,border-color .15s;
+}
+.paste-drop-zone:hover,.paste-drop-zone:focus{
+  border-color:var(--blue);
+  background:var(--blue-lt,#F0F6FF);
+  outline:none;
+}
+.paste-drop-zone.paste-drop-active{
+  border-color:var(--blue);
+  background:var(--blue-lt,#F0F6FF);
+}
 </style>
 </head>
 <body>
@@ -633,7 +653,7 @@ input[type=number]{-moz-appearance:textfield}
             <label class="btn" style="cursor:pointer;font-size:12px;display:inline-flex;margin-left:6px">📎 Excel/Wordから読み取り
               <input type="file" accept=".xlsx,.xls,.docx" style="display:none" onchange="extractDashboardBankbook(event)">
             </label>
-            <div style="font-size:11px;color:var(--text3);margin-top:6px">📋 この枠内をクリックしてCtrl+Vでも画像・PDF・Excel・Wordを貼り付けられます</div>
+            <div id="db-bankbook-paste-zone" class="paste-drop-zone" tabindex="-1">📋 ここをクリックしてCtrl+Vで画像・PDF・Excel・Wordファイルを貼り付け（ドラッグ&ドロップも可）</div>
             <div id="db-bankbook-results" style="margin-top:12px"></div>
           </div>
         </div>
@@ -1060,6 +1080,7 @@ input[type=number]{-moz-appearance:textfield}
             <span id="cc-file-status" style="font-size:11px;color:var(--text3)"></span>
             <div class="form-field cc-cardholder-field" style="margin:0 0 0 auto;min-width:0"><label style="white-space:nowrap">名義人（card holder）</label><input id="cc-card-holder" placeholder="例: 山田太郎" style="width:180px;height:31px;box-sizing:border-box;padding:6px 9px;font-size:11px"></div>
           </div>
+          <div id="cc-paste-zone" class="paste-drop-zone" tabindex="-1">📋 ここをクリックしてCtrl+Vで画像・PDF・Excel・Wordファイルを貼り付け（ドラッグ&ドロップも可）</div>
           <div id="cc-ocr-results"></div>
         </div>
 
@@ -2389,9 +2410,10 @@ function hideGlobalOcrBanner(){
   const overlay = document.getElementById('global-ocr-overlay');
   if(overlay) overlay.style.display = 'none';
 }
-// クリップボード貼り付け対応の共通ヘルパー。指定したコンテナ内でCtrl+Vすると
-// クリップボード内のファイル(画像・PDF等)を検知してonFileコールバックに渡す。
-// 同じコンテナに複数回呼んでも二重登録しないようdatasetでガードする。
+// クリップボード貼り付け・ドラッグ&ドロップ対応の共通ヘルパー。指定したコンテナ内で
+// Ctrl+Vすると、またはファイルをドラッグ&ドロップすると、ファイル(画像・PDF等)を
+// 検知してonFileコールバックに渡す。同じコンテナに複数回呼んでも二重登録しないよう
+// datasetでガードする。
 function enablePasteUpload(containerEl, onFile){
   if(!containerEl || containerEl.dataset.pasteBound) return;
   containerEl.dataset.pasteBound = '1';
@@ -2407,6 +2429,23 @@ function enablePasteUpload(containerEl, onFile){
       }
     }
   });
+  containerEl.addEventListener('dragover', (e)=>{
+    e.preventDefault();
+    containerEl.classList.add('paste-drop-active');
+  });
+  containerEl.addEventListener('dragleave', ()=>{
+    containerEl.classList.remove('paste-drop-active');
+  });
+  containerEl.addEventListener('drop', (e)=>{
+    e.preventDefault();
+    containerEl.classList.remove('paste-drop-active');
+    const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if(file) onFile(file);
+  });
+}
+// 貼り付け対応エリアの共通見た目（点線枠＋案内文）を生成する。formats例: "画像・PDF・Excel・Word"
+function pasteDropZoneHtml(id, formats){
+  return `<div id="${id}" class="paste-drop-zone" tabindex="-1">📋 ここをクリックしてCtrl+Vで${formats}ファイルを貼り付け（ドラッグ&ドロップも可）</div>`;
 }
 function compressImageToBase64(file, maxDim){
   maxDim = maxDim || 1800;
@@ -4226,7 +4265,7 @@ function toggleDashboardBankbookOcr(){
   if(!el) return;
   el.style.display = el.style.display === 'none' ? '' : 'none';
   if(el.style.display !== 'none'){
-    enablePasteUpload(el, file=>processDashboardBankbookFile(file));
+    enablePasteUpload(document.getElementById('db-bankbook-paste-zone'), file=>processDashboardBankbookFile(file));
   }
 }
 
@@ -13350,6 +13389,11 @@ let ccExtracted = [];
 
 async function extractCcStatementFromFile(event, mode){
   const file = event.target.files[0];
+  if(file) await processCcStatementFile(file, mode);
+  event.target.value = '';
+}
+
+async function processCcStatementFile(file, mode){
   if(!file) return;
   const statusEl = document.getElementById('cc-file-status');
   statusEl.textContent = '⏳ 読み取り中...';
@@ -13358,13 +13402,28 @@ async function extractCcStatementFromFile(event, mode){
   statusEl.style.color = '';
   document.getElementById('cc-ocr-results').innerHTML = '';
   try{
-    const base64 = await new Promise((resolve,reject)=>{
-      const r = new FileReader();
-      r.onload = ()=>resolve(r.result.split(',')[1]);
-      r.onerror = reject;
-      r.readAsDataURL(file);
-    });
-    const body = mode==='pdf' ? {pdfBase64: base64} : {imageBase64: base64, mediaType: file.type||'image/jpeg'};
+    const name = (file.name||'').toLowerCase();
+    const isExcel = !mode && name.match(/\.(xlsx|xls)$/);
+    const isWord = !mode && name.endsWith('.docx');
+    let body;
+    if(isExcel){
+      const sheets = await parseExcelToSheetsText(file);
+      body = { text: sheets };
+    } else if(isWord){
+      const docText = await extractDocxText(file);
+      body = { text: docText };
+    } else if(mode==='pdf' || name.endsWith('.pdf')){
+      const base64 = await readFileAsBase64(file);
+      body = {pdfBase64: base64};
+    } else {
+      const base64 = await new Promise((resolve,reject)=>{
+        const r = new FileReader();
+        r.onload = ()=>resolve(r.result.split(',')[1]);
+        r.onerror = reject;
+        r.readAsDataURL(file);
+      });
+      body = {imageBase64: base64, mediaType: file.type||'image/jpeg'};
+    }
     const response = await fetch('/api/extract-cardstatement', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
@@ -13389,7 +13448,6 @@ async function extractCcStatementFromFile(event, mode){
     hideGlobalOcrBanner();
     statusEl.style.color = 'var(--red)';
   }
-  event.target.value = '';
 }
 
 function renderCcExtractedResults(){
@@ -13467,6 +13525,7 @@ async function autoMatchCcStatement(statement){
 async function loadCreditCardStatements(){
   const tbody = document.getElementById('cc-tbody');
   if(!tbody) return;
+  enablePasteUpload(document.getElementById('cc-paste-zone'), file=>processCcStatementFile(file));
   tbody.innerHTML = '<tr><td colspan="4" class="empty">読み込み中...</td></tr>';
   const {data, error} = await sb.from('credit_card_statements').select('*').order('transaction_date',{ascending:false});
   if(error){ logError('クレジットカード明細の読み込み', error); tbody.innerHTML = '<tr><td colspan="4" class="empty">読み込みに失敗しました</td></tr>'; return; }
@@ -16322,7 +16381,7 @@ function openPartnerEditor(id){
   document.getElementById('pt-notes').value = p ? (p.notes||'') : '';
   document.getElementById('pt-msg').style.display='none';
   document.getElementById('partner-modal').classList.add('open');
-  enablePasteUpload(document.getElementById('pt-card-upload-section'), file=>processCardFile(file));
+  enablePasteUpload(document.getElementById('pt-card-paste-zone'), file=>processCardFile(file));
   // iOS Safari では fixed overlay を通して body がスクロールしてしまうため body をロック
   const sy = window.scrollY;
   document.body.style.position = 'fixed';
@@ -17343,7 +17402,7 @@ function setDateInputValue(el, d){
         <input type="file" accept=".xlsx,.xls,.docx" id="pt-card-input-doc" style="display:none" onchange="handleCardUpload(event)">
       </label>
       <span id="pt-card-status" style="font-size:11px;color:var(--text3);margin-left:8px"></span>
-      <div style="font-size:10px;color:var(--text3);margin-top:5px">📋 この枠内をクリックしてCtrl+Vでも画像・Excel・Wordを貼り付けられます</div>
+      <div id="pt-card-paste-zone" class="paste-drop-zone" tabindex="-1">📋 ここをクリックしてCtrl+Vで画像・Excel・Wordファイルを貼り付け（ドラッグ&ドロップも可）</div>
       <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
         <div style="font-size:10px;color:var(--text3);margin-bottom:5px;font-weight:600">複数拠点一覧を読み取り（テキスト抽出・コピペ用）</div>
         <label class="btn" style="font-size:11px;cursor:pointer;display:inline-flex;background:#F0F6FF;border-color:#7CB3E8;color:#004A9F">
