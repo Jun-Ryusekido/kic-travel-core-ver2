@@ -13628,24 +13628,27 @@ async function saveCcExtractedRows(){
 }
 
 // 事前決済・法人カード決済・金額完全一致・取引日±7日以内のbooking_costs候補を検索する
+// マッチング条件: payment_method=事前決済 かつ memo(備考)に「法人カード決済」を含み、金額が完全一致。
+// クレジットカードの利用日（決済日）とツアーの手配日（実施日）は本来大きくズレるのが通常のため
+// （カードは数ヶ月前に決済され、ツアーは後日実施される）、日付の近さは絞り込み条件には使わない。
+// 候補が複数ある場合は全件を提示し、取引日に近い手配日順に並べることで人が選びやすくするだけに留める。
 async function findCcMatchCandidates(statement){
   const {data: costs, error} = await sb.from('booking_costs').select('*')
     .eq('payment_method','事前決済').eq('amount', statement.amount).ilike('memo','%法人カード決済%');
   if(error || !costs || costs.length===0) return [];
-  const txDate = statement.transaction_date ? new Date(statement.transaction_date) : null;
-  const withinWindow = costs.filter(c=>{
-    if(!txDate || !c.payment_date) return true;
-    const diffDays = Math.abs((new Date(c.payment_date) - txDate) / 86400000);
-    return diffDays <= 7;
-  });
-  if(withinWindow.length===0) return [];
-  const bookingIds = [...new Set(withinWindow.map(c=>c.booking_id).filter(Boolean))];
+  const bookingIds = [...new Set(costs.map(c=>c.booking_id).filter(Boolean))];
   let bookingsById = {};
   if(bookingIds.length){
     const {data: bks} = await sb.from('bookings').select('id,ref_no,tour_name').in('id', bookingIds);
     (bks||[]).forEach(b=>{ bookingsById[b.id] = b; });
   }
-  return withinWindow.map(c=>({ cost: c, booking: bookingsById[c.booking_id]||null }));
+  const txDate = statement.transaction_date ? new Date(statement.transaction_date) : null;
+  const withDiff = costs.map(c=>{
+    const diffDays = (txDate && c.payment_date) ? Math.abs((new Date(c.payment_date) - txDate) / 86400000) : Infinity;
+    return { cost: c, booking: bookingsById[c.booking_id]||null, diffDays };
+  });
+  withDiff.sort((a,b)=>a.diffDays - b.diffDays);
+  return withDiff.map(({cost, booking})=>({cost, booking}));
 }
 
 async function autoMatchCcStatement(statement){
