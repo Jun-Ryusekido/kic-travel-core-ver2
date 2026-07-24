@@ -8962,6 +8962,23 @@ async function renderEmailInboxPage(){
       }
     }).catch(()=>{ /* 判定失敗時は何もしない(一覧に残る) */ });
   }
+
+  // 「次へ」を押した体感速度を上げるため、次ページ分の本文を裏で先読みしておく
+  // (結果はキャッシュに乗るだけで表示には使わない。取得済みの行は再取得しないため
+  // 無駄なAPI呼び出しにはならない。失敗しても実害はないため結果は無視する)。
+  prefetchEmailInboxNextPageBodies(startIdx, totalPages).catch(()=>{});
+}
+
+async function prefetchEmailInboxNextPageBodies(currentStartIdx, totalPages){
+  if(emailInboxPage >= totalPages) return;
+  const nextStartIdx = currentStartIdx + EMAIL_INBOX_PAGE_SIZE;
+  const nextPageItems = emailInboxIndex.slice(nextStartIdx, nextStartIdx+EMAIL_INBOX_PAGE_SIZE);
+  const needIds = nextPageItems.filter(m=>m.body==null).map(m=>m.id);
+  if(!needIds.length) return;
+  const {data: bodyRows, error} = await sb.from('email_import_queue').select('id,body').in('id', needIds);
+  if(error || !bodyRows) return;
+  const bodyMap = new Map(bodyRows.map(r=>[r.id, r.body]));
+  nextPageItems.forEach(m=>{ if(m.body==null) m.body = bodyMap.get(m.id)||''; });
 }
 
 function changeEmailInboxPage(delta){
