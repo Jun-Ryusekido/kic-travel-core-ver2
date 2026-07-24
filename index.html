@@ -8084,6 +8084,22 @@ let emailInboxSearchDebounceTimer = null;
 let emailInboxViewMode = 'normal'; // 'normal' | 'postponed' | 'autofiltered'
 const EMAIL_INBOX_PAGE_SIZE = 50;
 
+// メールごとに手動入力したREF#・選択したカテゴリを保持する(id -> {ref, category})。
+// renderEmailInboxPage()は他の操作(チェックボックス選択・AI関連判定の非同期完了時の
+// 再描画classifyEmailRelevanceForRows等)のたびに全行のHTMLを作り直すため、これを保持
+// しておかないと、ユーザーが「バス」等に手動変更した直後の非同期再描画でAI自動推定の
+// カテゴリ(catGuess)に静かに巻き戻ってしまい、「送る」時に選んだはずと違うタブが
+// 開いてしまう不具合の原因になっていた。
+let emailInboxRowState = new Map();
+function saveEmailInboxRowState(emailId){
+  const refEl = document.getElementById('email-inbox-ref-'+emailId);
+  const catEl = document.getElementById('email-inbox-cat-'+emailId);
+  emailInboxRowState.set(emailId, {
+    ref: refEl ? refEl.value : '',
+    category: catEl ? catEl.value : undefined
+  });
+}
+
 function dedupeEmailInboxRows(rows){
   // 件名+送信者+受信日時が完全一致するものをグルーピングし、各グループの最初の1件だけを残す（表示のみ間引き。DBのデータは削除しない）
   const seen = new Set();
@@ -8849,10 +8865,15 @@ async function renderEmailInboxPage(){
     const suggestions = computeRefSuggestions(m.subject, m.body, suggestIndex);
     const suggestHtml = suggestions.length ? `<div style="font-size:10px;color:var(--text3);margin-top:4px;display:flex;align-items:center;gap:4px;flex-wrap:wrap">候補:${suggestions.map(s=>`<button type="button" class="btn" style="font-size:10px;padding:2px 6px" onclick="applyRefSuggestion('${m.id}','${s.ref_no}')">${escHtml(s.ref_no)} (${escHtml(s.label)})</button>`).join('')}</div>` : '';
     const catGuess = guessEmailCategory(m.subject, m.body, m.sender);
-    const catOptions = ['<option value=""'+(catGuess.category?'':' selected')+'>-- 未分類 --</option>']
-      .concat(Object.keys(EMAIL_INBOX_CATEGORY_MAP).map(c=>`<option value="${escAttr(c)}" ${catGuess.category===c?'selected':''}>${escHtml(c)}</option>`))
-      .concat(['<option value="取引先マスタ">取引先マスタ</option>'])
+    const savedState = emailInboxRowState.get(m.id);
+    // ユーザーが一度でも手動でカテゴリを選択していれば(savedState.categoryがundefinedでなければ)
+    // それを優先する。まだ何も選んでいなければAI推定(catGuess)を初期値として使う。
+    const selectedCat = savedState && savedState.category !== undefined ? savedState.category : (catGuess.category||'');
+    const catOptions = ['<option value=""'+(selectedCat===''?' selected':'')+'>-- 未分類 --</option>']
+      .concat(Object.keys(EMAIL_INBOX_CATEGORY_MAP).map(c=>`<option value="${escAttr(c)}" ${selectedCat===c?'selected':''}>${escHtml(c)}</option>`))
+      .concat([`<option value="取引先マスタ" ${selectedCat==='取引先マスタ'?'selected':''}>取引先マスタ</option>`])
       .join('');
+    const savedRef = savedState && savedState.ref ? escAttr(savedState.ref) : '';
     const catReasonHtml = catGuess.category
       ? `<span style="font-size:10px;color:var(--text3)" title="件名・送信者・本文のキーワードから推定">カテゴリ根拠: ${escHtml(catGuess.reasons.join('・'))}</span>`
       : `<span style="font-size:10px;color:var(--text3)">カテゴリ手がかりなし(選択してください)</span>`;
@@ -8865,8 +8886,8 @@ async function renderEmailInboxPage(){
         <div style="font-size:12px;font-weight:600;margin-bottom:2px">${escHtml(m.subject||'(件名なし)')}</div>
         <div style="font-size:11px;color:var(--text3);margin-bottom:4px">${escHtml(m.sender||'')} ・ ${escHtml(received)}</div>
         <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-          <input id="email-inbox-ref-${m.id}" placeholder="REF# 例: #1374" style="font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px;width:140px">
-          <select id="email-inbox-cat-${m.id}" onchange="toggleEmailInboxRefForCategory('${m.id}')" style="font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px">${catOptions}</select>
+          <input id="email-inbox-ref-${m.id}" value="${savedRef}" oninput="saveEmailInboxRowState('${m.id}')" placeholder="REF# 例: #1374" style="font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px;width:140px">
+          <select id="email-inbox-cat-${m.id}" onchange="saveEmailInboxRowState('${m.id}');toggleEmailInboxRefForCategory('${m.id}')" style="font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px">${catOptions}</select>
           ${catReasonHtml}
           <button class="btn btn-p" id="email-inbox-send-${m.id}" style="font-size:11px" onclick="sendEmailToBooking('${m.id}')">📤 送る</button>
           <button class="btn" style="font-size:11px;color:var(--red)" onclick="if(confirm('このメールを一覧から除外しますか？')){ignoreEmailInboxItem('${m.id}')}">🗑 無視</button>
@@ -9025,6 +9046,7 @@ async function performSingleEmailSend(emailId, refNo, map, body){
 
   emailInboxRawList = emailInboxRawList.filter(m=>m.id!==emailId);
   emailInboxIndex = emailInboxIndex.filter(m=>m.id!==emailId);
+  emailInboxRowState.delete(emailId);
   renderEmailInboxPage();
 }
 
@@ -9293,6 +9315,7 @@ async function submitEmailSplit(){
 
   emailInboxRawList = emailInboxRawList.filter(m=>m.id!==emailSplitEmailId);
   emailInboxIndex = emailInboxIndex.filter(m=>m.id!==emailSplitEmailId);
+  emailInboxRowState.delete(emailSplitEmailId);
   closeEmailSplitModal();
   renderEmailInboxPage();
 }
@@ -9310,6 +9333,7 @@ async function ignoreEmailInboxItem(emailId){
 
   emailInboxRawList = emailInboxRawList.filter(m=>m.id!==emailId);
   emailInboxIndex = emailInboxIndex.filter(m=>m.id!==emailId);
+  emailInboxRowState.delete(emailId);
   renderEmailInboxPage();
 }
 
