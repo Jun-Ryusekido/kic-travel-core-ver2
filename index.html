@@ -4903,10 +4903,23 @@ async function saveLocalExpenses(){
   await safeReplaceBookingRows('local_expenses', bookingId, rows, '現地費用明細');
 }
 
+// openBookingDetail()は非常に多くのawait(明細の各テーブル読み込み)を挟む長い処理のため、
+// 完了前に別の予約に対して同関数が再度呼ばれる(例: メール受信箱から連続して「送る」を
+// 押した場合)と、後から呼ばれた新しい予約の読み込みが先に終わった後で、遅れて完了した
+// 古い呼び出しの読み込みが新しい予約の入力欄・状態を上書きしてしまう競合が起き得た
+// (「前回開いていた予約の対象日程・明細がリセットされない」不具合の原因)。
+// 呼び出しごとに連番(トークン)を発行し、awaitのたびに「自分が最新の呼び出しか」を
+// 確認する。既に新しい呼び出しに追い越されていれば、古い呼び出しはその場で中断し、
+// 以降の書き込みを一切行わない。
+let _bookingDetailCallSeq = 0;
+
 async function openBookingDetail(id){
+  const _myCallSeq = ++_bookingDetailCallSeq;
+  const _stale = () => _myCallSeq !== _bookingDetailCallSeq;
   let b = findBookingById(id);
   if(!b){
     const {data} = await sb.from('bookings').select('*').eq('id',id).single();
+    if(_stale()) return;
     if(!data) return;
     b = data;
   }
@@ -4954,6 +4967,7 @@ async function openBookingDetail(id){
     sb.from('booking_sales').select('*').eq('booking_id', id).order('created_at'),
     sb.from('booking_costs').select('*').eq('booking_id', id).order('created_at')
   ]);
+  if(_stale()) return;
 
   bdSalesItems = (salesRows||[]).map(r=>({item_name:r.item_name, memo:r.memo||'', unit_price:r.unit_price, pax:r.pax||1, qty:r.qty, amount:r.amount, payment_date:r.payment_date, agent_name:r.agent_name||'', payments:r.payments||[]}));
   bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, payment_method:r.payment_method||'', memo:r.memo, status:r.status||'pending'}));
@@ -4968,26 +4982,32 @@ async function openBookingDetail(id){
 
   // 関連Invoiceを読み込み（一覧はモーダル内、通常表示はボタンの件数のみ）
   const {data: invoices} = await sb.from('invoices').select('*').eq('booking_id', id).order('created_at',{ascending:false});
+  if(_stale()) return;
   bdInvoicesCache = invoices||[];
   document.getElementById('bd-inv-count').textContent = bdInvoicesCache.length;
   document.getElementById('bd-inv-empty-hint').style.display = bdInvoicesCache.length===0 ? '' : 'none';
 
   // 手配書一覧を読み込み
   await loadArrangementsList();
+  if(_stale()) return;
 
   // ガイド精算一覧を読み込み
   await loadGuideSettlements();
+  if(_stale()) return;
 
   // ガイド登録一覧プルダウンを読み込み
   // 仕入先マスタを読み込み
   await loadSuppliersCache();
+  if(_stale()) return;
 
   // ガイド登録一覧プルダウンを読み込み
   await populateGuideRegistrySelects([]);
+  if(_stale()) return;
   bdNewGuideList = [];  renderBdNewGuideList();
 
   // ガイドを読み込み（guideRegistryCacheは直前のpopulateGuideRegistrySelects()で読み込み済み）
   const {data: guideRows, error: guideFetchErr} = await sb.from('booking_guides').select('*').eq('booking_id', id).order('created_at');
+  if(_stale()) return;
   // booking_guidesはDDL未実行の環境ではテーブルが存在せずエラーになるため、他の明細と異なり
   // alert()では出さずconsole.warnに留める（新規テーブルのため既存データ消失リスクがない）。
   if(guideFetchErr){ logError('ガイド明細の読み込み', guideFetchErr); }
@@ -5004,6 +5024,7 @@ async function openBookingDetail(id){
 
 // ホテル割り当てを読み込み
   const {data: hotelRows, error: hotelFetchErr} = await sb.from('booking_hotels').select('*').eq('booking_id', id).order('sort_order');
+  if(_stale()) return;
   if(hotelFetchErr){ alert('ホテル明細の読み込みに失敗しました。このまま保存すると既存データが消える危険があるため、画面を再読み込みしてください。\n'+hotelFetchErr.message); }
   bdHotelItems = (hotelRows||[]).map(r=>({
     id: r.id,
@@ -5023,6 +5044,7 @@ async function openBookingDetail(id){
     sb.from('booking_water_items').select('*').eq('booking_id', id).order('created_at'),
     sb.from('bullet_train_arrangements').select('*').eq('booking_ref', b.ref_no).order('sort_order'),
   ]);
+  if(_stale()) return;
   if(busFetchErr||restFetchErr||facFetchErr||waterFetchErr){ alert('手配明細の読み込みに一部失敗しました。このまま保存すると既存データが消える危険があるため、画面を再読み込みしてください。\n'+(busFetchErr||restFetchErr||facFetchErr||waterFetchErr).message); }
   bdBusItems = (busRows||[]).map(r=>({id:r.id,bus_company:r.bus_company||'',bus_type:r.bus_type||'',buses:r.buses||1,start_date:r.start_date||'',end_date:r.end_date||'',amount:r.amount||0,status:r.status||'問い合わせ中',confirmation_no:r.confirmation_no||'',driver_hotel_name:r.driver_hotel_name||'',driver_hotel_phone:r.driver_hotel_phone||'',driver_hotel_address:r.driver_hotel_address||'',driver_check_in:r.driver_check_in||'',driver_check_out:r.driver_check_out||'',driver_hotel_amount:r.driver_hotel_amount||0,memo:r.memo||'',payment_method:r.payment_method||'',cost_added:r.cost_added||false}));
   originalBusCount = bdBusItems.length;
@@ -5045,6 +5067,7 @@ async function openBookingDetail(id){
     sb.from('tour_day_itinerary').select('*').eq('booking_id', id).order('day_no'),
     sb.from('tour_arrangement_notes').select('*').eq('booking_id', id),
   ]);
+  if(_stale()) return;
   // これら4テーブルはDDL未実行の環境では存在せずエラーになりうる。新設テーブルで既存データ
   // 消失リスクがないため、他の明細と異なりalert()ではなくconsole.warnに留める。
   if(arrHeaderErr||arrGuideErr||arrDayErr||arrNoteErr){
@@ -5100,10 +5123,12 @@ async function openBookingDetail(id){
   }
   renderArrDocAll();
   await loadGuideDocsList(id);
+  if(_stale()) return;
 
   switchArrangTab('hotel');
   // 現地費用明細を読み込み
   const {data: localRows, error: localFetchErr} = await sb.from('local_expenses').select('*').eq('booking_id', id).order('sort_order');
+  if(_stale()) return;
   if(localFetchErr){ alert('現地費用明細の読み込みに失敗しました。このまま保存すると既存データが消える危険があるため、画面を再読み込みしてください。\n'+localFetchErr.message); }
   bdLocalExpenses = (localRows||[]).map(r=>({
     id: r.id,
@@ -5120,6 +5145,7 @@ async function openBookingDetail(id){
     .select('title,tour_code,final_pax,final_amount,calculated_tiers_snapshot')
     .eq('converted_booking_id', id)
     .maybeSingle();
+  if(_stale()) return;
   if(estRef){
     const estLabel = [estRef.title, estRef.tour_code].filter(Boolean).join(' / ') || '(無題)';
     const snap = estRef.calculated_tiers_snapshot;
@@ -5145,6 +5171,7 @@ async function openBookingDetail(id){
     .select('id,tiers_snapshot,reflected_at,created_by,estimation_id,estimations(title,tour_code)')
     .eq('booking_id', id)
     .order('reflected_at', {ascending:false});
+  if(_stale()) return;
   _bdReflections = reflections || [];
   if(_bdReflections.length){
     const dtFmt = s => s ? new Date(s).toLocaleString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '-';
