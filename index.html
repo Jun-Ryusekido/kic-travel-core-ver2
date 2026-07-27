@@ -27,7 +27,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Hiragino Kaku Goth
 .login-hint{font-size:10px;color:var(--text3);margin-top:14px;text-align:center;line-height:1.6}
 #screen-app{display:none}
 .app{display:flex;min-height:100vh}
-body.has-deadline-banner .app{margin-top:34px}
+body.has-deadline-banner .app{margin-top:var(--deadline-banner-h,34px)}
 .sb{width:200px;min-width:200px;background:var(--card);border-right:1px solid var(--border);display:flex;flex-direction:column;position:sticky;top:0;height:100vh;min-height:0;overflow-y:auto}
 .sb-logo{padding:14px 14px 10px;border-bottom:1px solid var(--border)}
 .sb-logo-main{font-size:13px;font-weight:600;color:var(--blue)}
@@ -189,11 +189,12 @@ th.sortable:hover{color:var(--blue)}
 .modal-overlay.open{display:flex}
 .modal-box{background:var(--card);border-radius:12px;width:100%;max-width:min(960px,95vw);padding:18px 20px;max-height:92vh;overflow-y:auto;overflow-x:auto} #detail-modal .modal-box{max-width:96vw;max-height:96vh}
 /* 対応期限日バナー(position:fixed;z-index:150)はモーダル(z-index:100)より前面にあるため、
-   バナー表示中はデスクトップでもモーダルをバナーの高さ(34px)ぶん押し下げ、ヘッダー
-   (保存/閉じるボタン)が隠れないようにする(モバイル側は下の@media内で別途上書き) */
-body.has-deadline-banner .modal-overlay{padding-top:64px}
-body.has-deadline-banner .modal-box{max-height:calc(92vh - 34px)}
-body.has-deadline-banner #detail-modal .modal-box{max-height:calc(96vh - 34px)}
+   バナー表示中はデスクトップでもモーダルをバナーの実際の高さ(--deadline-banner-h、
+   狭い画面での折り返し等でJS側から動的に更新される。既定34px)ぶん押し下げ、
+   ヘッダー(保存/閉じるボタン)が隠れないようにする(モバイル側は下の@media内で別途上書き) */
+body.has-deadline-banner .modal-overlay{padding-top:calc(30px + var(--deadline-banner-h,34px))}
+body.has-deadline-banner .modal-box{max-height:calc(92vh - var(--deadline-banner-h,34px))}
+body.has-deadline-banner #detail-modal .modal-box{max-height:calc(96vh - var(--deadline-banner-h,34px))}
 .modal-header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--card);z-index:10}
 .modal-title{font-size:14px;font-weight:700}
 .modal-close{cursor:pointer;font-size:18px;color:var(--text3);line-height:1;padding:2px 6px;border-radius:6px}
@@ -236,10 +237,11 @@ body.has-deadline-banner #detail-modal .modal-box{max-height:calc(96vh - 34px)}
   .modal-overlay{padding:0}
   .modal-box,#detail-modal .modal-box{width:100%;max-width:100%!important;border-radius:0;padding:12px;max-height:100vh}
   /* 対応期限日バナー(position:fixed;z-index:150)はモーダル(z-index:100)より前面にあるため、
-     バナー表示中はモーダルをバナーの高さ(34px)ぶん押し下げ、ヘッダー(保存/閉じるボタン)が
-     隠れないようにする */
-  body.has-deadline-banner .modal-overlay{padding-top:34px}
-  body.has-deadline-banner .modal-box,body.has-deadline-banner #detail-modal .modal-box{max-height:calc(100vh - 34px)}
+     バナー表示中はモーダルをバナーの実際の高さ(--deadline-banner-h。狭い画面では
+     文言が2行に折り返され34pxを超えるため、JS側から動的に更新される)ぶん押し下げ、
+     ヘッダー(保存/閉じるボタン)が隠れないようにする */
+  body.has-deadline-banner .modal-overlay{padding-top:var(--deadline-banner-h,34px)}
+  body.has-deadline-banner .modal-box,body.has-deadline-banner #detail-modal .modal-box{max-height:calc(100vh - var(--deadline-banner-h,34px))}
 }
 .pax-row{display:flex;gap:8px;align-items:flex-end}
 .pax-row .form-field{flex:0 0 70px}
@@ -580,7 +582,7 @@ input[type=number]{-moz-appearance:textfield}
   <span id="global-deadline-banner-text"></span>
   <span style="font-size:11px;font-weight:400;opacity:.85">クリックで詳細表示 ▾</span>
 </div>
-<div id="global-deadline-detail" style="display:none;position:fixed;top:34px;left:0;right:0;z-index:150;background:#fff;border-bottom:1px solid var(--border);max-height:320px;overflow-y:auto;box-shadow:0 4px 10px rgba(0,0,0,.15)"></div>
+<div id="global-deadline-detail" style="display:none;position:fixed;top:var(--deadline-banner-h,34px);left:0;right:0;z-index:150;background:#fff;border-bottom:1px solid var(--border);max-height:320px;overflow-y:auto;box-shadow:0 4px 10px rgba(0,0,0,.15)"></div>
 <div class="app">
   <div class="sb" id="sidebar">
     <div class="sb-logo">
@@ -3260,9 +3262,21 @@ async function refreshGlobalDeadlineBanner(){
     `⚠ 対応が必要な予約が${items.length}件あります` + (isUrgent ? `（うち緊急${urgentCount}件）` : '');
   banner.style.display = 'flex';
   document.body.classList.add('has-deadline-banner');
+  updateDeadlineBannerHeightVar();
 
   maybeNotifyDeadlineTomorrow(items);
 }
+
+// バナーの実際の高さ(狭い画面では文言が2行に折り返され34pxを超える)をCSS変数に
+// 反映し、モーダルの押し下げ量とバナーとの重なり計算を実際の高さに追従させる。
+function updateDeadlineBannerHeightVar(){
+  const banner = document.getElementById('global-deadline-banner');
+  if(!banner || banner.style.display === 'none') return;
+  document.documentElement.style.setProperty('--deadline-banner-h', banner.offsetHeight + 'px');
+}
+window.addEventListener('resize', ()=>{
+  if(document.body.classList.contains('has-deadline-banner')) updateDeadlineBannerHeightVar();
+});
 
 const DEADLINE_NOTIFY_STORAGE_KEY = 'kic_deadline_notified_v1';
 function localDateStr(d){
