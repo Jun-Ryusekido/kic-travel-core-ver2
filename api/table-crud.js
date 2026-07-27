@@ -47,6 +47,12 @@ const TABLE_CONFIG = {
     actions: ['insert', 'updateById', 'deleteById'],
     label: '取引先マスタ',
   },
+  // agents(取引先マスタ・Agent): business_partnersと完全に同じ論理削除/復元/完全削除の
+  // 構造を持つ、送客元エージェント専用の別テーブル。
+  agents: {
+    actions: ['insert', 'updateById', 'deleteById'],
+    label: '取引先マスタ(Agent)',
+  },
 };
 
 function sbFetch(table, path, opts = {}) {

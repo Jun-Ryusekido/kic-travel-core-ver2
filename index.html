@@ -3505,6 +3505,7 @@ async function localExpensesApiCall(action, payload){ return tableCrudApiCall('l
 async function guideSettlementsApiCall(action, payload){ return tableCrudApiCall('guide_settlements', action, payload); }
 async function guideSettlementItemsApiCall(action, payload){ return tableCrudApiCall('guide_settlement_items', action, payload); }
 async function businessPartnersApiCall(action, payload){ return tableCrudApiCall('business_partners', action, payload); }
+async function agentsApiCall(action, payload){ return tableCrudApiCall('agents', action, payload); }
 async function bookingCostsApiCall(action, payload){ return tableCrudApiCall('booking_costs', action, payload); }
 
 let bdLocalExpenses = [];
@@ -16973,14 +16974,14 @@ async function saveAgent(){
     notes: get('ag-notes') || null,
     updated_at: new Date().toISOString()
   };
-  let error;
-  if(currentAgentEditId){
-    ({error} = await sb.from('agents').update(payload).eq('id', currentAgentEditId));
-  }else{
-    payload.created_by = currentUser ? currentUser.email : null;
-    ({error} = await sb.from('agents').insert(payload));
-  }
-  if(error){ alert('保存に失敗しました: '+error.message); return; }
+  try{
+    if(currentAgentEditId){
+      await agentsApiCall('updateById', { id: currentAgentEditId, fields: payload });
+    }else{
+      payload.created_by = currentUser ? currentUser.email : null;
+      await agentsApiCall('insert', { rows: [payload] });
+    }
+  }catch(e){ alert('保存に失敗しました: '+e.message); return; }
   await logAction('取引先(Agent)登録更新', company);
   const msg = document.getElementById('ag-msg');
   msg.style.display='inline';
@@ -17016,15 +17017,15 @@ async function loadDeletedAgents(){
 async function permanentlyDeleteAgent(id, companyName, contactPerson){
   const label = companyName + (contactPerson ? ` / ${contactPerson}` : '');
   if(!confirm(`「${label}」を完全に削除します。この操作は取り消せません。よろしいですか？`)) return;
-  const {error} = await sb.from('agents').delete().eq('id', id);
-  if(error){ alert('削除に失敗しました: '+error.message); return; }
+  try{ await agentsApiCall('deleteById', { id }); }
+  catch(e){ alert('削除に失敗しました: '+e.message); return; }
   await logAction('取引先(Agent)完全削除', companyName);
   await loadDeletedAgents();
 }
 async function restoreAgent(id){
   if(!confirm('このエージェントを復元しますか？')) return;
-  const {error} = await sb.from('agents').update({is_deleted:false, deleted_at:null, deleted_by:null}).eq('id', id);
-  if(error){ alert('復元に失敗しました: '+error.message); return; }
+  try{ await agentsApiCall('updateById', { id, fields: {is_deleted:false, deleted_at:null, deleted_by:null} }); }
+  catch(e){ alert('復元に失敗しました: '+e.message); return; }
   await logAction('取引先(Agent)復元', id);
   await loadDeletedAgents();
   await loadAgents();
@@ -17032,8 +17033,8 @@ async function restoreAgent(id){
 async function deleteAgent(id){
   const a = agentsCache.find(x=>x.id===id);
   if(!confirm(`「${a?a.company_name:'このエージェント'}」を削除しますか？\n（一覧から非表示になります。管理者は後で復元できます）`)) return;
-  const {error} = await sb.from('agents').update({is_deleted:true, deleted_at:new Date().toISOString(), deleted_by: currentUser?currentUser.email:null}).eq('id', id);
-  if(error){ alert('削除に失敗しました: '+error.message); return; }
+  try{ await agentsApiCall('updateById', { id, fields: {is_deleted:true, deleted_at:new Date().toISOString(), deleted_by: currentUser?currentUser.email:null} }); }
+  catch(e){ alert('削除に失敗しました: '+e.message); return; }
   await logAction('取引先(Agent)削除', a?a.company_name:id);
   await loadAgents();
 }
