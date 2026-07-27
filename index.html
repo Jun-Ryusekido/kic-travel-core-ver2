@@ -3499,6 +3499,21 @@ async function bookingSalesApiCall(action, payload){
   if(!resp.ok || data.error) throw new Error(data.error || '売上明細の処理でサーバーエラーが発生しました');
   return data;
 }
+// local_expenses(現地費用明細/仮払い一覧表)への書き込み(セキュリティ中長期対応フェーズ1)。
+// anonロールによる直接INSERT/UPDATE/DELETEをRLSで禁止したため、書き込みは
+// service_role key経由の/api/local-expensesを通す。読み取り(select)は
+// 従来通りsb.from('local_expenses')の直接呼び出しのまま変更しない。
+async function localExpensesApiCall(action, payload){
+  const token = currentUser ? currentUser.token : null;
+  const resp = await fetch('/api/local-expenses', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ action, token, ...payload })
+  });
+  const data = await parseJsonResponseSafe(resp);
+  if(!resp.ok || data.error) throw new Error(data.error || '現地費用明細の処理でサーバーエラーが発生しました');
+  return data;
+}
 // booking_costs(仕入明細)への書き込み(セキュリティ中長期対応フェーズ1、booking_salesと
 // 同じパターン)。anonロールによる直接INSERT/UPDATE/DELETEをRLSで禁止したため、書き込みは
 // service_role key経由の/api/booking-costsを通す。読み取り(select)は
@@ -4934,7 +4949,7 @@ async function saveLocalExpenses(){
     payment_method: it.payment_method||'',
     sort_order: i
   }));
-  await safeReplaceBookingRows('local_expenses', bookingId, rows, '現地費用明細');
+  await localExpensesApiCall('replace', { bookingId, rows });
 }
 
 // openBookingDetail()は非常に多くのawait(明細の各テーブル読み込み)を挟む長い処理のため、
