@@ -3482,53 +3482,27 @@ async function safeReplaceRowsByKey(table, keyCol, keyVal, rows, label){
     if(delErr) throw new Error(appendSchemaErrorHint(label+'の旧データ削除に失敗（新データは保存済みのため重複している可能性があります）: '+delErr.message));
   }
 }
-// booking_sales(売上明細)への書き込み(セキュリティ中長期対応フェーズ1)。
-// anonロールによる直接INSERT/UPDATE/DELETEをRLSで禁止したため、書き込みは
-// service_role key経由の/api/booking-salesを通す。読み取り(select)は
-// 従来通りsb.from('booking_sales')の直接呼び出しのまま変更しない。
-// ログイン時に発行された署名付きトークン(currentUser.token)を毎回添えることで、
+// booking_sales/booking_costs/local_expenses/parking_reservationsへの書き込みは、
+// セキュリティ中長期対応フェーズ1によりanonロールの直接INSERT/UPDATE/DELETEをRLSで
+// 禁止し、service_role key経由の/api/table-crud(旧: booking-sales.js/booking-costs.js/
+// local-expenses.js/parking-reservations.jsの4ファイルを、Vercel関数数上限対策として
+// 1ファイルに統合したもの)を通す。読み取り(select)は従来通りsb.from(...)の直接呼び出しの
+// まま変更しない。ログイン時に発行された署名付きトークン(currentUser.token)を毎回添えることで、
 // サーバー側が正当なログインユーザーからのリクエストであることを検証する。
-async function bookingSalesApiCall(action, payload){
+async function tableCrudApiCall(table, action, payload){
   const token = currentUser ? currentUser.token : null;
-  const resp = await fetch('/api/booking-sales', {
+  const resp = await fetch('/api/table-crud', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ action, token, ...payload })
+    body: JSON.stringify({ table, action, token, ...payload })
   });
   const data = await parseJsonResponseSafe(resp);
-  if(!resp.ok || data.error) throw new Error(data.error || '売上明細の処理でサーバーエラーが発生しました');
+  if(!resp.ok || data.error) throw new Error(data.error || `${table}の処理でサーバーエラーが発生しました`);
   return data;
 }
-// local_expenses(現地費用明細/仮払い一覧表)への書き込み(セキュリティ中長期対応フェーズ1)。
-// anonロールによる直接INSERT/UPDATE/DELETEをRLSで禁止したため、書き込みは
-// service_role key経由の/api/local-expensesを通す。読み取り(select)は
-// 従来通りsb.from('local_expenses')の直接呼び出しのまま変更しない。
-async function localExpensesApiCall(action, payload){
-  const token = currentUser ? currentUser.token : null;
-  const resp = await fetch('/api/local-expenses', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ action, token, ...payload })
-  });
-  const data = await parseJsonResponseSafe(resp);
-  if(!resp.ok || data.error) throw new Error(data.error || '現地費用明細の処理でサーバーエラーが発生しました');
-  return data;
-}
-// booking_costs(仕入明細)への書き込み(セキュリティ中長期対応フェーズ1、booking_salesと
-// 同じパターン)。anonロールによる直接INSERT/UPDATE/DELETEをRLSで禁止したため、書き込みは
-// service_role key経由の/api/booking-costsを通す。読み取り(select)は
-// 従来通りsb.from('booking_costs')の直接呼び出しのまま変更しない。
-async function bookingCostsApiCall(action, payload){
-  const token = currentUser ? currentUser.token : null;
-  const resp = await fetch('/api/booking-costs', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ action, token, ...payload })
-  });
-  const data = await parseJsonResponseSafe(resp);
-  if(!resp.ok || data.error) throw new Error(data.error || '仕入明細の処理でサーバーエラーが発生しました');
-  return data;
-}
+async function bookingSalesApiCall(action, payload){ return tableCrudApiCall('booking_sales', action, payload); }
+async function localExpensesApiCall(action, payload){ return tableCrudApiCall('local_expenses', action, payload); }
+async function bookingCostsApiCall(action, payload){ return tableCrudApiCall('booking_costs', action, payload); }
 
 let bdLocalExpenses = [];
 const LOCAL_EXPENSE_CATEGORIES = ['D（ドライバー）','ゲスト','ゲスト・TG','その他'];
@@ -8039,18 +8013,10 @@ function parkingNowFacilityTypeLabel(t){
 
 // parking_reservations(支払方法・車両ナンバー・運転手氏名等を含む)への読み書きは
 // セキュリティ対応フェーズ1により、anonロールの直接アクセスを廃止しservice_role key経由の
-// /api/parking-reservations-*（list/save/delete）を通す。booking_sales/booking_costsと
+// /api/table-crud（list/save/delete、tableCrudApiCall参照）を通す。booking_sales/booking_costsと
 // 同じ、ログイン時発行の署名付きトークン(currentUser.token)による認証パターンを踏襲する。
 async function parkingReservationsApiCall(action, payload){
-  const token = currentUser ? currentUser.token : null;
-  const resp = await fetch('/api/parking-reservations', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ action, token, ...payload })
-  });
-  const data = await parseJsonResponseSafe(resp);
-  if(!resp.ok || data.error) throw new Error(data.error || '駐車場予約の処理でサーバーエラーが発生しました');
-  return data;
+  return tableCrudApiCall('parking_reservations', action, payload);
 }
 
 async function loadParkingNowHistory(){
