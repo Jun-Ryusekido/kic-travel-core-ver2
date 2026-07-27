@@ -3504,6 +3504,7 @@ async function bookingSalesApiCall(action, payload){ return tableCrudApiCall('bo
 async function localExpensesApiCall(action, payload){ return tableCrudApiCall('local_expenses', action, payload); }
 async function guideSettlementsApiCall(action, payload){ return tableCrudApiCall('guide_settlements', action, payload); }
 async function guideSettlementItemsApiCall(action, payload){ return tableCrudApiCall('guide_settlement_items', action, payload); }
+async function businessPartnersApiCall(action, payload){ return tableCrudApiCall('business_partners', action, payload); }
 async function bookingCostsApiCall(action, payload){ return tableCrudApiCall('booking_costs', action, payload); }
 
 let bdLocalExpenses = [];
@@ -4205,11 +4206,11 @@ async function registerNewSupplier(name){
   name = (name||'').trim();
   if(!name) return;
   if(suppliersCache.includes(name)) return;
-  const {error} = await sb.from('business_partners').insert({company_name:name, category:'その他'}).select();
-  if(!error){
+  try{
+    await businessPartnersApiCall('insert', { rows: [{company_name:name, category:'その他'}] });
     suppliersCache.push(name);
     renderSuppliersDatalist();
-  }
+  }catch(e){ /* 既存の挙動通り、失敗時は静かに無視する */ }
 }
 
 function parseNum(str){
@@ -16581,8 +16582,8 @@ async function batchSaveAndNext(){
     created_by: currentUser ? currentUser.email : null,
     updated_at: new Date().toISOString()
   };
-  const {error} = await sb.from('business_partners').insert(payload);
-  if(error){ alert('保存に失敗しました: ' + error.message); return; }
+  try{ await businessPartnersApiCall('insert', { rows: [payload] }); }
+  catch(e){ alert('保存に失敗しました: ' + e.message); return; }
   await logAction('取引先登録更新', payload.company_name);
   multiLocBatch.savedCount++;
   try{
@@ -16725,14 +16726,14 @@ const fmtPhone = s => {
     notes: document.getElementById('pt-notes').value.trim() || null,
     updated_at: new Date().toISOString()
   };
-  let error;
-  if(currentPartnerEditId){
-    ({error} = await sb.from('business_partners').update(payload).eq('id', currentPartnerEditId));
-  }else{
-    payload.created_by = currentUser ? currentUser.email : null;
-    ({error} = await sb.from('business_partners').insert(payload));
-  }
-  if(error){ alert('保存に失敗しました: '+error.message); return; }
+  try{
+    if(currentPartnerEditId){
+      await businessPartnersApiCall('updateById', { id: currentPartnerEditId, fields: payload });
+    }else{
+      payload.created_by = currentUser ? currentUser.email : null;
+      await businessPartnersApiCall('insert', { rows: [payload] });
+    }
+  }catch(e){ alert('保存に失敗しました: '+e.message); return; }
   await logAction('取引先登録更新', company);
   const msg = document.getElementById('pt-msg');
   msg.style.display='inline';
@@ -16768,15 +16769,15 @@ async function loadDeletedPartners(){
 async function permanentlyDeletePartner(id, companyName, contactPerson){
   const label = companyName + (contactPerson ? ` / ${contactPerson}` : '');
   if(!confirm(`「${label}」を完全に削除します。この操作は取り消せません。よろしいですか？`)) return;
-  const {error} = await sb.from('business_partners').delete().eq('id', id);
-  if(error){ alert('削除に失敗しました: '+error.message); return; }
+  try{ await businessPartnersApiCall('deleteById', { id }); }
+  catch(e){ alert('削除に失敗しました: '+e.message); return; }
   await logAction('取引先完全削除', companyName);
   await loadDeletedPartners();
 }
 async function restorePartner(id){
   if(!confirm('この取引先を復元しますか？')) return;
-  const {error} = await sb.from('business_partners').update({is_deleted:false, deleted_at:null, deleted_by:null}).eq('id', id);
-  if(error){ alert('復元に失敗しました: '+error.message); return; }
+  try{ await businessPartnersApiCall('updateById', { id, fields: {is_deleted:false, deleted_at:null, deleted_by:null} }); }
+  catch(e){ alert('復元に失敗しました: '+e.message); return; }
   await logAction('取引先復元', id);
   await loadDeletedPartners();
   await loadPartners();
@@ -16784,8 +16785,8 @@ async function restorePartner(id){
 async function deletePartner(id){
   const p = partnersCache.find(x=>x.id===id);
   if(!confirm(`「${p?p.company_name:'この取引先'}」を削除しますか？\n（一覧から非表示になります。管理者は後で復元できます）`)) return;
-  const {error} = await sb.from('business_partners').update({is_deleted:true, deleted_at:new Date().toISOString(), deleted_by: currentUser?currentUser.email:null}).eq('id', id);
-  if(error){ alert('削除に失敗しました: '+error.message); return; }
+  try{ await businessPartnersApiCall('updateById', { id, fields: {is_deleted:true, deleted_at:new Date().toISOString(), deleted_by: currentUser?currentUser.email:null} }); }
+  catch(e){ alert('削除に失敗しました: '+e.message); return; }
   await logAction('取引先削除', p?p.company_name:id);
   await loadPartners();
 }

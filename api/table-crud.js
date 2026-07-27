@@ -40,6 +40,13 @@ const TABLE_CONFIG = {
     // 反映フラグ等、社内スタッフのみが操作すべき項目はここに含めない。
     guestUpdatableFields: ['receipt_no'],
   },
+  // business_partners(取引先マスタ): permanentlyDeletePartner(完全削除、deleteById)以外は
+  // deletePartner/restorePartnerともis_deletedフラグを立てる論理削除(updateById)であり、
+  // 実際のDELETE文はdeleteByIdの1箇所のみ(削除済み取引先の復元画面から明示的に実行)。
+  business_partners: {
+    actions: ['insert', 'updateById', 'deleteById'],
+    label: '取引先マスタ',
+  },
 };
 
 function sbFetch(table, path, opts = {}) {
