@@ -3041,11 +3041,19 @@ async function fetchFacilityDeadlineItems(maxDays){
   return { items, buckets, bucketsFull, completed, incompleteAll };
 }
 
+// TOUR CODE・TOUR NAMEを「KIC1110_TC / 8泊 Tokyo-Kobe」のように併記する
+// （TOUR NAMEが未入力の場合はTOUR CODEのみ表示）
+function bkTourLabel(bk){
+  bk = bk || {};
+  if(bk.tour_name) return (bk.tour_code ? `${bk.tour_code} / ` : '') + bk.tour_name;
+  return bk.tour_code || '';
+}
+
 function facilityDeadlineRowsHtml(buckets){
   return buckets.map(b=>{
     if(b.items.length === 0) return '';
     const sectionHd = `<tr class="section-row">
-      <td colspan="5" style="padding:6px 8px 4px;background:${b.bg};border-top:2px solid ${b.border}">
+      <td colspan="6" style="padding:6px 8px 4px;background:${b.bg};border-top:2px solid ${b.border}">
         <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:${b.fg}">
           ${b.label} <span style="background:rgba(0,0,0,.09);padding:1px 7px;border-radius:10px">${b.items.length}件</span>
         </span>
@@ -3056,8 +3064,9 @@ function facilityDeadlineRowsHtml(buckets){
       const dLabel = f._days < 0 ? `${-f._days}日超過` : (f._days===0 ? '本日' : `${f._days}日`);
       return `<tr onclick="openBookingDetail('${f.booking_id}')" style="cursor:pointer" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''">
         <td data-label="REF#" class="lnk" style="padding:5px 8px;white-space:nowrap">${escHtml(bk.ref_no||'')}</td>
-        <td data-label="ツアー名" style="padding:5px 8px">${escHtml(bk.tour_name||'')}</td>
+        <td data-label="ツアー名" style="padding:5px 8px">${escHtml(bkTourLabel(bk))}</td>
         <td data-label="施設名" style="padding:5px 8px">${escHtml(f.facility_name||'（名称未設定）')}</td>
+        <td data-label="利用日" style="padding:5px 8px;white-space:nowrap">${escHtml(f.date||'')}</td>
         <td data-label="対応期限日" style="padding:5px 8px;white-space:nowrap">${escHtml(f.deadline_date||'')}</td>
         <td data-label="残り" style="padding:5px 8px;text-align:center;font-weight:700;color:${b.fg};white-space:nowrap">${dLabel}</td>
       </tr>`;
@@ -3069,16 +3078,18 @@ function facilityDeadlineRowsHtml(buckets){
 function facilityDeadlineTableHtml(buckets){
   return `<div class="tbl-wrap"><table class="confirm-table" style="width:100%;border-collapse:collapse;font-size:12px">
     <colgroup>
-      <col style="width:10%">
-      <col style="width:25%">
-      <col style="width:28%">
-      <col style="width:15%">
+      <col style="width:9%">
+      <col style="width:24%">
+      <col style="width:22%">
       <col style="width:12%">
+      <col style="width:13%">
+      <col style="width:10%">
     </colgroup>
     <thead><tr style="background:var(--bg)">
       <th style="padding:4px 8px;text-align:left;white-space:nowrap">REF#</th>
       <th style="padding:4px 8px;text-align:left">ツアー名</th>
       <th style="padding:4px 8px;text-align:left">施設名</th>
+      <th style="padding:4px 8px;text-align:left;white-space:nowrap">利用日</th>
       <th style="padding:4px 8px;text-align:left;white-space:nowrap">対応期限日</th>
       <th style="padding:4px 8px;text-align:center;white-space:nowrap">残り</th>
     </tr></thead>
@@ -3145,8 +3156,9 @@ function renderDashboardTodoListFromCache(){
     return `<tr style="${done?'opacity:.7':''}">
       <td data-label="完了" style="padding:5px 6px;text-align:center"><input type="checkbox" ${done?'checked':''} onclick="event.stopPropagation();toggleFacilityTodoComplete('${f.id}', ${!done})" style="cursor:pointer;width:16px;height:16px"></td>
       <td data-label="REF#" class="lnk" style="padding:5px 8px;white-space:nowrap;cursor:pointer" onclick="openBookingDetail('${f.booking_id}')">${escHtml(bk.ref_no||'')}</td>
-      <td data-label="ツアー名" style="padding:5px 8px;cursor:pointer" onclick="openBookingDetail('${f.booking_id}')">${escHtml(bk.tour_name||'')}</td>
+      <td data-label="ツアー名" style="padding:5px 8px;cursor:pointer" onclick="openBookingDetail('${f.booking_id}')">${escHtml(bkTourLabel(bk))}</td>
       <td data-label="施設名" style="padding:5px 8px;cursor:pointer;${nameStyle}" onclick="openBookingDetail('${f.booking_id}')">${escHtml(f.facility_name||'（名称未設定）')}</td>
+      <td data-label="利用日" style="padding:5px 8px;white-space:nowrap;cursor:pointer" onclick="openBookingDetail('${f.booking_id}')">${escHtml(f.date||'')}</td>
       <td data-label="対応期限日" style="padding:5px 8px;white-space:nowrap;cursor:pointer" onclick="openBookingDetail('${f.booking_id}')">${escHtml(f.deadline_date||'')}</td>
       <td data-label="残り" style="padding:5px 8px;text-align:center;font-weight:700;color:${done?'var(--text3)':tierFg};white-space:nowrap">
         <span style="cursor:pointer" onclick="openBookingDetail('${f.booking_id}')">${done?'✓ 完了':dLabel}</span>${delBtn?' '+delBtn:''}
@@ -3157,7 +3169,7 @@ function renderDashboardTodoListFromCache(){
   const bucketRows = bucketsFull.map(b=>{
     if(b.items.length === 0) return '';
     const sectionHd = `<tr class="section-row">
-      <td colspan="6" style="padding:6px 8px 4px;background:${b.bg};border-top:2px solid ${b.border}">
+      <td colspan="7" style="padding:6px 8px 4px;background:${b.bg};border-top:2px solid ${b.border}">
         <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:${b.fg}">
           ${b.label} <span style="background:rgba(0,0,0,.09);padding:1px 7px;border-radius:10px">${b.items.length}件</span>
         </span>
@@ -3167,7 +3179,7 @@ function renderDashboardTodoListFromCache(){
   }).join('');
 
   const completedHd = completed.length ? `<tr class="section-row" style="cursor:pointer" onclick="toggleDashboardTodoCompletedSection()">
-      <td colspan="6" style="padding:6px 8px 4px;background:#f2f2f2;border-top:2px solid #ddd">
+      <td colspan="7" style="padding:6px 8px 4px;background:#f2f2f2;border-top:2px solid #ddd">
         <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:#666">
           ${dashboardTodoCompletedExpanded?'▾':'▸'} ✅ 完了済み <span style="background:rgba(0,0,0,.09);padding:1px 7px;border-radius:10px">${completed.length}件</span>
           ${visibleCompleted.length!==completed.length?`<span style="font-weight:400;color:var(--text3)">（期限から30日超は非表示）</span>`:''}
@@ -3178,14 +3190,15 @@ function renderDashboardTodoListFromCache(){
 
   el.innerHTML = `<div class="tbl-wrap"><table class="confirm-table" style="width:100%;border-collapse:collapse;font-size:12px">
     <colgroup>
-      <col style="width:5%"><col style="width:9%"><col style="width:23%">
-      <col style="width:26%"><col style="width:14%"><col style="width:13%">
+      <col style="width:5%"><col style="width:8%"><col style="width:20%">
+      <col style="width:20%"><col style="width:11%"><col style="width:12%"><col style="width:12%">
     </colgroup>
     <thead><tr style="background:var(--bg)">
       <th style="padding:4px 6px"></th>
       <th style="padding:4px 8px;text-align:left;white-space:nowrap">REF#</th>
       <th style="padding:4px 8px;text-align:left">ツアー名</th>
       <th style="padding:4px 8px;text-align:left">施設名</th>
+      <th style="padding:4px 8px;text-align:left;white-space:nowrap">利用日</th>
       <th style="padding:4px 8px;text-align:left;white-space:nowrap">対応期限日</th>
       <th style="padding:4px 8px;text-align:center;white-space:nowrap">残り</th>
     </tr></thead>
