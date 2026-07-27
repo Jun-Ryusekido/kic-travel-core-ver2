@@ -164,11 +164,20 @@ async function doParkingDelete(table, id) {
   return { status: 200, body: { ok: true } };
 }
 
+// 旧エンドポイント(/api/booking-costs等)からのリクエストの後方互換対応。
+// 統合前のフロントエンドJSがブラウザに残ったまま(デプロイ後もタブを開きっぱなしのユーザー)
+// でも、bodyにtableが無い場合はvercel.jsonのルーティングで付与されるlegacyTableクエリ
+// パラメータから推測してtable-crud.jsの処理に合流させることで、「デプロイ直後は動くが、
+// 既に開いていたタブだけ404で保存できない」という事故を防ぐ(2026-07-27 本番インシデント対応)。
+// vercel.jsonでこれらの旧パスは全てこの同じapi/table-crud.jsにルーティングされる
+// (別ファイルではないためVercelの関数数は増えない)。
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (!getServiceKey()) return res.status(500).json({ error: 'サーバー側にSUPABASE_SERVICE_ROLE_KEYが設定されていません' });
 
-  const { table, action, token } = req.body || {};
+  const body = req.body || {};
+  const table = body.table || (req.query && req.query.legacyTable);
+  const { action, token } = body;
   const session = verifySessionToken(token);
   if (!session) return res.status(401).json({ error: 'ログインセッションが無効です。再度ログインしてください。' });
 
