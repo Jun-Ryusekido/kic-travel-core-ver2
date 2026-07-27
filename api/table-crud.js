@@ -21,6 +21,25 @@ const TABLE_CONFIG = {
   booking_costs: { actions: ['replace', 'insert', 'deleteByBooking'], label: '仕入明細' },
   local_expenses: { actions: ['replace'], label: '現地費用明細' },
   parking_reservations: { actions: ['list', 'save', 'delete'], label: '駐車場予約' },
+  // guide_settlements/guide_settlement_items: 社内スタッフ(index.html、ログインセッション
+  // トークンで認証)からの操作に加え、ガイド本人がguide.html(ログイン機構を持たず、精算
+  // リンクのaccess_tokenのみで認証する)から自分の精算明細を送信・編集するケースがある。
+  // そのためguestInsert/guestUpdateByIdの2アクションのみ、通常のセッショントークンの
+  // 代わりにguide_settlements.access_tokenでの認証を許可する(handler側のguest認証分岐、
+  // および各doGuest*関数のsettlement_id検証を参照)。
+  guide_settlements: {
+    actions: ['insert', 'updateById', 'updateByIds', 'deleteById', 'deleteByIds', 'deleteByField'],
+    label: 'ガイド精算',
+    allowedDeleteFields: ['booking_ref'],
+  },
+  guide_settlement_items: {
+    actions: ['insert', 'updateById', 'updateByIds', 'deleteById', 'deleteByIds', 'deleteByField', 'guestInsert', 'guestUpdateById'],
+    label: 'ガイド精算明細',
+    allowedDeleteFields: ['settlement_id'],
+    // ガイド本人(guestUpdateById)が編集できるのは受領書番号のみ。ステータス承認・
+    // 反映フラグ等、社内スタッフのみが操作すべき項目はここに含めない。
+    guestUpdatableFields: ['receipt_no'],
+  },
 };
 
 function sbFetch(table, path, opts = {}) {
@@ -164,6 +183,106 @@ async function doParkingDelete(table, id) {
   return { status: 200, body: { ok: true } };
 }
 
+// 汎用actions(主にguide_settlements/guide_settlement_items向け。社内スタッフは
+// これまでもanonキーで全フィールドを自由に読み書きできていたため、フィールドの
+// ホワイトリスト化はせず、認証(有効なログインセッション)のみを要件とする。
+async function doUpdateById(table, label, id, fields) {
+  if (!id) return { status: 400, body: { error: 'idが指定されていません' } };
+  if (!fields || typeof fields !== 'object') return { status: 400, body: { error: '更新内容が指定されていません' } };
+  const r = await sbFetch(table, `?id=eq.${encodeURIComponent(id)}`, { method: 'PATCH', prefer: 'return=minimal', body: JSON.stringify(fields) });
+  if (!r.ok) {
+    const e = await readJsonSafe(r);
+    return { status: 500, body: { error: withGrantHint(e.message, table) || `${label}の更新に失敗しました` } };
+  }
+  return { status: 200, body: { ok: true } };
+}
+
+async function doUpdateByIds(table, label, ids, fields) {
+  if (!Array.isArray(ids) || !ids.length) return { status: 400, body: { error: 'idが指定されていません' } };
+  if (!fields || typeof fields !== 'object') return { status: 400, body: { error: '更新内容が指定されていません' } };
+  const r = await sbFetch(table, `?id=in.(${ids.map(encodeURIComponent).join(',')})`, { method: 'PATCH', prefer: 'return=minimal', body: JSON.stringify(fields) });
+  if (!r.ok) {
+    const e = await readJsonSafe(r);
+    return { status: 500, body: { error: withGrantHint(e.message, table) || `${label}の更新に失敗しました` } };
+  }
+  return { status: 200, body: { ok: true } };
+}
+
+async function doDeleteById(table, label, id) {
+  if (!id) return { status: 400, body: { error: 'idが指定されていません' } };
+  const r = await sbFetch(table, `?id=eq.${encodeURIComponent(id)}`, { method: 'DELETE', prefer: 'return=minimal' });
+  if (!r.ok) {
+    const e = await readJsonSafe(r);
+    return { status: 500, body: { error: withGrantHint(e.message, table) || `${label}の削除に失敗しました` } };
+  }
+  return { status: 200, body: { ok: true } };
+}
+
+async function doDeleteByIds(table, label, ids) {
+  if (!Array.isArray(ids) || !ids.length) return { status: 400, body: { error: 'idが指定されていません' } };
+  const r = await sbFetch(table, `?id=in.(${ids.map(encodeURIComponent).join(',')})`, { method: 'DELETE', prefer: 'return=minimal' });
+  if (!r.ok) {
+    const e = await readJsonSafe(r);
+    return { status: 500, body: { error: withGrantHint(e.message, table) || `${label}の削除に失敗しました` } };
+  }
+  return { status: 200, body: { ok: true } };
+}
+
+// field/valueによる削除は、TABLE_CONFIG.allowedDeleteFieldsに明示されている列に限定する
+// (bodyから任意の列名を受け取ってそのままクエリに埋め込むことを避けるため)。
+async function doDeleteByField(table, label, config, field, value) {
+  if (!config.allowedDeleteFields || !config.allowedDeleteFields.includes(field)) {
+    return { status: 400, body: { error: `${table}に対して許可されていない削除条件です: ${field}` } };
+  }
+  if (value === undefined || value === null || value === '') return { status: 400, body: { error: '削除条件の値が指定されていません' } };
+  const filter = Array.isArray(value) ? `in.(${value.map(encodeURIComponent).join(',')})` : `eq.${encodeURIComponent(value)}`;
+  const r = await sbFetch(table, `?${field}=${filter}`, { method: 'DELETE', prefer: 'return=minimal' });
+  if (!r.ok) {
+    const e = await readJsonSafe(r);
+    return { status: 500, body: { error: withGrantHint(e.message, table) || `${label}の削除に失敗しました` } };
+  }
+  return { status: 200, body: { ok: true } };
+}
+
+// guide.html(ログイン機構を持たない、精算リンクのaccess_tokenのみで認証)からの
+// リクエスト用。access_tokenをguide_settlementsテーブルに照会し、該当する精算レコード
+// (guestSettlement)を返す。見つからなければ「リンクが無効」として扱う。
+async function resolveGuestSettlement(guestToken) {
+  if (!guestToken) return null;
+  const r = await sbFetch('guide_settlements', `?access_token=eq.${encodeURIComponent(guestToken)}&select=id,booking_ref,status`);
+  if (!r.ok) return null;
+  const rows = await r.json();
+  return rows && rows[0] ? rows[0] : null;
+}
+
+// ガイド本人によるguide_settlement_items新規送信(領収書等)。クライアントが送ってきた
+// settlement_idは信用せず、access_tokenから解決した本人の精算IDを必ず全行に強制設定する
+// (他人の精算リンクのaccess_tokenを使わない限り、他の精算への書き込みはできない)。
+async function doGuestInsert(table, label, rows, guestSettlement) {
+  if (!Array.isArray(rows) || !rows.length) return { status: 400, body: { error: '追加する行がありません' } };
+  const safeRows = rows.map((row) => ({ ...row, settlement_id: guestSettlement.id }));
+  return doInsert(table, label, safeRows);
+}
+
+// ガイド本人によるguide_settlement_items編集(受領書番号の修正等)。
+// 1) 更新可能フィールドをTABLE_CONFIG.guestUpdatableFieldsでホワイトリスト化
+// 2) 対象行が自分の精算(guestSettlement.id)に属することを更新前に確認
+async function doGuestUpdateById(table, label, config, id, fields, guestSettlement) {
+  if (!id) return { status: 400, body: { error: 'idが指定されていません' } };
+  const allowed = config.guestUpdatableFields || [];
+  const safeFields = {};
+  Object.keys(fields || {}).forEach((k) => { if (allowed.includes(k)) safeFields[k] = fields[k]; });
+  if (Object.keys(safeFields).length === 0) return { status: 400, body: { error: '更新可能な項目がありません' } };
+
+  const checkRes = await sbFetch(table, `?id=eq.${encodeURIComponent(id)}&select=id,settlement_id`);
+  if (!checkRes.ok) return { status: 500, body: { error: '対象データの確認に失敗しました' } };
+  const checkRows = await checkRes.json();
+  if (!checkRows || !checkRows[0] || checkRows[0].settlement_id !== guestSettlement.id) {
+    return { status: 403, body: { error: 'この項目を編集する権限がありません' } };
+  }
+  return doUpdateById(table, label, id, safeFields);
+}
+
 // 旧エンドポイント(/api/booking-costs等)からのリクエストの後方互換対応。
 // 統合前のフロントエンドJSがブラウザに残ったまま(デプロイ後もタブを開きっぱなしのユーザー)
 // でも、bodyにtableが無い場合はvercel.jsonのルーティングで付与されるlegacyTableクエリ
@@ -177,9 +296,20 @@ export default async function handler(req, res) {
 
   const body = req.body || {};
   const table = body.table || (req.query && req.query.legacyTable);
-  const { action, token } = body;
-  const session = verifySessionToken(token);
-  if (!session) return res.status(401).json({ error: 'ログインセッションが無効です。再度ログインしてください。' });
+  const { action, token, guestToken } = body;
+
+  // guestInsert/guestUpdateByIdのみ、ログインセッションを持たないguide.html(ガイド本人が
+  // 精算リンクのaccess_tokenだけでアクセスする画面)からの呼び出しを許可する。それ以外の
+  // 全actionは、これまで通り社内スタッフのログインセッショントークン検証を必須とする。
+  const isGuestAction = action === 'guestInsert' || action === 'guestUpdateById';
+  let guestSettlement = null;
+  if (isGuestAction) {
+    guestSettlement = await resolveGuestSettlement(guestToken);
+    if (!guestSettlement) return res.status(401).json({ error: '精算リンクが無効です。リンクの有効期限が切れているか、URLが正しくない可能性があります。' });
+  } else {
+    const session = verifySessionToken(token);
+    if (!session) return res.status(401).json({ error: 'ログインセッションが無効です。再度ログインしてください。' });
+  }
 
   const config = TABLE_CONFIG[table];
   if (!config) return res.status(400).json({ error: `不明なtableです: ${table}` });
@@ -219,6 +349,41 @@ export default async function handler(req, res) {
     if (action === 'delete') {
       const { id } = req.body;
       const result = await doParkingDelete(table, id);
+      return res.status(result.status).json(result.body);
+    }
+    if (action === 'updateById') {
+      const { id, fields } = req.body;
+      const result = await doUpdateById(table, config.label, id, fields);
+      return res.status(result.status).json(result.body);
+    }
+    if (action === 'updateByIds') {
+      const { ids, fields } = req.body;
+      const result = await doUpdateByIds(table, config.label, ids, fields);
+      return res.status(result.status).json(result.body);
+    }
+    if (action === 'deleteById') {
+      const { id } = req.body;
+      const result = await doDeleteById(table, config.label, id);
+      return res.status(result.status).json(result.body);
+    }
+    if (action === 'deleteByIds') {
+      const { ids } = req.body;
+      const result = await doDeleteByIds(table, config.label, ids);
+      return res.status(result.status).json(result.body);
+    }
+    if (action === 'deleteByField') {
+      const { field, value } = req.body;
+      const result = await doDeleteByField(table, config.label, config, field, value);
+      return res.status(result.status).json(result.body);
+    }
+    if (action === 'guestInsert') {
+      const { rows } = req.body;
+      const result = await doGuestInsert(table, config.label, rows, guestSettlement);
+      return res.status(result.status).json(result.body);
+    }
+    if (action === 'guestUpdateById') {
+      const { id, fields } = req.body;
+      const result = await doGuestUpdateById(table, config.label, config, id, fields, guestSettlement);
       return res.status(result.status).json(result.body);
     }
 

@@ -3502,6 +3502,8 @@ async function tableCrudApiCall(table, action, payload){
 }
 async function bookingSalesApiCall(action, payload){ return tableCrudApiCall('booking_sales', action, payload); }
 async function localExpensesApiCall(action, payload){ return tableCrudApiCall('local_expenses', action, payload); }
+async function guideSettlementsApiCall(action, payload){ return tableCrudApiCall('guide_settlements', action, payload); }
+async function guideSettlementItemsApiCall(action, payload){ return tableCrudApiCall('guide_settlement_items', action, payload); }
 async function bookingCostsApiCall(action, payload){ return tableCrudApiCall('booking_costs', action, payload); }
 
 let bdLocalExpenses = [];
@@ -5783,8 +5785,8 @@ async function deleteBookingData(){
           await sb.storage.from('guide-receipts').remove(files.map(f=>`${s.access_token}/${f.name}`));
         }
       }
-      await sb.from('guide_settlement_items').delete().in('settlement_id', settlements.map(s=>s.id));
-      await sb.from('guide_settlements').delete().eq('booking_ref', refNo);
+      await guideSettlementItemsApiCall('deleteByField', { field: 'settlement_id', value: settlements.map(s=>s.id) });
+      await guideSettlementsApiCall('deleteByField', { field: 'booking_ref', value: refNo });
     }
 
     // 手配書
@@ -5865,7 +5867,7 @@ Object.keys(itemsBySettlement).forEach(k=>{ itemsBySettlement[k].sort((a,b)=>{ c
 
 async function deleteGuideItem(id){
   if(!confirm('この項目を削除しますか？')) return;
-  await sb.from('guide_settlement_items').delete().eq('id',id);
+  await guideSettlementItemsApiCall('deleteById', { id });
   await loadGuideSettlements();
 }
 async function kicAddSettlementItem(settlementId){
@@ -5876,23 +5878,24 @@ async function kicAddSettlementItem(settlementId){
   const no = document.getElementById('kic-add-no-'+settlementId)?.value?.trim();
   if(!desc){alert('説明を入力してください');return;}
   if(!amount){alert('金額を入力してください');return;}
-  const {error} = await sb.from('guide_settlement_items').insert({
-    settlement_id: settlementId,
-    expense_date: date||null,
-    category: cat||null,
-    description: desc,
-    amount: amount,
-    receipt_no: no||null,
-    status: 'pending',
-    added_by_kic: true
-  });
-  if(error){alert('追加失敗: '+error.message);return;}
+  try{
+    await guideSettlementItemsApiCall('insert', { rows: [{
+      settlement_id: settlementId,
+      expense_date: date||null,
+      category: cat||null,
+      description: desc,
+      amount: amount,
+      receipt_no: no||null,
+      status: 'pending',
+      added_by_kic: true
+    }] });
+  }catch(e){ alert('追加失敗: '+e.message); return; }
   await loadGuideSettlements();
 }
 async function updateGuideItem(id, field, value){
   const update = {};
   update[field] = field==='amount' ? Number(value) : value;
-  await sb.from('guide_settlement_items').update(update).eq('id',id);
+  await guideSettlementItemsApiCall('updateById', { id, fields: update });
 }
 async function reviewCheckedGuideItems(status){
   const checks = document.querySelectorAll('.gs-check:checked');
@@ -5900,7 +5903,7 @@ async function reviewCheckedGuideItems(status){
   const label = status==='approved'?'承認':'却下';
   if(!confirm(checks.length+'件を'+label+'しますか？')) return;
   const ids = Array.from(checks).map(c=>c.dataset.id);
-  await sb.from('guide_settlement_items').update({status, reviewed_at: new Date().toISOString()}).in('id',ids);
+  await guideSettlementItemsApiCall('updateByIds', { ids, fields: {status, reviewed_at: new Date().toISOString()} });
   await loadGuideSettlements();
 }
 async function deleteCheckedGuideItems(){
@@ -5908,7 +5911,7 @@ async function deleteCheckedGuideItems(){
   if(checks.length===0){ alert('削除する項目を選択してください'); return; }
   if(!confirm(checks.length+'件を削除しますか？')) return;
   const ids = Array.from(checks).map(c=>c.dataset.id);
-  await sb.from('guide_settlement_items').delete().in('id',ids);
+  await guideSettlementItemsApiCall('deleteByIds', { ids });
   await loadGuideSettlements();
 }
 function renderGuideSettlements(){
@@ -6039,7 +6042,7 @@ async function updateGuideEntryField(id, idx, field, value){
   // 上書きされないようにフラグを立てる（syncAdvancePaymentsFromCosts参照）
   const extra = (field==='advance_payment'||field==='additional_advance_payment') ? {advance_manual_override:true} : {};
   guideList = guideList.map((g,i)=> i===idx ? {...g, [field]:v, ...extra} : g);
-  await sb.from('guide_settlements').update({guide_names: guideList}).eq('id', id);
+  await guideSettlementsApiCall('updateById', { id, fields: {guide_names: guideList} });
   s.guide_names = guideList;
   renderGuideSettlements();
 }
@@ -6048,7 +6051,7 @@ async function resetGuideAdvanceOverride(id, idx){
   if(!s) return;
   let guideList = Array.isArray(s.guide_names) && s.guide_names.length>0 ? s.guide_names : [];
   guideList = guideList.map((g,i)=> i===idx ? {...g, advance_manual_override:false} : g);
-  await sb.from('guide_settlements').update({guide_names: guideList}).eq('id', id);
+  await guideSettlementsApiCall('updateById', { id, fields: {guide_names: guideList} });
   s.guide_names = guideList;
   const b = allBookingsCache.find(x=>x.ref_no===s.booking_ref);
   if(b) await syncAdvancePaymentsFromCosts(b.id, s.booking_ref);
@@ -6058,7 +6061,7 @@ async function resetGuideAdvanceOverride(id, idx){
 async function updateGuideSettlementField(id, field, value){
   const numFields = ['advance_payment','additional_advance_payment','guide_fee'];
   const v = numFields.includes(field) ? (Number(value)||0) : value;
-  await sb.from('guide_settlements').update({[field]:v}).eq('id', id);
+  await guideSettlementsApiCall('updateById', { id, fields: {[field]:v} });
   const s = guideSettlementsCache.find(x=>x.id===id);
   if(s) s[field]=v;
 }
@@ -6144,7 +6147,7 @@ async function syncAdvancePaymentsFromCosts(bookingId, refNo){
   });
 
   for(const u of updates){
-    await sb.from('guide_settlements').update({guide_names: u.guide_names}).eq('id', u.id);
+    await guideSettlementsApiCall('updateById', { id: u.id, fields: {guide_names: u.guide_names} });
   }
   if(updates.length > 0) await loadGuideSettlements();
 }
@@ -6594,15 +6597,16 @@ async function createGuideSettlement(){
   // 複数ガイド全員分の紐付けはguide_names配列側のguide_idを見ること。
   const primaryGuideId = guideNames.find(g=>g.guide_id)?.guide_id || null;
 
-  const {error} = await sb.from('guide_settlements').insert({
-    booking_ref: b.ref_no,
-    guide_name: summaryLabel,
-    guide_names: guideNames,
-    guide_id: primaryGuideId,
-    access_token: token,
-    created_by: currentUser ? currentUser.email : null
-  });
-  if(error){ alert('発行に失敗しました: '+error.message); return; }
+  try{
+    await guideSettlementsApiCall('insert', { rows: [{
+      booking_ref: b.ref_no,
+      guide_name: summaryLabel,
+      guide_names: guideNames,
+      guide_id: primaryGuideId,
+      access_token: token,
+      created_by: currentUser ? currentUser.email : null
+    }] });
+  }catch(e){ alert('発行に失敗しました: '+e.message); return; }
 
   bdNewGuideList = [];
   renderBdNewGuideList();
@@ -6675,7 +6679,7 @@ async function reflectCheckedGuideItems(settlementId){
   let error;
   try { await bookingCostsApiCall('insert', { rows }); } catch(e) { error = e; }
   if(error){ alert('反映に失敗しました: '+error.message); return; }
-  await sb.from('guide_settlement_items').update({reflected:true}).in('id', targets.map(it=>it.id));
+  await guideSettlementItemsApiCall('updateByIds', { ids: targets.map(it=>it.id), fields: {reflected:true} });
   const {data: allCosts} = await sb.from('booking_costs').select('amount').eq('booking_id', b.id);
   const newGrossCost = (allCosts||[]).reduce((sum,c)=>sum+Number(c.amount||0),0);
   await sb.from('bookings').update({gross_cost:newGrossCost, updated_at: new Date().toISOString()}).eq('id', b.id);
@@ -6688,20 +6692,20 @@ async function reflectCheckedGuideItems(settlementId){
 }
 
 async function reviewGuideItem(itemId, status){
-  await sb.from('guide_settlement_items').update({status, reviewed_at: new Date().toISOString()}).eq('id', itemId);
+  await guideSettlementItemsApiCall('updateById', { id: itemId, fields: {status, reviewed_at: new Date().toISOString()} });
   await loadGuideSettlements();
 }
 
 async function reopenGuideSettlement(settlementId){
   if(!isAccountingUser()){ alert('経理担当者のみ解除できます。'); return; }
   if(!confirm('この精算の締めを解除しますか？')) return;
-  await sb.from('guide_settlements').update({status:'open', closed_at:null}).eq('id', settlementId);
+  await guideSettlementsApiCall('updateById', { id: settlementId, fields: {status:'open', closed_at:null} });
   await loadGuideSettlements();
 }
 
 async function closeGuideSettlement(settlementId){
   if(!confirm('この精算を締めますか？締めると、ガイド側からの新規送信ができなくなります。')) return;
-  await sb.from('guide_settlements').update({status:'closed', closed_at: new Date().toISOString()}).eq('id', settlementId);
+  await guideSettlementsApiCall('updateById', { id: settlementId, fields: {status:'closed', closed_at: new Date().toISOString()} });
   await loadGuideSettlements();
 }
 
@@ -6716,10 +6720,10 @@ async function deleteGuideSettlement(settlementId){
   }
   if(!confirm(msg)) return;
 
-  const {error} = await sb.from('guide_settlement_items').delete().eq('settlement_id', settlementId);
-  if(error){ alert('削除に失敗しました: '+error.message); return; }
-  const {error: error2} = await sb.from('guide_settlements').delete().eq('id', settlementId);
-  if(error2){ alert('削除に失敗しました: '+error2.message); return; }
+  try{
+    await guideSettlementItemsApiCall('deleteByField', { field: 'settlement_id', value: settlementId });
+    await guideSettlementsApiCall('deleteById', { id: settlementId });
+  }catch(e){ alert('削除に失敗しました: '+e.message); return; }
 
   await logAction('ガイド精算リンク削除', s.booking_ref + (s.guide_name?(' / '+s.guide_name):''));
   await loadGuideSettlements();
@@ -6747,7 +6751,7 @@ async function reflectGuideItems(settlementId){
   try { await bookingCostsApiCall('insert', { rows }); } catch(e) { error = e; }
   if(error){ alert('仕入明細への反映に失敗しました: '+error.message); return; }
 
-  await sb.from('guide_settlement_items').update({reflected:true}).in('id', targets.map(it=>it.id));
+  await guideSettlementItemsApiCall('updateByIds', { ids: targets.map(it=>it.id), fields: {reflected:true} });
 
   // gross_costを再計算
   const {data: allCosts} = await sb.from('booking_costs').select('amount').eq('booking_id', b.id);

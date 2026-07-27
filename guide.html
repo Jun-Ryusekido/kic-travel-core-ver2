@@ -157,8 +157,25 @@ async function reload(){
   render();
 }
 
+// guide_settlement_itemsへの書き込みは、セキュリティ移行フェーズ1によりanonロールの
+// 直接INSERT/UPDATE/DELETEをRLSで禁止したため、service_role key経由の/api/table-crudを
+// 通す。guide.htmlにはログイン機構が無いため、精算リンクのaccess_token(このページの
+// URLのtokenパラメータ、すなわち`token`変数)自体をguestTokenとしてサーバー側に送り、
+// サーバー側でguide_settlements.access_tokenと突き合わせて認証する
+// (index.html側のcurrentUser.tokenによるセッション認証とは別の仕組み)。
+async function guideItemsApiCall(action, payload){
+  const resp = await fetch('/api/table-crud', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ table:'guide_settlement_items', action, guestToken: token, ...payload })
+  });
+  let data; try{ data = await resp.json(); }catch(e){ data = {}; }
+  if(!resp.ok || data.error) throw new Error(data.error || 'サーバーエラーが発生しました');
+  return data;
+}
+
 async function updateItemReceiptNo(id, value){
-  await sb.from('guide_settlement_items').update({receipt_no: value||null}).eq('id', id);
+  await guideItemsApiCall('guestUpdateById', { id, fields: {receipt_no: value||null} });
   const item = items.find(it=>it.id===id);
   if(item) item.receipt_no = value||null;
 }
@@ -447,8 +464,7 @@ async function submitReceipts(){
     if(dupes.length>0){
       throw new Error('領収書No '+dupes.map(d=>d.receipt_no).join(', ')+' は既に送信済みです');
     }
-    const {error} = await sb.from('guide_settlement_items').insert(rows);
-    if(error) throw error;
+    await guideItemsApiCall('guestInsert', { rows });
     okEl.style.display='block';
     pendingReceipts=[];
     await reload();
