@@ -142,6 +142,15 @@ export default async function handler(req, res) {
   で分かる形にして、例:"8/5 21"のように）そのまま入れ、"needs_review" を true にすること。
 - 全ての行に同一の日付を返すことは、明細の実態と一致しない限り誤りである可能性が非常に高い。行ごとに異なる日付が印字されている場合は、それぞれ正確に区別して抽出すること。
 
+【手書きツアーコードの抽出（重要）】
+- 明細の各取引行、またはその行の左右・上下の余白に、担当者が手書きで書き込んだツアーコードが
+  存在する場合がある。ツアーコードの形式は「数字＋アンダースコア＋アルファベット」（例:
+  "851_KK"、"870_TU"、"961_TC"）で、印字された明細の文字とは筆跡が異なる（手書きの）ものを指す。
+- 各取引行について、その行に対応する手書きツアーコードが読み取れた場合は"hint_tour_code"に
+  そのまま（大文字のまま）入れること。読み取れない・その行に対応する手書きがない場合は
+  nullにすること（無理に推測して埋めないこと）。
+- 手書き文字が薄い・かすれている等で確信が持てない場合も、無理に埋めずnullにすること。
+
 【出力ルール（JSON構文が壊れると読み取り自体が全件失敗するため厳守）】
 - 金額は数値のみ（カンマ・円記号なし）
 - 店舗名が読み取れない場合はnullにする
@@ -152,7 +161,7 @@ export default async function handler(req, res) {
 - 出力は有効なJSON配列そのものだけとし、説明文・注釈・コードブロック記号(\`\`\`)は一切含めないこと
 - 他のテキストは一切含めず、以下のJSON形式のみで返すこと
 
-[{"date":"2026-05-20","date_raw":null,"needs_review":false,"merchant":"〇〇株式会社","amount":15000},{"date":null,"date_raw":"5/25","needs_review":true,"merchant":"△△商店","amount":3200}]`}
+[{"date":"2026-05-20","date_raw":null,"needs_review":false,"merchant":"〇〇株式会社","amount":15000,"hint_tour_code":"851_KK"},{"date":null,"date_raw":"5/25","needs_review":true,"merchant":"△△商店","amount":3200,"hint_tour_code":null}]`}
       ], 2000);
       const text = data.content?.[0]?.text || '';
       return res.status(200).json({ text });
