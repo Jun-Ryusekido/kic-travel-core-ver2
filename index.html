@@ -3506,6 +3506,7 @@ async function guideSettlementsApiCall(action, payload){ return tableCrudApiCall
 async function guideSettlementItemsApiCall(action, payload){ return tableCrudApiCall('guide_settlement_items', action, payload); }
 async function businessPartnersApiCall(action, payload){ return tableCrudApiCall('business_partners', action, payload); }
 async function agentsApiCall(action, payload){ return tableCrudApiCall('agents', action, payload); }
+async function guidesApiCall(action, payload){ return tableCrudApiCall('guides', action, payload); }
 async function bookingCostsApiCall(action, payload){ return tableCrudApiCall('booking_costs', action, payload); }
 
 let bdLocalExpenses = [];
@@ -10782,8 +10783,11 @@ async function submitNewGuide(){
   if(dupName && !confirm(`「${name}」と同じ氏名のガイドが既に登録されています。続けて登録しますか？`)) return;
   if(!dupName && dupPhone && !confirm(`「${phone}」と同じ携帯番号のガイドが既に登録されています。続けて登録しますか？`)) return;
   statusEl.textContent = '登録中...'; statusEl.style.color = 'var(--text3)';
-  const {data, error} = await sb.from('guides').insert({name, phone: phone||null}).select().single();
-  if(error){ statusEl.textContent = '登録に失敗しました: '+error.message; statusEl.style.color = 'var(--red)'; return; }
+  let data;
+  try{
+    const result = await guidesApiCall('insertReturning', { rows: [{name, phone: phone||null}] });
+    data = result.rows[0];
+  }catch(e){ statusEl.textContent = '登録に失敗しました: '+e.message; statusEl.style.color = 'var(--red)'; return; }
   guideRegistryCache.push(data);
   if(ctx==='arr'){
     if(i!=null && bdArrGuideItems[i]){
@@ -12666,14 +12670,14 @@ async function saveGuide(){
     updated_at: new Date().toISOString()
   };
 
-  let error;
-  if(currentGuideEditId){
-    ({error} = await sb.from('guides').update(payload).eq('id', currentGuideEditId));
-  }else{
-    payload.created_by = currentUser ? currentUser.email : null;
-    ({error} = await sb.from('guides').insert(payload));
-  }
-  if(error){ alert('保存に失敗しました: '+error.message); return; }
+  try{
+    if(currentGuideEditId){
+      await guidesApiCall('updateById', { id: currentGuideEditId, fields: payload });
+    }else{
+      payload.created_by = currentUser ? currentUser.email : null;
+      await guidesApiCall('insert', { rows: [payload] });
+    }
+  }catch(e){ alert('保存に失敗しました: '+e.message); return; }
 
   await logAction('ガイド登録更新', name);
   const msg = document.getElementById('gr-msg');
@@ -12685,8 +12689,8 @@ async function saveGuide(){
 async function deleteGuide(id){
   const g = guideRegistryCache.find(x=>x.id===id);
   if(!confirm(`「${g ? g.name : 'このガイド'}」を削除しますか？`)) return;
-  const {error} = await sb.from('guides').delete().eq('id', id);
-  if(error){ alert('削除に失敗しました: '+error.message); return; }
+  try{ await guidesApiCall('deleteById', { id }); }
+  catch(e){ alert('削除に失敗しました: '+e.message); return; }
   await loadGuideRegistry();
 }
 

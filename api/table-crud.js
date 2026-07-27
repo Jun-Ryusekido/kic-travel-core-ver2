@@ -53,6 +53,14 @@ const TABLE_CONFIG = {
     actions: ['insert', 'updateById', 'deleteById'],
     label: '取引先マスタ(Agent)',
   },
+  // guides(ガイドマスタ): business_partners/agentsと異なりis_deleted等の論理削除列を
+  // 持たず、ハードデリートのみ。予約詳細のガイド検索から「＋新規ガイド登録」する際
+  // (submitNewGuide)、挿入直後の採番id(guide_id)をその場でbooking_guides側に紐付ける
+  // 必要があるため、insertReturningで挿入結果を返す。
+  guides: {
+    actions: ['insert', 'insertReturning', 'updateById', 'deleteById'],
+    label: 'ガイドマスタ',
+  },
 };
 
 function sbFetch(table, path, opts = {}) {
@@ -109,6 +117,19 @@ async function doReplace(table, label, bookingId, rows) {
     }
   }
   return { status: 200, body: { ok: true } };
+}
+
+// insertと同じだが、挿入直後にDBが採番したid等をクライアントに返す必要がある場合
+// (例: submitNewGuideがガイド新規登録直後にそのidを予約行へ紐付ける)に使う。
+async function doInsertReturning(table, label, rows) {
+  if (!Array.isArray(rows) || !rows.length) return { status: 400, body: { error: '追加する行がありません' } };
+  const insRes = await sbFetch(table, '', { method: 'POST', prefer: 'return=representation', body: JSON.stringify(rows) });
+  if (!insRes.ok) {
+    const e = await readJsonSafe(insRes);
+    return { status: 500, body: { error: withGrantHint(e.message, table) || `${label}の保存に失敗しました` } };
+  }
+  const inserted = await insRes.json();
+  return { status: 200, body: { ok: true, rows: inserted } };
 }
 
 async function doInsert(table, label, rows) {
@@ -337,6 +358,11 @@ export default async function handler(req, res) {
     if (action === 'insert') {
       const { rows } = req.body;
       const result = await doInsert(table, config.label, rows);
+      return res.status(result.status).json(result.body);
+    }
+    if (action === 'insertReturning') {
+      const { rows } = req.body;
+      const result = await doInsertReturning(table, config.label, rows);
       return res.status(result.status).json(result.body);
     }
     if (action === 'deleteByBooking') {
