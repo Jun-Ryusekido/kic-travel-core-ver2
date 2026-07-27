@@ -1141,6 +1141,7 @@ input[type=number]{-moz-appearance:textfield}
             <label class="btn" style="font-size:11px;cursor:pointer">📷 カメラで撮影<input type="file" accept="image/*" capture="environment" style="display:none" onchange="extractHotelFromFileHm(event,'image')"></label>
             <span id="hm-file-status" style="font-size:11px;color:var(--text3)"></span>
           </div>
+          <div id="hm-paste-zone" class="paste-drop-zone" tabindex="-1" style="margin-top:8px">📋 ここをクリックしてCtrl+Vで画像・PDF・Excel・Wordファイルを貼り付け（ドラッグ&ドロップも可）</div>
           <div id="hm-ocr-area" style="display:none;margin-top:8px">
             <textarea id="hm-ocr-text" rows="5" style="width:100%;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:11px;font-family:inherit;resize:vertical" placeholder="ホテル確認メールの本文をここに貼り付け..."></textarea>
             <div style="margin-top:6px;display:flex;gap:6px;align-items:center">
@@ -13592,6 +13593,14 @@ async function saveHotelConfirm(hotels){
 }
 async function extractHotelFromFileHm(event, mode){
   const file = event.target.files[0];
+  if(file) await processHotelFileHm(file, mode);
+  event.target.value = '';
+}
+
+// ボタン選択・貼り付け(Ctrl+V)・ドラッグ&ドロップの3経路から共通で呼ばれる処理本体。
+// modeが未指定(貼り付け/ドロップ経由)の場合は、bankbook/クレジットカード明細と同様に
+// ファイル名・MIMEタイプから種別(画像/PDF/Word/Excel)を自動判定する。
+async function processHotelFileHm(file, mode){
   if(!file) return;
   const statusEl = document.getElementById('hm-file-status');
   statusEl.textContent = '⏳ 読み取り中...';
@@ -13599,8 +13608,10 @@ async function extractHotelFromFileHm(event, mode){
   showGlobalOcrBanner();
   statusEl.style.color = '';
   try{
-    const isPdf = mode==='image' ? false : file.name.toLowerCase().endsWith('.pdf');
-    const isImage = mode==='image';
+    const name = (file.name||'').toLowerCase();
+    const isImage = mode==='image' || (!mode && (file.type||'').startsWith('image/'));
+    const isPdf = !isImage && (mode!=='image') && (name.endsWith('.pdf') || file.type==='application/pdf');
+    const isWord = !isImage && !isPdf && name.endsWith('.docx');
     let bodyBase;
     if(isImage){
       const base64 = await compressImageToBase64(file);
@@ -13608,6 +13619,9 @@ async function extractHotelFromFileHm(event, mode){
     }else if(isPdf){
       const base64 = await readFileAsBase64(file);
       bodyBase = { hotelPdfBase64: base64 };
+    }else if(isWord){
+      const docText = await extractDocxText(file);
+      bodyBase = { hotelText: docText };
     }else{
       // 行数が多いExcelを1回のAI呼び出しにまとめて送るとサーバー側の処理時間が
       // 長くなりタイムアウトしやすいため、HOTEL_EXCEL_CHUNK_ROWS行を超える場合は
@@ -13626,7 +13640,6 @@ async function extractHotelFromFileHm(event, mode){
           bodyBase = { hotelText: chunks[0] };
         }else{
           await extractHotelFromFileHmBatched(chunks, statusEl);
-          event.target.value = '';
           return;
         }
       }
@@ -13639,7 +13652,6 @@ async function extractHotelFromFileHm(event, mode){
     hideGlobalOcrBanner();
     statusEl.style.color = 'var(--red)';
   }
-  event.target.value = '';
 }
 
 // ===== クレジットカード明細 =====
@@ -14655,6 +14667,7 @@ async function saveInvoiceConfirm(){
 }
 
 async function loadHotelManagement(){
+  enablePasteUpload(document.getElementById('hm-paste-zone'), file=>processHotelFileHm(file));
   document.getElementById('hm-tbody').innerHTML = '<tr><td colspan="12" class="empty">読み込み中...</td></tr>';
 const {data, error} = await sb.from('booking_hotels').select('*,bookings(ref_no,agent_name,tour_name,pax)').order('check_in',{ascending:true});
   if(error){ document.getElementById('hm-tbody').innerHTML = `<tr><td colspan="12" class="empty">読み込みエラー: ${error.message}</td></tr>`; return; }
