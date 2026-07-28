@@ -3,8 +3,18 @@
 // 実装をそのまま再利用し、書き直していない(下記コメントで出典を明記)。
 //
 // 出典: index.html:8549-8550 (EMAIL_KIC_CODE_RE/EMAIL_REF_NUMBER_RE)
-const EMAIL_KIC_CODE_RE = /\bKIC[-_]?\d{3,4}(?:_[A-Za-z0-9]+)*/i;
+// D-1: 「KIC 770」のような半角スペース区切り表記を実データで75件確認(誤検出0件)したため、
+// [-_]? を [-_\s]? に拡張(スペースも区切り文字として許容)。
+const EMAIL_KIC_CODE_RE = /\bKIC[-_\s]?\d{3,4}(?:_[A-Za-z0-9]+)*/i;
 const EMAIL_REF_NUMBER_RE = /(?:(?<![&\w\/=%.:~#-])#\s*(\d{3,}))|(?:\bREF\s*#?\s*(\d{3,}))/gi;
+
+// D-2: bookings.tour_codeの実データ(387件のdistinct値のうち311件が「KIC####_接尾辞」形式に
+// 一致)から接尾辞を抽出し、実在する30種類のみをホワイトリスト化した(推測で決めていない)。
+// 区切り文字(-または_)を必須にし、"KIC"単体・"KIC Travel"等の自社名では絶対に一致しない
+// ようにしている。実測の結果、この拡張だけでの新規一致は0件(D-1の拡張と全て重複)だったが、
+// 将来「シリーズ名のみで数字が本文のどこにも登場しない」メールが来た場合の保険として残す。
+const EMAIL_KIC_SERIES_SUFFIXES = ['TC','KK','JF','JA','NEX','JJ','TBO','AKB','DP','J1','SI','JK','TEH','ORN','AT','TCX','ANG','JE','SUN','LJ','TWO','SLT','JB','TWD','LF','EVT','ZJ','TL','TM','IT'];
+const EMAIL_KIC_SERIES_RE = new RegExp('\\bKIC[-_](' + EMAIL_KIC_SERIES_SUFFIXES.join('|') + ')\\b', 'i');
 
 // 出典: index.html:8879-8888 (EMAIL_ROOMING_LIST_KEYWORDS_JA/EMAIL_ROOMING_LIST_WORD_PATTERNS_EN/isRoomingListEmail)
 // ユーザー指示の追加候補(部屋割/PAX list/参加者リスト)をキーワードに追加している点のみ差分。
@@ -20,12 +30,14 @@ function normalizeText(s) {
 }
 
 function hasKicCode(text) {
-  return EMAIL_KIC_CODE_RE.test(text);
+  return EMAIL_KIC_CODE_RE.test(text) || EMAIL_KIC_SERIES_RE.test(text);
 }
 
 function matchedKicCode(text) {
   const m = text.match(EMAIL_KIC_CODE_RE);
-  return m ? m[0] : '';
+  if (m) return m[0];
+  const m2 = text.match(EMAIL_KIC_SERIES_RE);
+  return m2 ? m2[0] : '';
 }
 
 function knownRefMatches(text, refSet) {
@@ -73,4 +85,4 @@ function classifyEmail({ subject, body, attachmentNames, refSet }) {
   return { isImport: false, reason: 'none', matched: '' };
 }
 
-module.exports = { classifyEmail, EMAIL_KIC_CODE_RE, EMAIL_REF_NUMBER_RE, EMAIL_ROOMING_LIST_KEYWORDS_JA, EMAIL_ROOMING_LIST_WORD_PATTERNS_EN };
+module.exports = { classifyEmail, EMAIL_KIC_CODE_RE, EMAIL_KIC_SERIES_RE, EMAIL_KIC_SERIES_SUFFIXES, EMAIL_REF_NUMBER_RE, EMAIL_ROOMING_LIST_KEYWORDS_JA, EMAIL_ROOMING_LIST_WORD_PATTERNS_EN };
