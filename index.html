@@ -2981,8 +2981,15 @@ async function loadFacilityManagementPage(){
 function renderFacilityManagementStatusButtons(){
   const el = document.getElementById('fm-status-buttons');
   if(!el) return;
-  const allBtn = `<button class="btn ${facilityManagementStatusFilter===null?'btn-p':''}" onclick="setFacilityManagementStatusFilter(null)">すべて</button>`;
-  const btns = FACILITY_MGMT_STATUS_OPTIONS.map(s=>`<button class="btn ${facilityManagementStatusFilter===s?'btn-p':''}" onclick="setFacilityManagementStatusFilter('${s}')">${escHtml(s)}</button>`).join('');
+  // 他タブ(バス/レストラン/観光施設タブのAI読み取り確認ダイアログ等)と同じ
+  // statusBg/statusFg(手配ステータスの共通色ルール)をフィルタボタンにも適用する。
+  // 「すべて」は特定のステータスに紐づかないため色分け対象外(枠線のみで選択中を示す)。
+  const activeRing = 'box-shadow:inset 0 0 0 2px var(--text2, #333)';
+  const allBtn = `<button class="btn" style="${facilityManagementStatusFilter===null?activeRing:''}" onclick="setFacilityManagementStatusFilter(null)">すべて</button>`;
+  const btns = FACILITY_MGMT_STATUS_OPTIONS.map(s=>{
+    const active = facilityManagementStatusFilter===s;
+    return `<button class="btn" style="background:${statusBg(s)};color:${statusFg(s)};border-color:transparent;${active?activeRing:''}" onclick="setFacilityManagementStatusFilter('${s}')">${escHtml(s)}</button>`;
+  }).join('');
   el.innerHTML = allBtn + btns;
 }
 function setFacilityManagementStatusFilter(status){
@@ -3027,14 +3034,13 @@ function renderFacilityManagementTable(rows){
   if(rows.length===0){ tbody.innerHTML = '<tr><td colspan="8" class="empty">該当するデータがありません</td></tr>'; return; }
   tbody.innerHTML = rows.map(f=>{
     const bk = f._booking || {};
-    const statusOptions = FACILITY_MGMT_STATUS_OPTIONS.map(s=>`<option value="${escAttr(s)}" ${f.status===s?'selected':''}>${escHtml(s)}</option>`).join('');
     return `<tr>
       <td data-label="REF#" class="lnk" style="cursor:pointer" onclick="openBookingDetail('${f.booking_id}')">${escHtml(bk.ref_no||'')}</td>
       <td data-label="ツアー名">${escHtml(bkTourLabel(bk))}</td>
       <td data-label="施設名">${escHtml(f.facility_name||'（名称未設定）')}</td>
       <td data-label="利用日">${escHtml(f.date||'')}</td>
       <td data-label="対応期限日">${escHtml(f.deadline_date||'')}</td>
-      <td data-label="ステータス"><select onchange="saveFacilityManagementField('${f.id}','status',this.value)" style="font-size:11px;padding:4px 6px;border:1px solid var(--border);border-radius:6px">${statusOptions}</select></td>
+      <td data-label="ステータス">${fmStatusDropdownHtml(f.id, f.status, FACILITY_MGMT_STATUS_OPTIONS, '未予約')}</td>
       <td data-label="確認番号"><input value="${escAttr(f.confirmation_no||'')}" onblur="saveFacilityManagementField('${f.id}','confirmation_no',this.value)" style="font-size:11px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;width:100%;box-sizing:border-box"></td>
       <td data-label="備考"><input value="${escAttr(f.memo||'')}" onblur="saveFacilityManagementField('${f.id}','memo',this.value)" style="font-size:11px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;width:100%;box-sizing:border-box"></td>
     </tr>`;
@@ -3054,6 +3060,26 @@ async function saveFacilityManagementField(id, field, value){
     alert('保存に失敗しました: '+e.message);
     filterFacilityManagement();
   }
+}
+// ステータス列は色分け反映のため、保存後(成功・失敗いずれも)にボタンの背景色が
+// 最新の値と食い違わないよう必ずテーブルを再描画する(他フィールドは色を持たないため
+// saveFacilityManagementFieldのまま・再描画不要)。
+async function saveFacilityManagementStatus(id, value){
+  await saveFacilityManagementField(id, 'status', value);
+  closeStatusDropdowns();
+  filterFacilityManagement();
+}
+// 手配タブ(bd-hotels等)のarrStatusDropdownHtmlと同じ配色(statusBg/statusFg)・同じ
+// button+リストのカスタムUIを使い、fm-tbodyの各行はid経由でDB保存するため
+// saveFacilityManagementStatusを呼ぶ点のみが異なる。
+function fmStatusDropdownHtml(id, value, options, defaultVal){
+  const cur = value || defaultVal;
+  const itemsHtml = options.map(o=>
+    `<div class="st-dd-item" style="background:${statusBg(o)};color:${statusFg(o)}" onclick="event.stopPropagation();saveFacilityManagementStatus('${id}','${escAttr(o)}')">${escHtml(o)}</div>`
+  ).join('');
+  return `<div class="st-dd">
+    <button type="button" class="st-dd-btn" data-dd-items="${escAttr(itemsHtml)}" style="background:${statusBg(cur)};color:${statusFg(cur)}" onclick="event.stopPropagation();toggleStatusDropdown(this)">${escHtml(cur)} <span style="font-size:9px">▾</span></button>
+  </div>`;
 }
 
 // ===== Dashboard / Booking List（共通: prefixで切替） =====
