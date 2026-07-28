@@ -8663,24 +8663,6 @@ async function classifyEmailRelevanceForRows(rows){
   return changed;
 }
 
-// 表示中ページのメール(本文取得済み)について、is_excluded(業務対象外の自動判定)を
-// classifyEmailForExclusion(既存データへの一括適用と共通の唯一の判定関数)で行い、
-// 新たに対象外と判定された行があればDBを更新してtrueを返す(呼び出し元が再描画する)。
-async function classifyExclusionForRows(rows){
-  const targets = rows.filter(m=>!m.is_excluded);
-  if(!targets.length) return false;
-  const ctx = await buildEmailExclusionContext();
-  let changed = false;
-  for(const m of targets){
-    const result = classifyEmailForExclusion(m, ctx);
-    if(result.exclude){
-      const {error} = await sb.from('email_import_queue').update({is_excluded:true, excluded_reason:result.reason}).eq('id', m.id);
-      if(!error){ m.is_excluded = true; m.excluded_reason = result.reason; changed = true; }
-    }
-  }
-  return changed;
-}
-
 // ─── REF#候補の提示用インデックス（bookings / booking_hotels から一度だけ構築してキャッシュ） ───
 let emailInboxSuggestIndex = null; // {hotels:[{ref_no,hotel_name,check_in,check_out}], bookings:[{ref_no,tour_name,agent_name,in_date,out_date}]}
 
@@ -8879,8 +8861,9 @@ function guessEmailCategory(subject, body, sender){
 // 使うものだけを取り込む方式にする(取りこぼしてもOutlookで確認できるため判定は厳しくてよい)。
 // 以下の条件1・2のどちらかに該当する場合のみ取り込む(is_excluded=false)。それ以外は
 // 全てis_excluded=trueとする。1つの関数(classifyEmailForExclusion)に条件を集約し、
-// 一覧のライブ分類(renderEmailInboxPage内、新規取り込み分の初回表示時)と既存データへの
-// 一括適用(runEmailExclusionBulkBackfill)の両方が必ずこの関数を経由する(条件の二重管理を防ぐ)。
+// 一括適用(runEmailExclusionBulkBackfill)が必ずこの関数を経由する(条件の二重管理を防ぐ)。
+// 判定はページ閲覧をトリガーにせず、新規取り込み分・既存データとも一括適用ボタンの
+// 実行時にのみ行う(閲覧するだけでDBが書き換わる作りを避けるため)。
 //
 // 条件1: 件名・本文にKICコードまたは実在するREF#を含む(既存のemailHasRefOrTourCodeを再利用。
 //   EMAIL_KIC_CODE_RE=/\bKIC[-_]?\d{3,4}(?:_[A-Za-z0-9]+)*/i、EMAIL_REF_NUMBER_REで
@@ -9122,44 +9105,57 @@ async function computeEmailExclusionPlan(){
   return { all, toExclude, toInclude, roomingListOnlySamples, ctx };
 }
 
+// 500件ずつ分割して更新する。判定(computeEmailExclusionPlan)は常に現在のDB状態を
+// 元に「変更が必要な行」だけを再計算するため、この関数は何度re-run(再実行)しても安全
+// (冪等)。途中でエラーが起きても、それまでに更新済みの行はDBに反映済みのままで、
+// 再実行すれば残りの行だけが対象になり最初からやり直す必要はない。
+async function runEmailExclusionBulkUpdate(ids, fields, btn, doneRef, totalChanges){
+  const CHUNK = 500;
+  for(let i=0;i<ids.length;i+=CHUNK){
+    const chunk = ids.slice(i, i+CHUNK);
+    if(btn) btn.textContent = `⏳ 更新中(${doneRef.done}/${totalChanges})...`;
+    const {error} = await sb.from('email_import_queue').update(fields).in('id', chunk);
+    if(error) throw new Error(`${doneRef.done}/${totalChanges}件まで完了した時点でエラーが発生しました: ${error.message}\n\n再実行すれば残りの行のみ安全に続行できます。`);
+    doneRef.done += chunk.length;
+    const idSet = new Set(chunk);
+    emailInboxRawList.forEach(m=>{ if(idSet.has(m.id)) Object.assign(m, fields); });
+  }
+}
+
 async function runEmailExclusionBulkBackfill(){
-  if(!confirm('未処理メール全件に「取り込み対象」自動判定を一括適用します(新ロジックで再判定。手動で対象外にした行は対象外)。削除は行いません。数分かかる場合があります。実行しますか？')) return;
   const btn = document.getElementById('email-inbox-bulk-backfill-btn');
   const origLabel = btn ? btn.textContent : '';
   if(btn){ btn.disabled = true; btn.textContent = '⏳ 判定用データ準備中...'; }
+  let plan;
   try{
-    const plan = await computeEmailExclusionPlan();
+    plan = await computeEmailExclusionPlan();
+  }catch(e){
+    alert('判定処理でエラーが発生しました: '+e.message);
+    if(btn){ btn.disabled = false; btn.textContent = origLabel; }
+    return;
+  }
+  if(btn){ btn.disabled = false; btn.textContent = origLabel; }
 
-    let updated = 0;
-    const excludeIds = plan.toExclude.map(r=>r.id);
-    for(let i=0;i<excludeIds.length;i+=200){
-      const chunk = excludeIds.slice(i, i+200);
-      if(btn) btn.textContent = `⏳ 対象外へ更新中(${updated}/${excludeIds.length+plan.toInclude.length})...`;
-      const {error} = await sb.from('email_import_queue').update({is_excluded:true, excluded_reason:EMAIL_EXCLUSION_REASON_AUTO}).in('id', chunk);
-      if(error) throw error;
-      updated += chunk.length;
-      const idSet = new Set(chunk);
-      emailInboxRawList.forEach(m=>{ if(idSet.has(m.id)){ m.is_excluded = true; m.excluded_reason = EMAIL_EXCLUSION_REASON_AUTO; } });
-    }
-    const includeIds = plan.toInclude.map(r=>r.id);
-    for(let i=0;i<includeIds.length;i+=200){
-      const chunk = includeIds.slice(i, i+200);
-      if(btn) btn.textContent = `⏳ 業務メールへ更新中(${updated}/${excludeIds.length+plan.toInclude.length})...`;
-      const {error} = await sb.from('email_import_queue').update({is_excluded:false, excluded_reason:null}).in('id', chunk);
-      if(error) throw error;
-      updated += chunk.length;
-      const idSet = new Set(chunk);
-      emailInboxRawList.forEach(m=>{ if(idSet.has(m.id)){ m.is_excluded = false; m.excluded_reason = null; } });
-    }
+  const totalChanges = plan.toExclude.length + plan.toInclude.length;
+  if(totalChanges === 0){
+    alert(`判定対象: ${plan.all.length}件\n新ロジックで変更が必要な行はありませんでした（既に最新の判定結果と一致しています）。`);
+    return;
+  }
+  if(!confirm(`未処理メール${plan.all.length}件を判定しました。\n\n新たに対象外に設定: ${plan.toExclude.length}件\n業務メールに戻す: ${plan.toInclude.length}件\n\nis_excluded/excluded_reasonの2列のみを500件ずつ分割して更新します(削除・他列変更は一切行いません)。実行しますか？`)) return;
 
-    alert(`一括適用が完了しました。\n判定対象: ${plan.all.length}件\n新たに対象外に設定: ${excludeIds.length}件\n業務メールに戻した(旧ロジックの誤判定分等): ${includeIds.length}件`);
+  if(btn){ btn.disabled = true; }
+  const doneRef = { done: 0 };
+  try{
+    await runEmailExclusionBulkUpdate(plan.toExclude.map(r=>r.id), {is_excluded:true, excluded_reason:EMAIL_EXCLUSION_REASON_AUTO}, btn, doneRef, totalChanges);
+    await runEmailExclusionBulkUpdate(plan.toInclude.map(r=>r.id), {is_excluded:false, excluded_reason:null}, btn, doneRef, totalChanges);
+    alert(`一括適用が完了しました。\n判定対象: ${plan.all.length}件\n対象外に設定: ${plan.toExclude.length}件\n業務メールに戻した: ${plan.toInclude.length}件`);
+  }catch(e){
+    alert('一括適用が途中で停止しました。\n'+e.message);
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = origLabel; }
     recomputeEmailInboxIndex();
     emailInboxPage = 1;
     await renderEmailInboxPage();
-  }catch(e){
-    alert('一括適用でエラーが発生しました: '+e.message);
-  }finally{
-    if(btn){ btn.disabled = false; btn.textContent = origLabel; }
   }
 }
 
@@ -9459,24 +9455,6 @@ async function renderEmailInboxPage(){
           emailInboxPage = Math.min(emailInboxPage, totalPagesNow);
           await renderEmailInboxPage();
         }
-      }
-    }).catch(()=>{ /* 判定失敗時は何もしない(一覧に残る) */ });
-
-    // Outlook VBAマクロ経由の新規取り込み分は、is_excludedを未設定(false)のまま
-    // email_import_queueに入ってくる。取り込み処理自体は変更しない方針のため、
-    // 代わりにアプリ側で「業務メール」タブに表示された(=このページに来た)タイミングで
-    // classifyEmailForExclusion(既存データへの一括適用と全く同じ関数)を都度実行し、
-    // 対象外と判定されればその場でis_excludedを立てて一覧から外す。新着メールは
-    // 受信日時降順で1ページ目に来るため、実務上はメール受信箱を開いた時点で
-    // 速やかに判定される。既に判定済み(is_excluded=false のまま残っている)行を
-    // 再判定しても結果は変わらないだけなので無害。
-    classifyExclusionForRows(pageItems).then(async changed=>{
-      if(changed && emailInboxViewMode==='normal'){
-        if(_staleRender()) return;
-        recomputeEmailInboxIndex();
-        const totalPagesNow2 = Math.max(1, Math.ceil(emailInboxIndex.length / EMAIL_INBOX_PAGE_SIZE));
-        emailInboxPage = Math.min(emailInboxPage, totalPagesNow2);
-        await renderEmailInboxPage();
       }
     }).catch(()=>{ /* 判定失敗時は何もしない(一覧に残る) */ });
   }
