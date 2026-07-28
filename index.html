@@ -126,6 +126,8 @@ tr:hover td{background:var(--bg)}
 .s-finalized{background:#ccf0f5;color:#0e7490}
 .green{color:var(--green)}.amber{color:var(--amber)}.red{color:var(--red)}.blue{color:var(--blue)}
 .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.fm-filter-grid{grid-template-columns:2fr 1fr 1fr 1fr}
+@media(max-width:768px){ .fm-filter-grid{grid-template-columns:1fr} }
 /* 基本情報セクション: 左(大人〜手配状況/担当者〜入金合計の2段)とMEMOを横並びにし、
    グリッドの行の高さは自動的に左右のうち高い方に揃う(align-items:stretchの初期値)ため、
    MEMOの下端を左ブロックの下端(入金合計の下端)に一致させられる。768px未満では
@@ -1349,7 +1351,7 @@ input[type=number]{-moz-appearance:textfield}
       <div id="pg-facility-management" class="page" style="display:none">
         <div class="card" style="position:sticky;top:50px;z-index:10;margin-bottom:0;border-radius:12px 12px 0 0">
           <div class="card-title">観光地予約管理</div>
-          <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr 1fr">
+          <div class="form-grid fm-filter-grid">
             <div class="form-field"><label>REF# / ツアーコード / ツアー名で検索</label><input id="fm-search" placeholder="例: #1172, KIC1172_JF" oninput="filterFacilityManagement()"></div>
             <div class="form-field"><label>出発日(From)</label><input id="fm-from" type="date" min="1900-01-01" max="9999-12-31" onchange="filterFacilityManagement()"></div>
             <div class="form-field"><label>出発日(To)</label><input id="fm-to" type="date" min="1900-01-01" max="9999-12-31" onchange="filterFacilityManagement()"></div>
