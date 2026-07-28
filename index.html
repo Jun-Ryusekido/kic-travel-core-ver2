@@ -9612,13 +9612,35 @@ async function performSingleEmailSend(emailId, refNo, map, body){
 // 確認・編集してから保存できるようにする(取引先マスタ自体の入力項目・保存ロジックは無変更)。
 // 会社名が既存の取引先(business_partners)と一致すれば「更新」、一致しなければ「新規登録」として
 // 編集モーダルを開き、AIの抽出結果を上書きプリセットする。
-function _findMatchingPartner(name, nameEn){
-  const norm = s => String(s||'').normalize('NFKC').toLowerCase().replace(/[\s　・.,()（）]/g,'');
-  const targets = [norm(name), norm(nameEn)].filter(Boolean);
+// 会社名の正規化(全角半角統一・大文字小文字統一・空白/記号除去・法人格の除去)。
+// 取引先の突合(_findMatchingPartner)と重複調査の両方でこの1つの関数を使い、
+// 正規化ルールが食い違わないようにする。
+function normalizePartnerCompanyName(s){
+  return String(s||'')
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[\s　・.,()（）]/g,'')
+    .replace(/株式会社|有限会社|合同会社|一般社団法人|公益社団法人|一般財団法人|公益財団法人/g,'');
+}
+function normalizePartnerEmail(s){
+  return String(s||'').trim().toLowerCase();
+}
+// 以前は正規化後の部分一致(includes)で突合していたため、AIが抽出した短い略称
+// (例:"CHI")が既存の別会社の地名等(例:「Shinano-omachi」の"omachi"に含まれる
+// "chi")に閾値なく偶然マッチし、全く無関係の取引先の担当者情報が誤って
+// 呼び出されてしまう事故があった。確実な一致(メールアドレスの完全一致、または
+// 会社名を正規化した上での完全一致)以外は一致とみなさず、常に新規登録として扱う。
+function _findMatchingPartner(name, nameEn, email){
+  const normEmail = normalizePartnerEmail(email);
+  if(normEmail){
+    const emailMatch = partnersCache.find(p=>normalizePartnerEmail(p.email)===normEmail);
+    if(emailMatch) return emailMatch;
+  }
+  const targets = [normalizePartnerCompanyName(name), normalizePartnerCompanyName(nameEn)].filter(Boolean);
   if(!targets.length) return null;
   return partnersCache.find(p=>{
-    const cands = [norm(p.company_name), norm(p.company_name_en)].filter(Boolean);
-    return cands.some(c=>targets.some(t=>t && c && (c.includes(t) || t.includes(c))));
+    const cands = [normalizePartnerCompanyName(p.company_name), normalizePartnerCompanyName(p.company_name_en)].filter(Boolean);
+    return cands.some(c=>targets.some(t=>t && c && t===c));
   }) || null;
 }
 // 取引先マスタへの送信元メールid。savePartner()が成功した際、この値が
@@ -9671,7 +9693,7 @@ async function sendEmailToPartnerMaster(emailId){
     }
 
     if(!partnersCache.length) await loadPartners();
-    const match = _findMatchingPartner(p.company_name, p.company_name_en);
+    const match = _findMatchingPartner(p.company_name, p.company_name_en, p.email || senderEmail);
 
     // 既存の取引先編集モーダルを、一致すれば編集モード・一致しなければ新規登録モードで開く。
     // 開いた直後はmatch(または空欄)の内容が入っているため、AIの抽出結果で上書きする
