@@ -2862,10 +2862,14 @@ let allBookingsCache = [];
 const LIST_PAGE_SIZE = 100;
 const listState = { db:{page:1, sortField:null, sortDir:1}, bl:{page:1, sortField:null, sortDir:1} };
 
+// table-layout:fixedの列は、合計が必ず100%になるようにする（62pxのような固定px指定と
+// %指定を混在させたまま合計が100%未満だと、ブラウザが余った幅を列間で予測不能に再配分し、
+// 意図せずREF#列が62pxよりはるかに広く描画されてAgent列を圧迫・省略させる原因になっていた
+// [2026-07-27 Agent列省略の不具合対応]。REF#も%指定にして必ず合計100%にすること。
 const LIST_COLUMNS = [
-  ['ref_no','REF#',true,'62px'], ['agent_name','Agent',true,'16%'], ['tour_code','Tour Code',true,'15%'], ['tour_name','Tour Name',true,'16%'],
+  ['ref_no','REF#',true,'6%'], ['agent_name','Agent',true,'23%'], ['tour_code','Tour Code',true,'15%'], ['tour_name','Tour Name',true,'18%'],
   ['in_date','In',true,'11%'], ['out_date','Out',true,'11%'], ['pax','Pax',true,'6%'],
-  ['status','Status',true,'9%']
+  ['status','Status',true,'10%']
 ];
 
 function renderListHeader(prefix){
