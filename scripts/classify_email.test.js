@@ -91,12 +91,19 @@ check('自社名「KIC Travel」のみ(誤検出しないこと)',
   classifyEmail({ subject: 'Greetings from KIC Travel', body: '', attachmentNames: [], refSet }).isImport,
   false);
 
-// 「KIC 2026年」: KICの直後の4桁数字が年号の場合、現行の正規表現では区別できず
-// kic_codeとして一致してしまう(実データでは「KIC 20270325」のような実在のツアー参照
-// 表記のみが見つかり、純粋な年号のみの誤検出例は実データ上0件だったが、この挙動自体は
-// 既知の制約として残る。テストでは実際の挙動を記録する)。
-const kicYearResult = classifyEmail({ subject: 'KIC 2026年度の契約について', body: '', attachmentNames: [], refSet });
-console.log('INFO 「KIC 2026年」の実際の判定結果:', JSON.stringify(kicYearResult), '(既知の制約: 年号と4桁ツアー番号は正規表現上区別できない)');
+// STEP3: KICコード直後が「年」「年度」の場合は不一致にする(否定先読み)。
+check('「KIC 2026年」は不一致',
+  classifyEmail({ subject: 'KIC 2026年の実績について', body: '', attachmentNames: [], refSet }).isImport,
+  false);
+check('「KIC 2026年度」は不一致',
+  classifyEmail({ subject: 'KIC 2026年度の契約について', body: '', attachmentNames: [], refSet }).isImport,
+  false);
+check('「KIC 2026」単独は一致のまま',
+  classifyEmail({ subject: 'KIC 2026 の件です', body: '', attachmentNames: [], refSet }).isImport,
+  true);
+check('「KIC 770」は一致のまま(年号ガードの影響を受けない)',
+  classifyEmail({ subject: 'Re: Pre-stay (前泊のお願い）　KIC 770＿JJ', body: '', attachmentNames: [], refSet }).isImport,
+  true);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
