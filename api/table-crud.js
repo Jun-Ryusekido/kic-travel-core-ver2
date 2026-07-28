@@ -73,8 +73,11 @@ const TABLE_CONFIG = {
   // 一覧・インライン編集)からのステータス/確認番号/備考の更新のみをservice_role経由に
   // 移行。読み取り、および既存のダッシュボードToDo(対応期限管理)からの更新は
   // 今回のスコープ外でありanon+RLSのまま変更しない。
+  // insert: 観光地予約管理ページのAI読み取り機能から、複数予約(booking_id)へ
+  // またがる観光施設明細をまとめて新規追加するために使用する。updateByIdは
+  // 従来通りインライン編集用。
   booking_facilities: {
-    actions: ['updateById'],
+    actions: ['updateById', 'insert'],
     label: '観光施設・バス駐車場等',
   },
 };

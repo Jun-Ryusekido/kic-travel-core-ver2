@@ -336,7 +336,8 @@ statusは「手配OK」または「問い合わせ中」のいずれかを入れ
         type: 'text',
 text: `以下の観光施設・バス駐車場等の手配確認書やメールから情報を抽出してJSON配列で返してください。
 各施設・駐車場等の情報を1つのオブジェクトとして配列に含めてください。
-フィールド：facility_name(施設名・駐車場名等), date(YYYY-MM-DD), pax(人数・数値), amount(金額・数値・円), status, confirmation_no(確認番号), memo(備考)
+フィールド：ref_no(ツアー番号・予約番号・REF#等), facility_name(施設名・駐車場名等), date(YYYY-MM-DD), pax(人数・数値), amount(金額・数値・円), status, confirmation_no(確認番号), memo(備考)
+ref_noは文書中のツアーコード・予約番号・REF#・KICから始まる番号等を探してください。集客表等では「団体名」列に「KIC967_TC/SOTC」のような「KIC＋数字＋_＋任意の文字列」形式で記載されることがあり、その場合は数字部分のみをref_noとしてください（例:「KIC967_TC/SOTC」→ref_no:「967」）。「852_KK」のような「数字_英字」形式（KICプレフィックス省略の短縮形）もref_noとして抽出してください。見つからない場合は空文字にしてください。
 statusは「手配OK」または「問い合わせ中」のいずれかを入れてください。予約確定・確認番号あり・手配完了等の表現があれば「手配OK」、見積もり・問い合わせ・検討中等であれば「問い合わせ中」としてください。
 金額が不明な場合は0、人数不明は0としてください。
 JSONのみ返し、説明文・コードブロック記号は不要です。${buildDateFilterInstruction('日付(date)', targetCheckIn, targetCheckOut)}
@@ -353,7 +354,8 @@ ${resolvedFacilityText}`
         { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: resolvedFacilityPdfBase64 } },
         { type: 'text', text: `このPDFから観光施設・バス駐車場等の手配情報を抽出してJSON配列で返してください。
 各施設・駐車場等の情報を1つのオブジェクトとして配列に含めてください。
-フィールド：facility_name(施設名・駐車場名等), date(YYYY-MM-DD), pax(人数・数値), amount(金額・数値・円), status, confirmation_no(確認番号), memo(備考)
+フィールド：ref_no(ツアー番号・予約番号・REF#等), facility_name(施設名・駐車場名等), date(YYYY-MM-DD), pax(人数・数値), amount(金額・数値・円), status, confirmation_no(確認番号), memo(備考)
+ref_noは文書中のツアーコード・予約番号・REF#・KICから始まる番号等を探してください。集客表等では「団体名」列に「KIC967_TC/SOTC」のような「KIC＋数字＋_＋任意の文字列」形式で記載されることがあり、その場合は数字部分のみをref_noとしてください（例:「KIC967_TC/SOTC」→ref_no:「967」）。「852_KK」のような「数字_英字」形式（KICプレフィックス省略の短縮形）もref_noとして抽出してください。見つからない場合は空文字にしてください。
 statusは「手配OK」または「問い合わせ中」のいずれかを入れてください。予約確定・確認番号あり・手配完了等の表現があれば「手配OK」、見積もり・問い合わせ・検討中等であれば「問い合わせ中」としてください。
 金額が不明な場合は0、人数不明は0としてください。
 JSONのみ返し、説明文・コードブロック記号は不要です。` }
@@ -367,7 +369,8 @@ JSONのみ返し、説明文・コードブロック記号は不要です。` }
         { type: 'image', source: { type: 'base64', media_type: facilityImageMediaType || 'image/jpeg', data: facilityImageBase64 } },
         { type: 'text', text: `この画像から観光施設・バス駐車場等の手配情報を抽出してJSON配列で返してください。
 各施設・駐車場等の情報を1つのオブジェクトとして配列に含めてください。
-フィールド：facility_name(施設名・駐車場名等), date(YYYY-MM-DD), pax(人数・数値), amount(金額・数値・円), status, confirmation_no(確認番号), memo(備考)
+フィールド：ref_no(ツアー番号・予約番号・REF#等), facility_name(施設名・駐車場名等), date(YYYY-MM-DD), pax(人数・数値), amount(金額・数値・円), status, confirmation_no(確認番号), memo(備考)
+ref_noは文書中のツアーコード・予約番号・REF#・KICから始まる番号等を探してください。集客表等では「団体名」列に「KIC967_TC/SOTC」のような「KIC＋数字＋_＋任意の文字列」形式で記載されることがあり、その場合は数字部分のみをref_noとしてください（例:「KIC967_TC/SOTC」→ref_no:「967」）。「852_KK」のような「数字_英字」形式（KICプレフィックス省略の短縮形）もref_noとして抽出してください。見つからない場合は空文字にしてください。
 statusは「手配OK」または「問い合わせ中」のいずれかを入れてください。予約確定・確認番号あり・手配完了等の表現があれば「手配OK」、見積もり・問い合わせ・検討中等であれば「問い合わせ中」としてください。
 金額が不明な場合は0、人数不明は0としてください。
 JSONのみ返し、説明文・コードブロック記号は不要です。` }

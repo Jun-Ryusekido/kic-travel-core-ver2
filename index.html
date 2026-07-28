@@ -1387,6 +1387,24 @@ input[type=number]{-moz-appearance:textfield}
           <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px" id="fm-status-buttons"></div>
           <div style="font-size:11px;color:var(--text3);margin-top:6px" id="fm-count"></div>
         </div>
+        <div class="card" style="border-top:none;border-radius:0;margin-bottom:0">
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+            <button class="btn" style="font-size:10px" onclick="toggleFmOcrArea()">📧 メール/テキストから読み取り</button>
+            <label class="btn" style="font-size:10px;cursor:pointer">📎 Excel/PDFから読み取り<input type="file" accept=".xlsx,.xls,.pdf" style="display:none" onchange="extractFmFacilityFromFile(event)"></label>
+            <label class="btn" style="font-size:10px;cursor:pointer">🖼 画像から読み取り<input type="file" accept="image/*" style="display:none" onchange="extractFmFacilityFromFile(event,'image')"></label>
+            <label class="btn" style="font-size:10px;cursor:pointer">📷 カメラで撮影<input type="file" accept="image/*" capture="environment" style="display:none" onchange="extractFmFacilityFromFile(event,'image')"></label>
+            <span id="fm-file-status" style="font-size:11px;color:var(--text3)"></span>
+          </div>
+          <div id="fm-ocr-area" style="display:none;margin-bottom:8px;border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--bg)">
+            <div style="font-size:11px;color:var(--text3);margin-bottom:6px">メールや文書の内容をコピーして貼り付けてください（Ctrl+Vでの直接貼り付けにも対応）</div>
+            <textarea id="fm-ocr-text" rows="5" style="width:100%;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:11px;font-family:inherit;resize:vertical" placeholder="観光施設・バス駐車場等の手配確認書・メールの本文をここに貼り付け..."></textarea>
+            <div style="margin-top:6px;display:flex;gap:6px;align-items:center">
+              <button class="btn btn-p" style="font-size:11px" onclick="extractFmFacilityFromText()">🤖 AIで読み取り</button>
+              <button class="btn" style="font-size:11px" onclick="document.getElementById('fm-ocr-area').style.display='none'">閉じる</button>
+              <span id="fm-ocr-status" style="font-size:11px;color:var(--text3)"></span>
+            </div>
+          </div>
+        </div>
         <div class="card" style="border-top:none;border-radius:0 0 12px 12px;padding-top:0;margin-bottom:14px">
           <div class="tbl-wrap"><table class="confirm-table" style="width:100%;min-width:820px">
             <thead><tr>
@@ -11102,6 +11120,445 @@ function saveFacilityConfirm(){
   });
   renderFacilityTable();
   document.getElementById('fac-confirm-modal').remove();
+}
+
+// ─── 観光地予約管理（横断ページ）AI読み取り ────────────────────────────────────
+// 個別予約の明細タブ(extractFacilityFromFile等、上記)とは異なり、このページには
+// currentDetailIdが無くbooking_idが自明ではないため、読み取り結果ごとにREF#の
+// 選択(自動マッチ＋手動検索)を行い、booking_facilitiesへはservice_role経由の
+// bookingFacilitiesApiCall('insert'|'updateById', ...)でのみ書き込む
+// (旧来のanon直接書き込みsafeReplaceBookingRows等は使わない。確認1の結論に従う)。
+function toggleFmOcrArea(){
+  const a=document.getElementById('fm-ocr-area');
+  if(a) a.style.display=a.style.display==='none'?'':'none';
+}
+
+async function extractFmFacilityFromText(){
+  const text=(document.getElementById('fm-ocr-text')||{}).value||'';
+  if(!text.trim()){ alert('テキストを入力してください'); return; }
+  const statusEl=document.getElementById('fm-ocr-status');
+  statusEl.textContent='⏳ 読み取り中...'; statusEl.classList.add('ocr-loading'); statusEl.style.color='';
+  showGlobalOcrBanner();
+  try{
+    const resp=await fetch('/api/extract-card',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({facilityText:text.trim()})});
+    if(!resp.ok){const e=await resp.json();throw new Error(e.error||'サーバーエラー');}
+    const data=await resp.json();
+    const tb=data.content.find(b=>b.type==='text');
+    const cleaned=(tb.text||'').replace(/```json|```/g,'').trim();
+    const parsed=JSON.parse(cleaned);
+    const facilities=Array.isArray(parsed)?parsed:[parsed];
+    statusEl.textContent=`✓ ${facilities.length}件を読み取りました。内容を確認してください。`;
+    statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
+    statusEl.style.color='var(--green)';
+    if(!checkBulkReadSanity(facilities, 'date')){ statusEl.textContent='読み取りをキャンセルしました（件数・日付範囲が不自然なため）'; statusEl.classList.remove('ocr-loading'); hideGlobalOcrBanner(); statusEl.style.color='var(--text3)'; return; }
+    await showFmFacilityConfirmDialog(facilities);
+    document.getElementById('fm-ocr-text').value='';
+  }catch(e){
+    logError('AI読み取り(OCR)', e, {toast:false});
+    statusEl.textContent='読み取り失敗: '+e.message;
+    statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
+    statusEl.style.color='var(--red)';
+  }
+}
+
+async function extractFmFacilityFromFile(event, mode){
+  const file=event.target.files[0];
+  if(!file) return;
+  const statusEl=document.getElementById('fm-file-status');
+  statusEl.textContent='⏳ 読み取り中...'; statusEl.classList.add('ocr-loading'); statusEl.style.color='';
+  showGlobalOcrBanner();
+  try{
+    const isPdf = mode==='image' ? false : file.name.toLowerCase().endsWith('.pdf');
+    const isExcel = mode==='image' ? false : file.name.toLowerCase().match(/\.(xlsx|xls)$/);
+    const isImage = mode==='image';
+    let bodyBase;
+    if(isPdf){
+      const base64 = await readFileAsBase64(file);
+      bodyBase = {facilityPdfBase64:base64};
+    }else if(isExcel){
+      try{
+        const sheets = await parseExcelToSheetsText(file);
+        bodyBase = {facilityText:sheets};
+      }catch(e){
+        if(!e.isPasswordProtected) throw e;
+        const base64 = await readFileAsBase64(file);
+        bodyBase = {facilityExcelBase64:base64};
+      }
+    }else if(isImage){
+      const base64 = await compressImageToBase64(file);
+      bodyBase = {facilityImageBase64:base64, facilityImageMediaType:'image/jpeg'};
+    }else{
+      throw new Error('対応していないファイル形式です');
+    }
+    const data = await fetchExtractCardWithPasswordSupport(pw => pw ? {...bodyBase, password: pw} : bodyBase, statusEl);
+    const tb=data.content.find(b=>b.type==='text');
+    const cleaned=(tb.text||'').replace(/```json|```/g,'').trim();
+    const parsed=JSON.parse(cleaned);
+    const facilities=Array.isArray(parsed)?parsed:[parsed];
+    if(!checkBulkReadSanity(facilities, 'date')){ statusEl.textContent='読み取りをキャンセルしました（件数・日付範囲が不自然なため）'; statusEl.classList.remove('ocr-loading'); hideGlobalOcrBanner(); statusEl.style.color='var(--text3)'; return; }
+    await showFmFacilityConfirmDialog(facilities);
+    statusEl.textContent=`✓ ${facilities.length}件を読み取りました`;
+    statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
+    statusEl.style.color='var(--green)';
+  }catch(e){
+    logError('AI読み取り(OCR)', e, {toast:false});
+    statusEl.textContent='読み取り失敗: '+e.message;
+    statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
+    statusEl.style.color='var(--red)';
+  }
+  event.target.value='';
+}
+
+// 一致キー: booking_id + facility_name + date。内容比較: status/pax/amount/confirmation_no/memo。
+// (確認2の結論: ホテル管理ページのhmDup*系と同じ設計だが、一致キーは施設向けに変更)
+function fmDupNormStr(v){ return (v==null?'':String(v)).trim(); }
+function fmDupNormNum(v){ if(v===null||v===undefined||v==='') return 0; const n=Number(v); return Number.isNaN(n)?0:n; }
+function fmDupMatchKeyEqual(a,b){
+  return fmDupNormStr(a.booking_id)===fmDupNormStr(b.booking_id) &&
+    fmDupNormStr(a.facility_name)===fmDupNormStr(b.facility_name) &&
+    fmDupNormStr(a.date)===fmDupNormStr(b.date);
+}
+function fmDupContentEqual(a,b){
+  return fmDupNormStr(a.status)===fmDupNormStr(b.status) &&
+    fmDupNormNum(a.pax)===fmDupNormNum(b.pax) &&
+    fmDupNormNum(a.amount)===fmDupNormNum(b.amount) &&
+    fmDupNormStr(a.confirmation_no)===fmDupNormStr(b.confirmation_no) &&
+    fmDupNormStr(a.memo)===fmDupNormStr(b.memo);
+}
+async function fmFetchExistingForDupCheck(rows){
+  const bookingIds = [...new Set(rows.map(r=>r.booking_id).filter(Boolean))];
+  if(bookingIds.length===0) return [];
+  const {data, error} = await sb.from('booking_facilities').select('*').in('booking_id', bookingIds);
+  if(error) throw new Error('重複チェックに失敗しました: '+error.message);
+  return data||[];
+}
+// toInsert: 一致する既存レコードなし。conflicts: 一致キーは同じだが内容が異なる（要確認）。
+// どちらにも入らないもの(完全一致)は無視する。
+async function fmClassifyForDuplicates(rows){
+  const existing = await fmFetchExistingForDupCheck(rows);
+  const toInsert = [];
+  const conflicts = [];
+  rows.forEach((newRow, idx)=>{
+    const match = existing.find(e=>fmDupMatchKeyEqual(e, newRow));
+    if(!match){ toInsert.push(newRow); return; }
+    if(fmDupContentEqual(match, newRow)) return;
+    conflicts.push({ idx, newRow, existingRow: match });
+  });
+  return { toInsert, conflicts };
+}
+function fmRefNoForBookingId(bookingId){
+  const b = (window._fmConfirmBookings||[]).find(x=>String(x.id)===String(bookingId));
+  return b ? (b.ref_no||'(REF#なし)') : '';
+}
+
+async function showFmFacilityConfirmDialog(facilities){
+  window._pendingFmFacilities=facilities;
+  window._fmRowConflicts = {};
+  const bookings = await fetchAllBookings();
+  const _fmNumOf = ref => { const n=parseInt((ref||'').replace(/^#/,''),10); return isNaN(n)?Infinity:n; };
+  const sortedBookings = bookings
+    .filter(b => b.ref_no || b.agent_name || b.tour_name)
+    .sort((a,b) => _fmNumOf(a.ref_no) - _fmNumOf(b.ref_no));
+  window._fmConfirmBookings = sortedBookings;
+
+  const firstNum = s => { const m=(s||'').match(/(\d+)/); return m?m[1]:''; };
+  const norm = s => (s||'').trim().toUpperCase();
+  facilities.forEach((f,i)=>{
+    const fAllText = [f.ref_no, f.facility_name, f.memo, f.confirmation_no].map(v=>norm(v)).join(' ');
+    const kicGroupNum = s => { const m=(s||'').match(/KIC\s*(\d+)\s*_/i); return m?m[1]:''; };
+    const fKicGroupNum = kicGroupNum(fAllText);
+    const matchedBooking = sortedBookings.find(b=>{
+      if(f.ref_no){
+        const bNum = firstNum(b.ref_no);
+        const hNum = firstNum(f.ref_no);
+        if(bNum && hNum && bNum===hNum) return true;
+        const hNorm = norm(f.ref_no);
+        const tNorm = norm(b.tour_name);
+        if(hNorm && tNorm && (hNorm===tNorm || tNorm.includes(hNorm) || hNorm.includes(tNorm))) return true;
+      }
+      if(fKicGroupNum){
+        const bNum = firstNum(b.ref_no);
+        if(bNum && bNum===fKicGroupNum) return true;
+      }
+      const bTour = norm(b.tour_name);
+      return bTour.length >= 5 && /\d/.test(bTour) && fAllText.includes(bTour);
+    });
+    facilities[i]._bookingId = matchedBooking ? matchedBooking.id : null;
+  });
+
+  const rows=facilities.map((f,i)=>{
+    const matchedBooking = f._bookingId ? sortedBookings.find(b=>String(b.id)===String(f._bookingId)) : null;
+    const inputVal = matchedBooking ? escHtml(matchedBooking.ref_no||'(REF#なし)') : '';
+    const hiddenVal = matchedBooking ? String(matchedBooking.id) : '';
+    const comboHtml = `<div style="position:relative;min-width:150px">
+      <input type="text" id="fm-c-input-${i}" value="${inputVal}"
+             placeholder="REF#/ツアー名で検索"
+             autocomplete="off"
+             oninput="filterFmConfirmDD(${i})"
+             onfocus="showFmConfirmDD(${i})"
+             onblur="setTimeout(()=>hideFmConfirmDD(${i}),200)"
+             style="font-size:11px;padding:3px 5px;border-radius:5px;border:1px solid var(--border);width:100%;box-sizing:border-box">
+      <input type="hidden" id="fm-c-booking-${i}" value="${hiddenVal}" onchange="fmCheckRowDuplicate(${i})">
+      <div id="fm-c-dd-${i}" style="display:none;position:fixed;top:0;left:0;background:var(--card,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:99999;max-height:180px;overflow-y:auto"></div>
+      ${matchedBooking?`<div style="font-size:9px;color:var(--green);margin-top:2px">✓ 自動マッチ</div>`:''}
+      <div id="fm-c-dupwarn-${i}" style="display:none;margin-top:4px"></div>
+    </div>`;
+    return `<tr id="fm-c-row-${i}" style="border-bottom:1px solid var(--border)">
+      <td data-label="追加" style="padding:5px 4px;text-align:center;vertical-align:top"><input type="checkbox" id="fm-c-sel-${i}" checked></td>
+      <td data-label="REF#" style="padding:5px 4px;vertical-align:top">${comboHtml}</td>
+      <td data-label="施設名" style="padding:5px 4px;vertical-align:top"><input value="${escAttr(f.facility_name||'')}" id="fm-c-name-${i}" onchange="fmCheckRowDuplicate(${i})" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
+      <td data-label="日付" style="padding:5px 4px;vertical-align:top"><input type="date" min="1900-01-01" max="9999-12-31" value="${f.date||''}" id="fm-c-date-${i}" onchange="fmCheckRowDuplicate(${i})" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
+      <td data-label="人数" style="padding:5px 4px;vertical-align:top"><input type="number" value="${f.pax||0}" id="fm-c-pax-${i}" style="width:55px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;text-align:right"></td>
+      <td data-label="金額" style="padding:5px 4px;vertical-align:top"><input type="number" value="${f.amount||0}" id="fm-c-amount-${i}" style="width:90px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;text-align:right"></td>
+      <td data-label="ステータス" style="padding:5px 4px;vertical-align:top">${idStatusDropdownHtml('fm-c-status-'+i, f.status, ['未予約','問い合わせ中','手配OK','FNL済','NG回答','予約不要','キャンセル'], '問い合わせ中')}</td>
+      <td data-label="確認番号" style="padding:5px 4px;vertical-align:top"><input value="${escAttr(f.confirmation_no||'')}" id="fm-c-conf-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
+      <td data-label="備考" style="padding:5px 4px;vertical-align:top"><input value="${escAttr(f.memo||'')}" id="fm-c-memo-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('fm-confirm-modal')?.remove();
+  const modal=document.createElement('div');
+  modal.id='fm-confirm-modal';
+  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:300;display:flex;align-items:center;justify-content:center;padding:20px';
+  modal.innerHTML=`
+    <div style="background:#fff;border-radius:12px;padding:20px;width:100%;max-width:1100px;max-height:90vh;overflow-y:auto">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div style="font-size:14px;font-weight:700">読み取り結果の確認</div>
+        <button class="btn" onclick="document.getElementById('fm-confirm-modal').remove()">✕ 閉じる</button>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:10px">各行のREF#を確認し、内容を確認・修正してから保存してください。「✓ 自動マッチ」の行はそのまま保存できます。既存の登録と重複する場合は⚠が表示されるので、対応方法を選択してください。</div>
+      <div style="overflow-x:auto"><table class="confirm-table" style="width:100%;border-collapse:collapse;font-size:11px">
+        <thead><tr style="background:var(--bg)">
+          <th style="padding:5px 4px;min-width:40px">追加</th>
+          <th style="padding:5px 4px;text-align:left;min-width:160px">REF#</th>
+          <th style="padding:5px 4px;text-align:left;min-width:140px">施設名</th>
+          <th style="padding:5px 4px;text-align:left;min-width:110px">日付</th>
+          <th style="padding:5px 4px;min-width:55px">人数</th>
+          <th style="padding:5px 4px;min-width:90px">金額</th>
+          <th style="padding:5px 4px;min-width:100px">ステータス</th>
+          <th style="padding:5px 4px;min-width:100px">確認番号</th>
+          <th style="padding:5px 4px;min-width:120px">備考</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+      <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
+        <button class="btn btn-p" onclick="saveFmFacilityConfirm()">💾 保存</button>
+        <button class="btn" onclick="document.getElementById('fm-confirm-modal').remove()">キャンセル</button>
+        <span id="fm-confirm-status" style="font-size:11px;color:var(--text3)"></span>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+
+  facilities.forEach((f,i)=>{
+    if(!f._bookingId) return;
+    const hidden = document.getElementById(`fm-c-booking-${i}`);
+    if(hidden) hidden.value = String(f._bookingId);
+  });
+  // 自動マッチ済みの行について、初期表示の時点で重複チェックを行い⚠を出しておく
+  for(let i=0;i<facilities.length;i++){
+    if(facilities[i]._bookingId) await fmCheckRowDuplicate(i);
+  }
+}
+
+function filterFmConfirmDD(i){
+  const q = document.getElementById('fm-c-input-'+i)?.value||'';
+  if(!q.trim()) document.getElementById('fm-c-booking-'+i).value='';
+  renderFmConfirmDD(i, q);
+}
+function showFmConfirmDD(i){
+  renderFmConfirmDD(i, document.getElementById('fm-c-input-'+i)?.value||'');
+}
+function hideFmConfirmDD(i){
+  const dd=document.getElementById('fm-c-dd-'+i); if(dd) dd.style.display='none';
+}
+function renderFmConfirmDD(i, q){
+  const dd=document.getElementById('fm-c-dd-'+i); if(!dd) return;
+  const books=window._fmConfirmBookings||[];
+  const lq=q.replace(/^#/,'').toLowerCase();
+  const filtered=lq
+    ? books.filter(b=>{
+        const ref=(b.ref_no||'').replace(/^#/,'').toLowerCase();
+        const tour=(b.tour_name||'').toLowerCase();
+        const agent=(b.agent_name||'').toLowerCase();
+        return ref.includes(lq)||tour.includes(lq)||agent.includes(lq);
+      })
+    : books.slice(0,50);
+  if(!filtered.length){
+    dd.innerHTML='<div style="padding:6px 8px;font-size:10px;color:var(--text3)">該当なし</div>';
+  } else {
+    dd.innerHTML=filtered.slice(0,100).map(b=>{
+      const ref=escHtml(b.ref_no||'(REF#なし)');
+      const agent=escHtml(b.agent_name||'');
+      const tour=escHtml(b.tour_name||'');
+      return '<div data-id="'+b.id+'" data-ref="'+ref+'" onmousedown="selectFmConfirmItem('+i+',this.dataset.id,this.dataset.ref)" ontouchstart="event.preventDefault();selectFmConfirmItem('+i+',this.dataset.id,this.dataset.ref)" style="padding:10px 12px;font-size:12px;min-height:20px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background=\'var(--bg)\'" onmouseout="this.style.background=\'\'"><b>'+ref+'</b>'+(agent?' <span style="color:var(--text3)">'+agent+'</span>':'')+(tour?' <span style="font-size:9px;color:var(--text2)">'+tour+'</span>':'')+'</div>';
+    }).join('');
+  }
+  _positionDropdownNearInput(document.getElementById('fm-c-input-'+i), dd);
+  dd.style.display='block';
+}
+async function selectFmConfirmItem(i, bookingId, ref){
+  const input=document.getElementById('fm-c-input-'+i);
+  const hidden=document.getElementById('fm-c-booking-'+i);
+  const dd=document.getElementById('fm-c-dd-'+i);
+  if(input) input.value=ref;
+  if(hidden) hidden.value=bookingId;
+  if(dd) dd.style.display='none';
+  await fmCheckRowDuplicate(i);
+}
+
+// 行1件分の入力内容から重複チェックを行い、⚠バッジ＋3択(update/insert/discard)を表示する。
+// booking_idが未選択の行はチェックのしようがないため何も表示しない。
+async function fmCheckRowDuplicate(i){
+  const warnEl = document.getElementById(`fm-c-dupwarn-${i}`);
+  if(!warnEl) return;
+  const bookingId = document.getElementById(`fm-c-booking-${i}`)?.value||'';
+  if(!bookingId){ warnEl.style.display='none'; warnEl.innerHTML=''; window._fmRowConflicts[i]=null; return; }
+  const row = {
+    booking_id: bookingId,
+    facility_name: document.getElementById(`fm-c-name-${i}`)?.value||'',
+    date: document.getElementById(`fm-c-date-${i}`)?.value||'',
+    pax: Number(document.getElementById(`fm-c-pax-${i}`)?.value)||0,
+    amount: Number(document.getElementById(`fm-c-amount-${i}`)?.value)||0,
+    status: document.getElementById(`fm-c-status-${i}`)?.value||'',
+    confirmation_no: document.getElementById(`fm-c-conf-${i}`)?.value||'',
+    memo: document.getElementById(`fm-c-memo-${i}`)?.value||'',
+  };
+  let classified;
+  try{
+    classified = await fmClassifyForDuplicates([row]);
+  }catch(e){
+    warnEl.style.display='block';
+    warnEl.innerHTML = `<span style="color:var(--red);font-size:10px">重複チェック失敗: ${escHtml(e.message)}</span>`;
+    window._fmRowConflicts[i] = null;
+    return;
+  }
+  if(classified.conflicts.length>0){
+    const existingRow = classified.conflicts[0].existingRow;
+    window._fmRowConflicts[i] = existingRow;
+    warnEl.style.display='block';
+    warnEl.innerHTML = `<div style="font-size:10px;color:var(--red);font-weight:600;margin-bottom:2px">⚠ 同じ施設名・日付の既存登録があります（内容が異なります）</div>
+      <div style="font-size:9px;color:var(--text3);margin-bottom:3px">既存: ${escHtml(existingRow.status||'')} / ${yen(existingRow.amount||0)} / 確認番号:${escHtml(existingRow.confirmation_no||'')}</div>
+      <select id="fm-c-dupchoice-${i}" style="font-size:10px;padding:2px 4px;border-radius:4px;border:1px solid var(--border)">
+        <option value="update">既存を今回の内容で更新する</option>
+        <option value="insert">別レコードとして新規追加する</option>
+        <option value="discard">今回の内容を破棄する</option>
+      </select>`;
+  } else {
+    window._fmRowConflicts[i] = null;
+    warnEl.style.display='none';
+    warnEl.innerHTML='';
+  }
+}
+
+async function saveFmFacilityConfirm(){
+  const facilities = window._pendingFmFacilities;
+  if(!facilities) return;
+  const statusEl = document.getElementById('fm-confirm-status');
+  statusEl.textContent = '保存中...'; statusEl.style.color='var(--text3)';
+
+  const allRows = facilities.map((f,i)=>{
+    if(!document.getElementById(`fm-c-sel-${i}`)?.checked) return null;
+    const bookingId = document.getElementById(`fm-c-booking-${i}`)?.value || null;
+    const facilityName = document.getElementById(`fm-c-name-${i}`)?.value || '';
+    const date = document.getElementById(`fm-c-date-${i}`)?.value || '';
+    const conf = document.getElementById(`fm-c-conf-${i}`)?.value || '';
+    return {
+      _idx: i,
+      booking_id: bookingId,
+      facility_name: facilityName,
+      date: date||null,
+      pax: Number(document.getElementById(`fm-c-pax-${i}`)?.value)||0,
+      amount: Number(document.getElementById(`fm-c-amount-${i}`)?.value)||0,
+      status: document.getElementById(`fm-c-status-${i}`)?.value||'問い合わせ中',
+      confirmation_no: conf,
+      memo: document.getElementById(`fm-c-memo-${i}`)?.value||'',
+      _rowLabel: `${i+1}行目(${[facilityName, conf?('確認番号:'+conf):'', date?('日付:'+date):''].filter(Boolean).join('・') || '施設名・日付とも未入力'})`
+    };
+  }).filter(Boolean);
+
+  const hasContent = r => !!(r.booking_id || r.facility_name || r.amount);
+  const validRows = allRows.filter(r=>hasContent(r) && r.booking_id);
+  const unmatched = allRows.filter(r=>hasContent(r) && !r.booking_id);
+
+  if(!validRows.length){
+    if(unmatched.length){
+      const list = unmatched.slice(0,10).map(r=>'・'+r._rowLabel).join('\n');
+      const more = unmatched.length>10 ? `\n…他${unmatched.length-10}行` : '';
+      alert(`⚠ ツアーREF#が1件も選択されていません。\n以下の行でREF#を選択してから保存してください:\n\n${list}${more}`);
+    } else {
+      alert('⚠ 保存できる内容がありません。\n施設名・REF#等を入力するか、追加チェックを入れてから保存してください。');
+    }
+    statusEl.textContent = '⚠ REF#未選択のため保存できません';
+    statusEl.style.color = 'var(--red)';
+    return;
+  }
+  if(unmatched.length>0){
+    const list = unmatched.slice(0,10).map(r=>'・'+r._rowLabel).join('\n');
+    const more = unmatched.length>10 ? `\n…他${unmatched.length-10}行` : '';
+    if(!confirm(`${unmatched.length}行はツアーREF#が未選択のため保存されません:\n\n${list}${more}\n\n残り${validRows.length}行を保存しますか？`)) return;
+  }
+
+  statusEl.textContent = '重複チェック中...'; statusEl.style.color='var(--text3)';
+  const dbRows = validRows.map(({_rowLabel, _idx, ...rest})=>rest);
+  let classified;
+  try{
+    classified = await fmClassifyForDuplicates(dbRows);
+  }catch(e){
+    statusEl.textContent = e.message;
+    statusEl.style.color = 'var(--red)';
+    return;
+  }
+  const { toInsert, conflicts } = classified;
+  const skippedCount = dbRows.length - toInsert.length - conflicts.length;
+
+  // 重複ありの行は、画面上で選択済みの3択(fm-c-dupchoice-${_idx})に従って処理する。
+  // 未選択(プルダウン未表示＝この時点で初めて検出された重複)の場合は安全側に倒し、
+  // 「discard」扱いにして保存対象から除外し、その旨を保存結果に明記する。
+  const toActuallyInsert = [...toInsert];
+  const toUpdate = [];
+  let discardedCount = 0;
+  conflicts.forEach(c=>{
+    const srcRow = validRows[c.idx];
+    const idx = srcRow ? srcRow._idx : null;
+    const choiceEl = idx!=null ? document.getElementById(`fm-c-dupchoice-${idx}`) : null;
+    const choice = choiceEl ? choiceEl.value : 'discard';
+    if(choice==='update') toUpdate.push(c);
+    else if(choice==='insert') toActuallyInsert.push(c.newRow);
+    else discardedCount++;
+  });
+
+  statusEl.textContent = '保存中...'; statusEl.style.color='var(--text3)';
+  try{
+    if(toActuallyInsert.length>0){
+      await bookingFacilitiesApiCall('insert', { rows: toActuallyInsert });
+    }
+    for(const c of toUpdate){
+      await bookingFacilitiesApiCall('updateById', { id: c.existingRow.id, fields: {
+        status: c.newRow.status,
+        pax: c.newRow.pax,
+        amount: c.newRow.amount,
+        confirmation_no: c.newRow.confirmation_no,
+        memo: c.newRow.memo,
+      }});
+    }
+  }catch(e){
+    statusEl.textContent = '保存エラー: ' + e.message;
+    statusEl.style.color = 'var(--red)';
+    return;
+  }
+
+  let msg = `✓ ${toActuallyInsert.length}件を新規保存、${toUpdate.length}件を更新しました`;
+  if(skippedCount>0) msg += `（既存と完全一致のため${skippedCount}件はスキップ）`;
+  if(discardedCount>0) msg += `（重複のため${discardedCount}件は破棄）`;
+  statusEl.textContent = msg;
+  statusEl.style.color = 'var(--green)';
+
+  await loadFacilityManagementPage();
+  setTimeout(()=>{ document.getElementById('fm-confirm-modal')?.remove(); }, 1800);
 }
 
 // ─── 新幹線手配 ──────────────────────────────────────────────────────────────
