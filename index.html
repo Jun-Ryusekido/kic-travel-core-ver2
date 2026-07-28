@@ -8856,78 +8856,58 @@ function guessEmailCategory(subject, body, sender){
   return { category: topCat, reasons: hits[topCat].slice(0, 4) };
 }
 
-// ─── 業務対象外メールの自動振り分け(is_excluded)判定 ─────────────────────────────
-// 既存の「自動除外(自社送信/広告/AI無関係)」機能とは別に、email_import_queue.is_excluded列
-// (DBに永続化)を使う新機能。1つの関数(classifyEmailForExclusion)に判定条件を集約し、
+// ─── メール受信箱への取り込み判定(is_excluded)〜ホワイトリスト方式 ─────────────────
+// メールの閲覧自体はOutlook側で行うため、システムの受信箱は「予約への紐付け作業」に
+// 使うものだけを取り込む方式にする(取りこぼしてもOutlookで確認できるため判定は厳しくてよい)。
+// 以下の条件1・2のどちらかに該当する場合のみ取り込む(is_excluded=false)。それ以外は
+// 全てis_excluded=trueとする。1つの関数(classifyEmailForExclusion)に条件を集約し、
 // 一覧のライブ分類(renderEmailInboxPage内、新規取り込み分の初回表示時)と既存データへの
 // 一括適用(runEmailExclusionBulkBackfill)の両方が必ずこの関数を経由する(条件の二重管理を防ぐ)。
 //
-// パターン1(未分類系): カテゴリ手がかりなし かつ 送信元ドメインがbusiness_partners未登録
-// パターン2(一斉配信系): 上記に該当しなくても、一斉配信の送信元ローカルパート・広告/通販
-//   キーワードのいずれかに該当すれば除外する(ホテル等の広告メールがカテゴリキーワードを
-//   含みパターン1をすり抜けるケースへの対応)。
-// 例外1(最優先): 本文にkictravel.jpが含まれる(=KICが送ったメールへの返信で引用が残っている)
-// 例外2: 件名・本文にKICコードまたは実在するREF#を含む(emailHasRefOrTourCodeを再利用)
-// 例外3: 送信元が自社ドメイン(kictravel.jp)の場合はそもそも判定対象外(既存の自動除外(自社送信)
-//   機能とのみ重複させ、is_excludedには一切書き込まない)
-const EMAIL_EXCLUSION_PROMO_KEYWORDS = [
-  '配信停止', '配信を停止', '登録解除', 'unsubscribe', 'セミナー', 'ウェビナー', '無料モニター', '資料請求', 'メルマガ',
-  '不在票', '不在のお知らせ', 'ご不在', '再配達', 'お荷物のお届け', '宅配便のお知らせ', '荷物のお届けにあがりました',
-  '佐川急便', 'ヤマト運輸', 'クロネコヤマト', '日本郵便',
-  'production deployment', 'deployment failed', 'deployment succeeded', 'build failed', 'ビルドに失敗', 'デプロイに失敗', 'デプロイが失敗',
-  // 通販の注文確認/発送・配達完了通知
-  'ご注文ありがとう', 'ご注文の確認', 'ご注文内容', '注文確認', '発送のお知らせ', '出荷完了', '出荷のお知らせ', '配達が完了', 'お届け完了', '発送完了',
-  'order confirmation', 'your order', 'has shipped', 'has been shipped',
-  // メルマガ・キャンペーン・宿泊プラン販促・セール案内
-  'キャンペーン', 'セール開催', '早期予約割引', '限定プラン', '宿泊プラン', 'クーポン', 'ポイント進呈', 'ポイントプレゼント',
+// 条件1: 件名・本文にKICコードまたは実在するREF#を含む(既存のemailHasRefOrTourCodeを再利用。
+//   EMAIL_KIC_CODE_RE=/\bKIC[-_]?\d{3,4}(?:_[A-Za-z0-9]+)*/i、EMAIL_REF_NUMBER_REで
+//   「#1148」「REF1148」等の表記に対応。「KIC_NEX」のような数字を伴わない文字列のみの
+//   ツアーシリーズ名は現状このregexでは拾えない=既知の制約)。
+// 条件2: 現地エージェントからの名簿・ルーミングリスト(日英キーワード・単語境界考慮)。
+//   email_import_queue.attachments列は存在するが、実際に運用中のVBA取込
+//   (email-automation/ThisOutlookSession.vba)・catchup-missed-mail.ps1のどちらも
+//   この列へ書き込んでいない(過去の別経路によるものと見られる少数の非空データが
+//   残っているのみ)ため、添付ファイルの有無は判定に使わず、件名・本文キーワードのみで判定する。
+// 例外: 送信元が自社ドメイン(kictravel.jp)の場合はそもそも判定対象外(既存の自動除外
+//   (自社送信)機能とのみ重複させ、is_excludedには一切書き込まない)。
+const EMAIL_ROOMING_LIST_KEYWORDS_JA = ['ルーミングリスト', 'ルーミング', '名簿', '参加者名簿', '乗客名簿', '搭乗者名簿', '宿泊者名簿'];
+const EMAIL_ROOMING_LIST_WORD_PATTERNS_EN = [
+  /\brooming\s*list\b/i, /\broom\s*list\b/i, /\bname\s*list\b/i, /\bpax\s*list\b/i,
+  /\bpassenger\s*list\b/i, /\bfinal\s*list\b/i, /\bguest\s*list\b/i,
 ];
-const EMAIL_EXCLUSION_SENDER_LOCALPARTS = [
-  'no-reply@', 'noreply@', 'no_reply@', 'donotreply@', 'do-not-reply@',
-  'info@', 'news@', 'newsletter@', 'mail-magazine@', 'mailmag@',
-  'notification@', 'notifications@', 'notify@', 'alert@', 'alerts@',
-  'pr@', 'support@', 'mailer-daemon@', 'automated@', 'campaign@', 'order@', 'shop@', 'shipping@',
-];
-
-function isPattern2MassMailingSender(sender){
-  const local = String(sender || '').toLowerCase().split('@')[0] + '@';
-  return EMAIL_EXCLUSION_SENDER_LOCALPARTS.some(p => local === p || local.startsWith(p));
-}
-function isPattern2MassMailingContent(subject, body){
-  const hay = (String(subject || '') + ' ' + String(body || '')).toLowerCase();
-  return EMAIL_EXCLUSION_PROMO_KEYWORDS.some(k => hay.includes(k.toLowerCase()));
+function isRoomingListEmail(subject, body){
+  const hay = String(subject || '') + ' ' + String(body || '');
+  if(EMAIL_ROOMING_LIST_KEYWORDS_JA.some(k => hay.includes(k))) return true;
+  return EMAIL_ROOMING_LIST_WORD_PATTERNS_EN.some(re => re.test(hay));
 }
 
-// 判定に必要な参照データ(business_partnersのメールドメイン・実在するref_no集合)をまとめて
-// 用意する。既存のensureEmailInboxSuggestIndex()が既にbusiness_partnersのドメイン一覧を
-// 構築済みのため、それを再利用し二重に問い合わせない。
+// excluded_reasonの文言はここ1箇所にまとめ、経路(自動判定/手動)によって表記が
+// ばらつかないようにする。
+const EMAIL_EXCLUSION_REASON_AUTO = 'ツアーコード・REF#・名簿いずれも該当なし';
+const EMAIL_EXCLUSION_REASON_MANUAL = '手動で対象外に設定';
+
+// 判定に必要な参照データ(実在するref_no集合)をまとめて用意する。
 async function buildEmailExclusionContext(){
-  const suggestIndex = await ensureEmailInboxSuggestIndex();
   if(!allBookingsCache.length) allBookingsCache = await fetchAllBookings();
   const knownRefNumbers = new Set(allBookingsCache.map(b=>String(b.ref_no||'').replace(/^#/,'')).filter(Boolean));
-  return { partnerDomains: suggestIndex.partnerDomains, knownRefNumbers };
+  return { knownRefNumbers };
 }
 
-// 唯一の判定関数。{exclude:boolean, reason:string|null} を返す。
-// ctx = {partnerDomains:Set, knownRefNumbers:Set}
+// 唯一の判定関数。{exclude:boolean, reason:string|null} を返す。ctx = {knownRefNumbers:Set}
 function classifyEmailForExclusion(row, ctx){
   const domain = emailInboxSenderDomain(row.sender);
-  if(domain === EMAIL_INBOX_OWN_DOMAIN) return { exclude:false, reason:null }; // 例外3
+  if(domain === EMAIL_INBOX_OWN_DOMAIN) return { exclude:false, reason:null }; // 自社送信は対象外
 
-  if(String(row.body||'').toLowerCase().includes(EMAIL_INBOX_OWN_DOMAIN)) return { exclude:false, reason:null }; // 例外1
-  if(emailHasRefOrTourCode(row.subject, row.body, ctx.knownRefNumbers)) return { exclude:false, reason:null }; // 例外2
+  const hasCode = emailHasRefOrTourCode(row.subject, row.body, ctx.knownRefNumbers); // 条件1
+  const hasRoomingList = isRoomingListEmail(row.subject, row.body); // 条件2
+  if(hasCode || hasRoomingList) return { exclude:false, reason:null };
 
-  const cat = guessEmailCategory(row.subject, row.body, row.sender);
-  const pattern1 = (cat.category === null) && !!domain && !ctx.partnerDomains.has(domain);
-  const pattern2Sender = isPattern2MassMailingSender(row.sender);
-  const pattern2Content = isPattern2MassMailingContent(row.subject, row.body);
-
-  if(!pattern1 && !pattern2Sender && !pattern2Content) return { exclude:false, reason:null };
-
-  const reasons = [];
-  if(pattern1) reasons.push('カテゴリ手がかりなし・送信元ドメイン未登録');
-  if(pattern2Sender) reasons.push('一斉配信の送信元アドレス');
-  if(pattern2Content) reasons.push('一斉配信・広告/通販の内容と判定');
-  return { exclude:true, reason: reasons.join('・') };
+  return { exclude:true, reason: EMAIL_EXCLUSION_REASON_AUTO };
 }
 
 async function renderEmailInboxList(){
@@ -9052,7 +9032,7 @@ function switchEmailInboxMainTab(mode){
 // 「業務メール」タブの各行から手動で対象外に設定する(誤判定の広告等をユーザー自身が
 // その場で振り分けたい場合用)。自動判定(classifyEmailForExclusion)とは別の経路。
 async function excludeEmailInboxItemManually(emailId){
-  const reason = '手動で対象外に設定';
+  const reason = EMAIL_EXCLUSION_REASON_MANUAL;
   const {error} = await sb.from('email_import_queue').update({is_excluded:true, excluded_reason:reason}).eq('id', emailId);
   if(error){ alert('対象外への設定に失敗しました: '+error.message); return; }
   const row = emailInboxRawList.find(m=>m.id===emailId);
@@ -9074,53 +9054,87 @@ async function restoreEmailInboxExcluded(emailId){
 // 既存データ(is_excluded=falseの未処理メール全件)へのis_excluded一括適用。
 // classifyEmailForExclusion(一覧のライブ分類と完全に同じ関数)で対象を決定し、
 // is_excluded/excluded_reasonの2列のみを更新する(削除・他列変更は一切行わない)。
+// 既存データ全件(is_excluded=trueになっている旧ロジックの判定結果も含む。ただし手動で
+// 対象外に設定した行=EMAIL_EXCLUSION_REASON_MANUALは、staffの明示的な判断のため
+// 再判定の対象から除く)を新ロジックで判定し直し、変更が必要な行だけを{toExclude, toInclude}
+// にまとめる。実際の書き込みは行わない(プレビュー・一括適用の両方から呼ばれる共通処理)。
+async function computeEmailExclusionPlan(){
+  const ctx = await buildEmailExclusionContext();
+  let all = [];
+  let from = 0;
+  const pageSize = 1000;
+  while(true){
+    const {data, error} = await sb.from('email_import_queue')
+      .select('id,subject,sender,body,is_excluded,excluded_reason')
+      .eq('imported', false).eq('ignored', false)
+      .range(from, from+pageSize-1);
+    if(error) throw error;
+    all = all.concat(data||[]);
+    if(!data || data.length < pageSize) break;
+    from += pageSize;
+  }
+
+  const toExclude = []; // {id,subject,sender,reason}
+  const toInclude = []; // {id,subject,sender}
+  // 取り込み(is_excluded=false)側になる行のうち、条件2(名簿・ルーミングリスト)だけで
+  // 取り込まれたもの(条件1のツアーコード/REF#は含まない)。条件2は誤検出が起きやすいため、
+  // 一括適用の実行前に重点確認できるよう別途集計する。
+  const roomingListOnlySamples = []; // {id,subject,sender}
+  for(const row of all){
+    if(row.excluded_reason === EMAIL_EXCLUSION_REASON_MANUAL) continue; // 手動除外は再判定しない
+    const result = classifyEmailForExclusion(row, ctx);
+    if(result.exclude){
+      if(!row.is_excluded || row.excluded_reason !== result.reason){
+        toExclude.push({ id: row.id, subject: row.subject, sender: row.sender, reason: result.reason });
+      }
+    }else{
+      if(row.is_excluded){
+        toInclude.push({ id: row.id, subject: row.subject, sender: row.sender });
+      }
+      const domain = emailInboxSenderDomain(row.sender);
+      if(domain !== EMAIL_INBOX_OWN_DOMAIN){
+        const hasCode = emailHasRefOrTourCode(row.subject, row.body, ctx.knownRefNumbers);
+        const hasRoomingList = isRoomingListEmail(row.subject, row.body);
+        if(!hasCode && hasRoomingList){
+          roomingListOnlySamples.push({ id: row.id, subject: row.subject, sender: row.sender });
+        }
+      }
+    }
+  }
+  return { all, toExclude, toInclude, roomingListOnlySamples, ctx };
+}
+
 async function runEmailExclusionBulkBackfill(){
-  if(!confirm('未処理メール全件に「対象外」自動判定を一括適用します。既存のis_excluded=falseの行のみが対象で、削除は行いません。数分かかる場合があります。実行しますか？')) return;
+  if(!confirm('未処理メール全件に「取り込み対象」自動判定を一括適用します(新ロジックで再判定。手動で対象外にした行は対象外)。削除は行いません。数分かかる場合があります。実行しますか？')) return;
   const btn = document.getElementById('email-inbox-bulk-backfill-btn');
   const origLabel = btn ? btn.textContent : '';
   if(btn){ btn.disabled = true; btn.textContent = '⏳ 判定用データ準備中...'; }
   try{
-    const ctx = await buildEmailExclusionContext();
-
-    let all = [];
-    let from = 0;
-    const pageSize = 1000;
-    while(true){
-      const {data, error} = await sb.from('email_import_queue')
-        .select('id,subject,sender,body')
-        .eq('imported', false).eq('ignored', false).eq('is_excluded', false)
-        .range(from, from+pageSize-1);
-      if(error) throw error;
-      all = all.concat(data||[]);
-      if(!data || data.length < pageSize) break;
-      from += pageSize;
-    }
-
-    if(btn) btn.textContent = `⏳ 判定中(${all.length}件)...`;
-    const byReason = new Map();
-    for(const row of all){
-      const result = classifyEmailForExclusion(row, ctx);
-      if(result.exclude){
-        if(!byReason.has(result.reason)) byReason.set(result.reason, []);
-        byReason.get(result.reason).push(row.id);
-      }
-    }
+    const plan = await computeEmailExclusionPlan();
 
     let updated = 0;
-    const totalToUpdate = [...byReason.values()].reduce((s,ids)=>s+ids.length, 0);
-    for(const [reason, ids] of byReason){
-      for(let i=0;i<ids.length;i+=200){
-        const chunk = ids.slice(i, i+200);
-        if(btn) btn.textContent = `⏳ 更新中(${updated}/${totalToUpdate})...`;
-        const {error} = await sb.from('email_import_queue').update({is_excluded:true, excluded_reason:reason}).in('id', chunk);
-        if(error) throw error;
-        updated += chunk.length;
-        const idSet = new Set(chunk);
-        emailInboxRawList.forEach(m=>{ if(idSet.has(m.id)){ m.is_excluded = true; m.excluded_reason = reason; } });
-      }
+    const excludeIds = plan.toExclude.map(r=>r.id);
+    for(let i=0;i<excludeIds.length;i+=200){
+      const chunk = excludeIds.slice(i, i+200);
+      if(btn) btn.textContent = `⏳ 対象外へ更新中(${updated}/${excludeIds.length+plan.toInclude.length})...`;
+      const {error} = await sb.from('email_import_queue').update({is_excluded:true, excluded_reason:EMAIL_EXCLUSION_REASON_AUTO}).in('id', chunk);
+      if(error) throw error;
+      updated += chunk.length;
+      const idSet = new Set(chunk);
+      emailInboxRawList.forEach(m=>{ if(idSet.has(m.id)){ m.is_excluded = true; m.excluded_reason = EMAIL_EXCLUSION_REASON_AUTO; } });
+    }
+    const includeIds = plan.toInclude.map(r=>r.id);
+    for(let i=0;i<includeIds.length;i+=200){
+      const chunk = includeIds.slice(i, i+200);
+      if(btn) btn.textContent = `⏳ 業務メールへ更新中(${updated}/${excludeIds.length+plan.toInclude.length})...`;
+      const {error} = await sb.from('email_import_queue').update({is_excluded:false, excluded_reason:null}).in('id', chunk);
+      if(error) throw error;
+      updated += chunk.length;
+      const idSet = new Set(chunk);
+      emailInboxRawList.forEach(m=>{ if(idSet.has(m.id)){ m.is_excluded = false; m.excluded_reason = null; } });
     }
 
-    alert(`一括適用が完了しました。\n判定対象: ${all.length}件\n対象外に設定: ${updated}件`);
+    alert(`一括適用が完了しました。\n判定対象: ${plan.all.length}件\n新たに対象外に設定: ${excludeIds.length}件\n業務メールに戻した(旧ロジックの誤判定分等): ${includeIds.length}件`);
     recomputeEmailInboxIndex();
     emailInboxPage = 1;
     await renderEmailInboxPage();
