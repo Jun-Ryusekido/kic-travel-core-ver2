@@ -8773,8 +8773,8 @@ function emailInboxBodyBlockHtml(m, preview){
   const hasMore = bodyText.length > preview.length;
   const expandLink = hasMore ? ` <span class="lnk" style="font-size:10px" onclick="toggleEmailInboxBody('${m.id}')">本文を全て表示</span>` : '';
   const fullBodyHtml = escHtml(String(m.body||'')).replace(/\n/g,'<br>');
-  return `<div id="email-inbox-preview-${m.id}" style="font-size:11px;color:var(--text2);margin-bottom:8px">${escHtml(preview)}${preview.length>=80?'…':''}${expandLink}</div>
-    <div id="email-inbox-full-${m.id}" style="display:none;font-size:11px;color:var(--text2);margin-bottom:8px;white-space:pre-wrap;border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--bg);max-height:400px;overflow-y:auto">${fullBodyHtml}<div style="margin-top:6px"><span class="lnk" style="font-size:10px" onclick="toggleEmailInboxBody('${m.id}')">折りたたむ</span></div></div>`;
+  return `<div id="email-inbox-preview-${m.id}" style="font-size:11px;color:var(--text2);margin-bottom:8px;overflow-wrap:break-word;word-break:break-word">${escHtml(preview)}${preview.length>=80?'…':''}${expandLink}</div>
+    <div id="email-inbox-full-${m.id}" style="display:none;font-size:11px;color:var(--text2);margin-bottom:8px;white-space:pre-wrap;overflow-wrap:break-word;word-break:break-word;border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--bg);max-height:400px;overflow-y:auto">${fullBodyHtml}<div style="margin-top:6px"><span class="lnk" style="font-size:10px" onclick="toggleEmailInboxBody('${m.id}')">折りたたむ</span></div></div>`;
 }
 function toggleEmailInboxBody(id){
   const preview = document.getElementById('email-inbox-preview-'+id);
