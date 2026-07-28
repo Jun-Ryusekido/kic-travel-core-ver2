@@ -9861,11 +9861,22 @@ function addRestaurantRow(){
 // 到着日〜出発日の期間分、各日「昼食」「夕食」の空行をあらかじめ用意する。
 // 既存の行（店名入力済み・自動生成済み問わず）は壊さず、同じ日付・食事種別の
 // 組み合わせがまだ存在しない分だけを追加する（何度呼んでも重複しない）。
+// 到着日〜出発日の日数上限。年の桁間違い等でin_date/out_dateが壊れているデータ
+// (例: 2926年のようなタイポ)が万一存在すると、この関数が数十万行分のテンプレートを
+// 生成しようとし、その後のpush(...newRows)がスプレッド構文の引数展開でスタック
+// オーバーフローを起こし予約詳細自体が開けなくなる事故に繋がる(2026-07-27発生)。
+// 現実的なツアー日程はどれだけ長くても1年以内のため、それを大きく超える場合は
+// データ異常とみなしテンプレート生成をスキップする(予約詳細自体は開けるようにする)。
+const RESTAURANT_TEMPLATE_MAX_DAYS = 366;
 function generateRestaurantTemplateRows(b){
   if(!b || !b.in_date || !b.out_date) return;
   const start = new Date(b.in_date+'T00:00:00');
   const end = new Date(b.out_date+'T00:00:00');
   if(isNaN(start) || isNaN(end) || start > end) return;
+  if((end - start) / 86400000 > RESTAURANT_TEMPLATE_MAX_DAYS){
+    console.warn('generateRestaurantTemplateRows: 到着日〜出発日が'+RESTAURANT_TEMPLATE_MAX_DAYS+'日を超えているためスキップしました', b.ref_no, b.in_date, b.out_date);
+    return;
+  }
   const existing = new Set(bdRestaurantItems.map(it=>(it.date||'')+'|'+(it.meal_type||'')));
   const pax = b.pax||0;
   const newRows = [];
@@ -9878,7 +9889,9 @@ function generateRestaurantTemplateRows(b){
       newRows.push({restaurant_name:'',meal_type:mealType,date:dateStr,reservation_time:'',pax,amount:0,status:'問い合わせ中',payment_method:'',memo:'',guide_id:null,guide_name_freetext:''});
     });
   }
-  bdRestaurantItems.push(...newRows);
+  // スプレッド構文(push(...newRows))は要素数が多いと引数展開でスタックオーバーフローの
+  // 原因になり得るため、上のMAX_DAYSガードとは別に、常にループでの追加に統一しておく。
+  for(const row of newRows) bdRestaurantItems.push(row);
 }
 function generateRestaurantTemplateRowsClick(){
   const b = findBookingById(currentDetailId);
