@@ -16927,6 +16927,29 @@ const rotateImage = (b64, mt, deg) => new Promise((resolve)=>{
       document.getElementById('pt-category').value = parsed.category;
     }
 
+    // 名刺の撮影順(日本語面→英語面 / 英語面→日本語面)に関わらず正しくマージされるよう、
+    // AIの抽出結果を文字種で言語判定し直し、日本語欄に英語が(またはその逆が)紛れ込んで
+    // いれば正しい側に振り分ける。以前はcompany_name（日本語欄）が空の場合にcompany_name_en
+    // を代わりに入れるフォールバックがあり、これが1枚目=英語面のケースで日本語欄を英語で
+    // 埋めてしまい、2枚目(日本語面)がその後「既に値がある」として弾かれる原因になっていた。
+    const containsJapanese = s => /[぀-ヿ゠-ヿ一-鿿]/.test(String(s||''));
+    const splitByLanguage = (jaVal, enVal) => {
+      jaVal = jaVal || ''; enVal = enVal || '';
+      if(jaVal && !containsJapanese(jaVal)){ if(!enVal) enVal = jaVal; jaVal = ''; }
+      if(enVal && containsJapanese(enVal)){ if(!jaVal) jaVal = enVal; enVal = ''; }
+      return {ja: jaVal, en: enVal};
+    };
+    const _company  = splitByLanguage(parsed.company_name, parsed.company_name_en);
+    const _branch   = splitByLanguage(parsed.branch_name, parsed.branch_name_en);
+    const _contact  = splitByLanguage(parsed.contact_person, parsed.contact_person_en);
+    const _position = splitByLanguage(parsed.position, parsed.position_en);
+    const _address  = splitByLanguage(parsed.address, parsed.address_en);
+    parsed.company_name = _company.ja; parsed.company_name_en = _company.en;
+    parsed.branch_name = _branch.ja; parsed.branch_name_en = _branch.en;
+    parsed.contact_person = _contact.ja; parsed.contact_person_en = _contact.en;
+    parsed.position = _position.ja; parsed.position_en = _position.en;
+    parsed.address = _address.ja; parsed.address_en = _address.en;
+
     // 英数字のみの正規化（電話・メール・英語社名用）
     const norm    = s => (s||'').replace(/[^0-9a-zA-Z]/g,'').toLowerCase();
     // 日本語社名用の正規化（日本語文字を保持、一般的な法人格・記号を除去）
@@ -16997,7 +17020,7 @@ const rotateImage = (b64, mt, deg) => new Promise((resolve)=>{
     // 空欄のみ補完するマージ処理（2枚目の名刺読み取りに対応）
     const wasEmpty = !document.getElementById('pt-company').value && !document.getElementById('pt-contact').value;
     const setIfEmpty = (id, val) => { const el = document.getElementById(id); if(el && !el.value && val) el.value = val; };
-    setIfEmpty('pt-company', parsed.company_name || parsed.company_name_en || '');
+    setIfEmpty('pt-company', parsed.company_name || '');
     setIfEmpty('pt-company-en', parsed.company_name_en || '');
     setIfEmpty('pt-branch', parsed.branch_name || '');
     setIfEmpty('pt-contact', parsed.contact_person || '');

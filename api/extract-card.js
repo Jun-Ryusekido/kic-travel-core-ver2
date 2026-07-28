@@ -631,7 +631,8 @@ ${rawText}
 抽出するフィールド：
 - company_name: 会社名（日本語）
 - company_name_en: 会社名（英語）
-- branch_name: 支店・部署名
+- branch_name: 支店・部署名（日本語）
+- branch_name_en: 支店・部署名（英語）
 - contact_person: 担当者名（日本語）
 - contact_person_en: 担当者名（英語）
 - position: 役職（日本語）
@@ -645,7 +646,11 @@ ${rawText}
 - category: ホテル/レストラン/バス・ハイヤー等/その他 のいずれか
 
 ルール：
-- 日本語表記が名刺上に存在しない場合はcompany_nameは空文字にし、company_name_enにのみ英語表記を入れること
+- 名刺が英語表記のみの面(日本語のひらがな・カタカナ・漢字を含まない)の場合、
+  company_name/branch_name/contact_person/position/addressは全て空文字にし、
+  英語の内容は必ずcompany_name_en/branch_name_en/contact_person_en/position_en/address_en
+  側にのみ入れること。日本語欄に英語表記を入れてはならない
+- 逆に日本語表記のみの面の場合は、英語欄(_en)は全て空文字にし、日本語欄にのみ入れること
 - JSONのみ返し、説明文・コードブロック記号は不要`
     }], 1000);
 
