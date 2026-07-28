@@ -165,6 +165,15 @@ tr:hover td{background:var(--bg)}
 th.sortable{cursor:pointer;user-select:none;white-space:nowrap}
 th.sortable:hover{color:var(--blue)}
 .sort-arrow{font-size:9px;color:var(--blue)}
+/* メール受信箱の各行の操作ボタン(送る/無視/対象外にする/保留)は、常に4つの
+   ボタンのみで構成する(カテゴリ根拠等の可変長テキストは同じ行に置かない)ことで、
+   メールによって折り返し位置が変わらないようにする。PC(768px超)は1行、
+   375px等の狭い画面では2個+2個のグリッドに固定する。 */
+.email-inbox-row-actions{ display:flex; gap:6px; flex-wrap:wrap; align-items:center }
+@media(max-width:480px){
+  .email-inbox-row-actions{ display:grid; grid-template-columns:repeat(2,1fr); gap:6px }
+  .email-inbox-row-actions .btn{ width:100%; box-sizing:border-box; justify-content:center }
+}
 @media(max-width:760px){
   .sb{position:fixed;left:-210px;transition:left .2s;z-index:50;box-shadow:2px 0 8px rgba(0,0,0,.1)}
   .sb.open{left:0}
@@ -1519,9 +1528,9 @@ input[type=number]{-moz-appearance:textfield}
               すべて選択/すべて解除
             </label>
           </div>
-          <div id="email-inbox-pagination-top" class="email-inbox-pagination" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;padding:8px 4px;border-bottom:1px solid var(--border);font-size:12px;position:sticky;top:50px;z-index:10;background:var(--card);box-shadow:0 2px 6px rgba(0,0,0,.08)"></div>
+          <div id="email-inbox-pagination-top" class="email-inbox-pagination" style="margin:0 0 12px;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px;position:sticky;top:50px;z-index:10;background:var(--card);box-shadow:0 2px 6px rgba(0,0,0,.08)"></div>
           <div id="email-inbox-list"></div>
-          <div id="email-inbox-pagination" class="email-inbox-pagination" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:12px;font-size:12px"></div>
+          <div id="email-inbox-pagination" class="email-inbox-pagination" style="margin:12px 0 0;padding:8px 0;font-size:12px"></div>
         </div>
         <button id="email-inbox-bulk-ignore-btn" class="btn" style="display:none;position:fixed;right:20px;bottom:20px;z-index:60;background:var(--red);border-color:var(--red);color:#fff;padding:12px 18px;border-radius:24px;font-size:13px;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,.25);max-width:calc(100vw - 40px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" onclick="bulkIgnoreEmailInboxItems()">🗑 選択した0件を無視</button>
       </div>
@@ -9284,11 +9293,13 @@ function emailInboxPagerHtml(page, totalPages, total){
   const atFirst = page<=1;
   const atLast = page>=totalPages;
   const navBtn = (label, title, disabled, onclick) =>
-    `<button class="btn" title="${title}" style="font-size:13px;padding:5px 9px" ${disabled?'disabled':''} onclick="${onclick}">${label}</button>`;
-  return `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:center;width:100%">
+    `<button class="btn" title="${title}" style="font-size:12px;padding:4px 7px;min-width:0" ${disabled?'disabled':''} onclick="${onclick}">${label}</button>`;
+  // 上下のページネーションで折り返し位置が食い違わないよう、幅にできるだけ余裕を
+  // 持たせる(ボタンをアイコンのみ・小さめの余白にし、件数表示も最小限のフォントにする)。
+  return `<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;justify-content:center;width:100%">
     ${navBtn('⏮','最初へ', atFirst, 'goToEmailInboxPage(1)')}
     ${navBtn('←','前へ', atFirst, 'changeEmailInboxPage(-1)')}
-    <span style="font-size:12px;white-space:nowrap">${page} / ${totalPages} ページ（全${total}件）</span>
+    <span style="font-size:11px;white-space:nowrap">${page} / ${totalPages}（全${total}件）</span>
     ${navBtn('→','次へ', atLast, 'changeEmailInboxPage(1)')}
     ${navBtn('⏭','最後へ', atLast, `goToEmailInboxPage(${totalPages})`)}
   </div>`;
@@ -9410,20 +9421,22 @@ async function renderEmailInboxPage(){
     const postponeBtn = emailInboxViewMode==='postponed'
       ? `<button class="btn" style="font-size:11px" onclick="unpostponeEmailInboxItem('${m.id}')">▶ 保留を解除</button>`
       : `<button class="btn" style="font-size:11px" onclick="postponeEmailInboxItem('${m.id}')">⏸ 保留</button>`;
-    return `<div id="email-inbox-row-${m.id}" style="display:flex;gap:8px;padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px">
+    return `<div id="email-inbox-row-${m.id}" style="display:flex;gap:8px;padding:8px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px">
       <input type="checkbox" class="email-inbox-row-checkbox" ${checked} onchange="toggleEmailInboxRowSelection('${m.id}', this.checked)" style="margin-top:2px;flex-shrink:0;align-self:flex-start">
       <div style="flex:1;min-width:0">
         <div style="font-size:12px;font-weight:600;margin-bottom:2px">${escHtml(m.subject||'(件名なし)')}</div>
         <div style="font-size:11px;color:var(--text3);margin-bottom:4px">${escHtml(m.sender||'')} ・ ${escHtml(received)}</div>
-        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:4px">
           <input id="email-inbox-ref-${m.id}" value="${savedRef}" oninput="saveEmailInboxRowState('${m.id}')" placeholder="REF# 例: #1374" style="font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px;width:140px">
           <select id="email-inbox-cat-${m.id}" onchange="saveEmailInboxRowState('${m.id}');toggleEmailInboxRefForCategory('${m.id}')" style="font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px">${catOptions}</select>
-          ${catReasonHtml}
+          ${registeredBadge}
+        </div>
+        <div style="margin-bottom:4px">${catReasonHtml}</div>
+        <div class="email-inbox-row-actions">
           <button class="btn btn-p" id="email-inbox-send-${m.id}" style="font-size:11px" onclick="sendEmailToBooking('${m.id}')">📤 送る</button>
           <button class="btn" style="font-size:11px;color:var(--red)" onclick="if(confirm('このメールを一覧から除外しますか？')){ignoreEmailInboxItem('${m.id}')}">🗑 無視</button>
           <button class="btn" style="font-size:11px" onclick="if(confirm('このメールを対象外にしますか？（「対象外」タブからいつでも戻せます）')){excludeEmailInboxItemManually('${m.id}')}">🚫 対象外にする</button>
           ${postponeBtn}
-          ${registeredBadge}
         </div>
         ${suggestHtml}
         <div style="margin-top:6px">${bodyBlock}</div>
