@@ -9630,18 +9630,22 @@ function normalizePartnerEmail(s){
 // "chi")に閾値なく偶然マッチし、全く無関係の取引先の担当者情報が誤って
 // 呼び出されてしまう事故があった。確実な一致(メールアドレスの完全一致、または
 // 会社名を正規化した上での完全一致)以外は一致とみなさず、常に新規登録として扱う。
-function _findMatchingPartner(name, nameEn, email){
+// メールアドレス完全一致、無ければ会社名の正規化後完全一致で候補を「すべて」返す
+// (自動で1件に絞らない)。メールアドレス完全一致で複数存在する場合(morita@chi-group.co.jp
+// が電話番号違いで2件あるケース等)、会社名の正規化一致で複数存在する場合(有効データの
+// うち20グループ・44件で確認済み)のいずれも、ここでは確定させずユーザーに選ばせる。
+function _findMatchingPartnerCandidates(name, nameEn, email){
   const normEmail = normalizePartnerEmail(email);
   if(normEmail){
-    const emailMatch = partnersCache.find(p=>normalizePartnerEmail(p.email)===normEmail);
-    if(emailMatch) return emailMatch;
+    const emailMatches = partnersCache.filter(p=>normalizePartnerEmail(p.email)===normEmail);
+    if(emailMatches.length) return emailMatches;
   }
   const targets = [normalizePartnerCompanyName(name), normalizePartnerCompanyName(nameEn)].filter(Boolean);
-  if(!targets.length) return null;
-  return partnersCache.find(p=>{
+  if(!targets.length) return [];
+  return partnersCache.filter(p=>{
     const cands = [normalizePartnerCompanyName(p.company_name), normalizePartnerCompanyName(p.company_name_en)].filter(Boolean);
     return cands.some(c=>targets.some(t=>t && c && t===c));
-  }) || null;
+  });
 }
 // 取引先マスタへの送信元メールid。savePartner()が成功した際、この値が
 // 設定されていれば「メールからの取引先登録フロー経由の保存」とみなし、
@@ -9693,44 +9697,204 @@ async function sendEmailToPartnerMaster(emailId){
     }
 
     if(!partnersCache.length) await loadPartners();
-    const match = _findMatchingPartner(p.company_name, p.company_name_en, p.email || senderEmail);
+    const candidates = _findMatchingPartnerCandidates(p.company_name, p.company_name_en, p.email || senderEmail);
 
-    // 既存の取引先編集モーダルを、一致すれば編集モード・一致しなければ新規登録モードで開く。
-    // 開いた直後はmatch(または空欄)の内容が入っているため、AIの抽出結果で上書きする
-    // (項目が空文字のものは上書きしない＝既存値やユーザーの手入力内容を消さない)。
-    openPartnerEditor(match ? match.id : null);
-    const setIfPresent = (id, val) => { if(val){ const el = document.getElementById(id); if(el) el.value = val; } };
-    setIfPresent('pt-company', p.company_name);
-    setIfPresent('pt-company-en', p.company_name_en);
-    setIfPresent('pt-branch', p.branch_name);
-    setIfPresent('pt-branch-en', p.branch_name_en);
-    setIfPresent('pt-contact', p.contact_person);
-    setIfPresent('pt-contact-en', p.contact_person_en);
-    setIfPresent('pt-position', p.position);
-    setIfPresent('pt-position-en', p.position_en);
-    setIfPresent('pt-company-phone', p.company_phone);
-    setIfPresent('pt-phone', p.phone);
-    setIfPresent('pt-fax', p.fax);
-    setIfPresent('pt-email', p.email || senderEmail);
-    setIfPresent('pt-address', p.address);
-    setIfPresent('pt-address-en', p.address_en);
-    setIfPresent('pt-notes', p.notes);
-    if(['ホテル','レストラン','バス・ハイヤー等','その他'].includes(p.category)){
-      const catEl = document.getElementById('pt-category');
-      if(catEl) catEl.value = p.category;
-    }
-    document.getElementById('partner-modal-title').textContent += match ? '（メールから更新・確認してください）' : '（メールから新規登録・確認してください）';
-
-    // 「取引先マスタ」カテゴリは、保存が完了しても一覧からは除外しない(同じ会社から
-    // 複数回連絡が来る、担当者情報が更新される等、繰り返し参照・登録し直す可能性が
-    // あるため)。email_import_queue.importedもtrueにせず、保存成功時にのみ
-    // savePartner()側でemailInboxRowStateへdone:trueを記録し「登録済み」表示にする。
-    emailInboxPartnerSourceId = emailId;
+    // 突合を自動確定させず、必ず確認モーダル(候補選択・差分確認)を経由する。
+    showEmailPartnerMatchModal(emailId, p, senderEmail, candidates);
   }catch(e){
     alert('取引先マスタへの反映処理でエラーが発生しました: '+e.message);
   }finally{
     if(sendBtn){ sendBtn.disabled = false; sendBtn.innerHTML = origLabel; }
   }
+}
+
+// ─── メールからの取引先登録: 候補選択・差分確認モーダル ─────────────────────────
+// 突合ロジックが「無関係の既存レコードを閾値なしの部分一致で誤って選んでしまう」事故を
+// 起こした反省から、(1)候補が複数ある場合は自動で1件に絞らずユーザーに選ばせる、
+// (2)候補が1件でも、既存データを無条件で上書きせず項目ごとに差分を見せてチェックした
+// ものだけ反映する、の2段階を必ず経由するようにする。
+const PARTNER_DIFF_FIELDS = [
+  { key:'company_name', elId:'pt-company', label:'会社名' },
+  { key:'company_name_en', elId:'pt-company-en', label:'会社名（英語）' },
+  { key:'branch_name', elId:'pt-branch', label:'拠点名・支店名' },
+  { key:'branch_name_en', elId:'pt-branch-en', label:'拠点名・支店名（英語）' },
+  { key:'contact_person', elId:'pt-contact', label:'担当者名' },
+  { key:'contact_person_en', elId:'pt-contact-en', label:'担当者名（英語）' },
+  { key:'position', elId:'pt-position', label:'役職' },
+  { key:'position_en', elId:'pt-position-en', label:'役職（英語）' },
+  { key:'company_phone', elId:'pt-company-phone', label:'会社電話番号' },
+  { key:'phone', elId:'pt-phone', label:'担当者携帯番号' },
+  { key:'fax', elId:'pt-fax', label:'FAX番号' },
+  { key:'email', elId:'pt-email', label:'メール' },
+  { key:'address', elId:'pt-address', label:'住所' },
+  { key:'address_en', elId:'pt-address-en', label:'住所（英語）' },
+  { key:'notes', elId:'pt-notes', label:'備考・補足' },
+];
+let emailPartnerMatchState = null; // {emailId, p, senderEmail, candidates, selectedCandidate}
+
+function emailPartnerAiValue(p, senderEmail, key){
+  if(key==='email') return p.email || senderEmail || '';
+  return p[key] || '';
+}
+
+function showEmailPartnerMatchModal(emailId, p, senderEmail, candidates){
+  emailPartnerMatchState = { emailId, p, senderEmail, candidates, selectedCandidate: candidates.length===1 ? candidates[0] : null };
+  document.getElementById('email-partner-match-modal').classList.add('open');
+  renderEmailPartnerMatchModal();
+}
+
+function closeEmailPartnerMatchModal(){
+  document.getElementById('email-partner-match-modal').classList.remove('open');
+  emailPartnerMatchState = null;
+}
+
+function renderEmailPartnerMatchModal(){
+  const st = emailPartnerMatchState;
+  const body = document.getElementById('email-partner-match-body');
+  if(!st){ body.innerHTML = ''; return; }
+  const { p, senderEmail, candidates, selectedCandidate } = st;
+
+  if(!selectedCandidate){
+    // 候補選択画面(0件=新規案内、複数件=一覧から選ばせる)
+    if(candidates.length === 0){
+      body.innerHTML = `
+        <div style="font-size:12px;color:var(--text3);margin-bottom:10px">一致する既存の取引先は見つかりませんでした。</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-p" onclick="chooseEmailPartnerNewRegistration()">🆕 新規として登録する</button>
+          <button class="btn" onclick="showEmailPartnerCandidatePicker()">🔍 既存の取引先から選び直す</button>
+        </div>`;
+      return;
+    }
+    const rows = candidates.map(c=>`
+      <tr>
+        <td data-label="会社名">${escHtml(c.company_name||c.company_name_en||'')}</td>
+        <td data-label="担当者">${escHtml(c.contact_person||'')}</td>
+        <td data-label="電話">${escHtml(c.phone||c.company_phone||'')}</td>
+        <td data-label="メール">${escHtml(c.email||'')}</td>
+        <td data-label="種別">${escHtml(c.category||'')}</td>
+        <td data-label=""><button class="btn btn-p" style="font-size:11px" onclick="selectEmailPartnerCandidate('${c.id}')">この候補を選ぶ</button></td>
+      </tr>`).join('');
+    body.innerHTML = `
+      <div style="font-size:12px;color:var(--amber);margin-bottom:8px">⚠ 会社名/メールアドレスが一致する取引先が複数見つかりました。どのレコードを更新するか選んでください（自動では選びません）。</div>
+      <div class="tbl-wrap"><table class="confirm-table" style="width:100%">
+        <thead><tr><th>会社名</th><th>担当者</th><th>電話</th><th>メール</th><th>種別</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+      <div style="margin-top:10px"><button class="btn" onclick="chooseEmailPartnerNewRegistration()">🆕 該当なし・新規として登録する</button></div>`;
+    return;
+  }
+
+  // 差分確認画面
+  const c = selectedCandidate;
+  const catMismatch = p.category && c.category && p.category !== c.category;
+  const diffRows = PARTNER_DIFF_FIELDS.map(f=>{
+    const cur = c[f.key] || '';
+    const next = emailPartnerAiValue(p, senderEmail, f.key);
+    const changeable = !!next && next !== cur;
+    const checkboxHtml = changeable
+      ? `<input type="checkbox" id="pt-diff-apply-${f.key}">`
+      : '';
+    return `<tr>
+      <td data-label="項目">${escHtml(f.label)}</td>
+      <td data-label="現在の値">${escHtml(cur)||'<span style="color:var(--text3)">(空欄)</span>'}</td>
+      <td data-label="メールから読み取った値">${changeable ? escHtml(next) : (escHtml(next)||'<span style="color:var(--text3)">(空欄)</span>')}</td>
+      <td data-label="反映">${checkboxHtml}</td>
+    </tr>`;
+  }).join('');
+
+  body.innerHTML = `
+    <div style="border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:10px;background:var(--bg)">
+      <div style="font-size:12px;font-weight:600">突合先: ${escHtml(c.company_name||c.company_name_en||'')} ／ ${escHtml(c.email||'(メール未登録)')} ／ 種別: ${escHtml(c.category||'未設定')}</div>
+      ${candidates.length>1 ? `<div style="font-size:11px;color:var(--text3);margin-top:4px">${candidates.length}件の候補から選択中</div>` : ''}
+      ${catMismatch ? `<div style="font-size:11px;color:var(--red);margin-top:4px">⚠ メールから推定した種別「${escHtml(p.category)}」と、既存レコードの種別「${escHtml(c.category)}」が一致しません。必要なら手動で変更してください。</div>` : ''}
+      <div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" style="font-size:11px" onclick="showEmailPartnerCandidatePicker()">🔁 別の取引先を選び直す</button>
+        <button class="btn" style="font-size:11px" onclick="chooseEmailPartnerNewRegistration()">🆕 新規として登録する</button>
+      </div>
+    </div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:6px">値が変わる項目のみチェックを入れて反映してください（既定はすべて未選択。チェックしない項目は既存の値のまま保存されます）。</div>
+    <div class="tbl-wrap"><table class="confirm-table" style="width:100%">
+      <thead><tr><th>項目</th><th>現在の値</th><th>メールから読み取った値</th><th>反映する</th></tr></thead>
+      <tbody>${diffRows}</tbody>
+    </table></div>
+    <div style="margin-top:12px;display:flex;gap:8px">
+      <button class="btn btn-p" onclick="applyEmailPartnerDiffAndOpenEditor()">✅ チェックした項目を反映して編集画面へ</button>
+      <button class="btn" onclick="closeEmailPartnerMatchModal()">キャンセル</button>
+    </div>`;
+}
+
+function selectEmailPartnerCandidate(id){
+  const st = emailPartnerMatchState;
+  if(!st) return;
+  const c = st.candidates.find(x=>x.id===id) || partnersCache.find(x=>x.id===id);
+  st.selectedCandidate = c || null;
+  renderEmailPartnerMatchModal();
+}
+
+// 「別の取引先を選び直す」: 自動突合の候補一覧とは別に、取引先マスタ全件から
+// 検索して手動で選べるようにする(自動突合が0件・誤りだった場合の救済)。
+function showEmailPartnerCandidatePicker(){
+  const st = emailPartnerMatchState;
+  if(!st) return;
+  const body = document.getElementById('email-partner-match-body');
+  body.innerHTML = `
+    <div style="font-size:12px;margin-bottom:8px">取引先マスタから手動で選択してください。</div>
+    <input id="email-partner-picker-search" placeholder="会社名・メールで検索" style="width:100%;max-width:320px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;margin-bottom:8px" oninput="renderEmailPartnerPickerResults(this.value)">
+    <div id="email-partner-picker-results" style="max-height:320px;overflow-y:auto"></div>
+    <div style="margin-top:10px"><button class="btn" onclick="renderEmailPartnerMatchModal()">戻る</button></div>`;
+  renderEmailPartnerPickerResults('');
+}
+function renderEmailPartnerPickerResults(q){
+  const el = document.getElementById('email-partner-picker-results');
+  if(!el) return;
+  const query = String(q||'').trim().toLowerCase();
+  const list = (query
+    ? partnersCache.filter(p=>!p.is_deleted && ((p.company_name||'').toLowerCase().includes(query) || (p.company_name_en||'').toLowerCase().includes(query) || (p.email||'').toLowerCase().includes(query)))
+    : partnersCache.filter(p=>!p.is_deleted)
+  ).slice(0, 50);
+  if(!list.length){ el.innerHTML = '<div style="font-size:11px;color:var(--text3)">該当する取引先がありません</div>'; return; }
+  el.innerHTML = list.map(c=>`
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 4px;border-bottom:1px solid var(--border)">
+      <div style="font-size:12px">${escHtml(c.company_name||c.company_name_en||'')} <span style="color:var(--text3);font-size:11px">${escHtml(c.email||'')}</span></div>
+      <button class="btn" style="font-size:11px" onclick="selectEmailPartnerCandidate('${c.id}')">選ぶ</button>
+    </div>`).join('');
+}
+
+// 新規登録扱いにする: 空欄の編集モーダルにAIの抽出結果をそのまま反映する
+// (既存データが無い=上書きの危険がないため、差分確認は不要)。
+function chooseEmailPartnerNewRegistration(){
+  const st = emailPartnerMatchState;
+  if(!st) return;
+  const { emailId, p, senderEmail } = st;
+  openPartnerEditor(null);
+  const setIfPresent = (id, val) => { if(val){ const el = document.getElementById(id); if(el) el.value = val; } };
+  PARTNER_DIFF_FIELDS.forEach(f=>setIfPresent(f.elId, emailPartnerAiValue(p, senderEmail, f.key)));
+  if(['ホテル','レストラン','バス・ハイヤー等','その他'].includes(p.category)){
+    const catEl = document.getElementById('pt-category');
+    if(catEl) catEl.value = p.category;
+  }
+  document.getElementById('partner-modal-title').textContent += '（メールから新規登録・確認してください）';
+  emailInboxPartnerSourceId = emailId;
+  closeEmailPartnerMatchModal();
+}
+
+// チェックされた項目だけを既存レコードに反映し、通常の編集モーダルを開いて
+// (保存自体は既存のsavePartner()に任せる)最終確認・保存させる。
+function applyEmailPartnerDiffAndOpenEditor(){
+  const st = emailPartnerMatchState;
+  if(!st || !st.selectedCandidate) return;
+  const { emailId, p, senderEmail, selectedCandidate } = st;
+  openPartnerEditor(selectedCandidate.id);
+  PARTNER_DIFF_FIELDS.forEach(f=>{
+    const cb = document.getElementById('pt-diff-apply-'+f.key);
+    if(cb && cb.checked){
+      const el = document.getElementById(f.elId);
+      if(el) el.value = emailPartnerAiValue(p, senderEmail, f.key);
+    }
+  });
+  document.getElementById('partner-modal-title').textContent += '（メールから更新・確認してください）';
+  emailInboxPartnerSourceId = emailId;
+  closeEmailPartnerMatchModal();
 }
 
 // ─── メール受信箱: 1通に複数REF#が混在する場合の自動振り分け ─────────
@@ -18191,6 +18355,17 @@ function setDateInputValue(el, d){
         <button class="btn" onclick="mlbdGoStep1()">← 戻る</button>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- メールからの取引先登録: 候補選択・差分確認モーダル -->
+<div class="modal-overlay" id="email-partner-match-modal">
+  <div class="modal-box" style="max-width:720px">
+    <div class="modal-header">
+      <div class="modal-title">メールから取引先マスタへの反映</div>
+      <div class="modal-close" onclick="closeEmailPartnerMatchModal()">✕</div>
+    </div>
+    <div id="email-partner-match-body"></div>
   </div>
 </div>
 
