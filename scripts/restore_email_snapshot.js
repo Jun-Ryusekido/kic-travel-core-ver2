@@ -1,8 +1,10 @@
 // email_import_queue の is_excluded/excluded_reason を、指定したスナップショットCSVの
 // 内容へ復元する(ロールバック用)。実行時のみ実際にUPDATEを行う。
 //
-// 使い方: node scripts/restore_email_snapshot.js _dryrun/snapshot_before_bulk_20260728.csv [--dry-run]
+// 使い方: node scripts/restore_email_snapshot.js _dryrun/snapshot_before_bulk_20260728.csv [--dry-run] [--ids=id1,id2,...]
 //   --dry-run を付けると実際のUPDATEは行わず、復元対象件数と内容のみ表示する。
+//   --ids=... を付けると、指定したid群のみを復元対象にする(検証等でテーブル全体を
+//   触らずに済ませるための絞り込みオプション。省略時はCSV内の全行が対象)。
 //
 // 500件チャンクでの分割実行、既存の一括適用(index.html: runEmailExclusionBulkUpdate)と
 // 同じ考え方。id/is_excluded/excluded_reasonの3列のみを対象とし、他列・削除は一切行わない。
@@ -31,9 +33,13 @@ function parseCsv(text) {
   return rows;
 }
 
-async function restoreFromSnapshot(csvPath, { dryRun = true } = {}) {
+async function restoreFromSnapshot(csvPath, { dryRun = true, onlyIds = null } = {}) {
   const csvText = fs.readFileSync(csvPath, 'utf8');
-  const snapshotRows = parseCsv(csvText);
+  let snapshotRows = parseCsv(csvText);
+  if (onlyIds && onlyIds.length) {
+    const idSet = new Set(onlyIds);
+    snapshotRows = snapshotRows.filter(r => idSet.has(r.id));
+  }
 
   if (dryRun) {
     return { totalRows: snapshotRows.length, dryRun: true, sample: snapshotRows.slice(0, 10) };
@@ -70,11 +76,13 @@ async function restoreFromSnapshot(csvPath, { dryRun = true } = {}) {
 if (require.main === module) {
   const csvPath = process.argv[2];
   const dryRun = process.argv.includes('--dry-run');
+  const idsArg = process.argv.find(a => a.startsWith('--ids='));
+  const onlyIds = idsArg ? idsArg.slice('--ids='.length).split(',').map(s => s.trim()).filter(Boolean) : null;
   if (!csvPath) {
-    console.error('使い方: node scripts/restore_email_snapshot.js <snapshot.csv> [--dry-run]');
+    console.error('使い方: node scripts/restore_email_snapshot.js <snapshot.csv> [--dry-run] [--ids=id1,id2,...]');
     process.exit(1);
   }
-  restoreFromSnapshot(csvPath, { dryRun }).then(result => {
+  restoreFromSnapshot(csvPath, { dryRun, onlyIds }).then(result => {
     console.log(JSON.stringify(result, null, 2));
   }).catch(e => {
     console.error(e.message);
