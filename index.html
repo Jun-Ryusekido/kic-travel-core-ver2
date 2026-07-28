@@ -172,6 +172,11 @@ th.sortable:hover{color:var(--blue)}
   .form-grid{grid-template-columns:1fr}
   .content{padding:12px}
   .menu-btn{display:flex!important}
+  /* 取引先マスタ画面: 見出し+複数ボタンが横並びのままだとボタン群が
+     折り返して見出しを圧迫するため、見出しを上・ボタン群をその下の行
+     (横並び・折り返し可)に積む形に変更する(他画面には影響させない)。 */
+  #pg-partners .card-title,#pg-agents .card-title{flex-direction:column;align-items:flex-start;gap:8px}
+  #pg-partners .card-title>span,#pg-agents .card-title>span{display:flex;flex-wrap:wrap;gap:6px;width:100%}
 }
 @media(max-width:768px){
   #db-thead th,#db-tbody td,#bl-thead th,#bl-tbody td{display:none}
@@ -351,9 +356,10 @@ input[type=number]{-moz-appearance:textfield}
   border-radius:8px;
   padding:10px 12px;
   display:flex;
-  gap:10px;
-  align-items:flex-start;
+  flex-direction:column;
+  gap:6px;
 }
+.pt-card-main{ display:flex; gap:10px; align-items:flex-start }
 .pt-card-body{ flex:1; min-width:0 }
 .pt-card-row1{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-bottom:2px }
 .pt-card-company{ font-size:14px; font-weight:600; color:var(--text1); white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
@@ -364,8 +370,12 @@ input[type=number]{-moz-appearance:textfield}
 .pt-card-en{ font-size:11px; color:var(--text3); margin-bottom:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
 .pt-card-meta{ font-size:12px; color:var(--text2); margin-bottom:2px }
 .pt-card-notes{ font-size:11px; color:var(--text3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
-.pt-card-actions{ display:flex; flex-direction:column; gap:5px; flex-shrink:0 }
-.pt-card-actions .btn{ font-size:11px; padding:4px 8px; min-width:40px; text-align:center }
+/* 照会/編集/削除を横1列に並べ、縦の間延びを解消する。削除ボタンは
+   誤タップ防止のため他の2つと間隔をあけ(margin-left:auto)、確認ダイアログ
+   (deletePartner内のconfirm())は従来通り維持する。 */
+.pt-card-actions{ display:flex; align-items:center; gap:6px; flex-shrink:0; padding-top:6px; margin-top:2px; border-top:1px solid var(--border) }
+.pt-card-actions .btn{ font-size:11px; padding:4px 10px; text-align:center }
+.pt-card-actions .pt-card-delete{ margin-left:auto }
 
 @media(max-width:768px){
   .pt-desktop-only{ display:none !important }
@@ -16743,21 +16753,23 @@ function filterPartners(){
     const personLine  = [p.contact_person, p.position].filter(Boolean).join(' / ');
     const phone       = p.phone || p.company_phone || '';
     return `<div class="pt-card">
-      <div class="pt-card-body">
-        <div class="pt-card-row1">
-          ${p.category ? `<span class="pt-card-badge">${escHtml(p.category)}</span>` : ''}
-          <span class="pt-card-company">${escHtml(companyLine||'（社名なし）')}</span>
+      <div class="pt-card-main">
+        <div class="pt-card-body">
+          <div class="pt-card-row1">
+            ${p.category ? `<span class="pt-card-badge">${escHtml(p.category)}</span>` : ''}
+            <span class="pt-card-company">${escHtml(companyLine||'（社名なし）')}</span>
+          </div>
+          ${enLine ? `<div class="pt-card-en">${escHtml(enLine)}</div>` : ''}
+          ${personLine ? `<div class="pt-card-meta">${escHtml(personLine)}</div>` : ''}
+          ${phone ? `<div class="pt-card-meta">📞 ${escHtml(phone)}</div>` : ''}
+          ${p.email ? `<div class="pt-card-meta">✉️ ${escHtml(p.email)}</div>` : ''}
+          ${p.notes ? `<div class="pt-card-notes">${escHtml(p.notes)}</div>` : ''}
         </div>
-        ${enLine ? `<div class="pt-card-en">${escHtml(enLine)}</div>` : ''}
-        ${personLine ? `<div class="pt-card-meta">${escHtml(personLine)}</div>` : ''}
-        ${phone ? `<div class="pt-card-meta">📞 ${escHtml(phone)}</div>` : ''}
-        ${p.email ? `<div class="pt-card-meta">✉️ ${escHtml(p.email)}</div>` : ''}
-        ${p.notes ? `<div class="pt-card-notes">${escHtml(p.notes)}</div>` : ''}
       </div>
       <div class="pt-card-actions">
-        <button class="btn" onclick="showPartnerDetail('${p.id}')">照会</button>
-        <button class="btn" onclick="openPartnerEditor('${p.id}')">編集</button>
-        <button class="btn" style="color:var(--red)" onclick="deletePartner('${p.id}')">削除</button>
+        <button class="btn" onclick="showPartnerDetail('${p.id}')">👁 照会</button>
+        <button class="btn" onclick="openPartnerEditor('${p.id}')">✏️ 編集</button>
+        <button class="btn pt-card-delete" style="color:var(--red)" onclick="deletePartner('${p.id}')">🗑 削除</button>
       </div>
     </div>`;
   }).join('');
@@ -18399,20 +18411,22 @@ function setDateInputValue(el, d){
         📎 Excel/Wordから読み取り
         <input type="file" accept=".xlsx,.xls,.docx" id="pt-card-input-doc" style="display:none" onchange="handleCardUpload(event)">
       </label>
-      <span id="pt-card-status" style="font-size:11px;color:var(--text3);margin-left:8px"></span>
+      <div id="pt-card-status" style="font-size:11px;color:var(--text3);margin-top:6px"></div>
       <div id="pt-card-paste-zone" class="paste-drop-zone" tabindex="-1">📋 ここをクリックしてCtrl+Vで画像・Excel・Wordファイルを貼り付け（ドラッグ&ドロップも可）</div>
-      <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
-        <div style="font-size:10px;color:var(--text3);margin-bottom:5px;font-weight:600">複数拠点一覧を読み取り（テキスト抽出・コピペ用）</div>
-        <label class="btn" style="font-size:11px;cursor:pointer;display:inline-flex;background:#F0F6FF;border-color:#7CB3E8;color:#004A9F">
-          📷 カメラで撮影
-          <input type="file" accept="image/*" capture="environment" style="display:none" onchange="handleMultiLocationUpload(event)">
-        </label>
-        <label class="btn" style="font-size:11px;cursor:pointer;display:inline-flex;margin-left:6px;background:#F0F6FF;border-color:#7CB3E8;color:#004A9F">
-          🖼 ギャラリーから選択
-          <input type="file" accept="image/*" style="display:none" onchange="handleMultiLocationUpload(event)">
-        </label>
-        <span id="pt-multi-status" style="font-size:11px;color:var(--text3);margin-left:8px"></span>
-      </div>
+      <details style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+        <summary style="font-size:10px;color:var(--text3);font-weight:600;cursor:pointer">複数拠点一覧を読み取り（テキスト抽出・コピペ用）</summary>
+        <div style="margin-top:8px">
+          <label class="btn" style="font-size:11px;cursor:pointer;display:inline-flex;background:#F0F6FF;border-color:#7CB3E8;color:#004A9F">
+            📷 カメラで撮影
+            <input type="file" accept="image/*" capture="environment" style="display:none" onchange="handleMultiLocationUpload(event)">
+          </label>
+          <label class="btn" style="font-size:11px;cursor:pointer;display:inline-flex;margin-left:6px;background:#F0F6FF;border-color:#7CB3E8;color:#004A9F">
+            🖼 ギャラリーから選択
+            <input type="file" accept="image/*" style="display:none" onchange="handleMultiLocationUpload(event)">
+          </label>
+          <div id="pt-multi-status" style="font-size:11px;color:var(--text3);margin-top:6px"></div>
+        </div>
+      </details>
     </div>
     <div id="pt-multi-result-section" style="display:none;margin-top:10px;padding:10px;border:1px solid #7CB3E8;border-radius:8px;background:#F0F6FF">
       <div style="font-size:11px;font-weight:600;color:#004A9F;margin-bottom:6px">📋 抽出結果（コピーしてフォームに貼り付けてください）</div>
@@ -18422,23 +18436,7 @@ function setDateInputValue(el, d){
         <button class="btn" style="font-size:11px" onclick="document.getElementById('pt-multi-result-section').style.display='none'">閉じる</button>
       </div>
     </div>
-    <div id="pt-batch-bar" style="display:none;background:#EBF4FF;border-radius:8px;padding:10px;margin-bottom:4px">
-      <div style="font-size:12px;font-weight:700;color:#004A9F;margin-bottom:8px">
-        <span id="pt-batch-progress-text">1 / 1件目</span>
-        <span style="font-size:11px;font-weight:400;color:var(--text3);margin-left:8px">一括登録モード</span>
-      </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn btn-p" style="font-size:12px" onclick="batchSaveAndNext()">💾 保存して次へ</button>
-        <button class="btn" style="font-size:12px" onclick="batchSkip()">スキップ →</button>
-        <button class="btn" style="font-size:12px;color:var(--red)" onclick="batchCancel()">✕ 中止</button>
-      </div>
-    </div>
-    <div id="pt-save-bar" style="display:flex;gap:8px;align-items:center">
-      <button class="btn btn-p" onclick="savePartner()">💾 保存</button>
-      <button class="btn" onclick="closePartnerEditor()">閉じる</button>
-      <span class="msg-ok" id="pt-msg">✓ 保存しました</span>
-    </div>
-    <div id="pt-form-area">
+    <div id="pt-form-area" style="margin-top:10px">
       <div class="form-grid">
         <div class="form-field"><label>会社名</label><input id="pt-company" placeholder="例: 神戸交通バス"></div>
         <div class="form-field"><label>会社名（英語）</label><input id="pt-company-en" placeholder="e.g. Kobe Kotsu Bus"></div>
@@ -18460,6 +18458,22 @@ function setDateInputValue(el, d){
         <div class="form-field"><label>住所（英語）</label><input id="pt-address-en" placeholder="e.g. 1-1 Kobe-shi, Hyogo"></div>
         <div class="form-field" style="grid-column:1/-1"><label>備考・補足</label><textarea id="pt-notes" rows="3" placeholder="単価、特徴、注意事項など"></textarea></div>
       </div>
+    </div>
+    <div id="pt-batch-bar" style="display:none;background:#EBF4FF;border-radius:8px;padding:10px;margin-top:10px;position:sticky;bottom:0;z-index:5">
+      <div style="font-size:12px;font-weight:700;color:#004A9F;margin-bottom:8px">
+        <span id="pt-batch-progress-text">1 / 1件目</span>
+        <span style="font-size:11px;font-weight:400;color:var(--text3);margin-left:8px">一括登録モード</span>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-p" style="font-size:12px" onclick="batchSaveAndNext()">💾 保存して次へ</button>
+        <button class="btn" style="font-size:12px" onclick="batchSkip()">スキップ →</button>
+        <button class="btn" style="font-size:12px;color:var(--red)" onclick="batchCancel()">✕ 中止</button>
+      </div>
+    </div>
+    <div id="pt-save-bar" style="display:flex;gap:8px;align-items:center;margin-top:10px;padding:10px 0;position:sticky;bottom:0;background:var(--card);border-top:1px solid var(--border);z-index:5">
+      <button class="btn btn-p" onclick="savePartner()">💾 保存</button>
+      <button class="btn" onclick="closePartnerEditor()">閉じる</button>
+      <span class="msg-ok" id="pt-msg">✓ 保存しました</span>
     </div>
   </div>
 </div>
