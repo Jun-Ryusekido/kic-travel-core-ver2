@@ -1478,8 +1478,13 @@ input[type=number]{-moz-appearance:textfield}
         <div class="card">
           <div class="card-title">📥 メール受信箱（Outlookから半自動取り込み）</div>
           <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Outlookから取り込まれた未処理のメールです。各メールにREF#とカテゴリを指定して「📤 送る」を押すと、該当予約の該当タブにメール本文が読み込まれます。同一の件名・送信者・受信日時のメールはまとめて1件のみ表示しています。</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+            <button class="btn btn-p" id="email-inbox-tab-business" style="font-size:12px" onclick="switchEmailInboxMainTab('normal')">📨 業務メール</button>
+            <button class="btn" id="email-inbox-tab-excluded" style="font-size:12px" onclick="switchEmailInboxMainTab('excluded')">🚫 対象外</button>
+            <button class="btn" id="email-inbox-bulk-backfill-btn" style="font-size:12px;margin-left:auto" onclick="runEmailExclusionBulkBackfill()">⚙️ 既存データに一括適用</button>
+          </div>
           <input id="email-inbox-search" type="text" placeholder="🔍 件名・送信者・本文で検索..." oninput="filterEmailInboxList()" style="width:100%;max-width:420px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;margin-bottom:10px">
-          <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:10px">
+          <div id="email-inbox-sub-toggles" style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:10px">
             <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
               <input type="checkbox" id="email-inbox-postponed-toggle" onchange="toggleEmailInboxPostponedView()">
               ⏸ 保留中のメールを表示
@@ -1490,7 +1495,7 @@ input[type=number]{-moz-appearance:textfield}
             </label>
           </div>
           <div id="email-inbox-autofilter-summary" style="font-size:11px;color:var(--text3);margin-bottom:8px"></div>
-          <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:10px">
+          <div id="email-inbox-select-all-wrap" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:10px">
             <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
               <input type="checkbox" id="email-inbox-select-all" onchange="toggleEmailInboxSelectAll()">
               すべて選択/すべて解除
@@ -8312,7 +8317,7 @@ const EMAIL_INBOX_CATEGORY_MAP = {
 let emailInboxIndex = [];  // 現在の一覧（検索・表示モードを反映したもの）。重複除外済み
 let emailInboxPage = 1;
 let emailInboxSearchDebounceTimer = null;
-let emailInboxViewMode = 'normal'; // 'normal' | 'postponed' | 'autofiltered'
+let emailInboxViewMode = 'normal'; // 'normal' | 'postponed' | 'autofiltered' | 'excluded'
 const EMAIL_INBOX_PAGE_SIZE = 50;
 
 // メールごとに手動入力したREF#・選択したカテゴリを保持する(id -> {ref, category})。
@@ -8461,10 +8466,24 @@ function emailInboxExcludeReason(row){
 }
 
 function isRowVisibleForMode(row, mode){
+  // is_excluded(DB永続化・カテゴリ未分類+ドメイン未登録/一斉配信の自動判定または手動設定)は
+  // 「対象外」タブでのみ表示し、業務メール側のどのモードにも一切出さない。
+  if(mode === 'excluded') return !!row.is_excluded;
+  if(row.is_excluded) return false;
   const excluded = isRowAutoExcluded(row);
   if(mode === 'autofiltered') return excluded;
   if(excluded) return false;
   return mode === 'postponed' ? !!row.postponed : !row.postponed;
+}
+
+// 絞り込み条件の組み立てを1箇所に集約する(以前はemailInboxRawList.filter(...)が
+// 呼び出し側に複数箇所ばらばらに書かれており、二重管理による食い違いの原因になっていた)。
+// 一覧表示側のフィルタ(isRowVisibleForMode)は、一覧取得・検索・除外判定後の再描画の
+// いずれからも必ずこの関数を経由させる。
+function recomputeEmailInboxIndex(matchedIds){
+  emailInboxIndex = emailInboxRawList.filter(m =>
+    (!matchedIds || matchedIds.has(m.id)) && isRowVisibleForMode(m, emailInboxViewMode)
+  );
 }
 
 function markEmailInboxNotPromo(emailId){
@@ -8621,6 +8640,24 @@ async function classifyEmailRelevanceForRows(rows){
       logError('メール受信箱: 関連判定(AI)', e);
     }finally{
       needAI.forEach(m=>emailRelevanceInFlight.delete(m.id));
+    }
+  }
+  return changed;
+}
+
+// 表示中ページのメール(本文取得済み)について、is_excluded(業務対象外の自動判定)を
+// classifyEmailForExclusion(既存データへの一括適用と共通の唯一の判定関数)で行い、
+// 新たに対象外と判定された行があればDBを更新してtrueを返す(呼び出し元が再描画する)。
+async function classifyExclusionForRows(rows){
+  const targets = rows.filter(m=>!m.is_excluded);
+  if(!targets.length) return false;
+  const ctx = await buildEmailExclusionContext();
+  let changed = false;
+  for(const m of targets){
+    const result = classifyEmailForExclusion(m, ctx);
+    if(result.exclude){
+      const {error} = await sb.from('email_import_queue').update({is_excluded:true, excluded_reason:result.reason}).eq('id', m.id);
+      if(!error){ m.is_excluded = true; m.excluded_reason = result.reason; changed = true; }
     }
   }
   return changed;
@@ -8819,6 +8856,80 @@ function guessEmailCategory(subject, body, sender){
   return { category: topCat, reasons: hits[topCat].slice(0, 4) };
 }
 
+// ─── 業務対象外メールの自動振り分け(is_excluded)判定 ─────────────────────────────
+// 既存の「自動除外(自社送信/広告/AI無関係)」機能とは別に、email_import_queue.is_excluded列
+// (DBに永続化)を使う新機能。1つの関数(classifyEmailForExclusion)に判定条件を集約し、
+// 一覧のライブ分類(renderEmailInboxPage内、新規取り込み分の初回表示時)と既存データへの
+// 一括適用(runEmailExclusionBulkBackfill)の両方が必ずこの関数を経由する(条件の二重管理を防ぐ)。
+//
+// パターン1(未分類系): カテゴリ手がかりなし かつ 送信元ドメインがbusiness_partners未登録
+// パターン2(一斉配信系): 上記に該当しなくても、一斉配信の送信元ローカルパート・広告/通販
+//   キーワードのいずれかに該当すれば除外する(ホテル等の広告メールがカテゴリキーワードを
+//   含みパターン1をすり抜けるケースへの対応)。
+// 例外1(最優先): 本文にkictravel.jpが含まれる(=KICが送ったメールへの返信で引用が残っている)
+// 例外2: 件名・本文にKICコードまたは実在するREF#を含む(emailHasRefOrTourCodeを再利用)
+// 例外3: 送信元が自社ドメイン(kictravel.jp)の場合はそもそも判定対象外(既存の自動除外(自社送信)
+//   機能とのみ重複させ、is_excludedには一切書き込まない)
+const EMAIL_EXCLUSION_PROMO_KEYWORDS = [
+  '配信停止', '配信を停止', '登録解除', 'unsubscribe', 'セミナー', 'ウェビナー', '無料モニター', '資料請求', 'メルマガ',
+  '不在票', '不在のお知らせ', 'ご不在', '再配達', 'お荷物のお届け', '宅配便のお知らせ', '荷物のお届けにあがりました',
+  '佐川急便', 'ヤマト運輸', 'クロネコヤマト', '日本郵便',
+  'production deployment', 'deployment failed', 'deployment succeeded', 'build failed', 'ビルドに失敗', 'デプロイに失敗', 'デプロイが失敗',
+  // 通販の注文確認/発送・配達完了通知
+  'ご注文ありがとう', 'ご注文の確認', 'ご注文内容', '注文確認', '発送のお知らせ', '出荷完了', '出荷のお知らせ', '配達が完了', 'お届け完了', '発送完了',
+  'order confirmation', 'your order', 'has shipped', 'has been shipped',
+  // メルマガ・キャンペーン・宿泊プラン販促・セール案内
+  'キャンペーン', 'セール開催', '早期予約割引', '限定プラン', '宿泊プラン', 'クーポン', 'ポイント進呈', 'ポイントプレゼント',
+];
+const EMAIL_EXCLUSION_SENDER_LOCALPARTS = [
+  'no-reply@', 'noreply@', 'no_reply@', 'donotreply@', 'do-not-reply@',
+  'info@', 'news@', 'newsletter@', 'mail-magazine@', 'mailmag@',
+  'notification@', 'notifications@', 'notify@', 'alert@', 'alerts@',
+  'pr@', 'support@', 'mailer-daemon@', 'automated@', 'campaign@', 'order@', 'shop@', 'shipping@',
+];
+
+function isPattern2MassMailingSender(sender){
+  const local = String(sender || '').toLowerCase().split('@')[0] + '@';
+  return EMAIL_EXCLUSION_SENDER_LOCALPARTS.some(p => local === p || local.startsWith(p));
+}
+function isPattern2MassMailingContent(subject, body){
+  const hay = (String(subject || '') + ' ' + String(body || '')).toLowerCase();
+  return EMAIL_EXCLUSION_PROMO_KEYWORDS.some(k => hay.includes(k.toLowerCase()));
+}
+
+// 判定に必要な参照データ(business_partnersのメールドメイン・実在するref_no集合)をまとめて
+// 用意する。既存のensureEmailInboxSuggestIndex()が既にbusiness_partnersのドメイン一覧を
+// 構築済みのため、それを再利用し二重に問い合わせない。
+async function buildEmailExclusionContext(){
+  const suggestIndex = await ensureEmailInboxSuggestIndex();
+  if(!allBookingsCache.length) allBookingsCache = await fetchAllBookings();
+  const knownRefNumbers = new Set(allBookingsCache.map(b=>String(b.ref_no||'').replace(/^#/,'')).filter(Boolean));
+  return { partnerDomains: suggestIndex.partnerDomains, knownRefNumbers };
+}
+
+// 唯一の判定関数。{exclude:boolean, reason:string|null} を返す。
+// ctx = {partnerDomains:Set, knownRefNumbers:Set}
+function classifyEmailForExclusion(row, ctx){
+  const domain = emailInboxSenderDomain(row.sender);
+  if(domain === EMAIL_INBOX_OWN_DOMAIN) return { exclude:false, reason:null }; // 例外3
+
+  if(String(row.body||'').toLowerCase().includes(EMAIL_INBOX_OWN_DOMAIN)) return { exclude:false, reason:null }; // 例外1
+  if(emailHasRefOrTourCode(row.subject, row.body, ctx.knownRefNumbers)) return { exclude:false, reason:null }; // 例外2
+
+  const cat = guessEmailCategory(row.subject, row.body, row.sender);
+  const pattern1 = (cat.category === null) && !!domain && !ctx.partnerDomains.has(domain);
+  const pattern2Sender = isPattern2MassMailingSender(row.sender);
+  const pattern2Content = isPattern2MassMailingContent(row.subject, row.body);
+
+  if(!pattern1 && !pattern2Sender && !pattern2Content) return { exclude:false, reason:null };
+
+  const reasons = [];
+  if(pattern1) reasons.push('カテゴリ手がかりなし・送信元ドメイン未登録');
+  if(pattern2Sender) reasons.push('一斉配信の送信元アドレス');
+  if(pattern2Content) reasons.push('一斉配信・広告/通販の内容と判定');
+  return { exclude:true, reason: reasons.join('・') };
+}
+
 async function renderEmailInboxList(){
   const searchEl = document.getElementById('email-inbox-search');
   if(searchEl) searchEl.value = '';
@@ -8851,7 +8962,7 @@ async function renderEmailInboxList(){
   // 件名・送信者ベースの軽量判定はここで即座に確定。本文ベースの判定は非同期で後追い反映する
   deduped.forEach(m=>{ m.isAutoPromo = isPromoEmailBySubjectSender(m.subject, m.sender); m.isOwnDomain = isRowOwnDomain(m); });
   emailInboxRawList = deduped;
-  emailInboxIndex = emailInboxRawList.filter(m=>isRowVisibleForMode(m, emailInboxViewMode));
+  recomputeEmailInboxIndex();
   emailInboxPage = 1;
   await renderEmailInboxPage();
 
@@ -8877,7 +8988,7 @@ async function fetchEmailInboxPendingRows(){
   let from = 0;
   const pageSize = 1000;
   while(true){
-    const {data, error} = await sb.from('email_import_queue').select('id,subject,sender,received_at,postponed').eq('imported', false).eq('ignored', false).order('received_at', {ascending:false}).range(from, from+pageSize-1);
+    const {data, error} = await sb.from('email_import_queue').select('id,subject,sender,received_at,postponed,is_excluded,excluded_reason').eq('imported', false).eq('ignored', false).order('received_at', {ascending:false}).range(from, from+pageSize-1);
     if(error) throw error;
     rows = rows.concat(data||[]);
     if(!data || data.length < pageSize) break;
@@ -8914,6 +9025,110 @@ function toggleEmailInboxAutoFilterView(){
   emailInboxSelectedIds = new Set();
   const searchEl = document.getElementById('email-inbox-search');
   applyEmailInboxSearch(searchEl ? searchEl.value.trim() : '');
+}
+
+// 「業務メール」「対象外」の上位タブ切り替え。既存の保留中/自動除外トグルは
+// 「業務メール」タブ内のサブモードのため、「対象外」タブに切り替える際は
+// 両トグルをOFFに戻し、サブトグル自体を非表示にする(対象外タブでは無関係のため)。
+function switchEmailInboxMainTab(mode){
+  emailInboxViewMode = mode;
+  const postponedToggle = document.getElementById('email-inbox-postponed-toggle');
+  const autoFilterToggle = document.getElementById('email-inbox-autofilter-toggle');
+  if(postponedToggle) postponedToggle.checked = false;
+  if(autoFilterToggle) autoFilterToggle.checked = false;
+  const businessTabBtn = document.getElementById('email-inbox-tab-business');
+  const excludedTabBtn = document.getElementById('email-inbox-tab-excluded');
+  if(businessTabBtn) businessTabBtn.className = mode==='normal' ? 'btn btn-p' : 'btn';
+  if(excludedTabBtn) excludedTabBtn.className = mode==='excluded' ? 'btn btn-p' : 'btn';
+  const subToggles = document.getElementById('email-inbox-sub-toggles');
+  if(subToggles) subToggles.style.display = mode==='excluded' ? 'none' : '';
+  const selectAllWrap = document.getElementById('email-inbox-select-all-wrap');
+  if(selectAllWrap) selectAllWrap.style.display = mode==='excluded' ? 'none' : '';
+  emailInboxSelectedIds = new Set();
+  const searchEl = document.getElementById('email-inbox-search');
+  applyEmailInboxSearch(searchEl ? searchEl.value.trim() : '');
+}
+
+// 「業務メール」タブの各行から手動で対象外に設定する(誤判定の広告等をユーザー自身が
+// その場で振り分けたい場合用)。自動判定(classifyEmailForExclusion)とは別の経路。
+async function excludeEmailInboxItemManually(emailId){
+  const reason = '手動で対象外に設定';
+  const {error} = await sb.from('email_import_queue').update({is_excluded:true, excluded_reason:reason}).eq('id', emailId);
+  if(error){ alert('対象外への設定に失敗しました: '+error.message); return; }
+  const row = emailInboxRawList.find(m=>m.id===emailId);
+  if(row){ row.is_excluded = true; row.excluded_reason = reason; }
+  recomputeEmailInboxIndex();
+  renderEmailInboxPage();
+}
+
+// 「対象外」タブから業務メールへ1クリックで戻す。
+async function restoreEmailInboxExcluded(emailId){
+  const {error} = await sb.from('email_import_queue').update({is_excluded:false, excluded_reason:null}).eq('id', emailId);
+  if(error){ alert('業務メールへの復元に失敗しました: '+error.message); return; }
+  const row = emailInboxRawList.find(m=>m.id===emailId);
+  if(row){ row.is_excluded = false; row.excluded_reason = null; }
+  recomputeEmailInboxIndex();
+  renderEmailInboxPage();
+}
+
+// 既存データ(is_excluded=falseの未処理メール全件)へのis_excluded一括適用。
+// classifyEmailForExclusion(一覧のライブ分類と完全に同じ関数)で対象を決定し、
+// is_excluded/excluded_reasonの2列のみを更新する(削除・他列変更は一切行わない)。
+async function runEmailExclusionBulkBackfill(){
+  if(!confirm('未処理メール全件に「対象外」自動判定を一括適用します。既存のis_excluded=falseの行のみが対象で、削除は行いません。数分かかる場合があります。実行しますか？')) return;
+  const btn = document.getElementById('email-inbox-bulk-backfill-btn');
+  const origLabel = btn ? btn.textContent : '';
+  if(btn){ btn.disabled = true; btn.textContent = '⏳ 判定用データ準備中...'; }
+  try{
+    const ctx = await buildEmailExclusionContext();
+
+    let all = [];
+    let from = 0;
+    const pageSize = 1000;
+    while(true){
+      const {data, error} = await sb.from('email_import_queue')
+        .select('id,subject,sender,body')
+        .eq('imported', false).eq('ignored', false).eq('is_excluded', false)
+        .range(from, from+pageSize-1);
+      if(error) throw error;
+      all = all.concat(data||[]);
+      if(!data || data.length < pageSize) break;
+      from += pageSize;
+    }
+
+    if(btn) btn.textContent = `⏳ 判定中(${all.length}件)...`;
+    const byReason = new Map();
+    for(const row of all){
+      const result = classifyEmailForExclusion(row, ctx);
+      if(result.exclude){
+        if(!byReason.has(result.reason)) byReason.set(result.reason, []);
+        byReason.get(result.reason).push(row.id);
+      }
+    }
+
+    let updated = 0;
+    const totalToUpdate = [...byReason.values()].reduce((s,ids)=>s+ids.length, 0);
+    for(const [reason, ids] of byReason){
+      for(let i=0;i<ids.length;i+=200){
+        const chunk = ids.slice(i, i+200);
+        if(btn) btn.textContent = `⏳ 更新中(${updated}/${totalToUpdate})...`;
+        const {error} = await sb.from('email_import_queue').update({is_excluded:true, excluded_reason:reason}).in('id', chunk);
+        if(error) throw error;
+        updated += chunk.length;
+        const idSet = new Set(chunk);
+        emailInboxRawList.forEach(m=>{ if(idSet.has(m.id)){ m.is_excluded = true; m.excluded_reason = reason; } });
+      }
+    }
+
+    alert(`一括適用が完了しました。\n判定対象: ${all.length}件\n対象外に設定: ${updated}件`);
+    recomputeEmailInboxIndex();
+    emailInboxPage = 1;
+    await renderEmailInboxPage();
+  }catch(e){
+    alert('一括適用でエラーが発生しました: '+e.message);
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = origLabel; }
+  }
 }
 
 function toggleEmailInboxRowSelection(emailId, checked){
@@ -8976,7 +9191,7 @@ async function applyEmailInboxSearch(term){
   if(!el) return;
 
   if(!term){
-    emailInboxIndex = emailInboxRawList.filter(m=>isRowVisibleForMode(m, emailInboxViewMode));
+    recomputeEmailInboxIndex();
     emailInboxPage = 1;
     await renderEmailInboxPage();
     return;
@@ -9014,7 +9229,7 @@ async function applyEmailInboxSearch(term){
   if(myToken !== emailInboxSearchToken) return; // より新しい検索が既に走っている場合は結果を無視
 
   const matchedIds = new Set([...subjectOrSenderMatchIds, ...bodyMatchIds]);
-  emailInboxIndex = emailInboxRawList.filter(m=>matchedIds.has(m.id) && isRowVisibleForMode(m, emailInboxViewMode));
+  recomputeEmailInboxIndex(matchedIds);
   emailInboxPage = 1;
   await renderEmailInboxPage();
 }
@@ -9064,6 +9279,7 @@ async function renderEmailInboxPage(){
     if(hasSearch) emptyMsg = '該当するメールが見つかりません。';
     else if(emailInboxViewMode==='postponed') emptyMsg = '保留中のメールはありません。';
     else if(emailInboxViewMode==='autofiltered') emptyMsg = '自動除外されたメールはありません。';
+    else if(emailInboxViewMode==='excluded') emptyMsg = '対象外のメールはありません。';
     el.innerHTML = '<div style="font-size:12px;color:var(--text3);padding:8px 0">'+emptyMsg+'</div>';
     setEmailInboxPagerHtml('');
     return;
@@ -9110,6 +9326,18 @@ async function renderEmailInboxPage(){
       </div>`;
     }
 
+    if(emailInboxViewMode==='excluded'){
+      return `<div id="email-inbox-row-${m.id}" style="display:flex;gap:8px;padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12px;font-weight:600;margin-bottom:2px">${escHtml(m.subject||'(件名なし)')}</div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:2px">${escHtml(m.sender||'')} ・ ${escHtml(received)}</div>
+          <div style="font-size:10px;color:var(--amber);margin-bottom:6px">除外理由: ${escHtml(m.excluded_reason||'')}</div>
+          <button class="btn btn-p" style="font-size:11px" onclick="restoreEmailInboxExcluded('${m.id}')">↩ 業務メールに戻す</button>
+          ${bodyBlock}
+        </div>
+      </div>`;
+    }
+
     const suggestions = computeRefSuggestions(m.subject, m.body, suggestIndex);
     const suggestHtml = suggestions.length ? `<div style="font-size:10px;color:var(--text3);margin-top:4px;display:flex;align-items:center;gap:4px;flex-wrap:wrap">候補:${suggestions.map(s=>`<button type="button" class="btn" style="font-size:10px;padding:2px 6px" onclick="applyRefSuggestion('${m.id}','${s.ref_no}')">${escHtml(s.ref_no)} (${escHtml(s.label)})</button>`).join('')}</div>` : '';
     const catGuess = guessEmailCategory(m.subject, m.body, m.sender);
@@ -9148,6 +9376,7 @@ async function renderEmailInboxPage(){
           ${catReasonHtml}
           <button class="btn btn-p" id="email-inbox-send-${m.id}" style="font-size:11px" onclick="sendEmailToBooking('${m.id}')">📤 送る</button>
           <button class="btn" style="font-size:11px;color:var(--red)" onclick="if(confirm('このメールを一覧から除外しますか？')){ignoreEmailInboxItem('${m.id}')}">🗑 無視</button>
+          <button class="btn" style="font-size:11px" onclick="if(confirm('このメールを対象外にしますか？（「対象外」タブからいつでも戻せます）')){excludeEmailInboxItemManually('${m.id}')}">🚫 対象外にする</button>
           ${postponeBtn}
           ${registeredBadge}
         </div>
@@ -9158,14 +9387,17 @@ async function renderEmailInboxPage(){
   }).join('');
 
   {
+    // 「全N件」「M / Nページ」「最後へ」は、母数の算出方法がブラウザ側のフィルタ実装に
+    // 依存し根拠を説明しにくいため表示しない。次ページの有無は「このページ分より多く
+    // 取得できたか(=次のインデックスにまだ行があるか)」のみで判定する(1ページ分だけ
+    // 追加取得して確認するのと等価。全件は既にemailInboxIndexにメモリ上あるため)。
     const atFirst = emailInboxPage<=1;
-    const atLast = emailInboxPage>=totalPages;
+    const hasNext = startIdx + EMAIL_INBOX_PAGE_SIZE < total;
     setEmailInboxPagerHtml(`
       <button class="btn" style="font-size:11px" ${atFirst?'disabled':''} onclick="goToEmailInboxPage(1)">⏮ 最初へ</button>
       <button class="btn" style="font-size:11px" ${atFirst?'disabled':''} onclick="changeEmailInboxPage(-1)">← 前へ</button>
-      <span>${emailInboxPage} / ${totalPages} ページ（全${total}件）</span>
-      <button class="btn" style="font-size:11px" ${atLast?'disabled':''} onclick="changeEmailInboxPage(1)">次へ →</button>
-      <button class="btn" style="font-size:11px" ${atLast?'disabled':''} onclick="goToEmailInboxPage(${totalPages})">⏭ 最後へ</button>
+      <span>${emailInboxPage}ページ目</span>
+      <button class="btn" style="font-size:11px" ${hasNext?'':'disabled'} onclick="changeEmailInboxPage(1)">次へ →</button>
     `);
   }
 
@@ -9190,11 +9422,29 @@ async function renderEmailInboxPage(){
           // インデックスだけを再計算し、ユーザーが手動で送った現在のページ番号を
           // (総ページ数が減っていた場合はその範囲内で)維持したまま1回だけ
           // 再描画する(「次へ」を押した直後にすぐ1ページ目へ戻ってしまう不具合の対応)。
-          emailInboxIndex = emailInboxRawList.filter(m=>isRowVisibleForMode(m, emailInboxViewMode));
+          recomputeEmailInboxIndex();
           const totalPagesNow = Math.max(1, Math.ceil(emailInboxIndex.length / EMAIL_INBOX_PAGE_SIZE));
           emailInboxPage = Math.min(emailInboxPage, totalPagesNow);
           await renderEmailInboxPage();
         }
+      }
+    }).catch(()=>{ /* 判定失敗時は何もしない(一覧に残る) */ });
+
+    // Outlook VBAマクロ経由の新規取り込み分は、is_excludedを未設定(false)のまま
+    // email_import_queueに入ってくる。取り込み処理自体は変更しない方針のため、
+    // 代わりにアプリ側で「業務メール」タブに表示された(=このページに来た)タイミングで
+    // classifyEmailForExclusion(既存データへの一括適用と全く同じ関数)を都度実行し、
+    // 対象外と判定されればその場でis_excludedを立てて一覧から外す。新着メールは
+    // 受信日時降順で1ページ目に来るため、実務上はメール受信箱を開いた時点で
+    // 速やかに判定される。既に判定済み(is_excluded=false のまま残っている)行を
+    // 再判定しても結果は変わらないだけなので無害。
+    classifyExclusionForRows(pageItems).then(async changed=>{
+      if(changed && emailInboxViewMode==='normal'){
+        if(_staleRender()) return;
+        recomputeEmailInboxIndex();
+        const totalPagesNow2 = Math.max(1, Math.ceil(emailInboxIndex.length / EMAIL_INBOX_PAGE_SIZE));
+        emailInboxPage = Math.min(emailInboxPage, totalPagesNow2);
+        await renderEmailInboxPage();
       }
     }).catch(()=>{ /* 判定失敗時は何もしない(一覧に残る) */ });
   }
