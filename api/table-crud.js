@@ -69,6 +69,14 @@ const TABLE_CONFIG = {
     actions: ['insert', 'updateById', 'deleteById'],
     label: '予約',
   },
+  // booking_facilities(観光施設・バス駐車場等): 観光地予約管理画面(複数予約横断の
+  // 一覧・インライン編集)からのステータス/確認番号/備考の更新のみをservice_role経由に
+  // 移行。読み取り、および既存のダッシュボードToDo(対応期限管理)からの更新は
+  // 今回のスコープ外でありanon+RLSのまま変更しない。
+  booking_facilities: {
+    actions: ['updateById'],
+    label: '観光施設・バス駐車場等',
+  },
 };
 
 function sbFetch(table, path, opts = {}) {
