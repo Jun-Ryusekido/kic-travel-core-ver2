@@ -9026,10 +9026,26 @@ async function renderEmailInboxPage(){
   // 無関係と判定されたメールがあれば一覧から自動除外枠へ移す(通常表示のときのみ)。
   // 除外で空いた分は次の行が繰り上がり、その行も次回の再描画時に判定される。
   if(emailInboxViewMode==='normal'){
-    classifyEmailRelevanceForRows(pageItems).then(changed=>{
+    classifyEmailRelevanceForRows(pageItems).then(async changed=>{
       if(changed && emailInboxViewMode==='normal'){
+        // applyEmailInboxSearch()は本来「検索語句が変わった」場合の実装で、
+        // 空語句のパスは無条件にページを1へ戻してしまう。ここは検索語句が
+        // 変わったわけではなく、裏で自動除外されたメールが一覧から消えた
+        // ことによる再描画に過ぎないため、ユーザーが手動で送ったページ番号を
+        // 極力維持する(「次へ」を押した直後にすぐ1ページ目へ戻ってしまう
+        // 不具合の対応)。
+        const pageBeforeRefresh = emailInboxPage;
         const searchEl3 = document.getElementById('email-inbox-search');
-        applyEmailInboxSearch(searchEl3 ? searchEl3.value.trim() : '');
+        await applyEmailInboxSearch(searchEl3 ? searchEl3.value.trim() : '');
+        // この待機中にユーザーがさらに別のページへ送っていた場合(_staleRender()がtrue)は、
+        // 古いこの呼び出しがユーザーの最新の操作を巻き戻してしまわないよう何もしない。
+        if(_staleRender()) return;
+        const totalPagesNow = Math.max(1, Math.ceil(emailInboxIndex.length / EMAIL_INBOX_PAGE_SIZE));
+        const restoredPage = Math.min(pageBeforeRefresh, totalPagesNow);
+        if(restoredPage !== emailInboxPage){
+          emailInboxPage = restoredPage;
+          await renderEmailInboxPage();
+        }
       }
     }).catch(()=>{ /* 判定失敗時は何もしない(一覧に残る) */ });
   }
