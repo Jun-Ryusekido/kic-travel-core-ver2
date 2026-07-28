@@ -1395,6 +1395,7 @@ input[type=number]{-moz-appearance:textfield}
             <label class="btn" style="font-size:10px;cursor:pointer">📷 カメラで撮影<input type="file" accept="image/*" capture="environment" style="display:none" onchange="extractFmFacilityFromFile(event,'image')"></label>
             <span id="fm-file-status" style="font-size:11px;color:var(--text3)"></span>
           </div>
+          <div id="fm-paste-zone" class="paste-drop-zone" tabindex="-1" style="margin-bottom:8px">📋 ここをクリックしてCtrl+Vで画像・PDF・Excel・Wordファイルを貼り付け（ドラッグ&ドロップも可）</div>
           <div id="fm-ocr-area" style="display:none;margin-bottom:8px;border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--bg)">
             <div style="font-size:11px;color:var(--text3);margin-bottom:6px">メールや文書の内容をコピーして貼り付けてください（Ctrl+Vでの直接貼り付けにも対応）</div>
             <textarea id="fm-ocr-text" rows="5" style="width:100%;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:11px;font-family:inherit;resize:vertical" placeholder="観光施設・バス駐車場等の手配確認書・メールの本文をここに貼り付け..."></textarea>
@@ -2960,6 +2961,7 @@ async function fetchAllBookingFacilities(){
 }
 
 async function loadFacilityManagementPage(){
+  enablePasteUpload(document.getElementById('fm-paste-zone'), file=>processFmFacilityFile(file));
   document.getElementById('fm-tbody').innerHTML = '<tr><td colspan="8" class="empty">読み込み中...</td></tr>';
   renderFacilityManagementStatusButtons();
   if(!allBookingsCache.length) allBookingsCache = await fetchAllBookings();
@@ -11165,14 +11167,25 @@ async function extractFmFacilityFromText(){
 
 async function extractFmFacilityFromFile(event, mode){
   const file=event.target.files[0];
+  if(file) await processFmFacilityFile(file, mode);
+  event.target.value='';
+}
+
+// ボタン選択・貼り付け(Ctrl+V)・ドラッグ&ドロップの3経路から共通で呼ばれる処理本体
+// (extractFacilityFromFileの個別予約タブ版・processHotelFileHmと同じ構成)。
+async function processFmFacilityFile(file, mode){
   if(!file) return;
   const statusEl=document.getElementById('fm-file-status');
   statusEl.textContent='⏳ 読み取り中...'; statusEl.classList.add('ocr-loading'); statusEl.style.color='';
   showGlobalOcrBanner();
   try{
-    const isPdf = mode==='image' ? false : file.name.toLowerCase().endsWith('.pdf');
-    const isExcel = mode==='image' ? false : file.name.toLowerCase().match(/\.(xlsx|xls)$/);
-    const isImage = mode==='image';
+    const name = file.name.toLowerCase();
+    // 貼り付け/ドロップ経由(modeなし)の場合はfile.typeからも画像を自動判定する
+    // (ボタン経由の画像読み取りは常にmode==='image'が明示的に渡される)。
+    const isImage = mode==='image' || (!mode && (file.type||'').startsWith('image/'));
+    const isPdf = !isImage && (name.endsWith('.pdf') || file.type==='application/pdf');
+    const isExcel = !isImage && !isPdf && name.match(/\.(xlsx|xls)$/);
+    const isWord = !isImage && !isPdf && !isExcel && name.endsWith('.docx');
     let bodyBase;
     if(isPdf){
       const base64 = await readFileAsBase64(file);
@@ -11186,6 +11199,9 @@ async function extractFmFacilityFromFile(event, mode){
         const base64 = await readFileAsBase64(file);
         bodyBase = {facilityExcelBase64:base64};
       }
+    }else if(isWord){
+      const docText = await extractDocxText(file);
+      bodyBase = {facilityText:docText};
     }else if(isImage){
       const base64 = await compressImageToBase64(file);
       bodyBase = {facilityImageBase64:base64, facilityImageMediaType:'image/jpeg'};
@@ -11210,7 +11226,6 @@ async function extractFmFacilityFromFile(event, mode){
     hideGlobalOcrBanner();
     statusEl.style.color='var(--red)';
   }
-  event.target.value='';
 }
 
 // 一致キー: booking_id + facility_name + date。内容比較: status/pax/amount/confirmation_no/memo。
