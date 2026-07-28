@@ -8178,9 +8178,11 @@ let emailInboxRowState = new Map();
 function saveEmailInboxRowState(emailId){
   const refEl = document.getElementById('email-inbox-ref-'+emailId);
   const catEl = document.getElementById('email-inbox-cat-'+emailId);
+  const prev = emailInboxRowState.get(emailId);
   emailInboxRowState.set(emailId, {
     ref: refEl ? refEl.value : '',
-    category: catEl ? catEl.value : undefined
+    category: catEl ? catEl.value : undefined,
+    done: prev ? prev.done : undefined
   });
 }
 
@@ -8973,9 +8975,18 @@ async function renderEmailInboxPage(){
       .concat([`<option value="取引先マスタ" ${selectedCat==='取引先マスタ'?'selected':''}>取引先マスタ</option>`])
       .join('');
     const savedRef = savedState && savedState.ref ? escAttr(savedState.ref) : '';
-    const catReasonHtml = catGuess.category
+    // 「根拠」表示は必ず実際に選択されているカテゴリ(selectedCat)を基準にする。
+    // AIの推定カテゴリ(catGuess.category)と選択中カテゴリが一致する場合のみ、その
+    // 推定根拠(キーワード)を表示する。手動選択・保存済みの選択がAI推定と異なる場合は
+    // 別カテゴリの根拠を紛らわしく表示しない(根拠と実際の選択が食い違って見える不具合の対応)。
+    const catReasonHtml = (selectedCat && selectedCat === catGuess.category)
       ? `<span style="font-size:10px;color:var(--text3)" title="件名・送信者・本文のキーワードから推定">カテゴリ根拠: ${escHtml(catGuess.reasons.join('・'))}</span>`
-      : `<span style="font-size:10px;color:var(--text3)">カテゴリ手がかりなし(選択してください)</span>`;
+      : selectedCat
+        ? `<span style="font-size:10px;color:var(--text3)">カテゴリ根拠: (手動選択)</span>`
+        : `<span style="font-size:10px;color:var(--text3)">カテゴリ手がかりなし(選択してください)</span>`;
+    const registeredBadge = savedState && savedState.done
+      ? `<span style="font-size:10px;font-weight:700;color:var(--green,#1a7f37);background:var(--green-lt,#e6f4ea);border-radius:8px;padding:2px 8px">✓ 登録済み</span>`
+      : '';
     const postponeBtn = emailInboxViewMode==='postponed'
       ? `<button class="btn" style="font-size:11px" onclick="unpostponeEmailInboxItem('${m.id}')">▶ 保留を解除</button>`
       : `<button class="btn" style="font-size:11px" onclick="postponeEmailInboxItem('${m.id}')">⏸ 保留</button>`;
@@ -8991,6 +9002,7 @@ async function renderEmailInboxPage(){
           <button class="btn btn-p" id="email-inbox-send-${m.id}" style="font-size:11px" onclick="sendEmailToBooking('${m.id}')">📤 送る</button>
           <button class="btn" style="font-size:11px;color:var(--red)" onclick="if(confirm('このメールを一覧から除外しますか？')){ignoreEmailInboxItem('${m.id}')}">🗑 無視</button>
           ${postponeBtn}
+          ${registeredBadge}
         </div>
         ${suggestHtml}
         <div style="margin-top:6px">${bodyBlock}</div>
@@ -9180,9 +9192,22 @@ function _findMatchingPartner(name, nameEn){
     return cands.some(c=>targets.some(t=>t && c && (c.includes(t) || t.includes(c))));
   }) || null;
 }
+// 取引先マスタへの送信元メールid。savePartner()が成功した際、この値が
+// 設定されていれば「メールからの取引先登録フロー経由の保存」とみなし、
+// emailInboxRowStateにdone:trueを立てて一覧に「登録済み」表示を出す
+// (行自体は一覧から消さない。同じ会社から複数回連絡が来るケースがあるため)。
+let emailInboxPartnerSourceId = null;
 async function sendEmailToPartnerMaster(emailId){
   const sendBtn = document.getElementById('email-inbox-send-'+emailId);
   const origLabel = sendBtn ? sendBtn.innerHTML : '';
+  // 自社ドメイン(kictravel.jp)からの送信メールは、自社スタッフの情報であり
+  // 取引先ではないため、AI解析にすら進まず対象外とする(既存の受信箱自動除外
+  // 判定isRowOwnDomain/emailInboxSenderDomainと同じ判定方式を再利用)。
+  const row = emailInboxRawList.find(m=>m.id===emailId);
+  if(row && isRowOwnDomain(row)){
+    alert('このメールは自社スタッフの情報のため、取引先登録の対象外です。');
+    return;
+  }
   if(sendBtn){ sendBtn.disabled = true; sendBtn.innerHTML = '⏳ AI解析中...'; }
   try{
     const {data: emailRow, error: eErr} = await sb.from('email_import_queue').select('subject,body').eq('id', emailId).single();
@@ -9197,6 +9222,20 @@ async function sendEmailToPartnerMaster(emailId){
     const data = await resp.json();
     if(data.error){ alert('AI読み取りに失敗しました: '+data.error); return; }
     const p = data.partner || {};
+
+    // 送信者だけでなく、AIが抽出した会社名・担当者名・メールアドレス自体が
+    // 自社ドメインを指している場合(転送メールの署名部分を自社情報として誤抽出
+    // したケース等)も、取引先登録の対象外として中断する。
+    if(emailInboxSenderDomain(p.email) === EMAIL_INBOX_OWN_DOMAIN){
+      alert('このメールは自社スタッフの情報のため、取引先登録の対象外です。');
+      return;
+    }
+    // AIが正しく「取引先情報なし」と判定した場合(会社名・担当者名とも空)は、
+    // 空欄の登録モーダルを開かず処理を中断する。
+    if(!p.company_name && !p.company_name_en && !p.contact_person && !p.contact_person_en){
+      alert('このメールからは取引先情報を抽出できませんでした（自社スタッフ間のやり取り等の可能性があります）。');
+      return;
+    }
 
     if(!partnersCache.length) await loadPartners();
     const match = _findMatchingPartner(p.company_name, p.company_name_en);
@@ -9223,11 +9262,11 @@ async function sendEmailToPartnerMaster(emailId){
     setIfPresent('pt-notes', p.notes);
     document.getElementById('partner-modal-title').textContent += match ? '（メールから更新・確認してください）' : '（メールから新規登録・確認してください）';
 
-    const {error: updErr} = await sb.from('email_import_queue').update({imported:true}).eq('id', emailId);
-    if(updErr){ alert('取り込み済みへの更新に失敗しました: '+updErr.message); }
-    emailInboxRawList = emailInboxRawList.filter(m=>m.id!==emailId);
-    emailInboxIndex = emailInboxIndex.filter(m=>m.id!==emailId);
-    renderEmailInboxPage();
+    // 「取引先マスタ」カテゴリは、保存が完了しても一覧からは除外しない(同じ会社から
+    // 複数回連絡が来る、担当者情報が更新される等、繰り返し参照・登録し直す可能性が
+    // あるため)。email_import_queue.importedもtrueにせず、保存成功時にのみ
+    // savePartner()側でemailInboxRowStateへdone:trueを記録し「登録済み」表示にする。
+    emailInboxPartnerSourceId = emailId;
   }catch(e){
     alert('取引先マスタへの反映処理でエラーが発生しました: '+e.message);
   }finally{
@@ -16704,6 +16743,9 @@ function openPartnerEditor(id){
 }
 
 function closePartnerEditor(){
+  // 保存されずにキャンセルされた場合、次回以降の無関係な保存が誤って
+  // このメールの「登録済み」扱いにならないよう、送信元メールidをクリアする。
+  emailInboxPartnerSourceId = null;
   if(multiLocBatch){
     if(!confirm('一括登録を中止しますか？')) return;
     multiLocBatch = null;
@@ -16769,6 +16811,15 @@ const fmtPhone = s => {
   const msg = document.getElementById('pt-msg');
   msg.style.display='inline';
   await loadPartners();
+  // メール受信箱の「取引先マスタ」フローからの保存であれば、そのメール行を一覧に
+  // 残したまま「登録済み」表示にする(emailInboxPartnerSourceIdはsendEmailToPartnerMaster参照)。
+  if(emailInboxPartnerSourceId){
+    const doneId = emailInboxPartnerSourceId;
+    emailInboxPartnerSourceId = null;
+    const prevState = emailInboxRowState.get(doneId);
+    emailInboxRowState.set(doneId, {...(prevState||{}), done:true});
+    renderEmailInboxPage();
+  }
   setTimeout(()=>{ closePartnerEditor(); }, 600);
 }
 
