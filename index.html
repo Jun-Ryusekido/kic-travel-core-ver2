@@ -9375,10 +9375,14 @@ async function sendEmailToPartnerMaster(emailId){
   }
   if(sendBtn){ sendBtn.disabled = true; sendBtn.innerHTML = '⏳ AI解析中...'; }
   try{
-    const {data: emailRow, error: eErr} = await sb.from('email_import_queue').select('subject,body').eq('id', emailId).single();
+    const {data: emailRow, error: eErr} = await sb.from('email_import_queue').select('subject,body,sender').eq('id', emailId).single();
     if(eErr){ alert('メール本文の取得に失敗しました: '+eErr.message); return; }
     const subject = emailRow.subject||'';
     const body = emailRow.body||'';
+    // 送信者のメールアドレス(例: "田中太郎 <tanaka@example.com>"形式やアドレスのみの形式に対応)。
+    // AIが本文中から抽出できなかった場合のフォールバックとして使う。
+    const senderEmailMatch = String(emailRow.sender||'').match(/[\w.+-]+@[\w-]+\.[\w.-]+/);
+    const senderEmail = senderEmailMatch ? senderEmailMatch[0] : '';
 
     const resp = await fetch('/api/extract-card', {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -9421,10 +9425,14 @@ async function sendEmailToPartnerMaster(emailId){
     setIfPresent('pt-company-phone', p.company_phone);
     setIfPresent('pt-phone', p.phone);
     setIfPresent('pt-fax', p.fax);
-    setIfPresent('pt-email', p.email);
+    setIfPresent('pt-email', p.email || senderEmail);
     setIfPresent('pt-address', p.address);
     setIfPresent('pt-address-en', p.address_en);
     setIfPresent('pt-notes', p.notes);
+    if(['ホテル','レストラン','バス・ハイヤー等','その他'].includes(p.category)){
+      const catEl = document.getElementById('pt-category');
+      if(catEl) catEl.value = p.category;
+    }
     document.getElementById('partner-modal-title').textContent += match ? '（メールから更新・確認してください）' : '（メールから新規登録・確認してください）';
 
     // 「取引先マスタ」カテゴリは、保存が完了しても一覧からは除外しない(同じ会社から
@@ -16880,7 +16888,7 @@ function openPartnerEditor(id){
   currentPartnerEditId = id;
   const p = id ? partnersCache.find(x=>x.id===id) : null;
   document.getElementById('partner-modal-title').textContent = id ? '取引先編集' : '取引先登録';
-  document.getElementById('pt-category').value = p ? (p.category||'バス・ハイヤー等') : 'バス・ハイヤー等';
+  document.getElementById('pt-category').value = (p && p.category) ? p.category : 'その他';
   document.getElementById('pt-company').value = p ? (p.company_name||'') : '';
   document.getElementById('pt-company-en').value = p ? (p.company_name_en||'') : '';
   document.getElementById('pt-branch').value = p ? (p.branch_name||'') : '';
