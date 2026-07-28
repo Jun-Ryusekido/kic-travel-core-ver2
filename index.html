@@ -9028,22 +9028,24 @@ async function renderEmailInboxPage(){
   if(emailInboxViewMode==='normal'){
     classifyEmailRelevanceForRows(pageItems).then(async changed=>{
       if(changed && emailInboxViewMode==='normal'){
-        // applyEmailInboxSearch()は本来「検索語句が変わった」場合の実装で、
-        // 空語句のパスは無条件にページを1へ戻してしまう。ここは検索語句が
-        // 変わったわけではなく、裏で自動除外されたメールが一覧から消えた
-        // ことによる再描画に過ぎないため、ユーザーが手動で送ったページ番号を
-        // 極力維持する(「次へ」を押した直後にすぐ1ページ目へ戻ってしまう
-        // 不具合の対応)。
-        const pageBeforeRefresh = emailInboxPage;
+        if(_staleRender()) return; // 待機中に別の操作で新しい描画が始まっていれば何もしない
         const searchEl3 = document.getElementById('email-inbox-search');
-        await applyEmailInboxSearch(searchEl3 ? searchEl3.value.trim() : '');
-        // この待機中にユーザーがさらに別のページへ送っていた場合(_staleRender()がtrue)は、
-        // 古いこの呼び出しがユーザーの最新の操作を巻き戻してしまわないよう何もしない。
-        if(_staleRender()) return;
-        const totalPagesNow = Math.max(1, Math.ceil(emailInboxIndex.length / EMAIL_INBOX_PAGE_SIZE));
-        const restoredPage = Math.min(pageBeforeRefresh, totalPagesNow);
-        if(restoredPage !== emailInboxPage){
-          emailInboxPage = restoredPage;
+        const term = searchEl3 ? searchEl3.value.trim() : '';
+        if(term){
+          // 検索語句が入力されている場合のみ、従来通り検索の再実行に任せる
+          // (本文ILIKE検索を含む一連の処理を重複実装しないため)。
+          await applyEmailInboxSearch(term);
+        }else{
+          // 検索語句が無い通常閲覧時は、applyEmailInboxSearch('')を経由すると
+          // (本来「検索語句が変わった」場合を想定した実装のため)ページが無条件に
+          // 1へ戻ってしまう。ここは検索語句の変更ではなく、裏側の自動除外判定に
+          // よる一覧内容の更新に過ぎないため、renderEmailInboxPage()を直接呼ばず
+          // インデックスだけを再計算し、ユーザーが手動で送った現在のページ番号を
+          // (総ページ数が減っていた場合はその範囲内で)維持したまま1回だけ
+          // 再描画する(「次へ」を押した直後にすぐ1ページ目へ戻ってしまう不具合の対応)。
+          emailInboxIndex = emailInboxRawList.filter(m=>isRowVisibleForMode(m, emailInboxViewMode));
+          const totalPagesNow = Math.max(1, Math.ceil(emailInboxIndex.length / EMAIL_INBOX_PAGE_SIZE));
+          emailInboxPage = Math.min(emailInboxPage, totalPagesNow);
           await renderEmailInboxPage();
         }
       }
