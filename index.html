@@ -9276,6 +9276,23 @@ let _emailInboxRenderSeq = 0;
 function setEmailInboxPagerHtml(html){
   document.querySelectorAll('.email-inbox-pagination').forEach(el=>{ el.innerHTML = html; });
 }
+// ページネーションのHTML生成を1箇所に集約する(上部・下部の2箇所、および空件数時の
+// 表示もこの関数を経由させ、件数・ページ数の算出元(emailInboxIndex由来のtotal/totalPages)
+// が分岐しないようにする)。375px幅でも5つのボタン+件数表示が収まるよう、ボタンは
+// アイコンのみの正方形に短縮し、flex-wrapで折り返し可能にしておく。
+function emailInboxPagerHtml(page, totalPages, total){
+  const atFirst = page<=1;
+  const atLast = page>=totalPages;
+  const navBtn = (label, title, disabled, onclick) =>
+    `<button class="btn" title="${title}" style="font-size:13px;padding:5px 9px" ${disabled?'disabled':''} onclick="${onclick}">${label}</button>`;
+  return `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:center;width:100%">
+    ${navBtn('⏮','最初へ', atFirst, 'goToEmailInboxPage(1)')}
+    ${navBtn('←','前へ', atFirst, 'changeEmailInboxPage(-1)')}
+    <span style="font-size:12px;white-space:nowrap">${page} / ${totalPages} ページ（全${total}件）</span>
+    ${navBtn('→','次へ', atLast, 'changeEmailInboxPage(1)')}
+    ${navBtn('⏭','最後へ', atLast, `goToEmailInboxPage(${totalPages})`)}
+  </div>`;
+}
 async function renderEmailInboxPage(){
   const _myRenderSeq = ++_emailInboxRenderSeq;
   const _staleRender = () => _myRenderSeq !== _emailInboxRenderSeq;
@@ -9309,7 +9326,7 @@ async function renderEmailInboxPage(){
     else if(emailInboxViewMode==='autofiltered') emptyMsg = '自動除外されたメールはありません。';
     else if(emailInboxViewMode==='excluded') emptyMsg = '対象外のメールはありません。';
     el.innerHTML = '<div style="font-size:12px;color:var(--text3);padding:8px 0">'+emptyMsg+'</div>';
-    setEmailInboxPagerHtml('');
+    setEmailInboxPagerHtml(emailInboxPagerHtml(1, 1, 0));
     return;
   }
   const totalPages = Math.max(1, Math.ceil(total / EMAIL_INBOX_PAGE_SIZE));
@@ -9414,20 +9431,7 @@ async function renderEmailInboxPage(){
     </div>`;
   }).join('');
 
-  {
-    // 「全N件」「M / Nページ」「最後へ」は、母数の算出方法がブラウザ側のフィルタ実装に
-    // 依存し根拠を説明しにくいため表示しない。次ページの有無は「このページ分より多く
-    // 取得できたか(=次のインデックスにまだ行があるか)」のみで判定する(1ページ分だけ
-    // 追加取得して確認するのと等価。全件は既にemailInboxIndexにメモリ上あるため)。
-    const atFirst = emailInboxPage<=1;
-    const hasNext = startIdx + EMAIL_INBOX_PAGE_SIZE < total;
-    setEmailInboxPagerHtml(`
-      <button class="btn" style="font-size:11px" ${atFirst?'disabled':''} onclick="goToEmailInboxPage(1)">⏮ 最初へ</button>
-      <button class="btn" style="font-size:11px" ${atFirst?'disabled':''} onclick="changeEmailInboxPage(-1)">← 前へ</button>
-      <span>${emailInboxPage}ページ目</span>
-      <button class="btn" style="font-size:11px" ${hasNext?'':'disabled'} onclick="changeEmailInboxPage(1)">次へ →</button>
-    `);
-  }
+  setEmailInboxPagerHtml(emailInboxPagerHtml(emailInboxPage, totalPages, total));
 
   // 表示したページのメールについて「手配業務関連かどうか」を後追いで判定し、
   // 無関係と判定されたメールがあれば一覧から自動除外枠へ移す(通常表示のときのみ)。
