@@ -3507,6 +3507,10 @@ async function guideSettlementItemsApiCall(action, payload){ return tableCrudApi
 async function businessPartnersApiCall(action, payload){ return tableCrudApiCall('business_partners', action, payload); }
 async function agentsApiCall(action, payload){ return tableCrudApiCall('agents', action, payload); }
 async function guidesApiCall(action, payload){ return tableCrudApiCall('guides', action, payload); }
+// bookings(予約本体)への書き込み(セキュリティ移行フェーズ3)。読み取り(select)は
+// 従来通りsb.from('bookings')の直接呼び出しのまま変更しない(一覧表示・ダッシュボード・
+// メールマッチング等、影響範囲が広いためロールアウトのリスクを最小化する)。
+async function bookingsApiCall(action, payload){ return tableCrudApiCall('bookings', action, payload); }
 async function bookingCostsApiCall(action, payload){ return tableCrudApiCall('booking_costs', action, payload); }
 
 let bdLocalExpenses = [];
@@ -3817,8 +3821,8 @@ async function toggleBookingLock(){
   if(!confirm('この予約の売上・仕入明細を確定（編集不可）にします。よろしいですか？\n（解除は管理者のみ行えます）')) return;
 
   const payload = {locked:true, locked_at: new Date().toISOString(), locked_by: currentUser?currentUser.email:null};
-  const {error} = await sb.from('bookings').update(payload).eq('id', b.id);
-  if(error){ alert('更新に失敗しました: '+error.message); return; }
+  try{ await bookingsApiCall('updateById', { id: b.id, fields: payload }); }
+  catch(e){ alert('更新に失敗しました: '+e.message); return; }
   Object.assign(b, payload);
   bdLocked = true;
   await logAction('売上仕入を確定', b.ref_no);
@@ -3834,8 +3838,8 @@ async function unlockBooking(){
   if(!confirm('この予約の売上・仕入明細のロックを解除します。よろしいですか？')) return;
 
   const payload = {locked:false, locked_at:null, locked_by:null};
-  const {error} = await sb.from('bookings').update(payload).eq('id', b.id);
-  if(error){ alert('更新に失敗しました: '+error.message); return; }
+  try{ await bookingsApiCall('updateById', { id: b.id, fields: payload }); }
+  catch(e){ alert('更新に失敗しました: '+e.message); return; }
   Object.assign(b, payload);
   bdLocked = false;
   await logAction('売上仕入のロックを解除', b.ref_no);
@@ -5808,8 +5812,7 @@ async function deleteBookingData(){
     await bookingCostsApiCall('deleteByBooking', { bookingId: b.id });
 
     // 予約本体
-    const {error} = await sb.from('bookings').delete().eq('id', b.id);
-    if(error) throw error;
+    await bookingsApiCall('deleteById', { id: b.id });
 
     await logAction('予約データ削除', refNo);
     alert(`${refNo} のデータを削除しました。`);
@@ -6651,7 +6654,7 @@ async function reflectVoucherToCost(settlementId, guideIndex){
   if(error){ alert('反映に失敗しました: '+error.message); return; }
   const {data: allCosts} = await sb.from('booking_costs').select('amount').eq('booking_id', b.id);
   const newGrossCost = (allCosts||[]).reduce((sum,c)=>sum+Number(c.amount||0),0);
-  await sb.from('bookings').update({gross_cost:newGrossCost, updated_at:new Date().toISOString()}).eq('id', b.id);
+  await bookingsApiCall('updateById', { id: b.id, fields: {gross_cost:newGrossCost, updated_at:new Date().toISOString()} });
   b.gross_cost = newGrossCost;
   await logAction('伝票内容を仕入明細に反映', b.ref_no);
   const {data: costRows} = await sb.from('booking_costs').select('*').eq('booking_id', b.id).order('created_at');
@@ -6685,7 +6688,7 @@ async function reflectCheckedGuideItems(settlementId){
   await guideSettlementItemsApiCall('updateByIds', { ids: targets.map(it=>it.id), fields: {reflected:true} });
   const {data: allCosts} = await sb.from('booking_costs').select('amount').eq('booking_id', b.id);
   const newGrossCost = (allCosts||[]).reduce((sum,c)=>sum+Number(c.amount||0),0);
-  await sb.from('bookings').update({gross_cost:newGrossCost, updated_at: new Date().toISOString()}).eq('id', b.id);
+  await bookingsApiCall('updateById', { id: b.id, fields: {gross_cost:newGrossCost, updated_at: new Date().toISOString()} });
   b.gross_cost = newGrossCost;
   await logAction('ガイド精算→仕入明細反映（選択）', b.ref_no+' / '+targets.length+'件');
   const {data: costRows} = await sb.from('booking_costs').select('*').eq('booking_id', b.id).order('created_at');
@@ -6759,7 +6762,7 @@ async function reflectGuideItems(settlementId){
   // gross_costを再計算
   const {data: allCosts} = await sb.from('booking_costs').select('amount').eq('booking_id', b.id);
   const newGrossCost = (allCosts||[]).reduce((sum,c)=>sum+Number(c.amount||0),0);
-  await sb.from('bookings').update({gross_cost:newGrossCost, updated_at: new Date().toISOString()}).eq('id', b.id);
+  await bookingsApiCall('updateById', { id: b.id, fields: {gross_cost:newGrossCost, updated_at: new Date().toISOString()} });
   b.gross_cost = newGrossCost;
 
   await logAction('ガイド精算→仕入明細反映', b.ref_no + ' / ' + targets.length + '件');
@@ -12165,9 +12168,12 @@ async function saveBookingDetail(){
   const saveBtnOrigHtml = saveBtns.map(b=>b.innerHTML);
   saveBtns.forEach(b=>{ b.disabled = true; b.innerHTML = '⏳ 保存中...'; });
   try {
-    // .select()を付けることで更新が実際に反映されたか検証（v2はselect()なしだと0行更新でもerror:nullを返す）
-    const {data: updatedRows, error} = await sb.from('bookings').update(payload).eq('id', bookingId).select();
-    if(error){ alert('保存に失敗しました: '+error.message); return; }
+    // 更新後の行を返してもらい、実際に反映されたか(0件更新でないか)を検証する
+    let updatedRows;
+    try{
+      const result = await bookingsApiCall('updateById', { id: bookingId, fields: payload });
+      updatedRows = result.rows;
+    }catch(e){ alert('保存に失敗しました: '+e.message); return; }
     if(!updatedRows || updatedRows.length === 0){
       alert('保存に失敗しました: 更新対象の予約が見つかりませんでした。ページを再読み込みして再度お試しください。');
       return;
@@ -12289,8 +12295,8 @@ async function saveBooking(){
     gross_cost: Number(document.getElementById('nb-cost').value)||0,
     status: document.getElementById('nb-status').value
   };
-  const {error} = await sb.from('bookings').insert(payload);
-  if(error){ alert('保存に失敗しました: '+error.message); return; }
+  try{ await bookingsApiCall('insert', { rows: [payload] }); }
+  catch(e){ alert('保存に失敗しました: '+e.message); return; }
 
   await logAction('予約入力', ref);
   document.getElementById('nb-msg').style.display='inline';
@@ -14372,7 +14378,7 @@ async function saveCostFromOcr(count){
     bdCostItems.push({item_name: it.item_name, amount: it.amount, payment_date: it.payment_date, memo: it.memo});
   }
   const newGrossCost = bdCostItems.reduce((s,it)=>s+Number(it.amount||0),0);
-  await sb.from('bookings').update({gross_cost: newGrossCost, updated_at: new Date().toISOString()}).eq('id', currentDetailId);
+  await bookingsApiCall('updateById', { id: currentDetailId, fields: {gross_cost: newGrossCost, updated_at: new Date().toISOString()} });
   const bk = findBookingById(currentDetailId);
   if(bk) bk.gross_cost = newGrossCost;
   renderCostTable();
@@ -14663,7 +14669,7 @@ async function saveInvoiceConfirm(){
       renderCostTable();
       updateDetailGrossPreview();
       const newGross = bdCostItems.reduce((s,it)=>s+Number(it.amount||0),0);
-      await sb.from('bookings').update({gross_cost:newGross, updated_at:new Date().toISOString()}).eq('id',currentDetailId);
+      await bookingsApiCall('updateById', { id: currentDetailId, fields: {gross_cost:newGross, updated_at:new Date().toISOString()} });
       const bk=findBookingById(currentDetailId); if(bk) bk.gross_cost=newGross;
     }
   }
@@ -17356,7 +17362,7 @@ async function generateInvoice(bookingId, currency, agentFilter){
   if(error){ alert('Invoice発行に失敗しました: '+error.message); return; }
 
   // 予約ステータスを invoiced に更新
-  await sb.from('bookings').update({status:'invoiced'}).eq('id', bookingId);
+  await bookingsApiCall('updateById', { id: bookingId, fields: {status:'invoiced'} });
   await logAction('Invoice発行', invoiceNo + ' (' + booking.ref_no + (agentFilter?(' / '+agentFilter):'') + ')');
 
   await loadInvoicePage();

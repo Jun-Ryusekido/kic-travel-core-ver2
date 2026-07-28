@@ -61,6 +61,14 @@ const TABLE_CONFIG = {
     actions: ['insert', 'insertReturning', 'updateById', 'deleteById'],
     label: 'ガイドマスタ',
   },
+  // bookings(予約本体): フェーズ3。他の全テーブルから参照される中核テーブルのため、
+  // 今回は書き込み(insert/updateById/deleteById)のみをservice_role経由に移行し、
+  // 読み取り(select、一覧表示・ダッシュボード・メールマッチング等)はこれまで通り
+  // anon+RLSのまま変更しない(rollout時のリスクを最小化するため)。
+  bookings: {
+    actions: ['insert', 'updateById', 'deleteById'],
+    label: '予約',
+  },
 };
 
 function sbFetch(table, path, opts = {}) {
@@ -223,12 +231,15 @@ async function doParkingDelete(table, id) {
 async function doUpdateById(table, label, id, fields) {
   if (!id) return { status: 400, body: { error: 'idが指定されていません' } };
   if (!fields || typeof fields !== 'object') return { status: 400, body: { error: '更新内容が指定されていません' } };
-  const r = await sbFetch(table, `?id=eq.${encodeURIComponent(id)}`, { method: 'PATCH', prefer: 'return=minimal', body: JSON.stringify(fields) });
+  // return=representationにして更新後の行を返す。呼び出し元(bookings.saveBookingDetail等)が
+  // 「更新対象の行が実際に存在したか(0件更新でないか)」を判定するために使う。
+  const r = await sbFetch(table, `?id=eq.${encodeURIComponent(id)}`, { method: 'PATCH', prefer: 'return=representation', body: JSON.stringify(fields) });
   if (!r.ok) {
     const e = await readJsonSafe(r);
     return { status: 500, body: { error: withGrantHint(e.message, table) || `${label}の更新に失敗しました` } };
   }
-  return { status: 200, body: { ok: true } };
+  const updatedRows = await r.json();
+  return { status: 200, body: { ok: true, rows: updatedRows } };
 }
 
 async function doUpdateByIds(table, label, ids, fields) {
