@@ -7634,26 +7634,29 @@ function previewEstimation(){
   const _PV_FIX = '#F5F5F5';
   const _totalTd = (v, bg) => `<td style="border:1px solid #999;padding:4px;text-align:right;font-weight:600;white-space:nowrap${bg?`;background:${bg}`:''};">${yen(v)}</td>`;
   const _emptyTd = `<td style="border:1px solid #999;padding:4px"></td>`;
+  // 各セルは折り返さず1行に収める(white-space:nowrap)。列幅は固定(colgroup)のため、
+  // 内容が幅を超える場合は印刷プレビュー表示直前にpvAutoFitCellFonts()がセル単位で
+  // フォントサイズを段階的に縮小する(内容の途中省略(...)はしない)。
   const _pvRow = (label, fn, key, pvBg) => {
     const totalCell = key!=null ? _totalTd(estDays.reduce((s,d)=>s+(Number(d[key])||0),0), pvBg) : _emptyTd;
     const lblBg = pvBg || '#f5f7fa';
     const cellAlign = key!=null ? 'right' : 'center';
-    return `<tr${pvBg?` style="background:${pvBg}"`:''}><td style="border:1px solid #999;padding:4px;font-weight:700;background:${lblBg};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${label}</td>${estDays.map(d=>`<td style="border:1px solid #999;padding:4px;text-align:${cellAlign}">${fn(d)}</td>`).join('')}${totalCell}</tr>`;
+    return `<tr${pvBg?` style="background:${pvBg}"`:''}><td style="border:1px solid #999;padding:4px;font-weight:700;background:${lblBg};white-space:nowrap">${label}</td>${estDays.map(d=>`<td style="border:1px solid #999;padding:4px;text-align:${cellAlign};white-space:nowrap">${fn(d)}</td>`).join('')}${totalCell}</tr>`;
   };
   const _pvFixedRows = (sec) => {
     return estFixedRows.filter(r=>(r.section||'hotel')===sec).map((row)=>{
       const total = (row.amounts||[]).reduce((s,a)=>s+(Number(a)||0),0);
-      return `<tr style="background:${_PV_FIX}"><td style="border:1px solid #999;padding:4px;font-weight:700;background:${_PV_FIX};white-space:nowrap">${escHtml(row.label)}</td>${estDays.map((d,i)=>`<td style="border:1px solid #999;padding:4px;text-align:right">${yen((row.amounts||[])[i]||0)}</td>`).join('')}${_totalTd(total, _PV_FIX)}</tr>`;
+      return `<tr style="background:${_PV_FIX}"><td style="border:1px solid #999;padding:4px;font-weight:700;background:${_PV_FIX};white-space:nowrap">${escHtml(row.label)}</td>${estDays.map((d,i)=>`<td style="border:1px solid #999;padding:4px;text-align:right;white-space:nowrap">${yen((row.amounts||[])[i]||0)}</td>`).join('')}${_totalTd(total, _PV_FIX)}</tr>`;
     }).join('');
   };
 
   let admissionPreviewRows = '';
   estAdmissionRows.forEach((row,k)=>{
     const label = k===0 ? '入場料' : '入場料'+(k+1);
-    const remarkStr = row.remark ? `：<span style="font-size:9px;font-weight:400;color:#555">${escHtml(row.remark)}</span>` : '';
+    const remarkStr = row.remark ? `：<span style="font-size:9px;font-weight:400;color:#555;white-space:nowrap">${escHtml(row.remark)}</span>` : '';
     const total = (row.amounts||[]).reduce((s,a)=>s+(Number(a)||0),0);
     const cts = row.contents||[];
-    admissionPreviewRows += `<tr style="background:${_PV_PAX}"><td style="border:1px solid #999;padding:4px;font-weight:700;background:${_PV_PAX};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${label}${remarkStr}</td>${estDays.map((d,i)=>{const amt=(row.amounts||[])[i]||0;const c=cts[i]||'';return `<td style="border:1px solid #999;padding:4px;text-align:right">${c?`${yen(amt)}<br><span class="pv-remark" style="color:#888;font-size:8px">${escHtml(c)}</span>`:yen(amt)}</td>`;}).join('')}${_totalTd(total, _PV_PAX)}</tr>`;
+    admissionPreviewRows += `<tr style="background:${_PV_PAX}"><td style="border:1px solid #999;padding:4px;font-weight:700;background:${_PV_PAX};white-space:nowrap">${label}${remarkStr}</td>${estDays.map((d,i)=>{const amt=(row.amounts||[])[i]||0;const c=cts[i]||'';return `<td style="border:1px solid #999;padding:4px;text-align:right;white-space:nowrap">${c?`${yen(amt)}<br><span class="pv-remark" style="color:#888;font-size:8px;white-space:nowrap">${escHtml(c)}</span>`:yen(amt)}</td>`;}).join('')}${_totalTd(total, _PV_PAX)}</tr>`;
   });
 
   const bodyRows = [
@@ -7680,8 +7683,8 @@ function previewEstimation(){
   let resultTableHtml;
   if(currentEstType === 'fit'){
     const r = results[0] || {pax:0, subtotal:0, paxLinked:0, fixedTotal:0, handling:0, insurance:0, total:0, perPax:0};
-    const td2 = (a, b) => `<tr><td style="border:1px solid #999;padding:5px;font-weight:700;background:#f5f7fa;white-space:nowrap">${a}</td><td style="border:1px solid #999;padding:5px;text-align:right">${b}</td></tr>`;
-    const td2sm = (a, b) => `<tr><td style="border:1px solid #999;padding:3px 5px 3px 14px;font-size:9px;color:#555;background:#f9f9f9">${a}</td><td style="border:1px solid #999;padding:3px 5px;text-align:right;font-size:9px;color:#555;background:#f9f9f9">${b}</td></tr>`;
+    const td2 = (a, b) => `<tr><td style="border:1px solid #999;padding:5px;font-weight:700;background:#f5f7fa;white-space:nowrap">${a}</td><td style="border:1px solid #999;padding:5px;text-align:right;white-space:nowrap">${b}</td></tr>`;
+    const td2sm = (a, b) => `<tr><td style="border:1px solid #999;padding:3px 5px 3px 14px;font-size:9px;color:#555;background:#f9f9f9;white-space:nowrap">${a}</td><td style="border:1px solid #999;padding:3px 5px;text-align:right;font-size:9px;color:#555;background:#f9f9f9;white-space:nowrap">${b}</td></tr>`;
     resultTableHtml = `<div class="tbl-wrap"><table style="width:280px;border-collapse:collapse;font-size:11px;margin-bottom:10px">
       <tbody>
         ${td2('人数', r.pax+'名')}
@@ -7690,14 +7693,14 @@ function previewEstimation(){
         ${td2sm('└ 固定費 合計', yen(r.fixedTotal))}
         ${td2(`ハンドリング料 (${handlingPct}%)`, yen(r.handling))}
         ${td2(`保険料 (¥${insurancePerPax.toLocaleString()}/名)`, yen(r.insurance))}
-        <tr style="background:#EAF3DE"><td style="border:1px solid #999;padding:5px;font-weight:700;background:#EAF3DE;white-space:nowrap">Total</td><td style="border:1px solid #999;padding:5px;text-align:right;font-weight:700">${yen(r.total)}</td></tr>
-        <tr style="background:#EAF3DE"><td style="border:1px solid #999;padding:5px;font-weight:700;background:#EAF3DE;white-space:nowrap">Total / Pax</td><td style="border:1px solid #999;padding:5px;text-align:right;font-weight:700">${yen(Math.round(r.perPax))}</td></tr>
+        <tr style="background:#EAF3DE"><td style="border:1px solid #999;padding:5px;font-weight:700;background:#EAF3DE;white-space:nowrap">Total</td><td style="border:1px solid #999;padding:5px;text-align:right;font-weight:700;white-space:nowrap">${yen(r.total)}</td></tr>
+        <tr style="background:#EAF3DE"><td style="border:1px solid #999;padding:5px;font-weight:700;background:#EAF3DE;white-space:nowrap">Total / Pax</td><td style="border:1px solid #999;padding:5px;text-align:right;font-weight:700;white-space:nowrap">${yen(Math.round(r.perPax))}</td></tr>
       </tbody></table></div>`;
   } else {
     const selVal = document.getElementById('est-selected-tier').value;
     const selIdx = selVal==='' ? -1 : Number(selVal);
     const resHead = `<tr><th style="border:1px solid #999;padding:5px;background:#f5f7fa"></th>${results.map((r,i)=>`<th style="border:1px solid #999;padding:5px;white-space:nowrap;background:#f5f7fa${i===selIdx?';background:#EAF3DE':''}">${escHtml(r.label)} (${r.pax}名)</th>`).join('')}</tr>`;
-    const resRow = (label, key, fmt) => `<tr><td style="border:1px solid #999;padding:5px;font-weight:700;background:#f5f7fa">${label}</td>${results.map((r,i)=>`<td style="border:1px solid #999;padding:5px;text-align:right${i===selIdx?';background:#EAF3DE':''}">${fmt(r[key])}</td>`).join('')}</tr>`;
+    const resRow = (label, key, fmt) => `<tr><td style="border:1px solid #999;padding:5px;font-weight:700;background:#f5f7fa;white-space:nowrap">${label}</td>${results.map((r,i)=>`<td style="border:1px solid #999;padding:5px;text-align:right;white-space:nowrap${i===selIdx?';background:#EAF3DE':''}">${fmt(r[key])}</td>`).join('')}</tr>`;
     resultTableHtml = `<div class="tbl-wrap"><table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:10px">
       <thead>${resHead}</thead>
       <tbody>
@@ -7739,9 +7742,10 @@ body{margin:0;font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Meiryo",s
   .pv-hd{display:none}
   body{background:#fff}
   table{border-collapse:collapse !important;table-layout:fixed !important;width:auto !important}
-  td,th{border:1px solid #999 !important;padding:3px 5px !important;font-size:10px !important;line-height:1.4 !important;vertical-align:top !important}
-  td *,th *{font-size:10px !important}
-  td .pv-remark,th .pv-remark{font-size:8px !important}
+  /* font-sizeは強制せず、pvAutoFitCellFonts()がセル単位で計算したinline指定(1行に収まる
+     よう段階的に縮小したもの)をそのまま印刷にも反映させる(画面と印刷でセルの実サイズが
+     一致する固定px幅レイアウトのため、印刷時だけ別途縮小し直す必要はない)。 */
+  td,th{border:1px solid #999 !important;padding:3px 5px !important;line-height:1.4 !important;vertical-align:top !important;white-space:nowrap !important}
   .tbl-wrap{overflow:visible !important;margin-bottom:6px !important}
   .tbl-wrap+.tbl-wrap{page-break-inside:avoid}
   .pv-body{padding:0}
@@ -7756,7 +7760,25 @@ body{margin:0;font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Meiryo",s
   </span>
 </div>
 <div class="pv-body">`;
-  const winFoot = `</div></body></html>`;
+  // 各セルはwhite-space:nowrapで折り返しを禁止しているため、列幅(colgroupで固定)より
+  // 内容が長い場合はセル単位でフォントサイズを1pxずつ段階的に縮小し、途中で省略(...)
+  // せずに1行へ収める(画面表示・印刷/PDF保存のいずれでも同じロジックで実行する)。
+  const autoFitScript = `<script>
+    function pvAutoFitCellFonts(){
+      document.querySelectorAll('.pv-body table td, .pv-body table th').forEach(function(cell){
+        var size = parseFloat(getComputedStyle(cell).fontSize) || 11;
+        var guard = 0;
+        while(cell.scrollWidth > cell.clientWidth && size > 6 && guard < 20){
+          size -= 1;
+          cell.style.fontSize = size + 'px';
+          guard++;
+        }
+      });
+    }
+    window.addEventListener('load', pvAutoFitCellFonts);
+    window.addEventListener('beforeprint', pvAutoFitCellFonts);
+  <\/script>`;
+  const winFoot = `</div>${autoFitScript}</body></html>`;
   const w = window.open('', '_blank');
   w.document.write(winHead + html + winFoot);
   w.document.close();
