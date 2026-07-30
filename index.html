@@ -4444,22 +4444,17 @@ function parseNum(str){
 }
 
 function bdSalesRowCalc(i, el, field){
-  // 「人数」はInvoice表示用の参考情報(Access版フォーマットの単価/人数/数量欄に対応)であり、
-  // 金額計算には影響させない(金額は従来通り 単価×数量。人数を掛けると既存の全予約の
-  // 金額計算が変わってしまうため、表示レイアウト変更の範囲を超える)。
+  // 金額 = 単価×人数×数量
   if(field==='pax'){
     bdSalesItems[i].pax = Number(el.value)||1;
-    updateDetailGrossPreview();
-    return;
-  }
-  if(field==='qty'){
+  }else if(field==='qty'){
     bdSalesItems[i].qty = Number(el.value)||0;
   }else{
     const v = parseNum(el.value);
     bdSalesItems[i].unit_price = v;
     el.value = v.toLocaleString('ja-JP');
   }
-  bdSalesItems[i].amount = (Number(bdSalesItems[i].unit_price)||0) * (Number(bdSalesItems[i].qty)||1);
+  bdSalesItems[i].amount = (Number(bdSalesItems[i].unit_price)||0) * (Number(bdSalesItems[i].pax)||1) * (Number(bdSalesItems[i].qty)||1);
   document.getElementById('bd-sales-amt-'+i).textContent = yen(bdSalesItems[i].amount);
   updateDetailGrossPreview();
 }
