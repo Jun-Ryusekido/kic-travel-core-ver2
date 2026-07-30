@@ -3288,17 +3288,13 @@ function bkTourLabel(bk){
   return bk.tour_code || '';
 }
 
-// 「対応が必要な予約」ページ(pg-todo。サイドバー項目は無く、画面上部の赤いバナークリックの
-// みが入口)：観光施設・バス駐車場等の対応期限を持つ全件を、既存のステータス区分(期限当日・
-// 超過/前日/3日以内/7日以内/それ以降)ごとの件数のみを表示する要約ビューをデフォルトとし、
-// 「すべて表示」ボタンを押すと、区分・施設名によるグループ化を一切行わず全件(未完了+完了済み)
-// を対応期限日順の個別REF#明細としてそのまま一覧表示するフラットビューに切り替える。
-// 以前あった区分ごとのクリック展開・完了済みセクションのクリック展開は廃止し、
-// 「すべて表示」⇔「区分別表示に戻る」の1つのページ全体トグルに一本化した。
+// 「対応が必要な予約」ページ(pg-todo。サイドバー項目は無く、画面上部の赤いバナークリック・
+// ダッシュボードの「すべて表示」ボタンのみが入口)：区分別の件数サマリーだけを表示する
+// 中間ページは情報量が無く不要と判断し廃止した。観光施設・バス駐車場等の対応期限を持つ
+// 全件(未完了+完了済み)を、区分・施設名によるグループ化を一切行わず対応期限日順の
+// 個別REF#明細としてそのまま一覧表示する(以前の「すべて表示」ボタンで切り替えていた
+// フラットビューを、このページの唯一の内容にした)。
 let todoPageDataCache = null;
-let todoFlatViewActive = false;
-function showTodoFlatView(){ todoFlatViewActive = true; renderTodoPageFromCache(); }
-function showTodoGroupedView(){ todoFlatViewActive = false; renderTodoPageFromCache(); }
 
 // ダッシュボードに常時表示する「対応が必要な予約」の簡易サマリー。期限当日・超過分
 // (対応リストページの🔴期限当日・超過バケットと同じ範囲)のみを対象に、施設名グループ化は
@@ -3339,9 +3335,9 @@ async function renderDashboardTodoSummary(){
 async function renderTodoPage(){
   const el = document.getElementById('todo-page-list');
   if(!el) return;
-  const {bucketsFull, completed, incompleteAll, error} = await fetchFacilityDeadlineItems(null);
+  const {completed, incompleteAll, error} = await fetchFacilityDeadlineItems(null);
   if(error){ el.innerHTML = '<div style="color:var(--red);font-size:12px">読み込みエラー: '+escHtml(error.message)+'</div>'; return; }
-  todoPageDataCache = {bucketsFull, completed, incompleteAll};
+  todoPageDataCache = {completed, incompleteAll};
   renderTodoPageFromCache();
 }
 
@@ -3366,7 +3362,7 @@ async function deleteFacilityTodoItem(facilityId, facilityName, refNo, deadlineD
 function renderTodoPageFromCache(){
   const el = document.getElementById('todo-page-list');
   if(!el || !todoPageDataCache) return;
-  const {bucketsFull, completed, incompleteAll} = todoPageDataCache;
+  const {completed, incompleteAll} = todoPageDataCache;
   if((!incompleteAll || incompleteAll.length===0) && (!completed || completed.length===0)){
     el.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:4px 0">対応期限日が設定されている観光施設・バス駐車場等予約はありません。</div>';
     return;
@@ -3410,54 +3406,21 @@ function renderTodoPageFromCache(){
       <col style="width:20%"><col style="width:10%"><col style="width:8%"><col style="width:8%">
     </colgroup>`;
 
-  if(todoFlatViewActive){
-    // 「すべて表示」：区分・施設名によるグループ化を一切行わず、未完了+完了済みの全件を
-    // 対応期限日順の個別REF#明細としてそのまま表示する(30日超経過した完了済みの間引きも
-    // このビューでは行わない＝文字通り「全件」)。
-    const allFlat = [...incompleteAll, ...completed]
-      .sort((a,b)=>(a.deadline_date||'').localeCompare(b.deadline_date||''));
-    const flatRows = allFlat.map(f=>todoRow(f, tierFgForDays(f._days), !!f.deadline_completed)).join('');
-    el.innerHTML = `
-      <div style="margin-bottom:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <button class="btn" onclick="showTodoGroupedView()">← 区分別表示に戻る</button>
-        <span style="font-size:11px;color:var(--text3)">全${allFlat.length}件を対応期限日順に表示中</span>
-      </div>
-      <div class="tbl-wrap"><table class="confirm-table" style="width:100%;border-collapse:collapse;font-size:12px">
-        ${colgroupHtml}${theadHtml}
-        <tbody>${flatRows}</tbody>
-      </table></div>`;
-    return;
-  }
-
-  // デフォルトの区分別サマリー表示：区分(🔴期限当日・超過／🟠期限前日／…／📅それ以降)・
-  // 完了済みそれぞれの件数のみを示す静的な見出し行を並べる。以前あった区分ごとの
-  // クリック展開は廃止し(個別明細を見るには「すべて表示」ボタンを使う)、見出しは
-  // クリックしても何も起こらない単なる件数サマリーとして扱う。
-  const bucketRows = bucketsFull.map(b=>{
-    if(b.items.length === 0) return '';
-    return `<tr class="section-row">
-      <td colspan="7" style="padding:6px 8px 4px;background:${b.bg};border-top:2px solid ${b.border}">
-        <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:${b.fg}">
-          ${b.label} <span style="background:rgba(0,0,0,.09);padding:1px 7px;border-radius:10px">${b.items.length}件</span>
-        </span>
-      </td>
-    </tr>`;
-  }).join('');
-  const completedHd = completed.length ? `<tr class="section-row">
-      <td colspan="7" style="padding:6px 8px 4px;background:#f2f2f2;border-top:2px solid #ddd">
-        <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:#666">
-          ✅ 完了済み <span style="background:rgba(0,0,0,.09);padding:1px 7px;border-radius:10px">${completed.length}件</span>
-        </span>
-      </td>
-    </tr>` : '';
-
+  // 区分・施設名によるグループ化を一切行わず、未完了+完了済みの全件を対応期限日順の
+  // 個別REF#明細としてそのまま表示する(30日超経過した完了済みの間引きも行わない＝
+  // 文字通り「全件」)。中間の区分別サマリーページは廃止したため、このページを開いた
+  // 時点で常にこの一覧を表示する。
+  const allFlat = [...incompleteAll, ...completed]
+    .sort((a,b)=>(a.deadline_date||'').localeCompare(b.deadline_date||''));
+  const flatRows = allFlat.map(f=>todoRow(f, tierFgForDays(f._days), !!f.deadline_completed)).join('');
   el.innerHTML = `
-    <div style="margin-bottom:10px">
-      <button class="btn btn-p" onclick="showTodoFlatView()">すべて表示</button>
+    <div style="margin-bottom:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <button class="btn" onclick="go('dashboard')">← ダッシュボードに戻る</button>
+      <span style="font-size:11px;color:var(--text3)">全${allFlat.length}件を対応期限日順に表示中</span>
     </div>
     <div class="tbl-wrap"><table class="confirm-table" style="width:100%;border-collapse:collapse;font-size:12px">
       ${colgroupHtml}${theadHtml}
-      <tbody>${bucketRows}${completedHd}</tbody>
+      <tbody>${flatRows}</tbody>
     </table></div>`;
 }
 
