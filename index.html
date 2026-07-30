@@ -3290,23 +3290,15 @@ function bkTourLabel(bk){
 
 // 「対応が必要な予約」ページ(pg-todo。サイドバー項目は無く、画面上部の赤いバナークリックの
 // みが入口)：観光施設・バス駐車場等の対応期限を持つ全件を、既存のステータス区分(期限当日・
-// 超過/前日/3日以内/7日以内/それ以降)ごとに分けたうえで、さらに施設名でグループ化して表示する。
-// グループは初期状態で折りたたみ(件数のみ表示)、クリックで個別REF#明細を展開する
-// (展開後の行の内容・チェックボックス・完了操作は従来のダッシュボード埋め込み版と同一)。
-// 完了済みセクションはデフォルト折りたたみ、対応期限日から30日以上経過した完了済み項目は
-// 表示上のみ間引く（データは削除しない）。運用が続くほど完了済みが際限なく増えるのを防ぐため。
-let todoCompletedExpanded = false;
+// 超過/前日/3日以内/7日以内/それ以降)ごとの件数のみを表示する要約ビューをデフォルトとし、
+// 「すべて表示」ボタンを押すと、区分・施設名によるグループ化を一切行わず全件(未完了+完了済み)
+// を対応期限日順の個別REF#明細としてそのまま一覧表示するフラットビューに切り替える。
+// 以前あった区分ごとのクリック展開・完了済みセクションのクリック展開は廃止し、
+// 「すべて表示」⇔「区分別表示に戻る」の1つのページ全体トグルに一本化した。
 let todoPageDataCache = null;
-// 区分(🔴期限当日・超過／🟠期限前日／…／📅それ以降)の展開状態(キー: bucketsFull配列の
-// index)。施設名グループ化を廃止したことに伴い、以前グループ単位で持っていた開閉状態を
-// 区分単位に置き換えたもの。ページ内では再描画のたびに同じindexが再生成されるため、
-// Setで単純に開閉を保持できる。
-window._todoExpandedBuckets = window._todoExpandedBuckets || new Set();
-function toggleTodoBucket(bIdx){
-  if(window._todoExpandedBuckets.has(bIdx)) window._todoExpandedBuckets.delete(bIdx);
-  else window._todoExpandedBuckets.add(bIdx);
-  renderTodoPageFromCache();
-}
+let todoFlatViewActive = false;
+function showTodoFlatView(){ todoFlatViewActive = true; renderTodoPageFromCache(); }
+function showTodoGroupedView(){ todoFlatViewActive = false; renderTodoPageFromCache(); }
 
 // ダッシュボードに常時表示する「対応が必要な予約」の簡易サマリー。期限当日・超過分
 // (対応リストページの🔴期限当日・超過バケットと同じ範囲)のみを対象に、施設名グループ化は
@@ -3353,11 +3345,6 @@ async function renderTodoPage(){
   renderTodoPageFromCache();
 }
 
-function toggleTodoCompletedSection(){
-  todoCompletedExpanded = !todoCompletedExpanded;
-  renderTodoPageFromCache();
-}
-
 // 個別のToDo項目を削除（＝対応期限のトラッキング対象から外す）。施設予約データ自体
 // （施設名・日付・金額等）は削除しない。他担当者の完了記録を誤って一括で消してしまう
 // リスクを避けるため、削除ボタンは常に対象1件のみ・実データを表示した確認ダイアログ経由に限定する。
@@ -3385,11 +3372,6 @@ function renderTodoPageFromCache(){
     return;
   }
 
-  const today = new Date(); today.setHours(0,0,0,0);
-  const daysSinceDeadline = dateStr => Math.floor((today - new Date(dateStr+'T00:00:00')) / 86400000);
-  // 対応期限日から30日以上経過した完了済み項目は、表示上のみ間引く（データは保持、展開時にも出さない）
-  const visibleCompleted = completed.filter(f=>!f.deadline_date || daysSinceDeadline(f.deadline_date) < 30);
-
   const todoRow = (f, tierFg, done) => {
     const bk = f._booking || {};
     const dLabel = done ? '' : (f._days < 0 ? `期限超過${-f._days}日` : (f._days===0 ? '本日' : `あと${f._days}日`));
@@ -3407,43 +3389,14 @@ function renderTodoPageFromCache(){
       </td>
     </tr>`;
   };
+  // フラットビュー(すべて表示)で使う、区分の色分けだけをdaysから求めるヘルパー
+  // (区分ヘッダー無しで個別行を並べる際も、既存の🔴🟠🟡⚪📅と同じ色分けを維持する)。
+  const tierFgForDays = d => {
+    const t = FACILITY_DEADLINE_TIERS_FULL.find(t=>t.test(d));
+    return t ? t.fg : 'var(--text2)';
+  };
 
-  // 区分(🔴期限当日・超過／🟠期限前日／…／📅それ以降)ごとの折りたたみ。以前は
-  // 施設名グループ化(groupFacilityItemsByName)の各グループが折りたたみの単位だったが、
-  // 施設名グループ化を廃止したため、区分自体をクリックで開閉する単位にする(区分の
-  // 折りたたみ機能そのものは維持する)。展開すると、その区分に属する個別REF#明細を
-  // 施設名でまとめずに全件、緊急性順(bucketsFullの時点で既に対応期限日が近い/過ぎている
-  // 順にソート済み)のままズラッと表示する。
-  const bucketRows = bucketsFull.map((b, bIdx)=>{
-    if(b.items.length === 0) return '';
-    const expanded = window._todoExpandedBuckets.has(bIdx);
-    const sectionHd = `<tr class="section-row" style="cursor:pointer" onclick="toggleTodoBucket(${bIdx})">
-      <td colspan="7" style="padding:6px 8px 4px;background:${b.bg};border-top:2px solid ${b.border}">
-        <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:${b.fg}">
-          ${expanded?'▾':'▸'} ${b.label} <span style="background:rgba(0,0,0,.09);padding:1px 7px;border-radius:10px">${b.items.length}件</span>
-        </span>
-      </td>
-    </tr>`;
-    const memberRows = expanded ? b.items.map(f=>todoRow(f, b.fg, false)).join('') : '';
-    return sectionHd + memberRows;
-  }).join('');
-
-  const completedHd = completed.length ? `<tr class="section-row" style="cursor:pointer" onclick="toggleTodoCompletedSection()">
-      <td colspan="7" style="padding:6px 8px 4px;background:#f2f2f2;border-top:2px solid #ddd">
-        <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:#666">
-          ${todoCompletedExpanded?'▾':'▸'} ✅ 完了済み <span style="background:rgba(0,0,0,.09);padding:1px 7px;border-radius:10px">${completed.length}件</span>
-          ${visibleCompleted.length!==completed.length?`<span style="font-weight:400;color:var(--text3)">（期限から30日超は非表示）</span>`:''}
-        </span>
-      </td>
-    </tr>` : '';
-  const completedRows = (completed.length && todoCompletedExpanded) ? visibleCompleted.map(f=>todoRow(f, '#666', true)).join('') : '';
-
-  el.innerHTML = `<div class="tbl-wrap"><table class="confirm-table" style="width:100%;border-collapse:collapse;font-size:12px">
-    <colgroup>
-      <col style="width:4%"><col style="width:7%"><col style="width:43%">
-      <col style="width:20%"><col style="width:10%"><col style="width:8%"><col style="width:8%">
-    </colgroup>
-    <thead><tr style="background:var(--bg)">
+  const theadHtml = `<thead><tr style="background:var(--bg)">
       <th style="padding:4px 6px"></th>
       <th style="padding:4px 8px;text-align:left;white-space:nowrap">REF#</th>
       <th style="padding:4px 8px;text-align:left">ツアー名</th>
@@ -3451,9 +3404,61 @@ function renderTodoPageFromCache(){
       <th style="padding:4px 8px;text-align:left;white-space:nowrap">利用日</th>
       <th style="padding:4px 8px;text-align:left;white-space:nowrap">対応期限日</th>
       <th style="padding:4px 8px;text-align:center;white-space:nowrap">残り</th>
-    </tr></thead>
-    <tbody>${bucketRows}${completedHd}${completedRows}</tbody>
-  </table></div>`;
+    </tr></thead>`;
+  const colgroupHtml = `<colgroup>
+      <col style="width:4%"><col style="width:7%"><col style="width:43%">
+      <col style="width:20%"><col style="width:10%"><col style="width:8%"><col style="width:8%">
+    </colgroup>`;
+
+  if(todoFlatViewActive){
+    // 「すべて表示」：区分・施設名によるグループ化を一切行わず、未完了+完了済みの全件を
+    // 対応期限日順の個別REF#明細としてそのまま表示する(30日超経過した完了済みの間引きも
+    // このビューでは行わない＝文字通り「全件」)。
+    const allFlat = [...incompleteAll, ...completed]
+      .sort((a,b)=>(a.deadline_date||'').localeCompare(b.deadline_date||''));
+    const flatRows = allFlat.map(f=>todoRow(f, tierFgForDays(f._days), !!f.deadline_completed)).join('');
+    el.innerHTML = `
+      <div style="margin-bottom:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <button class="btn" onclick="showTodoGroupedView()">← 区分別表示に戻る</button>
+        <span style="font-size:11px;color:var(--text3)">全${allFlat.length}件を対応期限日順に表示中</span>
+      </div>
+      <div class="tbl-wrap"><table class="confirm-table" style="width:100%;border-collapse:collapse;font-size:12px">
+        ${colgroupHtml}${theadHtml}
+        <tbody>${flatRows}</tbody>
+      </table></div>`;
+    return;
+  }
+
+  // デフォルトの区分別サマリー表示：区分(🔴期限当日・超過／🟠期限前日／…／📅それ以降)・
+  // 完了済みそれぞれの件数のみを示す静的な見出し行を並べる。以前あった区分ごとの
+  // クリック展開は廃止し(個別明細を見るには「すべて表示」ボタンを使う)、見出しは
+  // クリックしても何も起こらない単なる件数サマリーとして扱う。
+  const bucketRows = bucketsFull.map(b=>{
+    if(b.items.length === 0) return '';
+    return `<tr class="section-row">
+      <td colspan="7" style="padding:6px 8px 4px;background:${b.bg};border-top:2px solid ${b.border}">
+        <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:${b.fg}">
+          ${b.label} <span style="background:rgba(0,0,0,.09);padding:1px 7px;border-radius:10px">${b.items.length}件</span>
+        </span>
+      </td>
+    </tr>`;
+  }).join('');
+  const completedHd = completed.length ? `<tr class="section-row">
+      <td colspan="7" style="padding:6px 8px 4px;background:#f2f2f2;border-top:2px solid #ddd">
+        <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:#666">
+          ✅ 完了済み <span style="background:rgba(0,0,0,.09);padding:1px 7px;border-radius:10px">${completed.length}件</span>
+        </span>
+      </td>
+    </tr>` : '';
+
+  el.innerHTML = `
+    <div style="margin-bottom:10px">
+      <button class="btn btn-p" onclick="showTodoFlatView()">すべて表示</button>
+    </div>
+    <div class="tbl-wrap"><table class="confirm-table" style="width:100%;border-collapse:collapse;font-size:12px">
+      ${colgroupHtml}${theadHtml}
+      <tbody>${bucketRows}${completedHd}</tbody>
+    </table></div>`;
 }
 
 async function toggleFacilityTodoComplete(facilityId, completed){
