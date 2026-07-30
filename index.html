@@ -13896,7 +13896,14 @@ async function loadGuideSettlementsListPage(){
   }
 
   const ids = settlements.map(s=>s.id);
-  const {data: items} = await sb.from('guide_settlement_items').select('*').in('settlement_id', ids).order('receipt_no',{ascending:true,nullsFirst:true});
+  let items = []; let gsiFrom = 0; const gsiPageSize = 1000;
+  while(true){
+    const {data: gsiPage, error: gsiErr} = await sb.from('guide_settlement_items').select('*').in('settlement_id', ids).order('receipt_no',{ascending:true,nullsFirst:true}).range(gsiFrom, gsiFrom+gsiPageSize-1);
+    if(gsiErr){ logError('ガイド精算明細の読み込み(guide_settlement_items)', gsiErr); break; }
+    items = items.concat(gsiPage||[]);
+    if((gsiPage||[]).length < gsiPageSize) break;
+    gsiFrom += gsiPageSize;
+  }
   const itemsBySettlement = {};
   (items||[]).forEach(it=>{ (itemsBySettlement[it.settlement_id]=itemsBySettlement[it.settlement_id]||[]).push(it); });
 Object.keys(itemsBySettlement).forEach(k=>{ itemsBySettlement[k].sort((a,b)=>{ const aA = a.status==='approved'?1:0, bA = b.status==='approved'?1:0; if(aA!==bA) return aA-bA; return String(a.receipt_no||'').localeCompare(String(b.receipt_no||''),'ja',{numeric:true}); }); });
