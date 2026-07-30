@@ -13615,6 +13615,7 @@ function toggleGuideAdvanceSection(){
     }else{
       loadGuideAdvanceList();
     }
+    el.scrollIntoView({behavior:'smooth', block:'start'});
   }else{
     btn.classList.remove('btn-p');
   }
