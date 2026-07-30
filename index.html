@@ -13590,11 +13590,7 @@ function setGuideAdvanceRangeDefault(){
 
 function openGuideAdvanceModal(){
   document.getElementById('guide-advance-modal').classList.add('open');
-  if(!document.getElementById('ga-from').value && !document.getElementById('ga-to').value){
-    setGuideAdvanceRangeDefault();
-  }else{
-    loadGuideAdvanceList();
-  }
+  loadGuideAdvanceList();
 }
 
 function closeGuideAdvanceModal(){
@@ -13603,10 +13599,6 @@ function closeGuideAdvanceModal(){
 
 async function loadGuideAdvanceList(){
   const fromEl = document.getElementById('ga-from'), toEl = document.getElementById('ga-to');
-  if(!fromEl.value && !toEl.value){
-    setGuideAdvanceRangeDefault();
-    return;
-  }
   const from = fromEl.value, to = toEl.value;
   const data = await fetchAllBookings();
   const filtered = data.filter(b=> b.in_date && (!from || b.in_date>=from) && (!to || b.in_date<=to))
@@ -18806,7 +18798,7 @@ function setDateInputValue(el, d){
       <div class="form-field" style="align-self:end"><button class="btn" onclick="setGuideAdvanceRangeDefault()">直近60日</button></div>
       <button class="btn" style="margin-left:auto" onclick="printGuideAdvanceList()">🖨 印刷（A4横）</button>
     </div>
-    <div style="font-size:11px;color:var(--text3);margin:4px 0 6px">※ ガイド名・電話番号は手配書、想定ガイド費は見積もり（成約済み）から自動取得します。仮払金は予約台帳のガイド精算で入力した内容が反映されます。締め済みの予約、仮払金が未入力・0円の予約は表示されません。</div>
+    <div style="font-size:11px;color:var(--text3);margin:4px 0 6px">※ ガイド名・電話番号は手配書、想定ガイド費は見積もり（成約済み）から自動取得します。仮払金は予約台帳のガイド精算で入力した内容が反映されます。締め済みの予約、仮払金が未入力・0円の予約は表示されません。到着日での絞り込みは任意です（未入力の場合、到着日に関わらず未締めの予約を全て表示します）。</div>
     <div style="margin-bottom:8px"><input id="ga-search" placeholder="REF# / Tour / ガイド名で検索" style="width:300px;padding:6px 10px;border-radius:8px;border:1px solid var(--border);font-size:12px" oninput="filterGuideAdvanceList()"></div>
     <div id="ga-print-card">
       <div class="tbl-wrap"><table id="ga-table">
