@@ -2381,11 +2381,14 @@ function statusSelectStyle(s){ return `background:${statusBg(s)};color:${statusF
 // ブラウザ/OS(特にWindows版Chrome)の制約で無視され、開いた一覧全体が<select>自身の
 // 背景色一色になってしまう不具合があったため、button+リストのカスタムUIに置き換える。
 //
-// 1) arrStatusDropdownHtml: bdHotelItems等の配列を直接書き換えて再描画するテーブル行用。
-//    arrLiteral/renderFnLiteralは実際のグローバル識別子名を文字列でそのまま埋め込み、
-//    生成されるonclick文字列の中で識別子として評価させる(トップレベルのlet/constは
-//    windowプロパティにならないため、window[arrName]のような間接参照ではなく、
-//    このように埋め込んだ識別子名をそのままJSソースとして展開する必要がある)。
+// 1) statusDropdownHtml: 選択時に実行する処理を呼び出し側からコールバック(buildOnSelectJs)
+//    として受け取る汎用版。以前はbdHotelItems等の配列を直接書き換えて再描画するテーブル行用の
+//    arrStatusDropdownHtml(配列名・インデックス・再描画関数名を文字列で埋め込む専用実装)と、
+//    観光地予約管理ページ(id経由でDB保存)用のfmStatusDropdownHtmlに分かれており、配色・UIが
+//    完全に重複していた(2026-07-30 diff確認: 差異は保存呼び出し部分のみ)ため、この1関数に統合した。
+//    buildOnSelectJsは選択された値oを受け取り、実行するJSソース文字列を返す関数
+//    (例: o=>`bdHotelItems[${i}].status='${o}';renderHotelTable()`、
+//         o=>`saveFacilityManagementStatus('${f.id}','${o}')`)。
 // 2) idStatusDropdownHtml: 予約時に document.getElementById(id).value を直接読む
 //    単発フィールド(新幹線編集モーダル・各種一括確認ダイアログの行)用。非表示inputに
 //    現在値を保持し、既存の読み取りコードを一切変更せずに済むようにする。
@@ -2398,10 +2401,10 @@ function statusSelectStyle(s){ return `background:${statusBg(s)};color:${statusF
 // と同じ考え方で、一覧はdocument.body直下に生成し、position:fixedで座標だけボタンに
 // 合わせることでこの問題を回避する。選択肢のHTML自体はボタンのdata属性に埋め込んで
 // おき、クリック時にそれを読み出してbody側に描画する。
-function arrStatusDropdownHtml(arrLiteral, i, value, options, defaultVal, renderFnLiteral){
+function statusDropdownHtml(buildOnSelectJs, value, options, defaultVal){
   const cur = value || defaultVal;
   const itemsHtml = options.map(o=>
-    `<div class="st-dd-item" style="background:${statusBg(o)};color:${statusFg(o)}" onclick="event.stopPropagation();${arrLiteral}[${i}].status='${o}';${renderFnLiteral}();closeStatusDropdowns()">${escHtml(o)}</div>`
+    `<div class="st-dd-item" style="background:${statusBg(o)};color:${statusFg(o)}" onclick="event.stopPropagation();${buildOnSelectJs(o)};closeStatusDropdowns()">${escHtml(o)}</div>`
   ).join('');
   return `<div class="st-dd">
     <button type="button" class="st-dd-btn" data-dd-items="${escAttr(itemsHtml)}" style="background:${statusBg(cur)};color:${statusFg(cur)}" onclick="event.stopPropagation();toggleStatusDropdown(this)">${escHtml(cur)} <span style="font-size:9px">▾</span></button>
@@ -3045,7 +3048,7 @@ function renderFacilityManagementTable(rows){
       <td data-label="施設名">${escHtml(f.facility_name||'（名称未設定）')}</td>
       <td data-label="利用日">${escHtml(f.date||'')}</td>
       <td data-label="対応期限日">${escHtml(f.deadline_date||'')}</td>
-      <td data-label="ステータス">${fmStatusDropdownHtml(f.id, f.status, FACILITY_MGMT_STATUS_OPTIONS, '未予約')}</td>
+      <td data-label="ステータス">${statusDropdownHtml(o=>`saveFacilityManagementStatus('${f.id}','${o}')`, f.status, FACILITY_MGMT_STATUS_OPTIONS, '未予約')}</td>
       <td data-label="確認番号"><input value="${escAttr(f.confirmation_no||'')}" onblur="saveFacilityManagementField('${f.id}','confirmation_no',this.value)" style="font-size:11px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;width:100%;box-sizing:border-box"></td>
       <td data-label="備考"><input value="${escAttr(f.memo||'')}" onblur="saveFacilityManagementField('${f.id}','memo',this.value)" style="font-size:11px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;width:100%;box-sizing:border-box"></td>
     </tr>`;
@@ -3068,23 +3071,12 @@ async function saveFacilityManagementField(id, field, value){
 }
 // ステータス列は色分け反映のため、保存後(成功・失敗いずれも)にボタンの背景色が
 // 最新の値と食い違わないよう必ずテーブルを再描画する(他フィールドは色を持たないため
-// saveFacilityManagementFieldのまま・再描画不要)。
+// saveFacilityManagementFieldのまま・再描画不要)。ドロップダウン自体を閉じる処理は
+// statusDropdownHtml側(呼び出し直後に同期的にcloseStatusDropdowns()する)が担うため、
+// ここでは行わない。
 async function saveFacilityManagementStatus(id, value){
   await saveFacilityManagementField(id, 'status', value);
-  closeStatusDropdowns();
   filterFacilityManagement();
-}
-// 手配タブ(bd-hotels等)のarrStatusDropdownHtmlと同じ配色(statusBg/statusFg)・同じ
-// button+リストのカスタムUIを使い、fm-tbodyの各行はid経由でDB保存するため
-// saveFacilityManagementStatusを呼ぶ点のみが異なる。
-function fmStatusDropdownHtml(id, value, options, defaultVal){
-  const cur = value || defaultVal;
-  const itemsHtml = options.map(o=>
-    `<div class="st-dd-item" style="background:${statusBg(o)};color:${statusFg(o)}" onclick="event.stopPropagation();saveFacilityManagementStatus('${id}','${escAttr(o)}')">${escHtml(o)}</div>`
-  ).join('');
-  return `<div class="st-dd">
-    <button type="button" class="st-dd-btn" data-dd-items="${escAttr(itemsHtml)}" style="background:${statusBg(cur)};color:${statusFg(cur)}" onclick="event.stopPropagation();toggleStatusDropdown(this)">${escHtml(cur)} <span style="font-size:9px">▾</span></button>
-  </div>`;
 }
 
 // ===== Dashboard / Booking List（共通: prefixで切替） =====
@@ -8049,7 +8041,7 @@ function renderHotelTable(){
         <td data-label="金額" style="text-align:right;white-space:nowrap" data-hotel-amount="${i}">${yen(it.amount||0)}</td>
         ${arrPaymentMethodSelectHtml('bdHotelItems', i, it.payment_method)}
         <td data-label="確認番号"><input value="${escAttr(it.confirmation_no)}" oninput="bdHotelItems[${i}].confirmation_no=this.value" style="width:100%"></td>
-        <td data-label="ステータス">${arrStatusDropdownHtml('bdHotelItems', i, it.status, ['未予約','回答待ち','手配OK','FNL済','NG回答','キャンセル'], '回答待ち', 'renderHotelTable')}</td>
+        <td data-label="ステータス">${statusDropdownHtml(o=>`bdHotelItems[${i}].status='${o}';renderHotelTable()`, it.status, ['未予約','回答待ち','手配OK','FNL済','NG回答','キャンセル'], '回答待ち')}</td>
         <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdHotelItems[${i}].memo=this.value" style="width:100%"></td>
         ${arrCostCheckboxHtml('bdHotelItems', i, it, 'hotel')}
         ${arrDelBtnHtml('bdHotelItems', i, 'renderHotelTable', escAttr([it.hotel_name, it.room_type, [it.check_in, it.check_out].filter(Boolean).join('〜')].filter(Boolean).join(' '))+' の行を削除しますか？')}
@@ -8141,7 +8133,7 @@ function renderBusTable(){
       <td data-label="終了日"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.end_date||''}" onchange="bdBusItems[${i}].end_date=this.value"></td>
       <td data-label="金額"><input type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="busAmountCalc(${i},this)"></td>
       ${arrPaymentMethodSelectHtml('bdBusItems', i, it.payment_method)}
-      <td data-label="ステータス">${arrStatusDropdownHtml('bdBusItems', i, it.status, ['未予約','問い合わせ中','手配OK','FNL済','NG回答','キャンセル'], '問い合わせ中', 'renderBusTable')}</td>
+      <td data-label="ステータス">${statusDropdownHtml(o=>`bdBusItems[${i}].status='${o}';renderBusTable()`, it.status, ['未予約','問い合わせ中','手配OK','FNL済','NG回答','キャンセル'], '問い合わせ中')}</td>
       <td data-label="確認番号"><input value="${escAttr(it.confirmation_no)}" oninput="bdBusItems[${i}].confirmation_no=this.value" style="width:100%"></td>
       <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdBusItems[${i}].memo=this.value" style="width:100%"></td>
       ${arrCostCheckboxHtml('bdBusItems', i, it, 'bus')}
@@ -10542,7 +10534,7 @@ function renderRestaurantTable(){
       <td data-label="時刻"><input type="time" value="${it.reservation_time||''}" onchange="bdRestaurantItems[${i}].reservation_time=this.value" style="width:100%"></td>
       <td data-label="人数"><input type="number" value="${it.pax||0}" onchange="bdRestaurantItems[${i}].pax=Number(this.value)" style="width:100%"></td>
       <td data-label="金額"><input type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="restaurantAmountCalc(${i},this)"></td>
-      <td data-label="ステータス">${arrStatusDropdownHtml('bdRestaurantItems', i, it.status, ['未予約','問い合わせ中','手配OK','FNL済','NG回答','キャンセル'], '問い合わせ中', 'renderRestaurantTable')}</td>
+      <td data-label="ステータス">${statusDropdownHtml(o=>`bdRestaurantItems[${i}].status='${o}';renderRestaurantTable()`, it.status, ['未予約','問い合わせ中','手配OK','FNL済','NG回答','キャンセル'], '問い合わせ中')}</td>
       <td data-label="支払方法"><select onchange="bdRestaurantItems[${i}].payment_method=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px"><option value="" ${!it.payment_method?'selected':''}></option><option value="請求書払い" ${it.payment_method==='請求書払い'?'selected':''}>請求書払い</option><option value="現金払い" ${it.payment_method==='現金払い'?'selected':''}>現金払い</option><option value="その他" ${it.payment_method==='その他'?'selected':''}>その他</option></select></td>
       <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdRestaurantItems[${i}].memo=this.value" style="width:100%"></td>
       ${arrCostCheckboxHtml('bdRestaurantItems', i, it, 'rest')}
@@ -10798,7 +10790,7 @@ function renderFacilityTable(){
       <td data-label="日付"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.date||''}" onchange="bdFacilityItems[${i}].date=this.value"></td>
       <td data-label="人数"><input type="number" value="${it.pax||0}" onchange="bdFacilityItems[${i}].pax=Number(this.value)" style="width:100%"></td>
       <td data-label="金額"><input type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="facilityAmountCalc(${i},this)"></td>
-      <td data-label="ステータス">${arrStatusDropdownHtml('bdFacilityItems', i, it.status, ['未予約','問い合わせ中','手配OK','FNL済','NG回答','予約不要','キャンセル'], '問い合わせ中', 'renderFacilityTable')}</td>
+      <td data-label="ステータス">${statusDropdownHtml(o=>`bdFacilityItems[${i}].status='${o}';renderFacilityTable()`, it.status, ['未予約','問い合わせ中','手配OK','FNL済','NG回答','予約不要','キャンセル'], '問い合わせ中')}</td>
       <td data-label="確認番号"><input value="${escAttr(it.confirmation_no)}" oninput="bdFacilityItems[${i}].confirmation_no=this.value" style="width:100%"></td>
       <td data-label="期限日"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.deadline_date||''}" onchange="bdFacilityItems[${i}].deadline_date=this.value"></td>
       <td data-label="支払方法"><select onchange="bdFacilityItems[${i}].payment_method=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px"><option value="" ${!it.payment_method?'selected':''}></option>${LOCAL_EXPENSE_PAYMENT_METHODS.map(m=>`<option value="${m}" ${it.payment_method===m?'selected':''}>${m}</option>`).join('')}</select></td>
@@ -10926,7 +10918,7 @@ function renderWaterTable(){
       <td data-label="単価"><input type="text" inputmode="numeric" value="${Number(it.unit_price||0).toLocaleString('ja-JP')}" onchange="bdWaterItems[${i}].unit_price=parseNum(this.value);this.value=bdWaterItems[${i}].unit_price.toLocaleString('ja-JP');waterAmountCalc(${i})"></td>
       <td data-label="金額" style="text-align:right;white-space:nowrap" data-water-amount="${i}">${yen(it.amount||0)}</td>
       ${arrPaymentMethodSelectHtml('bdWaterItems', i, it.payment_method)}
-      <td data-label="ステータス">${arrStatusDropdownHtml('bdWaterItems', i, it.status, ['未予約','問い合わせ中','手配OK','FNL済','NG回答','予約不要','キャンセル'], '問い合わせ中', 'renderWaterTable')}</td>
+      <td data-label="ステータス">${statusDropdownHtml(o=>`bdWaterItems[${i}].status='${o}';renderWaterTable()`, it.status, ['未予約','問い合わせ中','手配OK','FNL済','NG回答','予約不要','キャンセル'], '問い合わせ中')}</td>
       <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdWaterItems[${i}].memo=this.value" style="width:100%"></td>
       ${arrCostCheckboxHtml('bdWaterItems', i, it, 'water')}
       ${arrDelBtnHtml('bdWaterItems', i, 'renderWaterTable', escAttr([it.item_name, it.date].filter(Boolean).join(' '))+' の行を削除しますか？', 'duplicateWaterRow')}
@@ -11613,7 +11605,7 @@ function renderBulletTrainTable(){
     <td data-label="割引率(%)"><input type="number" value="${it.discount_rate||0}" onchange="bdBulletTrainItems[${i}].discount_rate=Number(this.value)" style="width:100%;text-align:right"></td>
     <td data-label="金額"><input type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="bulletTrainAmountCalc(${i},this)"></td>
     ${arrPaymentMethodSelectHtml('bdBulletTrainItems', i, it.payment_method)}
-    <td data-label="ステータス">${arrStatusDropdownHtml('bdBulletTrainItems', i, it.status, ['未予約','回答待ち','手配OK','FNL済','NG回答','キャンセル'], '回答待ち', 'renderBulletTrainTable')}</td>
+    <td data-label="ステータス">${statusDropdownHtml(o=>`bdBulletTrainItems[${i}].status='${o}';renderBulletTrainTable()`, it.status, ['未予約','回答待ち','手配OK','FNL済','NG回答','キャンセル'], '回答待ち')}</td>
     <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdBulletTrainItems[${i}].memo=this.value" style="width:100%"></td>
     ${arrDelBtnHtml('bdBulletTrainItems', i, 'renderBulletTrainTable', escAttr([it.ride_date, it.train_name, it.train_number, [it.departure_station, it.arrival_station].filter(Boolean).join('→')].filter(Boolean).join(' '))+' の行を削除しますか？', 'duplicateBulletTrainRow')}
   </tr>`).join('');
@@ -11860,7 +11852,7 @@ function renderGuideTable(){
       <td data-label="担当日(To)"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.end_date||''}" onchange="bdGuideItems[${i}].end_date=this.value"></td>
       <td data-label="金額"><input type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="guideAmountCalc(${i},this)"></td>
       ${arrPaymentMethodSelectHtml('bdGuideItems', i, it.payment_method)}
-      <td data-label="ステータス">${arrStatusDropdownHtml('bdGuideItems', i, it.status, ['未予約','回答待ち','手配OK','FNL済','NG回答','キャンセル'], '回答待ち', 'renderGuideTable')}</td>
+      <td data-label="ステータス">${statusDropdownHtml(o=>`bdGuideItems[${i}].status='${o}';renderGuideTable()`, it.status, ['未予約','回答待ち','手配OK','FNL済','NG回答','キャンセル'], '回答待ち')}</td>
       <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdGuideItems[${i}].memo=this.value" style="width:100%"></td>
       ${arrDelBtnHtml('bdGuideItems', i, 'renderGuideTable', escAttr([guideRowDisplayName(it), [it.start_date, it.end_date].filter(Boolean).join('〜')].filter(Boolean).join(' '))+' の行を削除しますか？')}
     </tr>`;
