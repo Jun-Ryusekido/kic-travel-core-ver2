@@ -3297,21 +3297,15 @@ function bkTourLabel(bk){
 // 表示上のみ間引く（データは削除しない）。運用が続くほど完了済みが際限なく増えるのを防ぐため。
 let todoCompletedExpanded = false;
 let todoPageDataCache = null;
-// 施設名グループの展開状態(キー: "バケットindex::施設名"をencodeURIComponentしたもの)。
-// ページ内では再描画のたびに同じキーが再生成されるため、Setで単純に開閉を保持できる。
-window._todoExpandedGroups = window._todoExpandedGroups || new Set();
-
-// 施設名でグループ化し、件数の多い順に並べる。対応リストページ(renderTodoPageFromCache)
-// とダッシュボードの対応リストサマリー(renderDashboardTodoSummary)の両方から使う
-// 共通ロジック(グループ化の実装は1箇所のみ)。戻り値: [[施設名, その施設のitems配列], ...]
-function groupFacilityItemsByName(items){
-  const groups = new Map();
-  items.forEach(f=>{
-    const name = f.facility_name || '（名称未設定）';
-    if(!groups.has(name)) groups.set(name, []);
-    groups.get(name).push(f);
-  });
-  return [...groups.entries()].sort((g1,g2)=>g2[1].length-g1[1].length);
+// 区分(🔴期限当日・超過／🟠期限前日／…／📅それ以降)の展開状態(キー: bucketsFull配列の
+// index)。施設名グループ化を廃止したことに伴い、以前グループ単位で持っていた開閉状態を
+// 区分単位に置き換えたもの。ページ内では再描画のたびに同じindexが再生成されるため、
+// Setで単純に開閉を保持できる。
+window._todoExpandedBuckets = window._todoExpandedBuckets || new Set();
+function toggleTodoBucket(bIdx){
+  if(window._todoExpandedBuckets.has(bIdx)) window._todoExpandedBuckets.delete(bIdx);
+  else window._todoExpandedBuckets.add(bIdx);
+  renderTodoPageFromCache();
 }
 
 // ダッシュボードに常時表示する「対応が必要な予約」の簡易サマリー。期限当日・超過分
@@ -3323,7 +3317,7 @@ function groupFacilityItemsByName(items){
 // 追加のソートは不要でそのままslice(0, N)する。
 // 上位20件のみ表示し、21件目以降は「すべて表示」ボタン経由で対応リストページに
 // 一本化する(このセクション自体に展開・チェック操作は設けない)。
-const DASHBOARD_TODO_SUMMARY_MAX_ITEMS = 20;
+const DASHBOARD_TODO_SUMMARY_MAX_ITEMS = 10;
 async function renderDashboardTodoSummary(){
   const card = document.getElementById('db-todo-summary-card');
   const el = document.getElementById('db-todo-summary');
@@ -3361,13 +3355,6 @@ async function renderTodoPage(){
 
 function toggleTodoCompletedSection(){
   todoCompletedExpanded = !todoCompletedExpanded;
-  renderTodoPageFromCache();
-}
-
-function toggleTodoGroup(encodedKey){
-  const key = decodeURIComponent(encodedKey);
-  if(window._todoExpandedGroups.has(key)) window._todoExpandedGroups.delete(key);
-  else window._todoExpandedGroups.add(key);
   renderTodoPageFromCache();
 }
 
@@ -3421,32 +3408,24 @@ function renderTodoPageFromCache(){
     </tr>`;
   };
 
+  // 区分(🔴期限当日・超過／🟠期限前日／…／📅それ以降)ごとの折りたたみ。以前は
+  // 施設名グループ化(groupFacilityItemsByName)の各グループが折りたたみの単位だったが、
+  // 施設名グループ化を廃止したため、区分自体をクリックで開閉する単位にする(区分の
+  // 折りたたみ機能そのものは維持する)。展開すると、その区分に属する個別REF#明細を
+  // 施設名でまとめずに全件、緊急性順(bucketsFullの時点で既に対応期限日が近い/過ぎている
+  // 順にソート済み)のままズラッと表示する。
   const bucketRows = bucketsFull.map((b, bIdx)=>{
     if(b.items.length === 0) return '';
-    const sectionHd = `<tr class="section-row">
+    const expanded = window._todoExpandedBuckets.has(bIdx);
+    const sectionHd = `<tr class="section-row" style="cursor:pointer" onclick="toggleTodoBucket(${bIdx})">
       <td colspan="7" style="padding:6px 8px 4px;background:${b.bg};border-top:2px solid ${b.border}">
         <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:${b.fg}">
-          ${b.label} <span style="background:rgba(0,0,0,.09);padding:1px 7px;border-radius:10px">${b.items.length}件</span>
+          ${expanded?'▾':'▸'} ${b.label} <span style="background:rgba(0,0,0,.09);padding:1px 7px;border-radius:10px">${b.items.length}件</span>
         </span>
       </td>
     </tr>`;
-    // 施設名でグループ化し、件数の多い順に並べる。各グループは初期状態で折りたたみ
-    // (window._todoExpandedGroupsに含まれる場合のみ展開)。
-    const sortedGroups = groupFacilityItemsByName(b.items);
-    const groupRows = sortedGroups.map(([name, groupItems])=>{
-      const key = `${bIdx}::${name}`;
-      const expanded = window._todoExpandedGroups.has(key);
-      const groupHd = `<tr class="section-row" style="cursor:pointer" onclick="toggleTodoGroup('${encodeURIComponent(key)}')">
-        <td colspan="7" style="padding:5px 8px 4px 22px">
-          <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:${b.fg}">
-            ${expanded?'▾':'▸'} ${escHtml(name)} <span style="background:rgba(0,0,0,.07);padding:1px 7px;border-radius:10px">${groupItems.length}件</span>
-          </span>
-        </td>
-      </tr>`;
-      const memberRows = expanded ? groupItems.map(f=>todoRow(f, b.fg, false)).join('') : '';
-      return groupHd + memberRows;
-    }).join('');
-    return sectionHd + groupRows;
+    const memberRows = expanded ? b.items.map(f=>todoRow(f, b.fg, false)).join('') : '';
+    return sectionHd + memberRows;
   }).join('');
 
   const completedHd = completed.length ? `<tr class="section-row" style="cursor:pointer" onclick="toggleTodoCompletedSection()">
