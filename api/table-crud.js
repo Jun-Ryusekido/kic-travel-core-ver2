@@ -76,9 +76,42 @@ const TABLE_CONFIG = {
   // insert: 観光地予約管理ページのAI読み取り機能から、複数予約(booking_id)へ
   // またがる観光施設明細をまとめて新規追加するために使用する。updateByIdは
   // 従来通りインライン編集用。
+  // booking_facilitiesはdeadline_completed_at等の目的限定タイムスタンプは持つが汎用
+  // updated_atは無い。今回はcreated_by/updated_byのみ追加し、汎用updated_at列の新設は
+  // スコープ外とする(stampUpdatedAtは付けない)。
   booking_facilities: {
     actions: ['updateById', 'insert'],
     label: '観光施設・バス駐車場等',
+    stampIdentity: true,
+  },
+  // booking_hotels/booking_buses/booking_restaurants(セキュリティ移行バッチA)。
+  // 予約詳細モーダルの保存(旧safeReplaceBookingRows)は既存のbooking_sales等と同じ
+  // doReplace(action:'replace')に統一する。booking_hotelsのみ、ホテル管理ページの
+  // 重複解消モーダル(insert/updateById)とステータスクイック切替(updateById)がある
+  // ため、それらのactionも合わせて許可する。
+  // stampIdentity: true の各テーブルは、created_by/updated_by列を持つ(監査ログ機能の
+  // 前提整備)。値はクライアントの自己申告を一切信用せず、verifySessionTokenで検証済みの
+  // トークンから取り出したemailのみをサーバー側でスタンプする(下記handler参照)。
+  // booking_hotelsは既にstatus_updated_at列を持つため、汎用updated_at列は追加しない
+  // (stampUpdatedAtは付けない。created_by/updated_byのみ追加・スタンプする)。
+  booking_hotels: {
+    actions: ['replace', 'insert', 'updateById'],
+    label: 'ホテル明細',
+    stampIdentity: true,
+  },
+  // booking_buses/booking_restaurantsはupdated_at相当の列が無かったため、created_by/
+  // updated_byに加えて汎用updated_at列も新設し、insert/replace時にスタンプする。
+  booking_buses: {
+    actions: ['replace'],
+    label: 'バス明細',
+    stampIdentity: true,
+    stampUpdatedAt: true,
+  },
+  booking_restaurants: {
+    actions: ['replace'],
+    label: 'レストラン明細',
+    stampIdentity: true,
+    stampUpdatedAt: true,
   },
 };
 
@@ -359,11 +392,12 @@ export default async function handler(req, res) {
   // 全actionは、これまで通り社内スタッフのログインセッショントークン検証を必須とする。
   const isGuestAction = action === 'guestInsert' || action === 'guestUpdateById';
   let guestSettlement = null;
+  let session = null;
   if (isGuestAction) {
     guestSettlement = await resolveGuestSettlement(guestToken);
     if (!guestSettlement) return res.status(401).json({ error: '精算リンクが無効です。リンクの有効期限が切れているか、URLが正しくない可能性があります。' });
   } else {
-    const session = verifySessionToken(token);
+    session = verifySessionToken(token);
     if (!session) return res.status(401).json({ error: 'ログインセッションが無効です。再度ログインしてください。' });
   }
 
@@ -371,15 +405,32 @@ export default async function handler(req, res) {
   if (!config) return res.status(400).json({ error: `不明なtableです: ${table}` });
   if (!config.actions.includes(action)) return res.status(400).json({ error: `${table}に対して許可されていないactionです: ${action}` });
 
+  // 監査ログ機能の前提整備(セキュリティ移行バッチA)：created_by/updated_byは
+  // クライアントの自己申告値を一切使わず、verifySessionTokenで検証済みのemailのみを
+  // サーバー側でスタンプする(guide_settlements等の既存created_byが「クライアントの
+  // 自己申告値をそのまま信用する」設計になっている問題を、stampIdentity対象テーブルでは
+  // 再現しない)。
+  const stampEmail = config.stampIdentity && session ? session.email : null;
+  function stampNewRows(rows) {
+    if (!stampEmail || !Array.isArray(rows)) return rows;
+    const extra = config.stampUpdatedAt ? { updated_at: new Date().toISOString() } : {};
+    return rows.map((r) => ({ ...r, created_by: stampEmail, updated_by: stampEmail, ...extra }));
+  }
+  function stampUpdateFields(fields) {
+    if (!stampEmail || !fields || typeof fields !== 'object') return fields;
+    const extra = config.stampUpdatedAt ? { updated_at: new Date().toISOString() } : {};
+    return { ...fields, updated_by: stampEmail, ...extra };
+  }
+
   try {
     if (action === 'replace') {
       const { bookingId, rows } = req.body;
-      const result = await doReplace(table, config.label, bookingId, rows);
+      const result = await doReplace(table, config.label, bookingId, stampNewRows(rows));
       return res.status(result.status).json(result.body);
     }
     if (action === 'insert') {
       const { rows } = req.body;
-      const result = await doInsert(table, config.label, rows);
+      const result = await doInsert(table, config.label, stampNewRows(rows));
       return res.status(result.status).json(result.body);
     }
     if (action === 'insertReturning') {
@@ -414,7 +465,7 @@ export default async function handler(req, res) {
     }
     if (action === 'updateById') {
       const { id, fields } = req.body;
-      const result = await doUpdateById(table, config.label, id, fields);
+      const result = await doUpdateById(table, config.label, id, stampUpdateFields(fields));
       return res.status(result.status).json(result.body);
     }
     if (action === 'updateByIds') {

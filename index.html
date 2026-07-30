@@ -3324,10 +3324,14 @@ function toggleTodoGroup(encodedKey){
 async function deleteFacilityTodoItem(facilityId, facilityName, refNo, deadlineDate){
   const msg = `このToDo項目を一覧から削除します（施設予約データ自体は削除されません）。よろしいですか？\n\n施設名: ${facilityName||'（名称未設定）'}\nREF#: ${refNo||''}\n対応期限日: ${deadlineDate||''}`;
   if(!confirm(msg)) return;
-  const {error} = await sb.from('booking_facilities').update({
-    deadline_date: null, deadline_completed: false, deadline_completed_at: null
-  }).eq('id', facilityId);
-  if(error){ alert('削除に失敗しました: '+error.message); return; }
+  try{
+    await bookingFacilitiesApiCall('updateById', { id: facilityId, fields: {
+      deadline_date: null, deadline_completed: false, deadline_completed_at: null
+    }});
+  }catch(e){
+    alert('削除に失敗しました: '+e.message);
+    return;
+  }
   await renderTodoPage();
   await refreshGlobalDeadlineBanner();
 }
@@ -3427,11 +3431,15 @@ function renderTodoPageFromCache(){
 }
 
 async function toggleFacilityTodoComplete(facilityId, completed){
-  const {error} = await sb.from('booking_facilities').update({
-    deadline_completed: completed,
-    deadline_completed_at: completed ? new Date().toISOString() : null
-  }).eq('id', facilityId);
-  if(error){ alert('更新に失敗しました: '+error.message); return; }
+  try{
+    await bookingFacilitiesApiCall('updateById', { id: facilityId, fields: {
+      deadline_completed: completed,
+      deadline_completed_at: completed ? new Date().toISOString() : null
+    }});
+  }catch(e){
+    alert('更新に失敗しました: '+e.message);
+    return;
+  }
   await renderTodoPage();
   await refreshGlobalDeadlineBanner();
 }
@@ -3708,6 +3716,14 @@ async function bookingFacilitiesApiCall(action, payload){ return tableCrudApiCal
 // メールマッチング等、影響範囲が広いためロールアウトのリスクを最小化する)。
 async function bookingsApiCall(action, payload){ return tableCrudApiCall('bookings', action, payload); }
 async function bookingCostsApiCall(action, payload){ return tableCrudApiCall('booking_costs', action, payload); }
+// booking_hotels/booking_buses/booking_restaurants(セキュリティ移行バッチA)。
+// safeReplaceBookingRowsが行っていたselect→insert→deleteの差分置き換えは、
+// 既存のbooking_sales/booking_costs/local_expensesと同じdoReplace(action:'replace')に
+// 統一し、新しい仕組みは作らない。booking_hotelsのみ、重複解消モーダル(insert/updateById)
+// とステータスクイック切替(updateById)のためinsert/updateByIdも許可する。
+async function bookingHotelsApiCall(action, payload){ return tableCrudApiCall('booking_hotels', action, payload); }
+async function bookingBusesApiCall(action, payload){ return tableCrudApiCall('booking_buses', action, payload); }
+async function bookingRestaurantsApiCall(action, payload){ return tableCrudApiCall('booking_restaurants', action, payload); }
 
 let bdLocalExpenses = [];
 const LOCAL_EXPENSE_CATEGORIES = ['D（ドライバー）','ゲスト','ゲスト・TG','その他'];
@@ -8097,7 +8113,7 @@ async function saveHotelItems(){
     cost_added: !!it.cost_added,
     sort_order: i
   }));
-  await safeReplaceBookingRows('booking_hotels', bookingId, rows, 'ホテル明細');
+  await bookingHotelsApiCall('replace', { bookingId, rows });
 }
 
 // テーブル全体を再描画せずに合計のみ更新するヘルパー（フォーカス中の日付入力を破壊しない）
@@ -8165,7 +8181,7 @@ async function saveBusItems(){
     payment_method: it.payment_method||'',
     cost_added: !!it.cost_added
   }));
-  await safeReplaceBookingRows('booking_buses', bookingId, rows, 'バス明細');
+  await bookingBusesApiCall('replace', { bookingId, rows });
 }
 
 // ─── 駐車場 今すぐ予約(parking_reservations / モーダル) ─────────
@@ -10612,7 +10628,7 @@ async function saveRestaurantItems(){
     guide_id: it.guide_id||null, guide_name_freetext: it.guide_id ? '' : (it.guide_name_freetext||''),
     cost_added: !!it.cost_added
   }));
-  await safeReplaceBookingRows('booking_restaurants', bookingId, rows, 'レストラン明細');
+  await bookingRestaurantsApiCall('replace', { bookingId, rows });
 }
 
 // ─── レストランAI読み取り ─────────────────────────────────────────────────────
@@ -14225,21 +14241,6 @@ async function populateHmBookingSelect(){
     .map(b=>`<option value="${b.id}">${escHtml(b.ref_no)} ${escHtml(b.tour_name||'')}</option>`).join('');
 }
 
-async function saveHotelItemsToBooking(bookingId, items){
-  if(!bookingId){ alert('ツアーREF#を選択してください'); return false; }
-  const rows = items.filter(it=>it.hotel_name||it.room_type||it.check_in||it.check_out||it.amount||it.confirmation_no||it.memo||it.breakfast).map((it,i)=>({
-    booking_id: bookingId,
-    hotel_name: it.hotel_name||'', check_in: it.check_in||null, check_out: it.check_out||null,
-    room_type: it.room_type||'', rooms: Number(it.rooms)||1, breakfast: !!it.breakfast,
-    unit_price: Number(it.unit_price)||0, amount: Number(it.amount)||0,
-    confirmation_no: it.confirmation_no||'', memo: it.memo||'', sort_order: i
-  }));
-  if(rows.length===0){ alert('読み取れたホテルデータがありません'); return false; }
-  const {error} = await sb.from('booking_hotels').insert(rows);
-  if(error){ alert('保存に失敗しました: '+error.message); return false; }
-  return true;
-}
-
 async function extractHotelFromTextHm(){
   const text = document.getElementById('hm-ocr-text').value.trim();
   if(!text){ alert('テキストを入力してください'); return; }
@@ -14649,7 +14650,7 @@ async function applyHmDupResolutions(){
 
   try{
     for(const c of toUpdate){
-      const { error } = await sb.from('booking_hotels').update({
+      await bookingHotelsApiCall('updateById', { id: c.existingRow.id, fields: {
         status: c.newRow.status,
         status_updated_at: new Date().toISOString(),
         amount: c.newRow.amount,
@@ -14658,12 +14659,10 @@ async function applyHmDupResolutions(){
         rooms: c.newRow.rooms,
         breakfast: c.newRow.breakfast,
         memo: c.newRow.memo,
-      }).eq('id', c.existingRow.id);
-      if(error) throw new Error('更新に失敗しました: '+error.message);
+      }});
     }
     if(toInsert.length>0){
-      const { error } = await sb.from('booking_hotels').insert(toInsert);
-      if(error) throw new Error('新規追加に失敗しました: '+error.message);
+      await bookingHotelsApiCall('insert', { rows: toInsert });
     }
   }catch(e){
     statusEl.textContent = e.message;
@@ -14756,9 +14755,10 @@ async function saveHotelConfirm(hotels){
 
   statusEl.textContent = '保存中...'; statusEl.style.color = 'var(--text3)';
   if(toInsert.length>0){
-    const {error} = await sb.from('booking_hotels').insert(toInsert);
-    if(error){
-      statusEl.textContent = '保存エラー: ' + error.message;
+    try{
+      await bookingHotelsApiCall('insert', { rows: toInsert });
+    }catch(e){
+      statusEl.textContent = '保存エラー: ' + e.message;
       statusEl.style.color = 'var(--red)';
       return;
     }
@@ -15984,7 +15984,7 @@ async function toggleHmStatus(id){
   if(!row) return;
   const newStatus = row.status==='手配OK'?'回答待ち':'手配OK';
   const now = new Date().toISOString();
-  await sb.from('booking_hotels').update({status:newStatus, status_updated_at:now}).eq('id',id);
+  await bookingHotelsApiCall('updateById', { id, fields: { status: newStatus, status_updated_at: now } });
   row.status = newStatus;
   row.status_updated_at = now;
   renderHmCancelAlert();
