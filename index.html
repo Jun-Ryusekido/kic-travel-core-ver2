@@ -13999,6 +13999,7 @@ function showGuideBankAccountImportConfirm(records){
         ${r._weakCandidates.length>3?`　<span style="color:var(--text3)">…他${r._weakCandidates.length-3}件</span>`:''}
         <div style="color:var(--text3)">（クリックで検索欄に反映、選択は別途必要）</div>
       </div>` : ''}
+      ${r._candidates.length===0?`<label style="display:block;font-size:9px;color:var(--green,#2e7d32);margin-top:4px;cursor:pointer;border-top:1px dashed var(--border);padding-top:4px"><input type="checkbox" id="gba-c-newguide-${i}" onchange="gbaToggleNewGuide(${i})" style="vertical-align:middle;margin-right:3px">この氏名(${escHtml(r.name)})で新規ガイドとして登録する</label>`:''}
     </div>`;
     return `<tr>
       <td data-label="追加" style="padding:5px 4px;text-align:center;vertical-align:top"><input type="checkbox" id="gba-c-sel-${i}" checked></td>
@@ -14090,6 +14091,9 @@ function selectGbaConfirmItem(i, guideId, name){
   if(input) input.value=name;
   if(hidden) hidden.value=guideId;
   if(dd) dd.style.display='none';
+  // 既存ガイドを選んだ場合、「新規ガイドとして登録する」との併用は矛盾するため解除する。
+  const newGuideCb = document.getElementById(`gba-c-newguide-${i}`);
+  if(newGuideCb && newGuideCb.checked) newGuideCb.checked = false;
 }
 // 自動マッチ候補チェックボックスがON/OFFされた時のみ、そのguide_idをhiddenへ反映する。
 function gbaToggleAutoMatch(i){
@@ -14109,17 +14113,45 @@ function gbaFillWeakCandidate(i, name){
   input.focus();
   renderGbaConfirmDD(i, name);
 }
+// 「新規ガイドとして登録する」チェックボックスのON/OFF。既存ガイドの検索(検索欄・
+// 自動マッチ候補チェック)とは排他にする(ONにしたら検索欄をクリア・無効化し、
+// 既存ガイドとの紐付けをOFFにする。OFFに戻したら検索欄を再度使えるようにする)。
+function gbaToggleNewGuide(i){
+  const checkbox = document.getElementById(`gba-c-newguide-${i}`);
+  const input = document.getElementById(`gba-c-input-${i}`);
+  const hidden = document.getElementById(`gba-c-guideid-${i}`);
+  const autoConfirm = document.getElementById(`gba-c-refconfirm-${i}`);
+  if(!checkbox) return;
+  if(checkbox.checked){
+    if(hidden) hidden.value = '';
+    if(input){ input.value = ''; input.disabled = true; }
+    if(autoConfirm){ autoConfirm.checked = false; autoConfirm.disabled = true; }
+  } else {
+    if(input) input.disabled = false;
+    if(autoConfirm) autoConfirm.disabled = false;
+  }
+}
 
+// 保存時に各行を3種類に分類する:
+//   1) 新規ガイド登録(「新規ガイドとして登録する」チェック): guidesへ氏名(Excel表記の
+//      まま)をinsertReturningし、採番されたidでguide_bank_accountsへ口座情報も保存する
+//      (口座情報が空の行はguide_bank_accountsへの保存のみスキップし、ガイド登録は行う)。
+//   2) 既存ガイドへの紐付け(検索欄でguide_idが確定済み): guide_bank_accountsへ
+//      そのguide_idで口座情報を保存する。
+//   3) どちらも選ばれていない行: 従来通りスキップ対象として警告し、保存しない。
+// 書き込みは全てapi/table-crud.js経由のservice_role(guidesApiCall/guideBankAccountsApiCall)。
 async function saveGuideBankAccountImport(){
   const records = window._pendingGba;
   if(!records) return;
   const statusEl = document.getElementById('gba-confirm-status');
   statusEl.textContent = '保存中...'; statusEl.style.color='var(--text3)';
 
-  const rows = [];
+  const newGuideRows = [];
+  const existingLinkRows = [];
   const unmatched = [];
   records.forEach((r,i)=>{
     if(!document.getElementById(`gba-c-sel-${i}`)?.checked) return;
+    const isNewGuide = document.getElementById(`gba-c-newguide-${i}`)?.checked || false;
     const guideId = document.getElementById(`gba-c-guideid-${i}`)?.value || '';
     const bank_name = document.getElementById(`gba-c-bank-${i}`)?.value || '';
     const branch_name = document.getElementById(`gba-c-branch-${i}`)?.value || '';
@@ -14129,39 +14161,57 @@ async function saveGuideBankAccountImport(){
     const holder_type = document.getElementById(`gba-c-holdertype-${i}`)?.value || '';
     const affiliation_memo = document.getElementById(`gba-c-affil-${i}`)?.value || '';
     const hasContent = !!(bank_name||branch_name||account_number||account_holder_name);
+    const bankFields = { bank_name, branch_name, account_type, account_number, account_holder_name, holder_type, affiliation_memo };
+
+    if(isNewGuide){
+      newGuideRows.push({ name: r.name, hasContent, bankFields });
+      return;
+    }
     if(!hasContent) return;
-    const row = { bank_name, branch_name, account_type, account_number, account_holder_name, holder_type, affiliation_memo };
     if(guideId){
-      row.guide_id = guideId;
-      rows.push(row);
+      existingLinkRows.push({ guide_id: guideId, ...bankFields });
     } else {
-      unmatched.push({ ...row, _label: `${r.name||'(氏名不明)'}（${[bank_name,branch_name,account_number].filter(Boolean).join(' ')}）` });
+      unmatched.push({ _label: `${r.name||'(氏名不明)'}（${[bank_name,branch_name,account_number].filter(Boolean).join(' ')}）` });
     }
   });
 
   if(unmatched.length>0){
     const list = unmatched.slice(0,10).map(r=>'・'+r._label).join('\n');
     const more = unmatched.length>10 ? `\n…他${unmatched.length-10}件` : '';
-    if(!confirm(`${unmatched.length}件はガイドが選択されていないため保存されません:\n\n${list}${more}\n\n残り${rows.length}件を保存しますか？`)) return;
+    if(!confirm(`${unmatched.length}件はガイドが選択されていないため保存されません:\n\n${list}${more}\n\n残り${newGuideRows.length+existingLinkRows.length}件を保存しますか？`)) return;
   }
 
-  if(rows.length===0){
-    statusEl.textContent = '⚠ 保存できる内容がありません(ガイドが選択された行がありません)';
+  if(newGuideRows.length===0 && existingLinkRows.length===0){
+    statusEl.textContent = '⚠ 保存できる内容がありません(ガイドの選択も新規登録の指定もありません)';
     statusEl.style.color = 'var(--red)';
     return;
   }
 
+  let createdGuideCount = 0;
+  let createdGuideBankCount = 0;
   try{
-    await guideBankAccountsApiCall('insert', { rows });
+    for(const ng of newGuideRows){
+      const res = await guidesApiCall('insertReturning', { rows: [{ name: ng.name }] });
+      const created = (res && res.rows || [])[0];
+      if(!created || !created.id) throw new Error(`「${ng.name}」の新規ガイド登録結果からidを取得できませんでした`);
+      createdGuideCount++;
+      if(ng.hasContent){
+        await guideBankAccountsApiCall('insert', { rows: [{ guide_id: created.id, ...ng.bankFields }] });
+        createdGuideBankCount++;
+      }
+    }
+    if(existingLinkRows.length>0){
+      await guideBankAccountsApiCall('insert', { rows: existingLinkRows });
+    }
   }catch(e){
-    statusEl.textContent = '保存エラー: '+e.message;
+    statusEl.textContent = `保存エラー(新規ガイド${createdGuideCount}件登録済み): `+e.message;
     statusEl.style.color = 'var(--red)';
     return;
   }
 
-  statusEl.textContent = `✓ ${rows.length}件を保存しました`;
+  statusEl.textContent = `✓ 新規ガイド登録: ${createdGuideCount}件（うち口座情報保存: ${createdGuideBankCount}件）、既存ガイドへの紐付け: ${existingLinkRows.length}件、スキップ: ${unmatched.length}件`;
   statusEl.style.color = 'var(--green)';
-  setTimeout(()=>{ document.getElementById('gba-confirm-modal')?.remove(); }, 1500);
+  setTimeout(()=>{ document.getElementById('gba-confirm-modal')?.remove(); }, 2500);
 }
 
 async function loadGuideRegistry(){
