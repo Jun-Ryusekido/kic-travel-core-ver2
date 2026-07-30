@@ -3315,15 +3315,15 @@ function groupFacilityItemsByName(items){
 }
 
 // ダッシュボードに常時表示する「対応が必要な予約」の簡易サマリー。期限当日・超過分
-// (対応リストページの🔴期限当日・超過バケットと同じ範囲)のみを対象に、施設名で
-// グループ化して件数降順に並べる(グループ化ロジックはgroupFacilityItemsByNameを
-// そのまま再利用し、新規実装しない)。
-// 「上位20件」の扱い: このサマリーは常にグループ見出し(1グループ=1行、件数バッジのみ)
-// だけを表示し、個別REF#明細の展開はここでは行わない(展開・チェック操作は「すべて
-// 表示」ボタン経由で対応リストページに一本化し、状態を二重管理しない)。そのため
-// 「1行=1グループ」であり、内訳件数でグループを途中で切ると表示が中途半端になる
-// ため、上限は個別件数の累計ではなく「上位20グループ」として扱う。
-const DASHBOARD_TODO_SUMMARY_MAX_GROUPS = 20;
+// (対応リストページの🔴期限当日・超過バケットと同じ範囲)のみを対象に、施設名グループ化は
+// 行わず、個別のREF#明細を緊急性順(期限超過日数が大きい順)にそのまま表示する
+// (施設名グループ化は対応リストページ側だけの表示形式であり、こちらには適用しない)。
+// fetchFacilityDeadlineItemsが返すitemsは既に_days昇順(超過日数が大きい=より緊急な
+// ものほど_daysが小さい負の値になるため、昇順ソートがそのまま緊急性順になる)のため、
+// 追加のソートは不要でそのままslice(0, N)する。
+// 上位20件のみ表示し、21件目以降は「すべて表示」ボタン経由で対応リストページに
+// 一本化する(このセクション自体に展開・チェック操作は設けない)。
+const DASHBOARD_TODO_SUMMARY_MAX_ITEMS = 20;
 async function renderDashboardTodoSummary(){
   const card = document.getElementById('db-todo-summary-card');
   const el = document.getElementById('db-todo-summary');
@@ -3332,15 +3332,19 @@ async function renderDashboardTodoSummary(){
   if(error || !items || !items.length){ card.style.display = 'none'; return; }
   card.style.display = '';
 
-  const sortedGroups = groupFacilityItemsByName(items);
-  const shown = sortedGroups.slice(0, DASHBOARD_TODO_SUMMARY_MAX_GROUPS);
-  const rows = shown.map(([name, groupItems])=>`
-    <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 4px;border-bottom:1px solid var(--border);font-size:12px">
-      <span>${escHtml(name)}</span>
-      <span style="background:#fde8ea;color:#c0392b;padding:1px 8px;border-radius:10px;font-weight:700;font-size:11px;white-space:nowrap">${groupItems.length}件</span>
-    </div>`).join('');
-  const moreNote = sortedGroups.length > shown.length
-    ? `<div style="font-size:11px;color:var(--text3);margin-top:6px">他 ${sortedGroups.length - shown.length}件の施設グループがあります</div>`
+  const shown = items.slice(0, DASHBOARD_TODO_SUMMARY_MAX_ITEMS);
+  const rows = shown.map(f=>{
+    const bk = f._booking || {};
+    const dLabel = f._days < 0 ? `期限超過${-f._days}日` : '本日';
+    return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 4px;border-bottom:1px solid var(--border);font-size:12px;cursor:pointer" onclick="openBookingDetail('${f.booking_id}')">
+      <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+        <b>${escHtml(bk.ref_no||'')}</b> ${escHtml(f.facility_name||'（名称未設定）')}
+      </span>
+      <span style="background:#fde8ea;color:#c0392b;padding:1px 8px;border-radius:10px;font-weight:700;font-size:11px;white-space:nowrap">${dLabel}</span>
+    </div>`;
+  }).join('');
+  const moreNote = items.length > shown.length
+    ? `<div style="font-size:11px;color:var(--text3);margin-top:6px">他 ${items.length - shown.length}件があります</div>`
     : '';
   el.innerHTML = `${rows}${moreNote}
     <button class="btn" style="margin-top:10px;font-size:12px" onclick="go('todo')">すべて表示（全${items.length}件）</button>`;
