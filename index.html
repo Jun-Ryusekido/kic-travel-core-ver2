@@ -10916,7 +10916,7 @@ async function saveFacilityItems(){
     deadline_completed_at: it.deadline_completed_at||null,
     cost_added: !!it.cost_added
   }));
-  await safeReplaceBookingRows('booking_facilities', bookingId, rows, '観光施設明細');
+  await bookingFacilitiesApiCall('replace', { bookingId, rows });
 }
 
 // ─── ミネラルウォーター ─────────────────────────────────────────────────────

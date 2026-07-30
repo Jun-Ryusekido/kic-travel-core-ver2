@@ -70,17 +70,15 @@ const TABLE_CONFIG = {
     label: '予約',
   },
   // booking_facilities(観光施設・バス駐車場等): 観光地予約管理画面(複数予約横断の
-  // 一覧・インライン編集)からのステータス/確認番号/備考の更新のみをservice_role経由に
-  // 移行。読み取り、および既存のダッシュボードToDo(対応期限管理)からの更新は
-  // 今回のスコープ外でありanon+RLSのまま変更しない。
-  // insert: 観光地予約管理ページのAI読み取り機能から、複数予約(booking_id)へ
-  // またがる観光施設明細をまとめて新規追加するために使用する。updateByIdは
-  // 従来通りインライン編集用。
+  // 一覧・インライン編集)からのステータス/確認番号/備考の更新、AI読み取り機能からの
+  // 一括新規追加(insert)に加え、予約詳細モーダルの「観光施設」タブ保存(旧
+  // safeReplaceBookingRows)もreplace経由でservice_role化した(セキュリティ移行
+  // バッチA最終分)。読み取りはこれまで通りanon+RLSのまま変更しない。
   // booking_facilitiesはdeadline_completed_at等の目的限定タイムスタンプは持つが汎用
   // updated_atは無い。今回はcreated_by/updated_byのみ追加し、汎用updated_at列の新設は
   // スコープ外とする(stampUpdatedAtは付けない)。
   booking_facilities: {
-    actions: ['updateById', 'insert'],
+    actions: ['updateById', 'insert', 'replace'],
     label: '観光施設・バス駐車場等',
     stampIdentity: true,
   },
