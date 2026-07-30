@@ -111,6 +111,16 @@ const TABLE_CONFIG = {
     stampIdentity: true,
     stampUpdatedAt: true,
   },
+  // guide_bank_accounts(ガイド口座情報): 1ガイドが0〜N件の口座を持てる子テーブル。
+  // 新設テーブルのため最初からservice_role経由のみとし、anonへのGRANTは一切行わない
+  // (batch A のような後追い移行が不要)。created_by/updated_by/updated_atは
+  // すべてサーバー側でスタンプする。
+  guide_bank_accounts: {
+    actions: ['insert', 'updateById', 'deleteById'],
+    label: 'ガイド口座情報',
+    stampIdentity: true,
+    stampUpdatedAt: true,
+  },
 };
 
 function sbFetch(table, path, opts = {}) {
