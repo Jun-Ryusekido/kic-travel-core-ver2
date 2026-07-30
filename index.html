@@ -607,9 +607,9 @@ input[type=number]{-moz-appearance:textfield}
 
 <!-- ===== APP ===== -->
 <div id="screen-app">
-<div id="global-deadline-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:150;padding:8px 20px;font-size:12px;font-weight:600;cursor:pointer;align-items:center;justify-content:space-between" onclick="go('todo')">
+<div id="global-deadline-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:150;padding:8px 20px;font-size:12px;font-weight:600;cursor:pointer;align-items:center;justify-content:space-between" onclick="toggleGlobalDeadlineBannerNav()">
   <span id="global-deadline-banner-text"></span>
-  <span style="font-size:11px;font-weight:400;opacity:.85">クリックで一覧を表示 ▾</span>
+  <span id="global-deadline-banner-action" style="font-size:11px;font-weight:400;opacity:.85">クリックで一覧を表示 ▾</span>
 </div>
 <div class="app">
   <div class="sb" id="sidebar">
@@ -733,11 +733,10 @@ input[type=number]{-moz-appearance:textfield}
         </div>
       </div>
 
-      <!-- 対応が必要な予約（ToDoリスト。サイドバー項目は無し、画面上部の赤いバナーからのみ遷移する） -->
+      <!-- 対応が必要な予約（ToDoリスト。サイドバー項目は無し、画面上部の赤いバナーからのみ
+           遷移する。戻る専用ボタンは廃止し、バナー自体が「表示」⇔「戻る」のトグルとして
+           機能する（toggleGlobalDeadlineBannerNav参照）） -->
       <div id="pg-todo" class="page" style="display:none">
-        <div class="card">
-          <button class="btn" style="font-size:12px" onclick="go('dashboard')">← ダッシュボードに戻る</button>
-        </div>
         <div class="card">
           <div class="card-title">📝 対応が必要な予約 <span style="font-size:10px;font-weight:400;color:var(--text3)">観光施設・バス駐車場等の対応期限管理（全件）</span></div>
           <div id="todo-page-list"><span style="font-size:12px;color:var(--text3)">読み込み中...</span></div>
@@ -2918,6 +2917,7 @@ function go(id){
   document.querySelectorAll('.sb-item[data-pg="'+id+'"]').forEach(n=>n.classList.add('active'));
   document.getElementById('pg-title').textContent = pageNames[id]||id;
   document.getElementById('sidebar').classList.remove('open');
+  updateGlobalDeadlineBannerAction();
 
   if(id!=='dashboard') logAction('ページ遷移', pageNames[id]||id);
 
@@ -3534,6 +3534,20 @@ function updateDeadlineBannerHeightVar(){
 window.addEventListener('resize', ()=>{
   if(document.body.classList.contains('has-deadline-banner')) updateDeadlineBannerHeightVar();
 });
+
+// 赤いバナーを「表示」⇔「戻る」のトグルとして機能させる。対応リストページ(todo)を
+// 開いている間はクリックでダッシュボードへ戻り、それ以外のページではクリックで
+// 対応リストページへ遷移する(専用の「← ダッシュボードに戻る」ボタンは廃止し、
+// バナー自体がその役割を兼ねる)。
+function toggleGlobalDeadlineBannerNav(){
+  go(currentPageId==='todo' ? 'dashboard' : 'todo');
+}
+// go()で画面遷移するたびに呼ばれ、現在のページに応じてバナー右側の文言を切り替える。
+function updateGlobalDeadlineBannerAction(){
+  const el = document.getElementById('global-deadline-banner-action');
+  if(!el) return;
+  el.textContent = currentPageId==='todo' ? 'クリックで一覧へ戻る ▾' : 'クリックで一覧を表示 ▾';
+}
 
 const DEADLINE_NOTIFY_STORAGE_KEY = 'kic_deadline_notified_v1';
 function localDateStr(d){
