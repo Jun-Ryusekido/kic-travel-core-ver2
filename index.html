@@ -13621,7 +13621,7 @@ async function loadGuideAdvanceList(){
   const [{data: arrangements}, {data: estimations}, {data: settlements}, {data: localExpenses}] = await Promise.all([
     sb.from('tour_arrangements').select('booking_ref, guide_name, guide_phone').in('booking_ref', refNos),
     sb.from('estimations').select('id, converted_booking_id').in('converted_booking_id', ids),
-    sb.from('guide_settlements').select('booking_ref, guide_name, guide_phone, guide_names, advance_payment, additional_advance_payment').in('booking_ref', refNos),
+    sb.from('guide_settlements').select('booking_ref, guide_name, guide_phone, guide_names, advance_payment, additional_advance_payment, status').in('booking_ref', refNos),
     sb.from('local_expenses').select('booking_id, expense_date, content, category, unit_price, qty, amount, payment_method').in('booking_id', ids).order('sort_order')
   ]);
 
@@ -13645,7 +13645,15 @@ async function loadGuideAdvanceList(){
   const arrByRef = {}; (arrangements||[]).forEach(a=>{ if(!arrByRef[a.booking_ref]) arrByRef[a.booking_ref]=a; });
   const setByRef = {}; (settlements||[]).forEach(s=>{ if(!setByRef[s.booking_ref]) setByRef[s.booking_ref]=s; });
 
-  tbody.innerHTML = filtered.map(b=>{
+  // 締め済み(精算完了)の予約はガイド仮払い一覧から除外する
+  const notClosed = filtered.filter(b=>{
+    const set = setByRef[b.ref_no];
+    return !(set && set.status==='closed');
+  });
+
+  if(notClosed.length===0){ tbody.innerHTML='<tr><td colspan="9" class="empty">該当する予約がありません</td></tr>'; return; }
+
+  const rowsHtml = notClosed.map(b=>{
     const arr = arrByRef[b.ref_no];
     const set = setByRef[b.ref_no];
     const pax = Number(b.pax_adult||0)+Number(b.pax_child||0)+Number(b.pax_infant||0);
@@ -13669,7 +13677,10 @@ async function loadGuideAdvanceList(){
 
     return guideRows.map((g,i)=>{
       const localTotal = localExpenseTotalById[b.id]||0;
-      const advance = localTotal>0 ? yen(localTotal) : ((g.advance_payment!=null) ? yen(Number(g.advance_payment||0)+Number(g.additional_advance_payment||0)) : '-');
+      const advanceAmount = localTotal>0 ? localTotal : (g.advance_payment!=null ? Number(g.advance_payment||0)+Number(g.additional_advance_payment||0) : 0);
+      // 仮払金が0円・未入力の行は一覧から除外する
+      if(!(advanceAmount>0)) return '';
+      const advance = yen(advanceAmount);
       const mainRow = `<tr ondblclick="openBookingDetail('${b.id}')">
       <td class="lnk" onclick="openBookingDetail('${b.id}')">${b.ref_no}</td>
       <td>${escHtml(b.tour_name||'')}</td>
@@ -13694,6 +13705,8 @@ async function loadGuideAdvanceList(){
       return mainRow + (i===0 && localItems.length>0 ? detailRows : '');
     }).join('');
   }).join('');
+
+  tbody.innerHTML = rowsHtml || '<tr><td colspan="9" class="empty">該当する予約がありません</td></tr>';
 }
 
 function filterGuideAdvanceList(){
@@ -18793,7 +18806,7 @@ function setDateInputValue(el, d){
       <div class="form-field" style="align-self:end"><button class="btn" onclick="setGuideAdvanceRangeDefault()">直近60日</button></div>
       <button class="btn" style="margin-left:auto" onclick="printGuideAdvanceList()">🖨 印刷（A4横）</button>
     </div>
-    <div style="font-size:11px;color:var(--text3);margin:4px 0 6px">※ ガイド名・電話番号は手配書、想定ガイド費は見積もり（成約済み）から自動取得します。仮払金は予約台帳のガイド精算で入力した内容が反映されます。</div>
+    <div style="font-size:11px;color:var(--text3);margin:4px 0 6px">※ ガイド名・電話番号は手配書、想定ガイド費は見積もり（成約済み）から自動取得します。仮払金は予約台帳のガイド精算で入力した内容が反映されます。締め済みの予約、仮払金が未入力・0円の予約は表示されません。</div>
     <div style="margin-bottom:8px"><input id="ga-search" placeholder="REF# / Tour / ガイド名で検索" style="width:300px;padding:6px 10px;border-radius:8px;border:1px solid var(--border);font-size:12px" oninput="filterGuideAdvanceList()"></div>
     <div id="ga-print-card">
       <div class="tbl-wrap"><table id="ga-table">
