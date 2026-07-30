@@ -3315,7 +3315,7 @@ function toggleTodoBucket(bIdx){
 // fetchFacilityDeadlineItemsが返すitemsは既に_days昇順(超過日数が大きい=より緊急な
 // ものほど_daysが小さい負の値になるため、昇順ソートがそのまま緊急性順になる)のため、
 // 追加のソートは不要でそのままslice(0, N)する。
-// 上位20件のみ表示し、21件目以降は「すべて表示」ボタン経由で対応リストページに
+// 上位10件のみ表示し、11件目以降は「すべて表示」ボタン経由で対応リストページに
 // 一本化する(このセクション自体に展開・チェック操作は設けない)。
 const DASHBOARD_TODO_SUMMARY_MAX_ITEMS = 10;
 async function renderDashboardTodoSummary(){
