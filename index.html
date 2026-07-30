@@ -13834,8 +13834,9 @@ async function handleGuideBankAccountExcel(event){
     const deduped = dedupeGuideBankAccounts(records);
     if(guideRegistryCache.length===0) await loadGuideRegistry();
     const matched = matchGuideBankAccountsToGuides(deduped, guideRegistryCache);
+    const withWeak = findWeakGuideCandidates(matched, guideRegistryCache);
     statusEl.textContent = '';
-    showGuideBankAccountImportConfirm(matched);
+    showGuideBankAccountImportConfirm(withWeak);
   }catch(e){
     logError('ガイド口座情報の読み込み', e, {toast:false});
     statusEl.textContent = '読み込み失敗: '+e.message;
@@ -13926,6 +13927,46 @@ function matchGuideBankAccountsToGuides(records, guides){
   });
 }
 
+// 「弱い候補」調査専用の緩い正規化(全角/半角カナ統一・空白/中黒除去・小文字化・NFKC正規化)。
+// 確認ダイアログでの参考表示にのみ使い、guide_idを自動的に確定することは一切しない
+// (business_partners突合事故の教訓を踏まえ、matchGuideBankAccountsToGuidesの
+// 完全一致方針とは明確に分離した別関数にしてある)。
+function gbaNormLoose(s){
+  s = String(s||'');
+  const hankakuMap = {
+    'ｱ':'ア','ｲ':'イ','ｳ':'ウ','ｴ':'エ','ｵ':'オ','ｶ':'カ','ｷ':'キ','ｸ':'ク','ｹ':'ケ','ｺ':'コ',
+    'ｻ':'サ','ｼ':'シ','ｽ':'ス','ｾ':'セ','ｿ':'ソ','ﾀ':'タ','ﾁ':'チ','ﾂ':'ツ','ﾃ':'テ','ﾄ':'ト',
+    'ﾅ':'ナ','ﾆ':'ニ','ﾇ':'ヌ','ﾈ':'ネ','ﾉ':'ノ','ﾊ':'ハ','ﾋ':'ヒ','ﾌ':'フ','ﾍ':'ヘ','ﾎ':'ホ',
+    'ﾏ':'マ','ﾐ':'ミ','ﾑ':'ム','ﾒ':'メ','ﾓ':'モ','ﾔ':'ヤ','ﾕ':'ユ','ﾖ':'ヨ',
+    'ﾗ':'ラ','ﾘ':'リ','ﾙ':'ル','ﾚ':'レ','ﾛ':'ロ','ﾜ':'ワ','ｦ':'ヲ','ﾝ':'ン',
+    'ｧ':'ァ','ｨ':'ィ','ｩ':'ゥ','ｪ':'ェ','ｫ':'ォ','ｯ':'ッ','ｬ':'ャ','ｭ':'ュ','ｮ':'ョ','ｰ':'ー',
+  };
+  const dakutenMap = { 'ｶ':'ガ','ｷ':'ギ','ｸ':'グ','ｹ':'ゲ','ｺ':'ゴ','ｻ':'ザ','ｼ':'ジ','ｽ':'ズ','ｾ':'ゼ','ｿ':'ゾ',
+    'ﾀ':'ダ','ﾁ':'ヂ','ﾂ':'ヅ','ﾃ':'デ','ﾄ':'ド','ﾊ':'バ','ﾋ':'ビ','ﾌ':'ブ','ﾍ':'ベ','ﾎ':'ボ' };
+  const handakutenMap = { 'ﾊ':'パ','ﾋ':'ピ','ﾌ':'プ','ﾍ':'ペ','ﾎ':'ポ' };
+  let out = '';
+  for(let i=0; i<s.length; i++){
+    const c = s[i]; const next = s[i+1];
+    if(next==='゙' && dakutenMap[c]){ out += dakutenMap[c]; i++; continue; }
+    if(next==='゚' && handakutenMap[c]){ out += handakutenMap[c]; i++; continue; }
+    out += hankakuMap[c] || c;
+  }
+  return out.normalize('NFKC').replace(/[\s　・･(){}（）]/g,'').toLowerCase();
+}
+// matchGuideBankAccountsToGuidesで完全一致が0件だった行(未紐付け)にのみ、参考候補
+// (_weakCandidates)を付与する。完全一致済みの行はそのまま返す(調査対象外)。
+function findWeakGuideCandidates(records, guides){
+  return records.map(r=>{
+    if(r._candidates && r._candidates.length>0) return r;
+    const rNorm = gbaNormLoose(r.name);
+    const weak = rNorm ? guides.filter(g=>{
+      const gNorm = gbaNormLoose(g.name);
+      return gNorm && (gNorm===rNorm || gNorm.includes(rNorm) || rNorm.includes(gNorm));
+    }) : [];
+    return { ...r, _weakCandidates: weak };
+  });
+}
+
 function showGuideBankAccountImportConfirm(records){
   window._pendingGba = records;
   window._gbaConfirmGuides = guideRegistryCache;
@@ -13953,6 +13994,11 @@ function showGuideBankAccountImportConfirm(records){
       ${single?`<label style="display:block;font-size:9px;color:var(--text2);margin-top:3px;cursor:pointer"><input type="checkbox" id="gba-c-refconfirm-${i}" onchange="gbaToggleAutoMatch(${i})" style="vertical-align:middle;margin-right:3px">自動マッチ候補: <b>${escHtml(single.name||'')}</b>（チェックで確定）</label>`:''}
       ${r._candidates.length>=2?`<div style="font-size:9px;color:var(--orange,#d97706);margin-top:3px">⚠ 同姓同名候補${r._candidates.length}件。検索欄から選択してください</div>`:''}
       ${r._candidates.length===0?`<div style="font-size:9px;color:var(--text3);margin-top:3px">未紐付け（検索欄から手動で選択）</div>`:''}
+      ${r._candidates.length===0 && (r._weakCandidates||[]).length ? `<div style="font-size:9px;margin-top:2px">
+        ${r._weakCandidates.slice(0,3).map(g=>`<span style="color:var(--blue);cursor:pointer;text-decoration:underline" onclick="gbaFillWeakCandidate(${i},${JSON.stringify(g.name||'').replace(/"/g,'&quot;')})">参考候補: ${escHtml(g.name||'')}</span>`).join('　')}
+        ${r._weakCandidates.length>3?`　<span style="color:var(--text3)">…他${r._weakCandidates.length-3}件</span>`:''}
+        <div style="color:var(--text3)">（クリックで検索欄に反映、選択は別途必要）</div>
+      </div>` : ''}
     </div>`;
     return `<tr>
       <td data-label="追加" style="padding:5px 4px;text-align:center;vertical-align:top"><input type="checkbox" id="gba-c-sel-${i}" checked></td>
@@ -13981,6 +14027,7 @@ function showGuideBankAccountImportConfirm(records){
       <div style="font-size:11px;color:var(--text3);margin-bottom:10px">
         Excel内の重複統合後: ${records.length}件（自動マッチ候補: ${matchedAuto}件、同姓同名の複数候補: ${multiCandidateCount}件、未紐付け: ${unmatchedCount}件）。
         「自動マッチ候補」はチェックを入れるかドロップダウンから選び直すまでは保存対象になりません。氏名の完全一致以外の自動突合は行っていません。
+        「参考候補」は緩い表記ゆれ(全角/半角・空白等)のみを見た参考ヒントで、クリックしても検索欄に入るだけです。ガイドの確定は必ず検索欄からの手動選択で行ってください。
       </div>
       <div style="overflow-x:auto"><table class="confirm-table" style="width:100%;border-collapse:collapse;font-size:11px">
         <thead><tr style="background:var(--bg)">
@@ -14051,6 +14098,16 @@ function gbaToggleAutoMatch(i){
   const hidden = document.getElementById(`gba-c-guideid-${i}`);
   if(!records || !checkbox || !hidden) return;
   hidden.value = checkbox.checked ? String(records[i]._candidates[0].id) : '';
+}
+// 「参考候補」クリック時: 検索欄にその氏名を入力するだけで、guide_id(hidden)は
+// 一切変更しない。ガイドの確定は従来通り検索欄→ドロップダウンからの手動選択のみで行う
+// (弱い候補はあくまで検索の手間を減らすヒントであり、自動確定は行わない)。
+function gbaFillWeakCandidate(i, name){
+  const input = document.getElementById(`gba-c-input-${i}`);
+  if(!input) return;
+  input.value = name;
+  input.focus();
+  renderGbaConfirmDD(i, name);
 }
 
 async function saveGuideBankAccountImport(){
