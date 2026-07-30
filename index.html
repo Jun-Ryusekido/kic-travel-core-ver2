@@ -13505,27 +13505,35 @@ async function saveBooking(){
 
 // ===== GROSS =====
 async function loadGross(){
-  const data = await fetchAllBookings();
-
-  // 決算年度セレクターの初期化（データ範囲＋現在年度を含む）
+  // 決算年度セレクターの初期化（全件スキャンではなく、out_dateのmin/maxのみ取得する軽量クエリ）
   const fySel = document.getElementById('g-fy');
   if(fySel.options.length===0){
-    const fySet = new Set();
-    data.forEach(b=>{ const fy = fiscalYearOf(b.out_date); if(fy!=null) fySet.add(fy); });
+    const [{data: minRow}, {data: maxRow}] = await Promise.all([
+      sb.from('bookings').select('out_date').not('out_date','is',null).order('out_date',{ascending:true}).limit(1),
+      sb.from('bookings').select('out_date').not('out_date','is',null).order('out_date',{ascending:false}).limit(1)
+    ]);
     const cur = currentFiscalYear();
-    fySet.add(cur); fySet.add(cur-1); fySet.add(cur+1);
-    const years = Array.from(fySet).sort((a,b)=>b-a);
+    const fySet = new Set([cur-1, cur, cur+1]);
+    if(minRow && minRow[0]){ const fy = fiscalYearOf(minRow[0].out_date); if(fy!=null) fySet.add(fy); }
+    if(maxRow && maxRow[0]){ const fy = fiscalYearOf(maxRow[0].out_date); if(fy!=null) fySet.add(fy); }
+    const minFy = Math.min(...fySet), maxFy = Math.max(...fySet);
+    const years = [];
+    for(let fy=maxFy; fy>=minFy; fy--) years.push(fy);
     fySel.innerHTML = years.map(fy=>`<option value="${fy}">${fiscalYearLabel(fy)}</option>`).join('');
     fySel.value = String(cur);
   }
   const selectedFy = Number(fySel.value);
   const {from, to} = fiscalYearRange(selectedFy);
 
-  // 選択した決算年度（OUT-DATE基準）に絞り込み
-  const inFy = data.filter(b => b.out_date && b.out_date>=from && b.out_date<=to);
+  // サーバー側RPCで月別の売上・原価・GROSS・GROSS率・件数を集計
+  const {data: monthly, error: rpcErr} = await sb.rpc('get_gross_summary', {p_fiscal_year: selectedFy});
+  if(rpcErr){ logError('GROSS集計の読み込み(get_gross_summary)', rpcErr); return; }
 
-  const totalSales = inFy.reduce((s,b)=>s+Number(b.gross_sales||0),0);
-  const totalCost  = inFy.reduce((s,b)=>s+Number(b.gross_cost||0),0);
+  const monthMap = {};
+  (monthly||[]).forEach(m=>{ monthMap[m.month] = m; });
+
+  const totalSales = (monthly||[]).reduce((s,m)=>s+Number(m.sales||0),0);
+  const totalCost  = (monthly||[]).reduce((s,m)=>s+Number(m.cost||0),0);
   const gross = totalSales-totalCost;
   const rate = totalSales ? (gross/totalSales*100).toFixed(1) : '0.0';
   document.getElementById('g-sales').textContent=yen(totalSales);
@@ -13533,31 +13541,33 @@ async function loadGross(){
   document.getElementById('g-gross').textContent=yen(gross);
   document.getElementById('g-rate').textContent=rate+'%';
 
-  // 月別集計（その決算年度の3月〜翌2月）
+  // 月別集計（その決算年度の3月〜翌2月。RPCが返さない月＝データ無しの月は0で補完）
   const months = fiscalYearMonths(selectedFy);
-  const monthMap = {};
-  months.forEach(m=>{ monthMap[m] = {sales:0, cost:0, count:0}; });
-  inFy.forEach(b=>{
-    const m = (b.out_date||'').slice(0,7);
-    if(monthMap[m]){
-      monthMap[m].sales += Number(b.gross_sales||0);
-      monthMap[m].cost  += Number(b.gross_cost||0);
-      monthMap[m].count += 1;
-    }
-  });
   document.getElementById('g-monthly-tbody').innerHTML = months.map(m=>{
-    const v = monthMap[m];
-    const g = v.sales - v.cost;
-    const r = v.sales ? (g/v.sales*100).toFixed(1) : '0.0';
+    const v = monthMap[m] || {sales:0, cost:0, booking_count:0};
+    const sales = Number(v.sales||0), cost = Number(v.cost||0);
+    const g = sales - cost;
+    const r = sales ? (g/sales*100).toFixed(1) : '0.0';
     const cls = g<0 ? 'red' : 'green';
     const [yy,mm] = m.split('-');
-    return `<tr><td>${yy}年${Number(mm)}月</td><td>${yen(v.sales)}</td><td>${yen(v.cost)}</td><td class="${cls}">${yen(g)}</td><td class="${cls}">${r}%</td><td>${v.count}</td></tr>`;
+    return `<tr><td>${yy}年${Number(mm)}月</td><td>${yen(sales)}</td><td>${yen(cost)}</td><td class="${cls}">${yen(g)}</td><td class="${cls}">${r}%</td><td>${v.booking_count||0}</td></tr>`;
   }).join('');
 
+  // GROSS明細 — ツアー別（サーバー側WHERE絞り込み + .range()ページング）
   const tbody=document.getElementById('g-tbody');
-  // 選択した決算年度内で、売上または原価が発生している予約をOUT-DATE順に表示
-  const withAmount = inFy.filter(b=>Number(b.gross_sales||0)!==0 || Number(b.gross_cost||0)!==0)
-    .sort((a,b)=> (a.out_date||'').localeCompare(b.out_date||''));
+  let withAmount = []; let gFrom = 0; const gPageSize = 1000;
+  while(true){
+    const {data: gPage, error: gErr} = await sb.from('bookings')
+      .select('id,ref_no,agent_name,tour_name,out_date,gross_sales,gross_cost,status')
+      .gte('out_date', from).lte('out_date', to)
+      .or('gross_sales.neq.0,gross_cost.neq.0')
+      .order('out_date',{ascending:true})
+      .range(gFrom, gFrom+gPageSize-1);
+    if(gErr){ logError('GROSS明細の読み込み(bookings)', gErr); break; }
+    withAmount = withAmount.concat(gPage||[]);
+    if((gPage||[]).length < gPageSize) break;
+    gFrom += gPageSize;
+  }
 
   document.querySelector('#pg-gross .card-title').innerHTML =
     `GROSS明細 — ツアー別（${fiscalYearLabel(selectedFy)}、${withAmount.length}件） <span class="lnk" style="font-size:11px;font-weight:400" onclick="go('booking-list')">Booking Listで全件検索 →</span>`;
