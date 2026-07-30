@@ -694,6 +694,10 @@ input[type=number]{-moz-appearance:textfield}
           <div class="card-title">到着日アラート <span style="font-size:10px;font-weight:400;color:var(--text3)">今後90日以内の進行中予約</span></div>
           <div id="db-arrival-alert"><span style="font-size:12px;color:var(--text3)">読み込み中...</span></div>
         </div>
+        <div class="card" id="db-todo-summary-card" style="display:none">
+          <div class="card-title">📝 対応が必要な予約 <span style="font-size:10px;font-weight:400;color:var(--text3)">期限当日・超過分（施設名別）</span></div>
+          <div id="db-todo-summary"></div>
+        </div>
         <div class="card" style="position:sticky;top:50px;z-index:10;margin-bottom:0;border-radius:12px 12px 0 0">
           <div class="card-title">検索・絞り込み</div>
           <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr 1fr">
@@ -3124,7 +3128,7 @@ async function loadBookingListGeneric(prefix){
   const isAdmin = currentUser && currentUser.role==='admin';
   if(fromEl && !fromEl.value && !isAdmin) fromEl.value = TEMP_DEFAULT_FROM;
   filterBookingListGeneric(prefix);
-  if(prefix === 'db'){ renderDbArrivalAlert(); }
+  if(prefix === 'db'){ renderDbArrivalAlert(); renderDashboardTodoSummary(); }
 }
 
 function resetBookingFilter(prefix){
@@ -3297,6 +3301,51 @@ let todoPageDataCache = null;
 // ページ内では再描画のたびに同じキーが再生成されるため、Setで単純に開閉を保持できる。
 window._todoExpandedGroups = window._todoExpandedGroups || new Set();
 
+// 施設名でグループ化し、件数の多い順に並べる。対応リストページ(renderTodoPageFromCache)
+// とダッシュボードの対応リストサマリー(renderDashboardTodoSummary)の両方から使う
+// 共通ロジック(グループ化の実装は1箇所のみ)。戻り値: [[施設名, その施設のitems配列], ...]
+function groupFacilityItemsByName(items){
+  const groups = new Map();
+  items.forEach(f=>{
+    const name = f.facility_name || '（名称未設定）';
+    if(!groups.has(name)) groups.set(name, []);
+    groups.get(name).push(f);
+  });
+  return [...groups.entries()].sort((g1,g2)=>g2[1].length-g1[1].length);
+}
+
+// ダッシュボードに常時表示する「対応が必要な予約」の簡易サマリー。期限当日・超過分
+// (対応リストページの🔴期限当日・超過バケットと同じ範囲)のみを対象に、施設名で
+// グループ化して件数降順に並べる(グループ化ロジックはgroupFacilityItemsByNameを
+// そのまま再利用し、新規実装しない)。
+// 「上位20件」の扱い: このサマリーは常にグループ見出し(1グループ=1行、件数バッジのみ)
+// だけを表示し、個別REF#明細の展開はここでは行わない(展開・チェック操作は「すべて
+// 表示」ボタン経由で対応リストページに一本化し、状態を二重管理しない)。そのため
+// 「1行=1グループ」であり、内訳件数でグループを途中で切ると表示が中途半端になる
+// ため、上限は個別件数の累計ではなく「上位20グループ」として扱う。
+const DASHBOARD_TODO_SUMMARY_MAX_GROUPS = 20;
+async function renderDashboardTodoSummary(){
+  const card = document.getElementById('db-todo-summary-card');
+  const el = document.getElementById('db-todo-summary');
+  if(!card || !el) return;
+  const {items, error} = await fetchFacilityDeadlineItems(0); // maxDays=0 → 期限当日・超過のみ
+  if(error || !items || !items.length){ card.style.display = 'none'; return; }
+  card.style.display = '';
+
+  const sortedGroups = groupFacilityItemsByName(items);
+  const shown = sortedGroups.slice(0, DASHBOARD_TODO_SUMMARY_MAX_GROUPS);
+  const rows = shown.map(([name, groupItems])=>`
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 4px;border-bottom:1px solid var(--border);font-size:12px">
+      <span>${escHtml(name)}</span>
+      <span style="background:#fde8ea;color:#c0392b;padding:1px 8px;border-radius:10px;font-weight:700;font-size:11px;white-space:nowrap">${groupItems.length}件</span>
+    </div>`).join('');
+  const moreNote = sortedGroups.length > shown.length
+    ? `<div style="font-size:11px;color:var(--text3);margin-top:6px">他 ${sortedGroups.length - shown.length}件の施設グループがあります</div>`
+    : '';
+  el.innerHTML = `${rows}${moreNote}
+    <button class="btn" style="margin-top:10px;font-size:12px" onclick="go('todo')">すべて表示（全${items.length}件）</button>`;
+}
+
 async function renderTodoPage(){
   const el = document.getElementById('todo-page-list');
   if(!el) return;
@@ -3379,13 +3428,7 @@ function renderTodoPageFromCache(){
     </tr>`;
     // 施設名でグループ化し、件数の多い順に並べる。各グループは初期状態で折りたたみ
     // (window._todoExpandedGroupsに含まれる場合のみ展開)。
-    const groups = new Map();
-    b.items.forEach(f=>{
-      const name = f.facility_name || '（名称未設定）';
-      if(!groups.has(name)) groups.set(name, []);
-      groups.get(name).push(f);
-    });
-    const sortedGroups = [...groups.entries()].sort((g1,g2)=>g2[1].length-g1[1].length);
+    const sortedGroups = groupFacilityItemsByName(b.items);
     const groupRows = sortedGroups.map(([name, groupItems])=>{
       const key = `${bIdx}::${name}`;
       const expanded = window._todoExpandedGroups.has(key);
