@@ -4640,7 +4640,7 @@ function hideSupplierSuggestions(){
 async function loadBusCompaniesCache(){
   if(busCompaniesCache.length>0) return;
   const {data} = await sb.from('business_partners')
-    .select('id,company_name,phone')
+    .select('company_name,phone')
     .eq('category','バス・ハイヤー等')
     .or('is_deleted.is.null,is_deleted.eq.false')
     .order('company_name');
@@ -4662,10 +4662,10 @@ async function showBusCompanySuggest(inputEl, idx){
   box.style.left = (rect.left+window.scrollX)+'px';
   box.style.top  = (rect.bottom+window.scrollY)+'px';
   box.style.width = Math.max(rect.width,180)+'px';
-  box.innerHTML = matches.map(p=>`<div class="bus-co-item" style="padding:4px 8px;cursor:pointer" data-id="${escAttr(p.id)}" data-name="${escAttr(p.company_name)}">${escHtml(p.company_name)}${p.phone?`<span style="color:var(--text3);margin-left:6px;font-size:10px">${escHtml(p.phone)}</span>`:''}</div>`).join('');
+  box.innerHTML = matches.map(p=>`<div class="bus-co-item" style="padding:4px 8px;cursor:pointer" data-name="${escAttr(p.company_name)}">${escHtml(p.company_name)}${p.phone?`<span style="color:var(--text3);margin-left:6px;font-size:10px">${escHtml(p.phone)}</span>`:''}</div>`).join('');
   document.body.appendChild(box);
   box.querySelectorAll('.bus-co-item').forEach(item=>{
-    item.addEventListener('mousedown',e=>{ e.preventDefault(); const n=item.getAttribute('data-name'); const pid=item.getAttribute('data-id'); inputEl.value=n; bdBusItems[idx].bus_company=n; bdBusItems[idx].business_partner_id=pid||null; hideBusCompanySuggest(); });
+    item.addEventListener('mousedown',e=>{ e.preventDefault(); const n=item.getAttribute('data-name'); inputEl.value=n; bdBusItems[idx].bus_company=n; hideBusCompanySuggest(); });
     item.addEventListener('mouseenter',()=>{ item.style.background='var(--bg)'; });
     item.addEventListener('mouseleave',()=>{ item.style.background=''; });
   });
@@ -5611,7 +5611,7 @@ async function openBookingDetail(id){
   ]);
   if(_stale()) return;
   if(busFetchErr||restFetchErr||facFetchErr||waterFetchErr){ alert('手配明細の読み込みに一部失敗しました。このまま保存すると既存データが消える危険があるため、画面を再読み込みしてください。\n'+(busFetchErr||restFetchErr||facFetchErr||waterFetchErr).message); }
-  bdBusItems = (busRows||[]).map(r=>({id:r.id,bus_company:r.bus_company||'',business_partner_id:r.business_partner_id||null,bus_type:r.bus_type||'',buses:r.buses||1,start_date:r.start_date||'',end_date:r.end_date||'',amount:r.amount||0,status:r.status||'問い合わせ中',confirmation_no:r.confirmation_no||'',driver_hotel_name:r.driver_hotel_name||'',driver_hotel_phone:r.driver_hotel_phone||'',driver_hotel_address:r.driver_hotel_address||'',driver_check_in:r.driver_check_in||'',driver_check_out:r.driver_check_out||'',driver_hotel_amount:r.driver_hotel_amount||0,memo:r.memo||'',payment_method:r.payment_method||'',cost_added:r.cost_added||false}));
+  bdBusItems = (busRows||[]).map(r=>({id:r.id,bus_company:r.bus_company||'',bus_type:r.bus_type||'',buses:r.buses||1,start_date:r.start_date||'',end_date:r.end_date||'',amount:r.amount||0,status:r.status||'問い合わせ中',confirmation_no:r.confirmation_no||'',driver_hotel_name:r.driver_hotel_name||'',driver_hotel_phone:r.driver_hotel_phone||'',driver_hotel_address:r.driver_hotel_address||'',driver_check_in:r.driver_check_in||'',driver_check_out:r.driver_check_out||'',driver_hotel_amount:r.driver_hotel_amount||0,memo:r.memo||'',payment_method:r.payment_method||'',cost_added:r.cost_added||false}));
   originalBusCount = bdBusItems.length;
   bdRestaurantItems = (restRows||[]).map(r=>({id:r.id,restaurant_name:r.restaurant_name||'',meal_type:r.meal_type||'昼食',date:r.date||'',reservation_time:r.reservation_time||'',pax:r.pax||0,amount:r.amount||0,status:r.status||'問い合わせ中',payment_method:r.payment_method||'',memo:r.memo||'',guide_id:r.guide_id||null,guide_name_freetext:r.guide_name_freetext||'',cost_added:r.cost_added||false}));
   originalRestaurantCount = bdRestaurantItems.length;
@@ -8367,8 +8367,8 @@ function switchArrangTab(tab){
   if(tab==='rest' && restaurantPartnersCache.length===0) loadRestaurantPartnersCache().then(renderRestaurantTable);
   // ガイドタブを開いたとき、保存前から他予約との二重アサイン警告が見えるようにする
   if(tab==='guide') checkGuideDoubleBookings().catch(e=>logError('ガイド二重アサインチェック', e, {toast:false}));
-  // バスタブを開いたとき、保存前から他予約との重複依頼警告が見えるようにする
-  if(tab==='bus') checkBusDoubleBookings().catch(e=>logError('バス重複依頼チェック', e, {toast:false}));
+  // バスタブを開いたとき、保存前から同一予約内の重複登録警告が見えるようにする
+  if(tab==='bus') checkBusDoubleBookings();
   // 手配書タブの日毎明細はホテル/レストランのプルダウンをbdHotelItems/bdRestaurantItemsから
   // 都度組み立てているため、他タブで行を追加/削除した後にこのタブへ切り替えた際に
   // 選択肢が最新化されるよう、切り替えのたびに再描画する。
@@ -8487,7 +8487,7 @@ function renderBusTable(){
     tbody.innerHTML='<tr><td colspan="12" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
   }else{
     tbody.innerHTML = bdBusItems.map((it,i)=>`<tr>
-      <td data-label="バス会社" style="position:relative"><input value="${escAttr(it.bus_company)}" oninput="bdBusItems[${i}].bus_company=this.value;bdBusItems[${i}].business_partner_id=null;showBusCompanySuggest(this,${i})" onfocus="showBusCompanySuggest(this,${i})" onblur="setTimeout(hideBusCompanySuggest,150)" style="width:100%"></td>
+      <td data-label="バス会社" style="position:relative"><input value="${escAttr(it.bus_company)}" oninput="bdBusItems[${i}].bus_company=this.value;showBusCompanySuggest(this,${i})" onfocus="showBusCompanySuggest(this,${i})" onblur="setTimeout(hideBusCompanySuggest,150)" style="width:100%"></td>
       <td data-label="バスタイプ"><input value="${escAttr(it.bus_type)}" oninput="bdBusItems[${i}].bus_type=this.value" style="width:100%"></td>
       <td data-label="台数"><input type="number" value="${it.buses||1}" onchange="bdBusItems[${i}].buses=Number(this.value)" style="width:100%"></td>
       <td data-label="開始日"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.start_date||''}" onchange="bdBusItems[${i}].start_date=this.value"></td>
@@ -8508,7 +8508,7 @@ function renderBusTable(){
   if(endArrow) endArrow.textContent = bdSortArrow(busSortState, 'end_date');
 }
 function addBusRow(){
-  bdBusItems.push({bus_company:'',business_partner_id:null,bus_type:'',buses:1,start_date:'',end_date:'',amount:0,status:'問い合わせ中',confirmation_no:'',memo:'',payment_method:''});
+  bdBusItems.push({bus_company:'',bus_type:'',buses:1,start_date:'',end_date:'',amount:0,status:'問い合わせ中',confirmation_no:'',memo:'',payment_method:''});
   renderBusTable();
 }
 async function saveBusItems(){
@@ -8516,7 +8516,7 @@ async function saveBusItems(){
   const bookingId = currentDetailId; // await中のcurrentDetailId変更に影響されないようスナップショットを保持
   const rows = bdBusItems.filter(it=>it.bus_company||it.bus_type||it.start_date||it.end_date||it.amount||it.confirmation_no||it.memo).map(it=>({
     booking_id: bookingId,
-    bus_company: it.bus_company||'', business_partner_id: it.business_partner_id||null, bus_type: it.bus_type||'',
+    bus_company: it.bus_company||'', bus_type: it.bus_type||'',
     buses: Number(it.buses)||1,
     start_date: sanitizeDateField(it.start_date), end_date: sanitizeDateField(it.end_date),
     amount: Number(it.amount)||0,
@@ -8527,57 +8527,50 @@ async function saveBusItems(){
     cost_added: !!it.cost_added
   }));
   await bookingBusesApiCall('replace', { bookingId, rows });
-  // 保存後に他予約との重複依頼を再チェックする(警告表示のみで、保存自体はブロックしない)
-  checkBusDoubleBookings().catch(e=>logError('バス重複依頼チェック', e, {toast:false}));
+  // 保存後に同一予約内の重複登録を再チェックする(警告表示のみで、保存自体はブロックしない)
+  checkBusDoubleBookings();
 }
 
-// ─── バスのダブルブッキング(重複依頼)チェック ─────────────────────────
-// checkGuideDoubleBookings(ガイドの二重アサインチェック)と同じ設計思想。
-// bus_companyはテキストのみで取引先マスタとの紐付けが無いため、business_partner_id
-// (バス会社サジェストから明示的に選択した場合のみ設定される。手入力・編集時はnullに戻す)が
-// 設定されている行のみを対象とする。車両単位ではなく会社単位での重複検知であり、
-// 期間の重なり判定はguidePeriodsOverlap/guideDatePeriodをそのまま流用する。
-// 重複が見つかっても保存はブロックせず、バスタブ内に警告を表示するだけに留める。
-async function checkBusDoubleBookings(){
+// ─── バスの重複登録チェック(同一予約内) ─────────────────────────
+// 他予約とのDB照会は行わず、同一予約(bdBusItems配列)の中だけで完結するロジック。
+// bus_companyの文字列が完全一致(前後の空白を除去して比較)し、かつ期間が1日でも
+// 重なっている行の組み合わせがあれば警告する(意図的な複数台手配もあり得るため、
+// 保存はブロックしない)。期間の重なり判定はguideDatePeriod/guidePeriodsOverlap
+// (checkGuideDoubleBookingsと同じ考え方)をそのまま流用する。
+function busDupFmtDate(d){
+  if(!d) return '';
+  const m = String(d).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[1]}/${m[2]}/${m[3]}` : d;
+}
+function checkBusDoubleBookings(){
   const container = document.getElementById('bd-bus-warnings');
-  if(!container || !currentDetailId) return;
+  if(!container) return;
   container.innerHTML = '';
 
-  const targets = bdBusItems
-    .map(it=>({ business_partner_id: it.business_partner_id, bus_company: it.bus_company, period: guideDatePeriod(it.start_date, it.end_date) }))
-    .filter(t=>t.business_partner_id && t.period);
-  if(!targets.length) return;
-
-  const partnerIds = Array.from(new Set(targets.map(t=>String(t.business_partner_id))));
-  const {data: others, error} = await sb.from('booking_buses')
-    .select('business_partner_id,booking_id,start_date,end_date,bookings(ref_no,tour_name)')
-    .in('business_partner_id', partnerIds)
-    .neq('booking_id', currentDetailId);
-  if(error){ logError('バス重複依頼チェックの検索', error, {toast:false}); return; }
-  if(!others || !others.length) return;
+  const items = bdBusItems
+    .map((it,i)=>({ i, name: String(it.bus_company||'').trim(), period: guideDatePeriod(it.start_date, it.end_date) }))
+    .filter(t=>t.name && t.period);
+  if(items.length < 2) return;
 
   const warnings = [];
   const seen = new Set();
-  for(const t of targets){
-    for(const o of others){
-      if(String(o.business_partner_id) !== String(t.business_partner_id)) continue;
-      const op = guideDatePeriod(o.start_date, o.end_date);
-      if(!op || !guidePeriodsOverlap(t.period, op)) continue;
-      const refNo = o.bookings?.ref_no || '(REF#不明)';
-      const tourName = o.bookings?.tour_name || 'ツアー名未設定';
-      const ovS = t.period.s > op.s ? t.period.s : op.s;
-      const ovE = t.period.e < op.e ? t.period.e : op.e;
-      const range = ovS === ovE ? guideFmtDate(ovS) : `${guideFmtDate(ovS)}〜${guideFmtDate(ovE)}`;
-      const key = `${t.business_partner_id}|${o.booking_id}|${ovS}|${ovE}`;
+  for(let a=0; a<items.length; a++){
+    for(let b=a+1; b<items.length; b++){
+      const t1 = items[a], t2 = items[b];
+      if(t1.name !== t2.name) continue;
+      if(!guidePeriodsOverlap(t1.period, t2.period)) continue;
+      const key = [t1.i, t2.i].sort().join('|');
       if(seen.has(key)) continue;
       seen.add(key);
-      warnings.push(`${t.bus_company||'(バス会社名不明)'}さんは、#${refNo}（${tourName}）と${range}が重複しています`);
+      const p1 = t1.period.s === t1.period.e ? busDupFmtDate(t1.period.s) : `${busDupFmtDate(t1.period.s)}〜${busDupFmtDate(t1.period.e)}`;
+      const p2 = t2.period.s === t2.period.e ? busDupFmtDate(t2.period.s) : `${busDupFmtDate(t2.period.s)}〜${busDupFmtDate(t2.period.e)}`;
+      warnings.push(`${t1.name} の予約が複数あり、期間が重なっています(${p1} / ${p2})。意図的な複数台手配でなければご確認ください。`);
     }
   }
   if(!warnings.length) return;
   container.innerHTML = `
     <div style="background:var(--amber-lt);border:1px solid var(--amber);border-radius:8px;padding:8px 10px">
-      <div style="font-size:11px;font-weight:700;color:var(--amber);margin-bottom:4px">⚠ バス会社の重複依頼の可能性があります</div>
+      <div style="font-size:11px;font-weight:700;color:var(--amber);margin-bottom:4px">⚠ 同じバス会社への重複登録の可能性があります</div>
       ${warnings.map(w=>`<div style="font-size:11px;color:var(--amber);line-height:1.6">・${escHtml(w)}</div>`).join('')}
     </div>`;
 }
