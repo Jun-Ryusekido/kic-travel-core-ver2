@@ -1,0 +1,18 @@
+[
+  { "ref_no": "#266", "column": "in_date", "reason": "実日付(2026-04-13)→プレースホルダ2099-12-28への逆行" },
+  { "ref_no": "#477", "column": "in_date", "reason": "実日付(2026-03-27)→プレースホルダ2099-12-28への逆行" },
+  { "ref_no": "#981", "column": "in_date", "reason": "実日付(2026-10-17)→プレースホルダ2099-12-28への逆行" },
+  { "ref_no": "#982", "column": "in_date", "reason": "実日付(2026-10-19)→プレースホルダ2099-12-28への逆行" },
+  { "ref_no": "#994", "column": "in_date", "reason": "実日付(2026-09-15)→プレースホルダ2099-12-28への逆行" },
+  { "ref_no": "#995", "column": "in_date", "reason": "実日付(2026-10-27)→プレースホルダ2099-12-28への逆行" },
+  { "ref_no": "#57", "column": "tour_name", "reason": "改行コード(\\r\\n vs \\r\\r\\n)の違いのみ" },
+  { "ref_no": "#95", "column": "agent_name", "reason": "全角/半角スペースの違いのみ" },
+  { "ref_no": "#220", "column": "tour_name", "reason": "改行コード(\\r\\n vs \\r\\r\\n)の違いのみ" },
+  { "ref_no": "#224", "column": "tour_name", "reason": "改行コード(\\r\\n vs \\r\\r\\n)の違いのみ" },
+  { "ref_no": "#258", "column": "tour_name", "reason": "改行コード(\\r\\n vs \\r\\r\\n)の違いのみ" },
+  { "ref_no": "#288", "column": "tour_name", "reason": "改行コード(\\r\\n vs \\r\\r\\n)の違いのみ" },
+  { "ref_no": "#457", "column": "tour_name", "reason": "改行コード(\\r\\n vs \\r\\r\\n)の違いのみ" },
+  { "ref_no": "#469", "column": "tour_name", "reason": "改行コード(\\r\\n vs \\r\\r\\n)の違いのみ" },
+  { "ref_no": "#643", "column": "tour_name", "reason": "改行コード(\\r\\n vs \\r\\r\\n)の違いのみ" },
+  { "ref_no": "#675", "column": "tour_name", "reason": "改行コード(\\r\\n vs \\r\\r\\n)の違いのみ" }
+]

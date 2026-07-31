@@ -8,3 +8,7 @@ parking-automation/logs/
 parking-automation/chrome-profile-kyoto-terrsa/
 scripts/tmp_template/
 _dryrun/
+# Access移行データ統合の実業務データ(reconcile JSON・ドライランCSV・本番反映バックアップ)。
+# 除外リスト(ref_no/列名/理由のみで実データを含まない)だけは例外的に追跡する。
+scripts/data/*
+!scripts/data/access_booking_merge_exclude_list.json

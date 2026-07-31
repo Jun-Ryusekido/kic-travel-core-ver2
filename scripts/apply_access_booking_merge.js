@@ -14,8 +14,14 @@
 //   4. 処理件数・成功件数・失敗件数を必ずログ出力する。
 //
 // 実行方法:
-//   SUPABASE_SERVICE_ROLE_KEY=xxxx node scripts/apply_access_booking_merge.js [--input <path>] [--yes]
+//   SUPABASE_SERVICE_ROLE_KEY=xxxx node scripts/apply_access_booking_merge.js [--input <path>] [--exclude <path>] [--yes]
 //   --yes を付けない場合、実行前に対象件数・列内訳を表示し、確認プロンプトで一時停止する。
+//
+// 除外リスト(--exclude、既定 scripts/data/access_booking_merge_exclude_list.json):
+//   [{ "ref_no": "#266", "column": "in_date", "reason": "..." }, ...]
+//   ドライラン結果を確認した上で「反映しない」と決めたref_no×列の組み合わせを、
+//   実際の書き込み対象から自動的に除外する(除外により変更が0件になったレコードは
+//   書き込み対象からも丸ごと除く)。ファイルが存在しない場合は除外なしとして続行する。
 
 const fs = require('fs');
 const path = require('path');
@@ -25,12 +31,40 @@ const { findChangedRecords, REFLECT_COLUMNS, SB_URL } = require('./dry_run_acces
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
 function parseArgs(argv) {
-  const args = { input: 'scripts/data/access_booking_reconcile.json', yes: false };
+  const args = {
+    input: 'scripts/data/access_booking_reconcile.json',
+    exclude: 'scripts/data/access_booking_merge_exclude_list.json',
+    yes: false,
+  };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--input') args.input = argv[++i];
+    if (argv[i] === '--exclude') args.exclude = argv[++i];
     if (argv[i] === '--yes') args.yes = true;
   }
   return args;
+}
+
+function loadExcludeSet(excludePath) {
+  const resolved = path.resolve(excludePath);
+  if (!fs.existsSync(resolved)) return new Set();
+  const list = JSON.parse(fs.readFileSync(resolved, 'utf8'));
+  return new Set(list.map((e) => `${e.ref_no} ${e.column}`));
+}
+
+// changedから除外対象(ref_no×column)を取り除く。除外によりchangesが空になったレコードは
+// 書き込み対象からも除く。戻り値: { filtered, excludedCount }
+function applyExcludeList(changed, excludeSet) {
+  let excludedCount = 0;
+  const filtered = [];
+  for (const r of changed) {
+    const remaining = r.changes.filter((c) => {
+      const isExcluded = excludeSet.has(`${r.refNo} ${c.column}`);
+      if (isExcluded) excludedCount++;
+      return !isExcluded;
+    });
+    if (remaining.length) filtered.push({ ...r, changes: remaining });
+  }
+  return { filtered, excludedCount };
 }
 
 function ask(question) {
@@ -69,10 +103,16 @@ async function main() {
   const records = JSON.parse(fs.readFileSync(inputPath, 'utf8'));
 
   console.log('対象レコードを判定中(読み取りのみ)...');
-  const { changed } = await findChangedRecords(records);
+  const { changed: allChanged } = await findChangedRecords(records);
+
+  const excludeSet = loadExcludeSet(args.exclude);
+  const { filtered: changed, excludedCount } = applyExcludeList(allChanged, excludeSet);
+  if (excludeSet.size) {
+    console.log(`除外リスト(${path.resolve(args.exclude)})を適用: ${excludedCount}件の列変更を除外しました。`);
+  }
 
   if (!changed.length) {
-    console.log('変更が発生するレコードはありませんでした。書き込みは行いません。');
+    console.log('変更が発生するレコードはありませんでした(除外リスト適用後)。書き込みは行いません。');
     return;
   }
 
