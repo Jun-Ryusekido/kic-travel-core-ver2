@@ -1675,6 +1675,7 @@ input[type=number]{-moz-appearance:textfield}
       <div class="modal-title">予約台帳 <span id="bd-ref" style="color:var(--blue)"></span></div>
       <div style="display:flex;gap:8px;align-items:center">
         <span class="msg-ok" id="bd-msg-top" style="margin-top:0">✓ 保存しました</span>
+        <button class="btn" onclick="openAuditHistory('bookings', currentDetailId, document.getElementById('bd-ref').textContent)">🕓 変更履歴</button>
         <button class="btn btn-p bd-save-btn" onclick="saveBookingDetail()">💾 保存</button>
         <button class="btn" onclick="closeBookingDetail()">閉じる</button>
         <div class="modal-close" onclick="closeBookingDetail()">✕</div>
@@ -3716,6 +3717,60 @@ async function bookingCostsApiCall(action, payload){ return tableCrudApiCall('bo
 async function bookingHotelsApiCall(action, payload){ return tableCrudApiCall('booking_hotels', action, payload); }
 async function bookingBusesApiCall(action, payload){ return tableCrudApiCall('booking_buses', action, payload); }
 async function bookingRestaurantsApiCall(action, payload){ return tableCrudApiCall('booking_restaurants', action, payload); }
+
+// ===== 変更履歴(監査ログ) =====
+// table-crud.jsのauditHistoryアクション(読み取り専用、TABLE_CONFIG上でauditLog:trueの
+// テーブルのみ対象)を呼び出し、該当レコードのaudit_logsを新しい順に表示する。
+async function openAuditHistory(table, recordId, label){
+  if(!recordId){ alert('対象データがまだ保存されていません（保存後に変更履歴を確認できます）'); return; }
+  document.getElementById('audit-history-title').textContent = `変更履歴${label?'（'+label+'）':''}`;
+  document.getElementById('audit-history-body').innerHTML = '<div style="padding:12px;color:var(--text3);font-size:12px">読み込み中...</div>';
+  document.getElementById('audit-history-modal').classList.add('open');
+  try{
+    const data = await tableCrudApiCall(table, 'auditHistory', {recordId});
+    renderAuditHistory(data.rows||[]);
+  }catch(e){
+    document.getElementById('audit-history-body').innerHTML = `<div style="padding:12px;color:var(--red);font-size:12px">読み込みに失敗しました: ${escHtml(e.message)}</div>`;
+  }
+}
+function closeAuditHistory(){
+  document.getElementById('audit-history-modal').classList.remove('open');
+}
+function auditFormatValue(v){
+  if(v===null || v===undefined || v==='') return '<span style="color:var(--text3)">(空)</span>';
+  if(typeof v === 'object') return escHtml(JSON.stringify(v));
+  return escHtml(String(v));
+}
+function renderAuditHistory(rows){
+  const body = document.getElementById('audit-history-body');
+  if(!rows.length){ body.innerHTML = '<div style="padding:12px;color:var(--text3);font-size:12px">変更履歴はありません</div>'; return; }
+  const actionLabel = {insert:'新規作成', update:'更新', delete:'削除'};
+  body.innerHTML = rows.map(r=>{
+    const when = r.changed_at ? new Date(r.changed_at).toLocaleString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'}) : '';
+    const who = r.changed_by || '(不明)';
+    const act = actionLabel[r.action] || r.action;
+    let diffHtml;
+    if(r.action === 'insert'){
+      const after = r.after_data || {};
+      diffHtml = Object.keys(after).map(k=>`<div style="font-size:11px;padding:2px 0"><span style="color:var(--text3)">${escHtml(k)}:</span> ${auditFormatValue(after[k])}</div>`).join('');
+    }else if(r.action === 'delete'){
+      const before = r.before_data || {};
+      diffHtml = Object.keys(before).map(k=>`<div style="font-size:11px;padding:2px 0"><span style="color:var(--text3)">${escHtml(k)}:</span> ${auditFormatValue(before[k])}</div>`).join('');
+    }else{
+      const before = r.before_data || {};
+      const after = r.after_data || {};
+      const keys = [...new Set([...Object.keys(before), ...Object.keys(after)])];
+      const changedKeys = keys.filter(k=>JSON.stringify(before[k]??null) !== JSON.stringify(after[k]??null));
+      diffHtml = changedKeys.length === 0
+        ? '<div style="font-size:11px;color:var(--text3)">（変更内容なし）</div>'
+        : changedKeys.map(k=>`<div style="font-size:11px;padding:2px 0"><span style="color:var(--text3)">${escHtml(k)}:</span> ${auditFormatValue(before[k])} → ${auditFormatValue(after[k])}</div>`).join('');
+    }
+    return `<div style="border-bottom:1px solid var(--border);padding:10px 0">
+      <div style="font-size:12px;font-weight:600">${escHtml(when)} ／ ${escHtml(who)} ／ ${escHtml(act)}</div>
+      <div style="margin-top:4px">${diffHtml}</div>
+    </div>`;
+  }).join('');
+}
 
 let bdLocalExpenses = [];
 const LOCAL_EXPENSE_CATEGORIES = ['D（ドライバー）','ゲスト','ゲスト・TG','その他'];
@@ -18841,6 +18896,20 @@ function setDateInputValue(el, d){
         <tbody id="ga-tbody"><tr><td colspan="9" class="empty">読み込み中...</td></tr></tbody>
       </table></div>
     </div>
+  </div>
+</div>
+
+<!-- 変更履歴モーダル(監査ログ) -->
+<div class="modal-overlay" id="audit-history-modal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div class="modal-title" id="audit-history-title">変更履歴</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn" onclick="closeAuditHistory()">閉じる</button>
+        <div class="modal-close" onclick="closeAuditHistory()">✕</div>
+      </div>
+    </div>
+    <div id="audit-history-body"></div>
   </div>
 </div>
 

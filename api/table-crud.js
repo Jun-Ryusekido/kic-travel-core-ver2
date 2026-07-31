@@ -17,8 +17,10 @@ const SB_URL = 'https://nzdygjlnzvtdezslnuoy.supabase.co';
 // テーブルごとに許可するactionをホワイトリスト化する。ここに無い(table, action)の
 // 組み合わせは400で拒否する。
 const TABLE_CONFIG = {
-  booking_sales: { actions: ['replace', 'updatePayments', 'deleteByBooking'], label: '売上明細' },
-  booking_costs: { actions: ['replace', 'insert', 'deleteByBooking'], label: '仕入明細' },
+  // booking_sales/booking_costsのstampIdentity/auditLogは、replace/insertアクションのみが
+  // 対象(updatePayments/deleteByBookingは今回のスコープ外、既存の挙動のまま変更しない)。
+  booking_sales: { actions: ['replace', 'updatePayments', 'deleteByBooking'], label: '売上明細', stampIdentity: true, auditLog: true },
+  booking_costs: { actions: ['replace', 'insert', 'deleteByBooking'], label: '仕入明細', stampIdentity: true, auditLog: true },
   local_expenses: { actions: ['replace'], label: '現地費用明細' },
   parking_reservations: { actions: ['list', 'save', 'delete'], label: '駐車場予約' },
   // guide_settlements/guide_settlement_items: 社内スタッフ(index.html、ログインセッション
@@ -27,10 +29,17 @@ const TABLE_CONFIG = {
   // そのためguestInsert/guestUpdateByIdの2アクションのみ、通常のセッショントークンの
   // 代わりにguide_settlements.access_tokenでの認証を許可する(handler側のguest認証分岐、
   // および各doGuest*関数のsettlement_id検証を参照)。
+  // stampIdentity/auditLogを今回追加(監査ログ機能)。guide_settlementsの既存created_by列は
+  // 従来クライアント自己申告値を信用していたが、stampIdentity有効化により以後のinsertは
+  // 検証済みemailで上書きされる。guestInsert/guestUpdateById(ガイド本人、ログインセッション
+  // 無し)はsessionが常にnullのため、stampEmail/changedByとも自動的にnullのままになる
+  // (ガイド本人送信分はcreated_by/監査ログのchanged_byともスタンプされない、意図通り)。
   guide_settlements: {
     actions: ['insert', 'updateById', 'updateByIds', 'deleteById', 'deleteByIds', 'deleteByField'],
     label: 'ガイド精算',
     allowedDeleteFields: ['booking_ref'],
+    stampIdentity: true,
+    auditLog: true,
   },
   guide_settlement_items: {
     actions: ['insert', 'updateById', 'updateByIds', 'deleteById', 'deleteByIds', 'deleteByField', 'guestInsert', 'guestUpdateById'],
@@ -39,6 +48,8 @@ const TABLE_CONFIG = {
     // ガイド本人(guestUpdateById)が編集できるのは受領書番号のみ。ステータス承認・
     // 反映フラグ等、社内スタッフのみが操作すべき項目はここに含めない。
     guestUpdatableFields: ['receipt_no'],
+    stampIdentity: true,
+    auditLog: true,
   },
   // business_partners(取引先マスタ): permanentlyDeletePartner(完全削除、deleteById)以外は
   // deletePartner/restorePartnerともis_deletedフラグを立てる論理削除(updateById)であり、
@@ -46,6 +57,8 @@ const TABLE_CONFIG = {
   business_partners: {
     actions: ['insert', 'updateById', 'deleteById'],
     label: '取引先マスタ',
+    stampIdentity: true,
+    auditLog: true,
   },
   // agents(取引先マスタ・Agent): business_partnersと完全に同じ論理削除/復元/完全削除の
   // 構造を持つ、送客元エージェント専用の別テーブル。
@@ -68,6 +81,8 @@ const TABLE_CONFIG = {
   bookings: {
     actions: ['insert', 'updateById', 'deleteById'],
     label: '予約',
+    stampIdentity: true,
+    auditLog: true,
   },
   // booking_facilities(観光施設・バス駐車場等): 観光地予約管理画面(複数予約横断の
   // 一覧・インライン編集)からのステータス/確認番号/備考の更新、AI読み取り機能からの
@@ -81,6 +96,7 @@ const TABLE_CONFIG = {
     actions: ['updateById', 'insert', 'replace'],
     label: '観光施設・バス駐車場等',
     stampIdentity: true,
+    auditLog: true,
   },
   // booking_hotels/booking_buses/booking_restaurants(セキュリティ移行バッチA)。
   // 予約詳細モーダルの保存(旧safeReplaceBookingRows)は既存のbooking_sales等と同じ
@@ -96,6 +112,7 @@ const TABLE_CONFIG = {
     actions: ['replace', 'insert', 'updateById'],
     label: 'ホテル明細',
     stampIdentity: true,
+    auditLog: true,
   },
   // booking_buses/booking_restaurantsはupdated_at相当の列が無かったため、created_by/
   // updated_byに加えて汎用updated_at列も新設し、insert/replace時にスタンプする。
@@ -104,12 +121,14 @@ const TABLE_CONFIG = {
     label: 'バス明細',
     stampIdentity: true,
     stampUpdatedAt: true,
+    auditLog: true,
   },
   booking_restaurants: {
     actions: ['replace'],
     label: 'レストラン明細',
     stampIdentity: true,
     stampUpdatedAt: true,
+    auditLog: true,
   },
   // guide_bank_accounts(ガイド口座情報): 1ガイドが0〜N件の口座を持てる子テーブル。
   // 新設テーブルのため最初からservice_role経由のみとし、anonへのGRANTは一切行わない
@@ -152,22 +171,51 @@ function withGrantHint(message, table) {
   return message;
 }
 
+// audit_logsへの記録(ベストエフォート)。監査ログの記録自体が失敗しても、本来の
+// 書き込み操作(insert/update/delete)は既に成功しているため、それを失敗扱いにはしない
+// (audit_logsテーブル未作成・一時的な障害等でも本来の業務操作を止めないための設計)。
+// entries: [{recordId, action:'insert'|'update'|'delete', before, after}]
+async function writeAuditLogs(table, entries, changedBy) {
+  if (!Array.isArray(entries) || !entries.length) return;
+  const rows = entries
+    .filter((e) => e && e.recordId != null)
+    .map((e) => ({
+      table_name: table,
+      record_id: String(e.recordId),
+      action: e.action,
+      changed_by: changedBy || null,
+      before_data: e.before != null ? e.before : null,
+      after_data: e.after != null ? e.after : null,
+    }));
+  if (!rows.length) return;
+  try {
+    await sbFetch('audit_logs', '', { method: 'POST', prefer: 'return=minimal', body: JSON.stringify(rows) });
+  } catch (e) {
+    // 監査ログ記録の失敗は握りつぶす(ベストエフォート、上記コメント参照)。
+  }
+}
+
 // 「新規INSERTに成功してから、既存の旧行だけをidで指定してDELETEする」安全な差分置き換え。
 // クライアント側のsafeReplaceBookingRowsと同じ考え方(#782の全削除→再挿入事故の再発防止)。
-async function doReplace(table, label, bookingId, rows) {
+// config.auditLogが有効な場合、削除される旧行はaction:'delete'、新規挿入した行は
+// action:'insert'として、それぞれ行単位でaudit_logsに記録する。
+async function doReplace(table, label, bookingId, rows, config, changedBy) {
   if (!bookingId) return { status: 400, body: { error: 'bookingIdが指定されていません' } };
+  const needAudit = !!(config && config.auditLog);
 
-  const existingRes = await sbFetch(table, `?booking_id=eq.${encodeURIComponent(bookingId)}&select=id`);
+  const existingRes = await sbFetch(table, `?booking_id=eq.${encodeURIComponent(bookingId)}&select=${needAudit ? '*' : 'id'}`);
   if (!existingRes.ok) return { status: 500, body: { error: '既存データの確認に失敗しました' } };
   const existing = await existingRes.json();
   const existingIds = (existing || []).map((r) => r.id);
 
+  let insertedRows = [];
   if (Array.isArray(rows) && rows.length) {
-    const insRes = await sbFetch(table, '', { method: 'POST', prefer: 'return=minimal', body: JSON.stringify(rows) });
+    const insRes = await sbFetch(table, '', { method: 'POST', prefer: needAudit ? 'return=representation' : 'return=minimal', body: JSON.stringify(rows) });
     if (!insRes.ok) {
       const e = await readJsonSafe(insRes);
       return { status: 500, body: { error: withGrantHint(e.message, table) || `${label}の保存に失敗しました` } };
     }
+    if (needAudit) insertedRows = await insRes.json();
   }
   if (existingIds.length) {
     const delRes = await sbFetch(table, `?id=in.(${existingIds.join(',')})`, { method: 'DELETE', prefer: 'return=minimal' });
@@ -175,6 +223,13 @@ async function doReplace(table, label, bookingId, rows) {
       const e = await readJsonSafe(delRes);
       return { status: 500, body: { error: withGrantHint(e.message, table) || `${label}の旧データ削除に失敗しました（新データは保存済みのため重複している可能性があります）` } };
     }
+  }
+  if (needAudit) {
+    const entries = [
+      ...(existing || []).map((r) => ({ recordId: r.id, action: 'delete', before: r, after: null })),
+      ...insertedRows.map((r) => ({ recordId: r.id, action: 'insert', before: null, after: r })),
+    ];
+    await writeAuditLogs(table, entries, changedBy);
   }
   return { status: 200, body: { ok: true } };
 }
@@ -192,12 +247,17 @@ async function doInsertReturning(table, label, rows) {
   return { status: 200, body: { ok: true, rows: inserted } };
 }
 
-async function doInsert(table, label, rows) {
+async function doInsert(table, label, rows, config, changedBy) {
   if (!Array.isArray(rows) || !rows.length) return { status: 400, body: { error: '追加する行がありません' } };
-  const insRes = await sbFetch(table, '', { method: 'POST', prefer: 'return=minimal', body: JSON.stringify(rows) });
+  const needAudit = !!(config && config.auditLog);
+  const insRes = await sbFetch(table, '', { method: 'POST', prefer: needAudit ? 'return=representation' : 'return=minimal', body: JSON.stringify(rows) });
   if (!insRes.ok) {
     const e = await readJsonSafe(insRes);
     return { status: 500, body: { error: withGrantHint(e.message, table) || `${label}の保存に失敗しました` } };
+  }
+  if (needAudit) {
+    const inserted = await insRes.json();
+    await writeAuditLogs(table, inserted.map((r) => ({ recordId: r.id, action: 'insert', before: null, after: r })), changedBy);
   }
   return { status: 200, body: { ok: true } };
 }
@@ -280,9 +340,18 @@ async function doParkingDelete(table, id) {
 // 汎用actions(主にguide_settlements/guide_settlement_items向け。社内スタッフは
 // これまでもanonキーで全フィールドを自由に読み書きできていたため、フィールドの
 // ホワイトリスト化はせず、認証(有効なログインセッション)のみを要件とする。
-async function doUpdateById(table, label, id, fields) {
+async function doUpdateById(table, label, id, fields, config, changedBy) {
   if (!id) return { status: 400, body: { error: 'idが指定されていません' } };
   if (!fields || typeof fields !== 'object') return { status: 400, body: { error: '更新内容が指定されていません' } };
+  const needAudit = !!(config && config.auditLog);
+  let beforeRow = null;
+  if (needAudit) {
+    const beforeRes = await sbFetch(table, `?id=eq.${encodeURIComponent(id)}&select=*`);
+    if (beforeRes.ok) {
+      const beforeRows = await beforeRes.json();
+      beforeRow = beforeRows && beforeRows[0] ? beforeRows[0] : null;
+    }
+  }
   // return=representationにして更新後の行を返す。呼び出し元(bookings.saveBookingDetail等)が
   // 「更新対象の行が実際に存在したか(0件更新でないか)」を判定するために使う。
   const r = await sbFetch(table, `?id=eq.${encodeURIComponent(id)}`, { method: 'PATCH', prefer: 'return=representation', body: JSON.stringify(fields) });
@@ -291,36 +360,72 @@ async function doUpdateById(table, label, id, fields) {
     return { status: 500, body: { error: withGrantHint(e.message, table) || `${label}の更新に失敗しました` } };
   }
   const updatedRows = await r.json();
+  if (needAudit && updatedRows && updatedRows[0]) {
+    await writeAuditLogs(table, [{ recordId: id, action: 'update', before: beforeRow, after: updatedRows[0] }], changedBy);
+  }
   return { status: 200, body: { ok: true, rows: updatedRows } };
 }
 
-async function doUpdateByIds(table, label, ids, fields) {
+async function doUpdateByIds(table, label, ids, fields, config, changedBy) {
   if (!Array.isArray(ids) || !ids.length) return { status: 400, body: { error: 'idが指定されていません' } };
   if (!fields || typeof fields !== 'object') return { status: 400, body: { error: '更新内容が指定されていません' } };
-  const r = await sbFetch(table, `?id=in.(${ids.map(encodeURIComponent).join(',')})`, { method: 'PATCH', prefer: 'return=minimal', body: JSON.stringify(fields) });
+  const needAudit = !!(config && config.auditLog);
+  let beforeRows = [];
+  if (needAudit) {
+    const beforeRes = await sbFetch(table, `?id=in.(${ids.map(encodeURIComponent).join(',')})&select=*`);
+    if (beforeRes.ok) beforeRows = await beforeRes.json();
+  }
+  const r = await sbFetch(table, `?id=in.(${ids.map(encodeURIComponent).join(',')})`, { method: 'PATCH', prefer: needAudit ? 'return=representation' : 'return=minimal', body: JSON.stringify(fields) });
   if (!r.ok) {
     const e = await readJsonSafe(r);
     return { status: 500, body: { error: withGrantHint(e.message, table) || `${label}の更新に失敗しました` } };
   }
+  if (needAudit) {
+    const afterRows = await r.json();
+    const beforeById = {};
+    beforeRows.forEach((row) => { beforeById[row.id] = row; });
+    await writeAuditLogs(table, afterRows.map((row) => ({ recordId: row.id, action: 'update', before: beforeById[row.id] || null, after: row })), changedBy);
+  }
   return { status: 200, body: { ok: true } };
 }
 
-async function doDeleteById(table, label, id) {
+async function doDeleteById(table, label, id, config, changedBy) {
   if (!id) return { status: 400, body: { error: 'idが指定されていません' } };
+  const needAudit = !!(config && config.auditLog);
+  let beforeRow = null;
+  if (needAudit) {
+    const beforeRes = await sbFetch(table, `?id=eq.${encodeURIComponent(id)}&select=*`);
+    if (beforeRes.ok) {
+      const beforeRows = await beforeRes.json();
+      beforeRow = beforeRows && beforeRows[0] ? beforeRows[0] : null;
+    }
+  }
   const r = await sbFetch(table, `?id=eq.${encodeURIComponent(id)}`, { method: 'DELETE', prefer: 'return=minimal' });
   if (!r.ok) {
     const e = await readJsonSafe(r);
     return { status: 500, body: { error: withGrantHint(e.message, table) || `${label}の削除に失敗しました` } };
   }
+  if (needAudit && beforeRow) {
+    await writeAuditLogs(table, [{ recordId: id, action: 'delete', before: beforeRow, after: null }], changedBy);
+  }
   return { status: 200, body: { ok: true } };
 }
 
-async function doDeleteByIds(table, label, ids) {
+async function doDeleteByIds(table, label, ids, config, changedBy) {
   if (!Array.isArray(ids) || !ids.length) return { status: 400, body: { error: 'idが指定されていません' } };
+  const needAudit = !!(config && config.auditLog);
+  let beforeRows = [];
+  if (needAudit) {
+    const beforeRes = await sbFetch(table, `?id=in.(${ids.map(encodeURIComponent).join(',')})&select=*`);
+    if (beforeRes.ok) beforeRows = await beforeRes.json();
+  }
   const r = await sbFetch(table, `?id=in.(${ids.map(encodeURIComponent).join(',')})`, { method: 'DELETE', prefer: 'return=minimal' });
   if (!r.ok) {
     const e = await readJsonSafe(r);
     return { status: 500, body: { error: withGrantHint(e.message, table) || `${label}の削除に失敗しました` } };
+  }
+  if (needAudit && beforeRows.length) {
+    await writeAuditLogs(table, beforeRows.map((row) => ({ recordId: row.id, action: 'delete', before: row, after: null })), changedBy);
   }
   return { status: 200, body: { ok: true } };
 }
@@ -355,10 +460,11 @@ async function resolveGuestSettlement(guestToken) {
 // ガイド本人によるguide_settlement_items新規送信(領収書等)。クライアントが送ってきた
 // settlement_idは信用せず、access_tokenから解決した本人の精算IDを必ず全行に強制設定する
 // (他人の精算リンクのaccess_tokenを使わない限り、他の精算への書き込みはできない)。
-async function doGuestInsert(table, label, rows, guestSettlement) {
+async function doGuestInsert(table, label, rows, guestSettlement, config) {
   if (!Array.isArray(rows) || !rows.length) return { status: 400, body: { error: '追加する行がありません' } };
   const safeRows = rows.map((row) => ({ ...row, settlement_id: guestSettlement.id }));
-  return doInsert(table, label, safeRows);
+  // ガイド本人にはログインセッションが無いため、changed_by/created_byは常にnull(スタンプしない)。
+  return doInsert(table, label, safeRows, config, null);
 }
 
 // ガイド本人によるguide_settlement_items編集(受領書番号の修正等)。
@@ -377,7 +483,29 @@ async function doGuestUpdateById(table, label, config, id, fields, guestSettleme
   if (!checkRows || !checkRows[0] || checkRows[0].settlement_id !== guestSettlement.id) {
     return { status: 403, body: { error: 'この項目を編集する権限がありません' } };
   }
-  return doUpdateById(table, label, id, safeFields);
+  // ガイド本人にはログインセッションが無いため、changed_by/updated_byは常にnull(スタンプしない)。
+  return doUpdateById(table, label, id, safeFields, config, null);
+}
+
+// 読み取り専用: 指定table_name+record_idのaudit_logsを新しい順に返す(変更履歴ボタン用)。
+// ログインセッションのみを要件とし(guestアクションからは呼ばれない)、対象tableは
+// TABLE_CONFIG上でauditLog:trueのものに限定する(監査対象外テーブルの履歴詮索を防ぐ)。
+async function doAuditHistory(targetTable, recordId) {
+  if (!targetTable || !recordId) return { status: 400, body: { error: 'table/recordIdが指定されていません' } };
+  const targetConfig = TABLE_CONFIG[targetTable];
+  if (!targetConfig || !targetConfig.auditLog) {
+    return { status: 400, body: { error: `${targetTable}は変更履歴の対象外です` } };
+  }
+  const r = await sbFetch(
+    'audit_logs',
+    `?table_name=eq.${encodeURIComponent(targetTable)}&record_id=eq.${encodeURIComponent(recordId)}&order=changed_at.desc&select=*`
+  );
+  if (!r.ok) {
+    const e = await readJsonSafe(r);
+    return { status: 500, body: { error: withGrantHint(e.message, 'audit_logs') || '変更履歴の取得に失敗しました' } };
+  }
+  const rows = await r.json();
+  return { status: 200, body: { ok: true, rows } };
 }
 
 // 旧エンドポイント(/api/booking-costs等)からのリクエストの後方互換対応。
@@ -409,6 +537,14 @@ export default async function handler(req, res) {
     if (!session) return res.status(401).json({ error: 'ログインセッションが無効です。再度ログインしてください。' });
   }
 
+  // auditHistoryは特定テーブルのactionホワイトリストに属さない横断的な読み取り専用action
+  // (変更履歴ボタン用)。ゲスト操作からは呼ばれない(isGuestActionの場合ここには来ない)。
+  if (action === 'auditHistory') {
+    const { recordId } = req.body;
+    const result = await doAuditHistory(table, recordId);
+    return res.status(result.status).json(result.body);
+  }
+
   const config = TABLE_CONFIG[table];
   if (!config) return res.status(400).json({ error: `不明なtableです: ${table}` });
   if (!config.actions.includes(action)) return res.status(400).json({ error: `${table}に対して許可されていないactionです: ${action}` });
@@ -417,8 +553,11 @@ export default async function handler(req, res) {
   // クライアントの自己申告値を一切使わず、verifySessionTokenで検証済みのemailのみを
   // サーバー側でスタンプする(guide_settlements等の既存created_byが「クライアントの
   // 自己申告値をそのまま信用する」設計になっている問題を、stampIdentity対象テーブルでは
-  // 再現しない)。
+  // 再現しない)。audit_logsのchanged_byも同じ検証済みemailを使う(stampIdentityの有無に
+  // 関わらず、セッションがあれば常にchangedByとして使える。ゲスト操作はsessionが常にnullの
+  // ためchangedByも自動的にnullになる)。
   const stampEmail = config.stampIdentity && session ? session.email : null;
+  const changedBy = session ? session.email : null;
   function stampNewRows(rows) {
     if (!stampEmail || !Array.isArray(rows)) return rows;
     const extra = config.stampUpdatedAt ? { updated_at: new Date().toISOString() } : {};
@@ -433,12 +572,12 @@ export default async function handler(req, res) {
   try {
     if (action === 'replace') {
       const { bookingId, rows } = req.body;
-      const result = await doReplace(table, config.label, bookingId, stampNewRows(rows));
+      const result = await doReplace(table, config.label, bookingId, stampNewRows(rows), config, changedBy);
       return res.status(result.status).json(result.body);
     }
     if (action === 'insert') {
       const { rows } = req.body;
-      const result = await doInsert(table, config.label, stampNewRows(rows));
+      const result = await doInsert(table, config.label, stampNewRows(rows), config, changedBy);
       return res.status(result.status).json(result.body);
     }
     if (action === 'insertReturning') {
@@ -473,22 +612,22 @@ export default async function handler(req, res) {
     }
     if (action === 'updateById') {
       const { id, fields } = req.body;
-      const result = await doUpdateById(table, config.label, id, stampUpdateFields(fields));
+      const result = await doUpdateById(table, config.label, id, stampUpdateFields(fields), config, changedBy);
       return res.status(result.status).json(result.body);
     }
     if (action === 'updateByIds') {
       const { ids, fields } = req.body;
-      const result = await doUpdateByIds(table, config.label, ids, fields);
+      const result = await doUpdateByIds(table, config.label, ids, fields, config, changedBy);
       return res.status(result.status).json(result.body);
     }
     if (action === 'deleteById') {
       const { id } = req.body;
-      const result = await doDeleteById(table, config.label, id);
+      const result = await doDeleteById(table, config.label, id, config, changedBy);
       return res.status(result.status).json(result.body);
     }
     if (action === 'deleteByIds') {
       const { ids } = req.body;
-      const result = await doDeleteByIds(table, config.label, ids);
+      const result = await doDeleteByIds(table, config.label, ids, config, changedBy);
       return res.status(result.status).json(result.body);
     }
     if (action === 'deleteByField') {
@@ -498,7 +637,7 @@ export default async function handler(req, res) {
     }
     if (action === 'guestInsert') {
       const { rows } = req.body;
-      const result = await doGuestInsert(table, config.label, rows, guestSettlement);
+      const result = await doGuestInsert(table, config.label, rows, guestSettlement, config);
       return res.status(result.status).json(result.body);
     }
     if (action === 'guestUpdateById') {
