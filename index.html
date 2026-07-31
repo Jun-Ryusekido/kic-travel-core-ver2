@@ -1744,6 +1744,9 @@ input[type=number]{-moz-appearance:textfield}
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;margin-top:6px">
             <div class="form-field" style="flex:0 0 140px"><label>国名</label><input id="bd-country" style="width:100%;box-sizing:border-box"></div>
             <div class="form-field" style="flex:0 0 140px"><label>種別</label><input id="bd-booking-type" placeholder="例: FIT, PKG" style="width:100%;box-sizing:border-box"></div>
+            <div class="form-field" style="flex:0 0 140px"><label>メモ1</label><input id="bd-memo1" style="width:100%;box-sizing:border-box"></div>
+            <div class="form-field" style="flex:0 0 140px"><label>メモ2</label><input id="bd-memo2" style="width:100%;box-sizing:border-box"></div>
+            <div class="form-field" style="flex:0 0 140px"><label>メモ3</label><input id="bd-memo3" style="width:100%;box-sizing:border-box"></div>
           </div>
           <div class="form-field bd-memo-field" style="position:absolute;top:0;left:689px;right:0">
             <label>Memo</label>
@@ -5524,6 +5527,9 @@ async function openBookingDetail(id){
   document.getElementById('bd-staff').value = b.staff_in_charge||'';
   document.getElementById('bd-country').value = b.country||'';
   document.getElementById('bd-booking-type').value = b.booking_type||'';
+  document.getElementById('bd-memo1').value = b.memo1||'';
+  document.getElementById('bd-memo2').value = b.memo2||'';
+  document.getElementById('bd-memo3').value = b.memo3||'';
   document.getElementById('bd-memo').value = b.memo||'';
   // deposit reset handled after sales load
   document.getElementById('bd-updated').textContent = b.updated_at ? ('最終更新: '+new Date(b.updated_at).toLocaleString('ja-JP')) : '';
@@ -13740,6 +13746,9 @@ async function saveBookingDetail(){
     staff_in_charge: document.getElementById('bd-staff').value.trim() || null,
     country: document.getElementById('bd-country').value.trim() || null,
     booking_type: document.getElementById('bd-booking-type').value.trim() || null,
+    memo1: document.getElementById('bd-memo1').value.trim() || null,
+    memo2: document.getElementById('bd-memo2').value.trim() || null,
+    memo3: document.getElementById('bd-memo3').value.trim() || null,
     memo: document.getElementById('bd-memo').value.trim() || null,
     gross_sales: totalSales,
     gross_cost: totalCost,
