@@ -12,3 +12,6 @@ _dryrun/
 # 除外リスト(ref_no/列名/理由のみで実データを含まない)だけは例外的に追跡する。
 scripts/data/*
 !scripts/data/access_booking_merge_exclude_list.json
+
+.vercel
+.env*

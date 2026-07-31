@@ -1443,8 +1443,8 @@ input[type=number]{-moz-appearance:textfield}
                 <option value="若宮大通公園 白川前駐車場">若宮大通公園 白川前駐車場</option>
               </select>
             </div>
-            <div class="form-field"><label>利用開始日時</label><input id="pn-start" type="datetime-local"></div>
-            <div class="form-field"><label>利用終了日時</label><input id="pn-end" type="datetime-local"></div>
+            <div class="form-field"><label>利用開始日時</label><input id="pn-start" type="datetime-local" min="2020-01-01T00:00" max="2035-12-31T23:59" oninput="sanitizeDatetimeLocalYear(this)"></div>
+            <div class="form-field"><label>利用終了日時</label><input id="pn-end" type="datetime-local" min="2020-01-01T00:00" max="2035-12-31T23:59" oninput="sanitizeDatetimeLocalYear(this)"></div>
             <div class="form-field"><label>車両ナンバー</label><input id="pn-car" placeholder="未定時は仮ナンバー(例:0000)"></div>
             <div class="form-field" id="pn-payment-wrap"><label>支払い方法</label>
               <select id="pn-payment">
@@ -5457,6 +5457,20 @@ async function generateLocalExpensesFromArrangements(){
 // 日付フィールドのサニタイズヘルパー: YYYY-MM-DD(4桁年) 以外は null に変換
 function sanitizeDateField(d){ return (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) ? d : null; }
 
+// datetime-local入力の年が4桁を超えて入力されてしまう不具合への対策(駐車場 今すぐ予約の
+// 利用開始/終了日時で発生)。ブラウザネイティブのdatetime-local inputは、年の桁数を超えて
+// 手入力を続けると値が「202610-10-24T09:00」のように年部分が5桁以上になってしまうことが
+// ある(input要素自体は不正値を拒否しない)。入力のたびに年部分が4桁を超えていないか検査し、
+// 超えていれば先頭4桁に丸めて再設定する。
+function sanitizeDatetimeLocalYear(el){
+  const v = el.value;
+  if(!v) return;
+  const m = v.match(/^(\d+)-(\d{2}-\d{2}T\d{2}:\d{2})$/);
+  if(m && m[1].length > 4){
+    el.value = m[1].slice(0,4) + '-' + m[2];
+  }
+}
+
 async function saveLocalExpenses(){
   if(!currentDetailId) return;
   const bookingId = currentDetailId; // await中のcurrentDetailId変更に影響されないようスナップショットを保持
@@ -8696,6 +8710,19 @@ async function saveParkingNowReservation(){
 
   if(!ref || !startRaw || !endRaw || !car){
     errEl.textContent = 'REF#・利用開始/終了日時・車両ナンバーは必須です';
+    errEl.style.display='block';
+    return;
+  }
+  // 利用開始/終了日時の形式検証(YYYY-MM-DDTHH:mm、4桁年のみ許可)。datetime-local入力で
+  // 年が5桁以上になってしまう不具合の最終防波堤として、保存直前にも必ず検証する。
+  const _dtRe = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
+  if(!_dtRe.test(startRaw)){
+    errEl.textContent = `利用開始日時の値が正しくありません（${startRaw}）。\n日時を入力し直してから保存してください。`;
+    errEl.style.display='block';
+    return;
+  }
+  if(!_dtRe.test(endRaw)){
+    errEl.textContent = `利用終了日時の値が正しくありません（${endRaw}）。\n日時を入力し直してから保存してください。`;
     errEl.style.display='block';
     return;
   }
