@@ -118,7 +118,9 @@ as $$
       (p_search is not null and p_search <> '') or p_from is not null or p_to is not null or p_cancel_tier is not null
       or h.check_out is null or h.check_out >= current_date
     )
-  order by h.check_in asc;
+  -- h.idはページング(.range())の境界を跨いでも順序が安定するよう、
+  -- check_inの同値(タイ)を一意に決着させるための並び替えキー。
+  order by h.check_in asc, h.id;
 $$;
 
 grant execute on function search_hotel_management(text, date, date, int) to anon, authenticated, service_role;
