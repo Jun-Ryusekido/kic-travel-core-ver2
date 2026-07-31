@@ -627,6 +627,7 @@ input[type=number]{-moz-appearance:textfield}
     <div class="sb-item" data-pg="bullet-trains" onclick="go('bullet-trains')">🚅 新幹線手配<span class="sb-en">/ Shinkansen</span></div>
     <div class="sb-item" data-pg="facility-management" onclick="go('facility-management')">🎡 観光地予約管理<span class="sb-en">/ Facilities</span></div>
     <div class="sb-item" data-pg="email-inbox" onclick="go('email-inbox')">📥 メール受信箱<span class="sb-en">/ Email Inbox</span></div>
+    <div class="sb-item" data-pg="vendor-email" onclick="go('vendor-email')">📧 仕入先確認メール<span class="sb-en">/ Vendor Email</span></div>
     <div class="sb-item" onclick="openParkingNowModal()">🅿️ 駐車場 今すぐ予約<span class="sb-en">/ Parking Now</span></div>
     <div class="sb-sec">請求・精算 <span class="sb-en">/ Billing</span></div>
     <div class="sb-item" data-pg="invoice" onclick="go('invoice')">🧾 Invoice</div>
@@ -1543,6 +1544,20 @@ input[type=number]{-moz-appearance:textfield}
           <div id="email-inbox-pagination" class="email-inbox-pagination" style="margin:12px 0 0;padding:8px 0;font-size:12px"></div>
         </div>
         <button id="email-inbox-bulk-ignore-btn" class="btn" style="display:none;position:fixed;right:20px;bottom:20px;z-index:60;background:var(--red);border-color:var(--red);color:#fff;padding:12px 18px;border-radius:24px;font-size:13px;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,.25);max-width:calc(100vw - 40px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" onclick="bulkIgnoreEmailInboxItems()">🗑 選択した0件を無視</button>
+      </div>
+
+      <!-- 仕入先確認メール(対象抽出・テンプレート編集。実際の送信は未実装のスタブ) -->
+      <div id="pg-vendor-email" class="page" style="display:none">
+        <div class="card">
+          <div class="card-title">📧 仕入先確認メール<span style="font-size:10px;font-weight:400;color:var(--text3)">対象抽出・テンプレート編集</span></div>
+          <div style="font-size:11px;color:var(--text3);line-height:1.6">
+            対象: ホテル・バス・レストランの手配のうち、①作成から14日経過しても未確定(問い合わせ中/回答待ち等)のまま、または②利用日まで30日以内で未確定、のいずれかに該当する明細(仕入先名が未入力の下書き行は対象外)。<br>
+            ⚠ <b>実際のメール送信機能は未実装です。</b>「記録する」ボタンは vendor_email_logs テーブルへの記録のみを行うスタブで、外部への送信は一切行われません。
+          </div>
+        </div>
+        <div class="card">
+          <div id="ve-list"><div style="padding:12px;color:var(--text3);font-size:12px">読み込み中...</div></div>
+        </div>
       </div>
 
       <!-- 取引先マスタ -->
@@ -2882,7 +2897,7 @@ function restoreSession(){
 const pageNames={
   dashboard:'Dashboard','new-booking':'New Booking','booking-list':'Booking List',
   invoice:'Invoice',estimation:'見積もり','guide-settlements':'ガイド精算一覧','guide-management':'ガイド管理',gross:'GROSS / 粗利管理',payment:'入出金管理','credit-card-statements':'クレジットカード明細',accounts:'アカウント管理',logs:'アクセスログ','error-logs':'エラーログ'
-,hotels:'ホテル予約管理',partners:'取引先マスタ',agents:'取引先マスタ(Agent)','bullet-trains':'新幹線手配','invoice-import':'請求書読み取り','email-inbox':'メール受信箱','facility-management':'観光地予約管理',todo:'対応が必要な予約'
+,hotels:'ホテル予約管理',partners:'取引先マスタ',agents:'取引先マスタ(Agent)','bullet-trains':'新幹線手配','invoice-import':'請求書読み取り','email-inbox':'メール受信箱','facility-management':'観光地予約管理',todo:'対応が必要な予約','vendor-email':'仕入先確認メール'
 };
 function go(id){
   if((id==='accounts'||id==='logs'||id==='gross') && currentUser && currentUser.role!=='admin') return;
@@ -2924,6 +2939,7 @@ function go(id){
   if(id==='error-logs') loadErrorLogs();
   if(id==='invoice-import') initInvoiceImportPage();
   if(id==='email-inbox') renderEmailInboxList();
+  if(id==='vendor-email') loadVendorEmailPage();
 }
 
 // ===== 全件取得（1000件制限を回避） =====
@@ -3717,6 +3733,256 @@ async function bookingCostsApiCall(action, payload){ return tableCrudApiCall('bo
 async function bookingHotelsApiCall(action, payload){ return tableCrudApiCall('booking_hotels', action, payload); }
 async function bookingBusesApiCall(action, payload){ return tableCrudApiCall('booking_buses', action, payload); }
 async function bookingRestaurantsApiCall(action, payload){ return tableCrudApiCall('booking_restaurants', action, payload); }
+async function vendorEmailLogsApiCall(action, payload){ return tableCrudApiCall('vendor_email_logs', action, payload); }
+
+// ===== 仕入先確認メール(対象抽出・テンプレート編集。実際の送信は未実装のスタブ) =====
+// 対象: booking_hotels/booking_buses/booking_restaurants(booking_facilitiesは既存の
+// 「対応が必要な予約」(fetchFacilityDeadlineItems)に委ねるため対象外)。
+// 共通前提: ステータスが未確定系(手配OK/キャンセル/予約不要以外)かつ仕入先名が入力済み
+// (下書きの空行は対象外)。
+// ①未回答が長引いている: created_atから14日以上経過
+// ②直前に迫った未確定手配: 利用日まで30日以内
+// のいずれかに該当する行を対象とする(STEP1.5で承認済みの条件)。
+const VENDOR_EMAIL_DONE_STATUSES = {'手配OK':1,'キャンセル':1,'予約不要':1};
+const VENDOR_EMAIL_SOURCES = [
+  { table:'booking_hotels', label:'ホテル', nameCol:'hotel_name', dateCol:'check_in' },
+  { table:'booking_buses', label:'バス', nameCol:'bus_company', dateCol:'start_date' },
+  { table:'booking_restaurants', label:'レストラン', nameCol:'restaurant_name', dateCol:'date' },
+];
+// 既存のホテルキャンセルアラート(14/30/60/90日)に、承認済みの8日以内(最優先)区分を
+// 加えた色分け。利用日までの残り日数(マイナス=期限超過)に対して使う。
+const VENDOR_URGENCY_TIERS = [
+  { test:d=>d<=8,          label:'🔴 8日以内',  fg:'#c0392b' },
+  { test:d=>d>8&&d<=14,    label:'🟠 14日以内', fg:'#d35400' },
+  { test:d=>d>14&&d<=30,   label:'🟡 30日以内', fg:'#b8860b' },
+  { test:d=>d>30&&d<=60,   label:'🔵 60日以内', fg:'#0a7fad' },
+  { test:d=>d>60&&d<=90,   label:'🟣 90日以内', fg:'#6a1b9a' },
+];
+function vendorUrgencyTier(days){ return VENDOR_URGENCY_TIERS.find(t=>t.test(days)) || null; }
+// business_partners.company_nameとの突合はgenerateMealVoucher等の既存パターン(NFKC正規化)を踏襲。
+function normVendorName(s){ return String(s||'').normalize('NFKC').trim(); }
+
+async function fetchAllRowsGeneric(table, select){
+  let all = [], from = 0; const PAGE = 1000;
+  while(true){
+    const {data, error} = await sb.from(table).select(select).range(from, from+PAGE-1);
+    if(error) throw error;
+    all = all.concat(data||[]);
+    if(!data || data.length < PAGE) break;
+    from += PAGE;
+  }
+  return all;
+}
+
+let vendorEmailCandidatesCache = [];
+
+async function fetchVendorEmailCandidates(){
+  const today = new Date(); today.setHours(0,0,0,0);
+  const daysFrom = dstr => { if(!dstr) return null; const d = new Date(String(dstr).slice(0,10)+'T00:00:00'); d.setHours(0,0,0,0); return Math.round((d-today)/86400000); };
+
+  if(!allBookingsCache.length) allBookingsCache = await fetchAllBookings();
+  const bookingById = {}; allBookingsCache.forEach(b=>{ bookingById[b.id]=b; });
+
+  const partnerRows = await fetchAllRowsGeneric('business_partners', 'company_name,email');
+  const emailByName = {};
+  partnerRows.forEach(p=>{ if(p.company_name) emailByName[normVendorName(p.company_name)] = p.email||''; });
+
+  let candidates = [];
+  for(const src of VENDOR_EMAIL_SOURCES){
+    const rows = await fetchAllRowsGeneric(src.table, `id,booking_id,status,${src.nameCol},${src.dateCol},created_at`);
+    rows.forEach(r=>{
+      const name = r[src.nameCol];
+      if(!name || !String(name).trim()) return;
+      if(VENDOR_EMAIL_DONE_STATUSES[r.status]) return;
+      const ageDays = daysFrom(r.created_at);
+      const pendingDays = ageDays==null ? null : -ageDays;
+      const untilUse = daysFrom(r[src.dateCol]);
+      const reasonLongPending = pendingDays!=null && pendingDays >= 14;
+      const reasonImminent = untilUse!=null && untilUse <= 30;
+      if(!reasonLongPending && !reasonImminent) return;
+      const b = bookingById[r.booking_id] || {};
+      candidates.push({
+        sourceTable: src.table, sourceLabel: src.label, id: r.id, bookingId: r.booking_id,
+        vendorName: name, status: r.status, date: r[src.dateCol], createdAt: r.created_at,
+        pendingDays, untilUse, reasonLongPending, reasonImminent,
+        refNo: b.ref_no||'', tourName: bkTourLabel(b),
+        email: emailByName[normVendorName(name)] || '',
+      });
+    });
+  }
+  candidates.sort((a,b)=>{
+    const au = a.untilUse==null?Infinity:a.untilUse, bu = b.untilUse==null?Infinity:b.untilUse;
+    return au - bu;
+  });
+  return candidates;
+}
+
+// 二重送信防止用: vendor_email_logsは新規テーブルのためanonにSELECTのみ許可する設計
+// (STEP2提示SQL参照)。件数が少ない前提で全件取得し、テーブル名+source_idごとに最新の
+// 1件のみ保持する。
+async function fetchVendorEmailSentMap(){
+  const {data, error} = await sb.from('vendor_email_logs').select('source_table,source_id,sent_at,sent_by').order('sent_at',{ascending:false});
+  if(error){ logError('仕入先メールログの読み込み(vendor_email_logs)', error); return {}; }
+  const map = {};
+  (data||[]).forEach(l=>{
+    const key = l.source_table+':'+l.source_id;
+    if(!map[key]) map[key] = l;
+  });
+  return map;
+}
+
+async function loadVendorEmailPage(){
+  const el = document.getElementById('ve-list');
+  if(!el) return;
+  el.innerHTML = '<div style="padding:12px;color:var(--text3);font-size:12px">読み込み中...</div>';
+  try{
+    const candidates = await fetchVendorEmailCandidates();
+    const sentMap = await fetchVendorEmailSentMap();
+    vendorEmailCandidatesCache = candidates.map(c=>({...c, sent: sentMap[c.sourceTable+':'+c.id]||null}));
+  }catch(e){
+    logError('仕入先確認メール対象の読み込み', e);
+    el.innerHTML = '<div style="color:var(--red);font-size:12px">読み込みエラー: '+escHtml(e.message)+'</div>';
+    return;
+  }
+  renderVendorEmailList();
+}
+
+function vendorEmailReasonBadges(c){
+  const badges = [];
+  if(c.reasonImminent){
+    const t = vendorUrgencyTier(c.untilUse);
+    const label = c.untilUse<0 ? `期限超過${-c.untilUse}日` : (t?t.label:`${c.untilUse}日以内`);
+    badges.push(`<span style="color:${t?t.fg:'var(--text2)'};font-weight:700">${escHtml(label)}</span>`);
+  }
+  if(c.reasonLongPending){
+    badges.push(`<span style="color:#6a1b9a">🕓 未回答${c.pendingDays}日経過</span>`);
+  }
+  return badges.join(' / ');
+}
+
+function renderVendorEmailList(){
+  const el = document.getElementById('ve-list');
+  const list = vendorEmailCandidatesCache;
+  if(!list.length){ el.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:8px 0">現在、条件に該当する仕入先確認案件はありません。</div>'; return; }
+  const rows = list.map((c,i)=>{
+    const emailCell = c.email
+      ? escHtml(c.email)
+      : `<span style="color:var(--red)">⚠ メール未登録</span> <a href="javascript:void(0)" onclick="go('partners')" style="font-size:10px">→取引先マスタ</a>`;
+    const sentCell = c.sent
+      ? `<span style="color:var(--text3)">送信済み(${escHtml(String(c.sent.sent_at||'').slice(0,10))})</span>`
+      : '<span style="color:var(--text3)">未送信</span>';
+    return `<tr>
+      <td data-label=""><input type="checkbox" class="ve-chk" data-idx="${i}" ${c.email?'':'disabled'}></td>
+      <td data-label="種別">${escHtml(c.sourceLabel)}</td>
+      <td data-label="REF#" class="lnk" style="cursor:pointer" onclick="openBookingDetail('${c.bookingId}')">${escHtml(c.refNo)}</td>
+      <td data-label="ツアー名">${escHtml(c.tourName)}</td>
+      <td data-label="仕入先名">${escHtml(c.vendorName)}</td>
+      <td data-label="利用日">${escHtml(c.date||'')}</td>
+      <td data-label="状況">${vendorEmailReasonBadges(c)}</td>
+      <td data-label="メールアドレス">${emailCell}</td>
+      <td data-label="送信状況">${sentCell}</td>
+    </tr>`;
+  }).join('');
+  el.innerHTML = `<div style="margin-bottom:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <label style="font-size:11px;display:flex;gap:4px;align-items:center;cursor:pointer"><input type="checkbox" id="ve-select-all" onchange="toggleVendorEmailSelectAll(this.checked)"> 全選択(メール登録済みのみ)</label>
+      <button class="btn btn-p" onclick="openVendorEmailComposer()">✉️ 選択した案件のメール作成</button>
+      <span style="font-size:11px;color:var(--text3);margin-left:auto">該当${list.length}件</span>
+    </div>
+    <div class="tbl-wrap"><table class="confirm-table" style="width:100%;font-size:12px">
+      <thead><tr><th></th><th>種別</th><th>REF#</th><th>ツアー名</th><th>仕入先名</th><th>利用日</th><th>状況</th><th>メールアドレス</th><th>送信状況</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+}
+
+function toggleVendorEmailSelectAll(checked){
+  document.querySelectorAll('.ve-chk').forEach(cb=>{ if(!cb.disabled) cb.checked = checked; });
+}
+
+function vendorEmailTemplate(c){
+  const subject = `【KIC Travel】${c.refNo?c.refNo+' ':''}${c.tourName||''} ${c.sourceLabel}手配確認のお願い`;
+  const body = `${c.vendorName} 御中\n\nお世話になっております。KIC Travelです。\n下記の件、手配状況のご確認・ご回答をお願いいたします。\n\nREF#: ${c.refNo||''}\nツアー名: ${c.tourName||''}\n利用日: ${c.date||''}\n現在のステータス: ${c.status||''}\n\nお手数をおかけいたしますが、期限までにご回答いただけますと幸いです。\nよろしくお願いいたします。\n\nKIC Travel`;
+  return {subject, body};
+}
+
+let vendorEmailComposerItems = [];
+function openVendorEmailComposer(){
+  const idxs = [...document.querySelectorAll('.ve-chk:checked')].map(cb=>Number(cb.dataset.idx));
+  if(!idxs.length){ alert('送信対象を1件以上選択してください'); return; }
+  vendorEmailComposerItems = idxs.map(i=>{
+    const c = vendorEmailCandidatesCache[i];
+    const t = vendorEmailTemplate(c);
+    return { ...c, subject: t.subject, body: t.body };
+  });
+  renderVendorEmailComposer();
+  document.getElementById('vendor-email-composer-modal').classList.add('open');
+}
+function closeVendorEmailComposer(){
+  document.getElementById('vendor-email-composer-modal').classList.remove('open');
+  loadVendorEmailPage();
+}
+function renderVendorEmailComposer(){
+  const el = document.getElementById('vendor-email-composer-body');
+  el.innerHTML = vendorEmailComposerItems.map((c,i)=>{
+    const alreadySentNote = c.sent ? `<div style="color:var(--red);font-size:11px;margin-bottom:4px">⚠ この案件は${escHtml(String(c.sent.sent_at||'').slice(0,10))}に送信済みです。再度記録する場合はご注意ください。</div>` : '';
+    return `<div style="border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:10px">
+      <div style="font-size:12px;font-weight:600;margin-bottom:4px">${escHtml(c.sourceLabel)} / ${escHtml(c.refNo)} / ${escHtml(c.vendorName)}</div>
+      ${alreadySentNote}
+      <div class="form-field"><label style="font-size:10px">送信先メール</label><input id="vec-email-${i}" value="${escAttr(c.email)}" style="width:100%;box-sizing:border-box;font-size:12px"></div>
+      <div class="form-field"><label style="font-size:10px">件名</label><input id="vec-subject-${i}" value="${escAttr(c.subject)}" style="width:100%;box-sizing:border-box;font-size:12px"></div>
+      <div class="form-field"><label style="font-size:10px">本文</label><textarea id="vec-body-${i}" rows="8" style="width:100%;box-sizing:border-box;font-size:12px">${escHtml(c.body)}</textarea></div>
+      <button class="btn" onclick="recordVendorEmailStub(${i})">📝 この1件を記録(送信は未実装のためログ記録のみ)</button>
+      <span id="vec-status-${i}" style="font-size:11px;margin-left:6px;color:var(--green)"></span>
+    </div>`;
+  }).join('');
+}
+
+async function recordVendorEmailStub(i){
+  const c = vendorEmailComposerItems[i];
+  const email = document.getElementById(`vec-email-${i}`).value.trim();
+  const subject = document.getElementById(`vec-subject-${i}`).value.trim();
+  const body = document.getElementById(`vec-body-${i}`).value;
+  if(!email){ alert('送信先メールアドレスを入力してください'); return; }
+  if(c.sent){
+    if(!confirm(`この案件は${String(c.sent.sent_at||'').slice(0,10)}に送信済みです。再度記録しますか？`)) return;
+  }
+  try{
+    await vendorEmailLogsApiCall('insert', { rows: [{
+      source_table: c.sourceTable, source_id: String(c.id), booking_id: c.bookingId,
+      partner_email: email, subject, body, status: 'stub_logged'
+    }]});
+  }catch(e){
+    alert('記録に失敗しました: '+e.message);
+    return;
+  }
+  const statusEl = document.getElementById(`vec-status-${i}`);
+  if(statusEl) statusEl.textContent = '✓ 記録しました(実際のメール送信は未実装です)';
+  c.sent = { sent_at: new Date().toISOString() };
+}
+
+async function recordVendorEmailStubBulk(){
+  if(!vendorEmailComposerItems.length) return;
+  const alreadySent = vendorEmailComposerItems.filter(c=>c.sent);
+  if(alreadySent.length){
+    if(!confirm(`選択中${vendorEmailComposerItems.length}件のうち${alreadySent.length}件は送信済みです。すべて記録してよろしいですか？`)) return;
+  }
+  const rows = [];
+  for(let i=0;i<vendorEmailComposerItems.length;i++){
+    const email = document.getElementById(`vec-email-${i}`).value.trim();
+    const subject = document.getElementById(`vec-subject-${i}`).value.trim();
+    const body = document.getElementById(`vec-body-${i}`).value;
+    if(!email){ alert(`${i+1}件目: 送信先メールアドレスが未入力です`); return; }
+    const c = vendorEmailComposerItems[i];
+    rows.push({ source_table: c.sourceTable, source_id: String(c.id), booking_id: c.bookingId, partner_email: email, subject, body, status: 'stub_logged' });
+  }
+  try{
+    await vendorEmailLogsApiCall('insert', { rows });
+  }catch(e){
+    alert('記録に失敗しました: '+e.message);
+    return;
+  }
+  alert(`${rows.length}件を記録しました(実際のメール送信は未実装のため、ログ記録のみです)`);
+  closeVendorEmailComposer();
+}
 
 // ===== 変更履歴(監査ログ) =====
 // table-crud.jsのauditHistoryアクション(読み取り専用、TABLE_CONFIG上でauditLog:trueの
@@ -18910,6 +19176,21 @@ function setDateInputValue(el, d){
       </div>
     </div>
     <div id="audit-history-body"></div>
+  </div>
+</div>
+
+<!-- 仕入先確認メール作成モーダル(送信は未実装。vendor_email_logsへの記録のみのスタブ) -->
+<div class="modal-overlay" id="vendor-email-composer-modal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div class="modal-title">仕入先確認メール作成<span style="font-size:10px;font-weight:400;color:var(--red)">※実際の送信は未実装(記録のみ)</span></div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn btn-p" onclick="recordVendorEmailStubBulk()">📝 選択した全件をまとめて記録</button>
+        <button class="btn" onclick="closeVendorEmailComposer()">閉じる</button>
+        <div class="modal-close" onclick="closeVendorEmailComposer()">✕</div>
+      </div>
+    </div>
+    <div id="vendor-email-composer-body"></div>
   </div>
 </div>
 

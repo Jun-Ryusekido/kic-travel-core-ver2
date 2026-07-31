@@ -140,6 +140,16 @@ const TABLE_CONFIG = {
     stampIdentity: true,
     stampUpdatedAt: true,
   },
+  // vendor_email_logs(仕入先確認メール送信ログ): created_by/updated_byではなく専用の
+  // sent_by列を持つため、通常のstampIdentityは使わずstampSentByFieldで個別に指定する
+  // (下記stampNewRows参照)。クライアント自己申告のsent_byを一切信用せず、
+  // 検証済みセッションのemail(changedBy)をサーバー側でスタンプする。読み取りは
+  // 二重送信チェックのUI表示に使うためanonにもSELECTを許可する(STEP2提示SQL参照)。
+  vendor_email_logs: {
+    actions: ['insert'],
+    label: '仕入先確認メールログ',
+    stampSentByField: 'sent_by',
+  },
 };
 
 function sbFetch(table, path, opts = {}) {
@@ -559,7 +569,13 @@ export default async function handler(req, res) {
   const stampEmail = config.stampIdentity && session ? session.email : null;
   const changedBy = session ? session.email : null;
   function stampNewRows(rows) {
-    if (!stampEmail || !Array.isArray(rows)) return rows;
+    if (!Array.isArray(rows)) return rows;
+    // vendor_email_logs等、created_by/updated_byではなく専用の1列(例: sent_by)のみを
+    // 検証済みemailでスタンプしたいテーブル向け。stampIdentityとは独立して機能する。
+    if (config.stampSentByField) {
+      return rows.map((r) => ({ ...r, [config.stampSentByField]: changedBy }));
+    }
+    if (!stampEmail) return rows;
     const extra = config.stampUpdatedAt ? { updated_at: new Date().toISOString() } : {};
     return rows.map((r) => ({ ...r, created_by: stampEmail, updated_by: stampEmail, ...extra }));
   }
