@@ -1675,7 +1675,6 @@ input[type=number]{-moz-appearance:textfield}
       <div class="modal-title">予約台帳 <span id="bd-ref" style="color:var(--blue)"></span></div>
       <div style="display:flex;gap:8px;align-items:center">
         <span class="msg-ok" id="bd-msg-top" style="margin-top:0">✓ 保存しました</span>
-        <button class="btn" onclick="openAuditHistory('bookings', currentDetailId, document.getElementById('bd-ref').textContent)">🕓 変更履歴</button>
         <button class="btn btn-p bd-save-btn" onclick="saveBookingDetail()">💾 保存</button>
         <button class="btn" onclick="closeBookingDetail()">閉じる</button>
         <div class="modal-close" onclick="closeBookingDetail()">✕</div>
@@ -2161,6 +2160,7 @@ input[type=number]{-moz-appearance:textfield}
     <div style="margin-top:16px;display:flex;gap:8px;align-items:center;border-top:1px solid var(--border);padding-top:12px">
       <button class="btn btn-p bd-save-btn" onclick="saveBookingDetail()">💾 保存</button>
       <button class="btn" onclick="closeBookingDetail()">閉じる</button>
+      <button class="btn" onclick="openAuditHistory('bookings', currentDetailId, document.getElementById('bd-ref').textContent)">🕓 変更履歴</button>
       <span class="msg-ok" id="bd-msg">✓ 保存しました</span>
       <span style="margin-left:auto;font-size:10px;color:var(--text3)" id="bd-updated"></span>
     </div>
