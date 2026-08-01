@@ -84,22 +84,61 @@ table{width:100%;border-collapse:collapse;font-size:12px}
 .iv-table td:nth-child(8), .iv-table td:nth-child(9){overflow:visible;white-space:normal}
 .bl-table{table-layout:fixed}
 .bl-table th, .bl-table td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* 予約一覧のソート導線(768px未満のカード表示専用。PCは見出し行クリックでソートする) */
+.bl-sort-bar{display:none;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+.bl-sort-bar label{font-size:10px;color:var(--text3);font-weight:600}
+.bl-sort-bar select{padding:6px 8px;border-radius:8px;border:1px solid var(--border);background:#fff;font-size:12px;color:var(--text);flex:1;min-width:0}
+.bl-sort-bar .btn{font-size:11px;white-space:nowrap}
+/* 予約一覧(ダッシュボード/Booking List)を768px未満で「1予約=1カード」の縦積みにする。
+   従来は列2/3/6/7(Agent/Tour Code/Out/Pax)をdisplay:noneで丸ごと捨てていたが、
+   情報を落とさずに全項目を表示する。PC(768px以上)は従来の表形式のまま。
+   .bl-tableは他画面(ホテル管理・取引先マスタ等)でも使われているため、
+   必ず #pg-dashboard / #pg-booking-list にスコープして影響を閉じ込めること。 */
 @media(max-width:768px){
   #pg-booking-list .bl-table,#pg-dashboard .tbl-wrap .bl-table{table-layout:auto;min-width:0;width:100%}
-  #pg-booking-list .bl-table th:nth-child(2),#pg-booking-list .bl-table td:nth-child(2),
-  #pg-dashboard .bl-table th:nth-child(2),#pg-dashboard .bl-table td:nth-child(2),
-  #pg-booking-list .bl-table th:nth-child(3),#pg-booking-list .bl-table td:nth-child(3),
-  #pg-dashboard .bl-table th:nth-child(3),#pg-dashboard .bl-table td:nth-child(3),
-  #pg-booking-list .bl-table th:nth-child(6),#pg-booking-list .bl-table td:nth-child(6),
-  #pg-dashboard .bl-table th:nth-child(6),#pg-dashboard .bl-table td:nth-child(6),
-  #pg-booking-list .bl-table th:nth-child(7),#pg-booking-list .bl-table td:nth-child(7),
-  #pg-dashboard .bl-table th:nth-child(7),#pg-dashboard .bl-table td:nth-child(7){display:none}
-  #pg-booking-list .bl-table th:nth-child(1),#pg-booking-list .bl-table td:nth-child(1),
-  #pg-dashboard .bl-table th:nth-child(1),#pg-dashboard .bl-table td:nth-child(1){width:62px}
-  #pg-booking-list .bl-table th:nth-child(5),#pg-booking-list .bl-table td:nth-child(5),
-  #pg-dashboard .bl-table th:nth-child(5),#pg-dashboard .bl-table td:nth-child(5){width:68px}
-  #pg-booking-list .bl-table th:nth-child(8),#pg-booking-list .bl-table td:nth-child(8),
-  #pg-dashboard .bl-table th:nth-child(8),#pg-dashboard .bl-table td:nth-child(8){width:60px}
+  #pg-dashboard .bl-sort-bar,#pg-booking-list .bl-sort-bar{display:flex}
+  /* 見出し行はカード表示では意味を成さないため隠す(ソートは.bl-sort-barが担う) */
+  #pg-dashboard .bl-table thead,#pg-booking-list .bl-table thead{display:none}
+  #pg-dashboard .bl-table,#pg-booking-list .bl-table,
+  #pg-dashboard .bl-table tbody,#pg-booking-list .bl-table tbody{display:block;width:100%}
+  #pg-dashboard .bl-table td,#pg-booking-list .bl-table td{
+    display:block;border:none;padding:0;white-space:normal;overflow:visible;text-overflow:clip;font-size:12px
+  }
+  /* 1予約=1カード。2カラムのグリッドに各項目を明示配置する
+     (列順: 1 REF# / 2 Agent / 3 Tour Code / 4 Tour Name / 5 In / 6 Out / 7 Pax / 8 Status) */
+  #pg-dashboard .bl-table tbody tr:not(.bl-fullrow),
+  #pg-booking-list .bl-table tbody tr:not(.bl-fullrow){
+    display:grid;grid-template-columns:1fr auto;gap:2px 8px;
+    padding:10px 12px;margin-bottom:8px;
+    border:1px solid var(--border);border-radius:10px;background:var(--card)
+  }
+  #pg-dashboard .bl-table tbody tr:not(.bl-fullrow):hover td,
+  #pg-booking-list .bl-table tbody tr:not(.bl-fullrow):hover td{background:transparent}
+  #pg-dashboard .bl-table td:nth-child(1),#pg-booking-list .bl-table td:nth-child(1){
+    grid-row:1;grid-column:1;font-weight:700;font-size:14px;color:var(--blue)
+  }
+  #pg-dashboard .bl-table td:nth-child(5),#pg-booking-list .bl-table td:nth-child(5){
+    grid-row:1;grid-column:2;text-align:right;color:var(--text2);white-space:nowrap
+  }
+  #pg-dashboard .bl-table td:nth-child(4),#pg-booking-list .bl-table td:nth-child(4){
+    grid-row:2;grid-column:1/-1;font-weight:600
+  }
+  #pg-dashboard .bl-table td:nth-child(2),#pg-booking-list .bl-table td:nth-child(2){
+    grid-row:3;grid-column:1/-1;color:var(--text3)
+  }
+  #pg-dashboard .bl-table td:nth-child(3),#pg-booking-list .bl-table td:nth-child(3){grid-row:4;grid-column:1}
+  #pg-dashboard .bl-table td:nth-child(6),#pg-booking-list .bl-table td:nth-child(6){grid-row:4;grid-column:2;text-align:right}
+  #pg-dashboard .bl-table td:nth-child(7),#pg-booking-list .bl-table td:nth-child(7){grid-row:5;grid-column:1}
+  #pg-dashboard .bl-table td:nth-child(8),#pg-booking-list .bl-table td:nth-child(8){grid-row:5;grid-column:2;text-align:right}
+  /* 見出し行が無い分、判別しにくい項目にはラベルを添える(REF#/ツアー名/Agentは自明なので付けない) */
+  #pg-dashboard .bl-table td:nth-child(3)::before,#pg-booking-list .bl-table td:nth-child(3)::before,
+  #pg-dashboard .bl-table td:nth-child(6)::before,#pg-booking-list .bl-table td:nth-child(6)::before,
+  #pg-dashboard .bl-table td:nth-child(7)::before,#pg-booking-list .bl-table td:nth-child(7)::before{
+    content:attr(data-label) ": ";color:var(--text3);font-size:10px
+  }
+  /* 空表示・読み込み中・ページャの行はカード化せず、そのまま横幅いっぱいに表示する */
+  #pg-dashboard .bl-table tr.bl-fullrow,#pg-booking-list .bl-table tr.bl-fullrow{display:block;width:100%}
+  #pg-dashboard .bl-table tr.bl-fullrow td,#pg-booking-list .bl-table tr.bl-fullrow td{display:block;text-align:center}
 }
 th{font-size:10px;color:var(--text3);font-weight:600;padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);white-space:nowrap}
 td{padding:8px 8px;border-bottom:1px solid var(--border);vertical-align:middle}
@@ -781,9 +820,11 @@ input[type=number]{-moz-appearance:textfield}
         <div id="db-filter-backdrop" onclick="toggleDbMobileFilterSheet(true)"></div>
         <div class="card" id="db-list-card" style="border-top:none;border-radius:0 0 12px 12px;padding-top:0;margin-bottom:14px">
           <div class="card-title">予約一覧 <span id="db-count-mobile" style="font-size:11px;font-weight:400;color:var(--text3)"></span></div>
+          <!-- カード表示(768px未満)では見出し行が消えるため、ソートの導線をここに置く -->
+          <div class="bl-sort-bar" id="db-sort-bar"></div>
           <div class="tbl-wrap"><table class="bl-table">
             <thead id="db-thead"></thead>
-            <tbody id="db-tbody"><tr><td colspan="8" class="empty">読み込み中...</td></tr></tbody>
+            <tbody id="db-tbody"><tr class="bl-fullrow"><td colspan="8" class="empty">読み込み中...</td></tr></tbody>
           </table></div>
         </div>
         <!-- モバイル専用の下部固定バー(768px未満でのみ表示)。position:stickyは親の
@@ -891,9 +932,11 @@ input[type=number]{-moz-appearance:textfield}
         </div>
         <div class="card" style="border-top:none;border-radius:0 0 12px 12px;padding-top:0;margin-bottom:14px">
           <div class="card-title">Booking List</div>
+          <!-- カード表示(768px未満)では見出し行が消えるため、ソートの導線をここに置く -->
+          <div class="bl-sort-bar" id="bl-sort-bar"></div>
           <div class="tbl-wrap"><table class="bl-table">
             <thead id="bl-thead"></thead>
-            <tbody id="bl-tbody"><tr><td colspan="8" class="empty">読み込み中...</td></tr></tbody>
+            <tbody id="bl-tbody"><tr class="bl-fullrow"><td colspan="8" class="empty">読み込み中...</td></tr></tbody>
           </table></div>
         </div>
       </div>
@@ -3176,6 +3219,7 @@ function renderListHeader(prefix){
     const styleAttr = width ? ` style="width:${width}"` : '';
     return `<th class="sortable"${styleAttr} onclick="sortBookingList('${prefix}','${field}')">${label}${arrow}</th>`;
   }).join('') + '</tr>';
+  renderListSortBar(prefix);   // モバイルのソート導線も同じ状態で更新する
 }
 
 function sortBookingList(prefix, field){
@@ -3186,11 +3230,43 @@ function sortBookingList(prefix, field){
   filterBookingListGeneric(prefix);
 }
 
+// 768px未満のカード表示では見出し行(th)が消えてソートできなくなるため、
+// 同じ並べ替えをドロップダウン+昇順/降順トグルから操作できるようにする。
+// 状態(listState)は見出し行クリックと完全に共有しているため、PC/モバイルで
+// ソート順が食い違うことはない。
+function renderListSortBar(prefix){
+  const bar = document.getElementById(prefix+'-sort-bar');
+  if(!bar) return;
+  const state = listState[prefix];
+  const opts = LIST_COLUMNS.filter(c=>c[2]).map(([field,label])=>
+    `<option value="${field}"${state.sortField===field?' selected':''}>${label}</option>`).join('');
+  bar.innerHTML =
+    `<label for="${prefix}-sort-select">並べ替え</label>` +
+    `<select id="${prefix}-sort-select" onchange="setBookingListSort('${prefix}', this.value)">` +
+      `<option value=""${state.sortField?'':' selected'}>指定なし</option>${opts}</select>` +
+    `<button class="btn" id="${prefix}-sort-dir-btn" onclick="toggleBookingListSortDir('${prefix}')"` +
+      `${state.sortField?'':' disabled'} title="昇順/降順を切り替え">${state.sortDir===1?'▲ 昇順':'▼ 降順'}</button>`;
+}
+function setBookingListSort(prefix, field){
+  const state = listState[prefix];
+  state.sortField = field || null;
+  state.sortDir = 1;
+  state.page = 1;
+  filterBookingListGeneric(prefix);
+}
+function toggleBookingListSortDir(prefix){
+  const state = listState[prefix];
+  if(!state.sortField) return;
+  state.sortDir = -state.sortDir;
+  state.page = 1;
+  filterBookingListGeneric(prefix);
+}
+
 // 当面の間、出発日(From)の初期値として使用（必要に応じて変更・削除してください）
 const TEMP_DEFAULT_FROM = '2026-03-01';
 
 async function loadBookingListGeneric(prefix){
-  document.getElementById(prefix+'-tbody').innerHTML='<tr><td colspan="8" class="empty">読み込み中...</td></tr>';
+  document.getElementById(prefix+'-tbody').innerHTML='<tr class="bl-fullrow"><td colspan="8" class="empty">読み込み中...</td></tr>';
   renderListHeader(prefix);
   allBookingsCache = await fetchAllBookings();
   listState[prefix].page = 1;
@@ -3746,7 +3822,7 @@ function filterBookingListGeneric(prefix){
   renderListHeader(prefix);
 
   const tbody = document.getElementById(prefix+'-tbody');
-  if(filtered.length===0){ tbody.innerHTML='<tr><td colspan="8" class="empty">該当する予約がありません</td></tr>'; return; }
+  if(filtered.length===0){ tbody.innerHTML='<tr class="bl-fullrow"><td colspan="8" class="empty">該当する予約がありません</td></tr>'; return; }
 
   // ページネーション
   let page = listState[prefix].page;
@@ -3757,17 +3833,19 @@ function filterBookingListGeneric(prefix){
   const start = (page-1)*LIST_PAGE_SIZE;
   const pageData = filtered.slice(start, start+LIST_PAGE_SIZE);
 
+  // data-labelは768px未満のカード表示で「Out:」「Pax:」等のラベルを::beforeで出すために使う
+  // (PCの表形式では見出し行があるためCSSで非表示にしている)。
   tbody.innerHTML = pageData.map(b=>{
     return `<tr ondblclick="openBookingDetail('${b.id}')">
-      <td class="lnk" onclick="openBookingDetail('${b.id}')">${b.ref_no}</td><td>${b.agent_name||''}</td><td>${b.tour_code||''}</td><td>${b.tour_name||''}</td>
-      <td>${b.in_date||''}</td><td>${b.out_date||''}</td><td>${b.pax||0}</td>
-      <td>${statusPill(b.status)}</td>
+      <td class="lnk" onclick="openBookingDetail('${b.id}')">${b.ref_no}</td><td data-label="Agent">${b.agent_name||''}</td><td data-label="Tour Code">${b.tour_code||''}</td><td data-label="Tour">${b.tour_name||''}</td>
+      <td data-label="In">${b.in_date||''}</td><td data-label="Out">${b.out_date||''}</td><td data-label="Pax">${b.pax||0}</td>
+      <td data-label="Status">${statusPill(b.status)}</td>
     </tr>`;
   }).join('');
 
   // ページネーションUI
   if(totalPages > 1){
-    let pager = `<tr><td colspan="8" style="text-align:center;padding:10px">`;
+    let pager = `<tr class="bl-fullrow"><td colspan="8" style="text-align:center;padding:10px">`;
     pager += `<button class="btn" ${page<=1?'disabled':''} onclick="listGoPage('${prefix}',${page-1})">← 前へ</button> `;
     pager += `<span style="margin:0 10px;font-size:11px;color:var(--text3)">ページ ${page} / ${totalPages}</span>`;
     pager += `<button class="btn" ${page>=totalPages?'disabled':''} onclick="listGoPage('${prefix}',${page+1})">次へ →</button>`;
