@@ -174,6 +174,12 @@ th.sortable:hover{color:var(--blue)}
   .email-inbox-row-actions{ display:grid; grid-template-columns:repeat(2,1fr); gap:6px }
   .email-inbox-row-actions .btn{ width:100%; box-sizing:border-box; justify-content:center }
 }
+/* ダッシュボードの下部固定バー・ボトムシート用要素は、PC(768px以上)では一切表示しない。
+   モバイル側の表示指定は下の @media(max-width:760px) 内にあり、同じ詳細度のため
+   「後に書いた方が勝つ」ルールでモバイル側が上書きする(この順序を入れ替えないこと)。 */
+#db-mobile-bottombar{display:none}
+.db-filter-close-btn{display:none}
+#db-filter-backdrop{display:none}
 @media(max-width:760px){
   .sb{position:fixed;left:-210px;transition:left .2s;z-index:50;box-shadow:2px 0 8px rgba(0,0,0,.1)}
   .sb.open{left:0}
@@ -186,6 +192,33 @@ th.sortable:hover{color:var(--blue)}
      (横並び・折り返し可)に積む形に変更する(他画面には影響させない)。 */
   #pg-partners .card-title,#pg-agents .card-title{flex-direction:column;align-items:flex-start;gap:8px}
   #pg-partners .card-title>span,#pg-agents .card-title>span{display:flex;flex-wrap:wrap;gap:6px;width:100%}
+
+  /* ダッシュボードの検索・絞り込みを下部固定バー+ボトムシート方式にする(モバイルのみ)。
+     PC(768px以上)では従来通り一覧の上に横並びグリッドで常時表示する(下のCSSは一切効かない)。 */
+  #db-mobile-bottombar{
+    display:flex;gap:8px;position:fixed;left:0;right:0;bottom:0;z-index:60;
+    padding:8px 12px;background:var(--card);border-top:1px solid var(--border);
+    box-shadow:0 -2px 8px rgba(0,0,0,.08)
+  }
+  /* 下部固定バーの高さ分だけ余白を確保し、一覧の最終行がバーに隠れないようにする */
+  #pg-dashboard{padding-bottom:64px}
+  /* 検索カードは通常時は隠し、ボトムシートとして下から開く */
+  #db-filter-card{
+    position:fixed!important;left:0;right:0;bottom:0;top:auto!important;z-index:70;
+    margin:0!important;border-radius:12px 12px 0 0;max-height:80vh;overflow-y:auto;
+    transform:translateY(100%);transition:transform .2s ease-out;
+    box-shadow:0 -4px 16px rgba(0,0,0,.18)
+  }
+  #db-filter-card.open{transform:translateY(0)}
+  /* 検索欄はHTML側にインラインstyleで4列指定(grid-template-columns:2fr 1fr 1fr 1fr)が
+     入っており、インラインstyleは通常のCSSより優先されるため、!importantで打ち消して
+     モバイルでは縦1列に積む。 */
+  #db-filter-card .form-grid{grid-template-columns:1fr!important}
+  .db-filter-close-btn{display:inline!important;cursor:pointer;font-size:16px;color:var(--text3);padding:0 4px}
+  #db-filter-backdrop{
+    display:none;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:65
+  }
+  #db-filter-backdrop.open{display:block}
 }
 @media(max-width:768px){
   #db-thead th,#db-tbody td,#bl-thead th,#bl-tbody td{display:none}
@@ -701,8 +734,11 @@ input[type=number]{-moz-appearance:textfield}
           <div class="card-title">到着日アラート <span style="font-size:10px;font-weight:400;color:var(--text3)">今後90日以内の進行中予約</span></div>
           <div id="db-arrival-alert"><span style="font-size:12px;color:var(--text3)">読み込み中...</span></div>
         </div>
-        <div class="card" style="position:sticky;top:50px;z-index:10;margin-bottom:0;border-radius:12px 12px 0 0">
-          <div class="card-title">検索・絞り込み</div>
+        <div class="card" id="db-filter-card" style="position:sticky;top:50px;z-index:10;margin-bottom:0;border-radius:12px 12px 0 0">
+          <div class="card-title">
+            <span>検索・絞り込み</span>
+            <span id="db-filter-close-btn" class="db-filter-close-btn" onclick="toggleDbMobileFilterSheet(true)">✕</span>
+          </div>
           <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr 1fr">
             <div class="form-field"><label>検索（REF# / Agent / Tour）</label><input id="db-search" placeholder="例: Kesari, #1374, Kyoto" oninput="filterBookingListGeneric('db')"></div>
             <div class="form-field"><label>出発日(From)</label><input id="db-from" type="date" min="1900-01-01" max="9999-12-31" onblur="filterBookingListGeneric('db')"></div>
@@ -727,12 +763,23 @@ input[type=number]{-moz-appearance:textfield}
             <button class="btn" onclick="resetBookingFilter('db')">条件クリア</button>
           </div>
         </div>
+        <div id="db-filter-backdrop" onclick="toggleDbMobileFilterSheet(true)"></div>
         <div class="card" style="border-top:none;border-radius:0 0 12px 12px;padding-top:0;margin-bottom:14px">
-          <div class="card-title">予約一覧</div>
+          <div class="card-title">予約一覧 <span id="db-count-mobile" style="font-size:11px;font-weight:400;color:var(--text3)"></span></div>
           <div class="tbl-wrap"><table class="bl-table">
             <thead id="db-thead"></thead>
             <tbody id="db-tbody"><tr><td colspan="8" class="empty">読み込み中...</td></tr></tbody>
           </table></div>
+        </div>
+        <!-- モバイル専用の下部固定バー(768px未満でのみ表示)。position:stickyは親の
+             overflow構造内で効かないケースがあるため、position:fixedで実装している。
+             バーの高さ分は #pg-dashboard の padding-bottom で確保し、一覧の最終行が
+             隠れないようにする(下のCSS参照)。 -->
+        <div id="db-mobile-bottombar">
+          <button class="btn" style="flex:1;justify-content:center;position:relative" onclick="toggleDbMobileFilterSheet()">
+            🔍 検索・絞り込み<span id="db-filter-active-badge" style="display:none;position:absolute;top:2px;right:6px;width:8px;height:8px;border-radius:50%;background:var(--blue)"></span>
+          </button>
+          <button class="btn btn-p" style="flex:1;justify-content:center" onclick="go('new-booking')">＋ New Booking</button>
         </div>
       </div>
 
@@ -3149,6 +3196,33 @@ function resetBookingFilter(prefix){
   filterBookingListGeneric(prefix);
 }
 
+// ダッシュボードのモバイル用ボトムシート(検索・絞り込み)の開閉。
+// forceClose=true のときは必ず閉じる(背景タップ・✕ボタンから呼ばれる)。
+function toggleDbMobileFilterSheet(forceClose){
+  const card = document.getElementById('db-filter-card');
+  const backdrop = document.getElementById('db-filter-backdrop');
+  if(!card || !backdrop) return;
+  const willOpen = forceClose ? false : !card.classList.contains('open');
+  card.classList.toggle('open', willOpen);
+  backdrop.classList.toggle('open', willOpen);
+}
+
+// 絞り込み条件が1つでも設定されていれば、下部固定バーのボタンにドットバッジを出す。
+// 出発日(From)は非管理者に既定値(TEMP_DEFAULT_FROM)が入るため、既定値のままの場合は
+// 「絞り込み中」とはみなさない(常時バッジが点灯してしまい意味を成さなくなるため)。
+function updateDbFilterActiveBadge(){
+  const badge = document.getElementById('db-filter-active-badge');
+  if(!badge) return;
+  const isAdmin = currentUser && currentUser.role==='admin';
+  const defaultFrom = isAdmin ? '' : TEMP_DEFAULT_FROM;
+  const q = (document.getElementById('db-search')?.value||'').trim();
+  const from = document.getElementById('db-from')?.value||'';
+  const to = document.getElementById('db-to')?.value||'';
+  const status = document.getElementById('db-status')?.value||'';
+  const active = !!q || !!to || !!status || (from !== defaultFrom);
+  badge.style.display = active ? 'block' : 'none';
+}
+
 // 各ティアの開閉状態(ティアのmax値をキーに保持)。初期表示は全て折りたたみ。
 // ページ再読み込みでリセットされる(永続化はしない、セクションごとに独立してトグル)。
 let dbArrivalOpenTiers = {};
@@ -3590,7 +3664,14 @@ function filterBookingListGeneric(prefix){
     return true;
   });
 
-  document.getElementById(prefix+'-count').textContent = `${filtered.length}件 / 全${allBookingsCache.length}件`;
+  const countText = `${filtered.length}件 / 全${allBookingsCache.length}件`;
+  document.getElementById(prefix+'-count').textContent = countText;
+  if(prefix === 'db'){
+    // 件数はシートを開かなくても常に見えるよう、一覧の見出し横にも表示する(モバイル対策)
+    const mobileCount = document.getElementById('db-count-mobile');
+    if(mobileCount) mobileCount.textContent = countText;
+    updateDbFilterActiveBadge();
+  }
 
   // 並べ替え
   const state = listState[prefix];
