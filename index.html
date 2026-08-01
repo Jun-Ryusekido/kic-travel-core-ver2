@@ -84,8 +84,8 @@ table{width:100%;border-collapse:collapse;font-size:12px}
 .iv-table td:nth-child(8), .iv-table td:nth-child(9){overflow:visible;white-space:normal}
 .bl-table{table-layout:fixed}
 .bl-table th, .bl-table td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-/* 見積もり一覧の操作列(編集/コピー/削除)。PCは1行に横並び、768px未満では
-   3つ横並びだと1つあたりの幅が足りずタップしにくいため、2列のグリッドに折り返す。 */
+/* 見積もり一覧の操作列(編集/コピー/削除/テンプレートにする-解除)。PCは1行に横並び、
+   768px未満では横並びだと1つあたりの幅が足りずタップしにくいため、折り返して表示する。 */
 .est-actions{white-space:nowrap}
 .est-actions .btn{margin-right:2px}
 @media(max-width:768px){
@@ -1125,6 +1125,7 @@ input[type=number]{-moz-appearance:textfield}
               <button class="btn btn-p" onclick="openEstTypeModal()">＋ 新規見積もり作成</button>
             </span>
           </div>
+          <div id="est-template-section" style="margin-bottom:10px"></div>
           <div class="tbl-wrap"><table>
             <thead><tr><th style="width:70px">種別</th><th>タイトル</th><th>ツアーコード</th><th>作成日</th><th>Status</th><th style="width:190px"></th></tr></thead>
             <tbody id="est-tbody"><tr><td colspan="6" class="empty">読み込み中...</td></tr></tbody>
@@ -7789,15 +7790,17 @@ async function loadEstimations(){
   renderEstimationsList();
 }
 
-function renderEstimationsList(){
-  const tbody = document.getElementById('est-tbody');
-  const typeFilter = (document.getElementById('est-type-filter')||{}).value || '';
-  const filtered = typeFilter ? estimationsCache.filter(e=>(e.type||'group')===typeFilter) : estimationsCache;
-  if(filtered.length===0){
-    tbody.innerHTML = `<tr><td colspan="6" class="empty">${estimationsCache.length===0?'見積もりはありません':'該当する見積もりはありません'}</td></tr>`;
-    return;
-  }
-  tbody.innerHTML = filtered.map(e=>`
+// テンプレートセクション(折り畳み)の開閉状態。ページを開き直すたびに初期状態(閉)に戻ってよい
+// (「初期状態は折り畳み」の指示通り、永続化はしない)。
+let estTemplateSectionOpen = false;
+
+// 見積もり一覧・テンプレートセクションの両方で共通の行テンプレート。
+// 4つ目のボタン(テンプレートにする/解除)はe.is_templateの値に応じて自動的に切り替わる。
+function estRowHtml(e){
+  const templateBtn = e.is_template
+    ? `<button class="btn" style="font-size:10px" onclick="toggleEstimationTemplate('${e.id}')">テンプレート解除</button>`
+    : `<button class="btn" style="font-size:10px" onclick="toggleEstimationTemplate('${e.id}')">テンプレートにする</button>`;
+  return `
     <tr>
       <td>${estTypePill(e.type||'group')}</td>
       <td class="lnk" onclick="openEstimationEditor('${e.id}')">${escHtml(e.title||'(無題)')}</td>
@@ -7808,8 +7811,66 @@ function renderEstimationsList(){
         <button class="btn" style="font-size:10px" onclick="openEstimationEditor('${e.id}')">編集</button>
         <button class="btn" style="font-size:10px" onclick="copyEstimation('${e.id}')">コピー</button>
         <button class="btn" style="font-size:10px" onclick="deleteEstimation('${e.id}')">削除</button>
+        ${templateBtn}
       </td>
-    </tr>`).join('');
+    </tr>`;
+}
+
+// テンプレートセクションは種別フィルタの影響を受けず、常に全テンプレートを対象にする
+// (「既存のフィルタがテンプレートセクションに影響しないこと」の指示通り)。
+function renderEstTemplateSection(){
+  const el = document.getElementById('est-template-section');
+  if(!el) return;
+  const templates = estimationsCache.filter(e=>e.is_template);
+  if(templates.length===0){ el.innerHTML=''; return; }
+  const arrow = estTemplateSectionOpen ? '▼' : '▶';
+  const rowsHtml = estTemplateSectionOpen
+    ? `<div class="tbl-wrap"><table>
+        <thead><tr><th style="width:70px">種別</th><th>タイトル</th><th>ツアーコード</th><th>作成日</th><th>Status</th><th style="width:190px"></th></tr></thead>
+        <tbody>${templates.map(estRowHtml).join('')}</tbody>
+      </table></div>`
+    : '';
+  el.innerHTML = `
+    <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden">
+      <button class="btn" style="width:100%;text-align:left;font-size:12px;font-weight:600;border:none;border-radius:0;background:var(--bg)" onclick="toggleEstTemplateSection()">
+        ${arrow} テンプレート (${templates.length}件)
+      </button>
+      ${rowsHtml ? `<div style="padding:8px">${rowsHtml}</div>` : ''}
+    </div>`;
+}
+
+function toggleEstTemplateSection(){
+  estTemplateSectionOpen = !estTemplateSectionOpen;
+  renderEstTemplateSection();
+}
+
+// テンプレート指定/解除。通常一覧⇄テンプレートセクションの表示は、is_templateの値を
+// 基準にrenderEstimationsList()が振り分けるため、ここでは値の更新と再描画のみ行う。
+async function toggleEstimationTemplate(id){
+  const e = estimationsCache.find(x=>x.id===id);
+  if(!e) return;
+  const next = !e.is_template;
+  const msg = next
+    ? `「${e.title||'(無題)'}」をテンプレートに指定しますか?\n\n通常の一覧から外れ、上部の「テンプレート」セクションに表示されるようになります。`
+    : `「${e.title||'(無題)'}」のテンプレート指定を解除しますか?\n\n通常の見積もり一覧に戻ります。`;
+  if(!confirm(msg)) return;
+  const {error} = await sb.from('estimations').update({is_template:next}).eq('id', id);
+  if(error){ alert('テンプレート設定の変更に失敗しました:\n'+error.message); return; }
+  e.is_template = next;
+  renderEstimationsList();
+}
+
+function renderEstimationsList(){
+  const tbody = document.getElementById('est-tbody');
+  renderEstTemplateSection();
+  const typeFilter = (document.getElementById('est-type-filter')||{}).value || '';
+  const base = estimationsCache.filter(e=>!e.is_template);
+  const filtered = typeFilter ? base.filter(e=>(e.type||'group')===typeFilter) : base;
+  if(filtered.length===0){
+    tbody.innerHTML = `<tr><td colspan="6" class="empty">${base.length===0?'見積もりはありません':'該当する見積もりはありません'}</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = filtered.map(estRowHtml).join('');
 }
 
 // 既存の見積もりを丸ごと複製して新しい下書きを作る。
