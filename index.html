@@ -2091,7 +2091,7 @@ input[type=number]{-moz-appearance:textfield}
           <span id="bd-inv-empty-hint" style="display:none;font-size:10px;color:var(--text3)">関連するInvoiceはありません</span>
         </div>
         <div class="tbl-wrap"><table class="li-table confirm-table">
-          <thead><tr><th style="width:11%">項目名</th><th style="width:30%">追記事項</th><th style="width:7%;text-align:right">単価</th><th style="width:4%;text-align:right">人数</th><th style="width:4%;text-align:right">数量</th><th class="li-amt" style="width:7%;text-align:right">金額</th><th style="width:7%">入金日</th><th style="width:9%" class="li-amt">入金金額</th><th style="width:10%">入金先銀行</th><th style="width:7%" class="li-amt">未収</th><th class="bd-agent-col" style="width:120px;display:none">請求先</th><th class="li-del" style="width:3%"></th></tr></thead>
+          <thead><tr><th style="width:11%">項目名</th><th style="width:24%">追記事項</th><th style="width:7%;text-align:right">単価</th><th style="width:4%;text-align:right">人数</th><th style="width:4%;text-align:right">数量</th><th class="li-amt" style="width:7%;text-align:right">金額</th><th style="width:7%">入金日</th><th style="width:8%" class="li-amt">入金金額</th><th style="width:9%">入金先銀行</th><th style="width:10%">入金備考</th><th style="width:6%" class="li-amt">未収</th><th class="bd-agent-col" style="width:120px;display:none">請求先</th><th class="li-del" style="width:3%"></th></tr></thead>
           <tbody id="bd-sales-tbody"></tbody>
         </table></div>
         <button class="btn" id="bd-sales-add-btn" style="font-size:10px;margin-top:4px" onclick="addSalesRow()">＋ 行追加</button>
@@ -4422,6 +4422,16 @@ function renderSalesPaymentBanks(it,i,dis){
       <input ${dis} type="text" value="${(p.bank||'').replace(/"/g,'&quot;')}" placeholder="銀行名" style="width:100%" onchange="bdSalesItems[${i}].payments[${j}].bank=this.value">
     </div>`).join('');
 }
+// 入金備考(Access請求明細テーブルのRemarks相当)。入金1件ごとの備考(例:「12/03 SMBC入金分」)で、
+// 明細行全体の自由記述である「追記事項」(memo)とは別の項目。既存データにremarkキーが
+// 無い場合は空欄として扱う(後方互換)。
+function renderSalesPaymentRemarks(it,i,dis){
+  const payments = it.payments||[];
+  return payments.map((p,j)=>`
+    <div style="margin-bottom:2px">
+      <input ${dis} type="text" value="${(p.remark||'').replace(/"/g,'&quot;')}" placeholder="例: 12/03 SMBC入金分" style="width:100%" onchange="bdSalesItems[${i}].payments[${j}].remark=this.value">
+    </div>`).join('');
+}
 function bdSalesPaymentAmountCalc(i,j,el){
   const v = parseNum(el.value);
   bdSalesItems[i].payments[j].amount = v;
@@ -4432,7 +4442,7 @@ function bdSalesPaymentAmountCalc(i,j,el){
 function addSalesPayment(i){
   if(bdLocked) return;
   if(!bdSalesItems[i].payments) bdSalesItems[i].payments=[];
-  bdSalesItems[i].payments.push({date:'', amount:0, bank:''});
+  bdSalesItems[i].payments.push({date:'', amount:0, bank:'', remark:''});
   renderSalesTable();
 }
 
@@ -4453,7 +4463,7 @@ function renderSalesTable(){
   const tbody = document.getElementById('bd-sales-tbody');
   const dis = bdLocked ? 'disabled' : '';
   if(bdSalesItems.length===0){
-    tbody.innerHTML = '<tr><td colspan="10" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
   }else{
     tbody.innerHTML = bdSalesItems.map((it,i)=>`
       <tr>
@@ -4463,7 +4473,7 @@ function renderSalesTable(){
         <td data-label="人数" style="text-align:right"><input ${dis} type="number" value="${it.pax||1}" onchange="bdSalesRowCalc(${i},this,'pax')" style="text-align:right"></td>
         <td data-label="数量" style="text-align:right"><input ${dis} type="number" value="${it.qty||1}" onchange="bdSalesRowCalc(${i},this,'qty')" style="text-align:right"></td>
         <td data-label="金額" id="bd-sales-amt-${i}" class="li-amt" style="text-align:right">${yen(it.amount||0)}</td>
-        <td data-label="入金日">${renderSalesPaymentDates(it,i,dis)}</td>         <td data-label="入金金額">${renderSalesPaymentAmounts(it,i,dis)}</td>         <td data-label="入金先銀行">${renderSalesPaymentBanks(it,i,dis)}</td>         <td data-label="未収" class="li-amt" style="${(Number(it.amount||0)-salesPaymentsTotal(it))>0?'color:var(--red)':'color:var(--green)'}">${yen(Number(it.amount||0)-salesPaymentsTotal(it))}</td>
+        <td data-label="入金日">${renderSalesPaymentDates(it,i,dis)}</td>         <td data-label="入金金額">${renderSalesPaymentAmounts(it,i,dis)}</td>         <td data-label="入金先銀行">${renderSalesPaymentBanks(it,i,dis)}</td>         <td data-label="入金備考">${renderSalesPaymentRemarks(it,i,dis)}</td>         <td data-label="未収" class="li-amt" style="${(Number(it.amount||0)-salesPaymentsTotal(it))>0?'color:var(--red)':'color:var(--green)'}">${yen(Number(it.amount||0)-salesPaymentsTotal(it))}</td>
         <td class="bd-agent-col" data-label="請求先" style="display:none"><input class="bd-agent-col" style="display:none" ${dis} value="${(it.agent_name||'').replace(/"/g,'&quot;')}" title="${(it.agent_name||'').replace(/"/g,'&quot;')}" placeholder="(予約のAgent)" onchange="bdSalesItems[${i}].agent_name=this.value;renderInvoiceActions()"></td></td>
         <td class="li-del">${bdLocked?'':`<span class="lnk" style="font-size:10px" onclick="removeSalesRow(${i})">削除</span>`}</td>
       </tr>`).join('');

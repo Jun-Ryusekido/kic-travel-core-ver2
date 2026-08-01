@@ -178,7 +178,11 @@ async function main() {
   console.log(`出力: ${outPath}`);
 }
 
-main().catch((e) => {
-  console.error('エラー:', e);
-  process.exit(1);
-});
+module.exports = { sbGetAll, buildLookups, matchOne, normTrim, normWidth, normCase, normNumericCore, SB_URL, SB_KEY };
+
+if (require.main === module) {
+  main().catch((e) => {
+    console.error('エラー:', e);
+    process.exit(1);
+  });
+}
