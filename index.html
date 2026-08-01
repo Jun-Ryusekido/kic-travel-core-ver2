@@ -180,6 +180,9 @@ th.sortable:hover{color:var(--blue)}
 #db-mobile-bottombar{display:none}
 .db-filter-close-btn{display:none}
 #db-filter-backdrop{display:none}
+/* 「結果を見る」はシート(モバイル)専用の導線。PCは検索欄と一覧が同時に見えており
+   不要なため表示しない。 */
+.db-show-results-btn{display:none}
 @media(max-width:760px){
   .sb{position:fixed;left:-210px;transition:left .2s;z-index:50;box-shadow:2px 0 8px rgba(0,0,0,.1)}
   .sb.open{left:0}
@@ -221,6 +224,7 @@ th.sortable:hover{color:var(--blue)}
      モバイルでは縦1列に積む。 */
   #db-filter-card .form-grid{grid-template-columns:1fr!important}
   .db-filter-close-btn{display:inline!important;cursor:pointer;font-size:16px;color:var(--text3);padding:0 4px}
+  .db-show-results-btn{display:inline-flex}
   #db-filter-backdrop{
     display:none;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:65
   }
@@ -764,13 +768,18 @@ input[type=number]{-moz-appearance:textfield}
               </select>
             </div>
           </div>
-          <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center">
+          <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
             <span style="font-size:11px;color:var(--text3)" id="db-count"></span>
-            <button class="btn" onclick="resetBookingFilter('db')">条件クリア</button>
+            <div style="display:flex;gap:8px;align-items:center;margin-left:auto">
+              <button class="btn" onclick="resetBookingFilter('db')">条件クリア</button>
+              <!-- モバイルのシート表示時のみ出る導線。シートを閉じて一覧の先頭まで
+                   スクロールし、絞り込み結果がすぐ見えるようにする。 -->
+              <button class="btn btn-p db-show-results-btn" id="db-show-results-btn" onclick="applyDbFilterAndShowResults()">結果を見る</button>
+            </div>
           </div>
         </div>
         <div id="db-filter-backdrop" onclick="toggleDbMobileFilterSheet(true)"></div>
-        <div class="card" style="border-top:none;border-radius:0 0 12px 12px;padding-top:0;margin-bottom:14px">
+        <div class="card" id="db-list-card" style="border-top:none;border-radius:0 0 12px 12px;padding-top:0;margin-bottom:14px">
           <div class="card-title">予約一覧 <span id="db-count-mobile" style="font-size:11px;font-weight:400;color:var(--text3)"></span></div>
           <div class="tbl-wrap"><table class="bl-table">
             <thead id="db-thead"></thead>
@@ -3213,6 +3222,38 @@ function toggleDbMobileFilterSheet(forceClose){
   backdrop.classList.toggle('open', willOpen);
 }
 
+// シート下部の「結果を見る(N件)」から呼ばれる。シートを閉じたうえで一覧の先頭まで
+// スクロールし、絞り込み結果がすぐ目に入る状態にする。
+// ✕・背景タップは従来通り「閉じるだけ」で、こちらはスクロールを伴う追加の導線。
+function applyDbFilterAndShowResults(){
+  toggleDbMobileFilterSheet(true);
+  const listCard = document.getElementById('db-list-card');
+  if(!listCard) return;
+  // 上部のtopbarは position:sticky で常に画面上端に居座るため、その高さ分を引いた
+  // 位置までスクロールしないと一覧の見出しがtopbarの下に潜ってしまう。
+  const topbar = document.querySelector('.topbar');
+  const offset = (topbar ? topbar.getBoundingClientRect().height : 0) + 8;
+  const y = listCard.getBoundingClientRect().top + window.scrollY - offset;
+  window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
+}
+
+// 「結果を見る」ボタンの表示を絞り込み結果の件数に合わせて更新する。
+// 0件のときは押しても見るものが無いため、件数表示ではなく0件と分かる文言にし、
+// 押下自体を無効化する。
+function updateDbShowResultsBtn(count){
+  const btn = document.getElementById('db-show-results-btn');
+  if(!btn) return;
+  if(count === 0){
+    btn.textContent = '該当する予約がありません';
+    btn.disabled = true;
+    btn.classList.remove('btn-p');
+  }else{
+    btn.textContent = `結果を見る（${count}件）`;
+    btn.disabled = false;
+    btn.classList.add('btn-p');
+  }
+}
+
 // 絞り込み条件が1つでも設定されていれば、下部固定バーのボタンにドットバッジを出す。
 // 出発日(From)は非管理者に既定値(TEMP_DEFAULT_FROM)が入るため、既定値のままの場合は
 // 「絞り込み中」とはみなさない(常時バッジが点灯してしまい意味を成さなくなるため)。
@@ -3677,6 +3718,7 @@ function filterBookingListGeneric(prefix){
     const mobileCount = document.getElementById('db-count-mobile');
     if(mobileCount) mobileCount.textContent = countText;
     updateDbFilterActiveBadge();
+    updateDbShowResultsBtn(filtered.length);
   }
 
   // 並べ替え
