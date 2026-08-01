@@ -164,6 +164,27 @@ const TABLE_CONFIG = {
     actions: ['upsertConfirm', 'deleteById', 'guestUpsertConfirm'],
     label: 'OCR学習データ',
   },
+  // email_import_queue(メール受信箱): 本文(body)を含む機微なテーブルのため、
+  // updateById/updateByIdsで任意の列を書き換えられないよう、受信箱UIが実際に更新する
+  // 5列だけをupdatableFieldsでホワイトリスト化する(guide_settlement_itemsの
+  // guestUpdatableFieldsと同じ方式)。件名・本文・送信者等はこのAPIからは変更できない。
+  // 「対象外にする」(excluded_reasonが手動除外の値)は送信元学習にも波及し運用上の影響が
+  // 大きいため、クライアント側のisEmailExcludeUser()に加えてサーバー側でも
+  // メールアドレスを検証する(有効なセッショントークンさえあればAPIを直接叩ける、
+  // という抜け穴を塞ぐ)。
+  email_import_queue: {
+    actions: ['updateById', 'updateByIds'],
+    label: 'メール受信箱',
+    updatableFields: ['is_excluded', 'excluded_reason', 'ignored', 'imported', 'postponed'],
+    restrictedFieldValues: [
+      {
+        field: 'excluded_reason',
+        value: '手動で対象外に設定',
+        allowedEmails: ['admin@kictravel.jp', 'jr@kictravel.jp'],
+        message: '「対象外にする」は管理担当者のみ操作できます。',
+      },
+    ],
+  },
 };
 
 // learned_mappingsのcategoryはこの3種のみ許可する(bodyの値をそのまま保存しない)。
@@ -644,6 +665,35 @@ export default async function handler(req, res) {
     return { ...fields, updated_by: stampEmail, ...extra };
   }
 
+  // config.updatableFieldsが設定されているテーブルでは、そこに列挙された列だけを更新可能とする
+  // (email_import_queue等、本文のような機微な列をこのAPIから書き換えられないようにするため)。
+  // 許可されていない列が1つでも含まれていた場合は、黙って捨てるのではなく明示的に400で拒否する
+  // (クライアント側の実装ミスを気づかず握り潰さないため)。
+  function validateUpdatableFields(fields) {
+    if (!config.updatableFields) return null;
+    if (!fields || typeof fields !== 'object') return { status: 400, body: { error: '更新内容が指定されていません' } };
+    const invalid = Object.keys(fields).filter((k) => !config.updatableFields.includes(k));
+    if (invalid.length) {
+      return { status: 400, body: { error: `${table}に対して更新が許可されていない項目です: ${invalid.join(', ')}` } };
+    }
+    return null;
+  }
+
+  // 特定の列に特定の値を書き込む操作を、指定のメールアドレスのみに制限する
+  // (例: email_import_queueのexcluded_reason='手動で対象外に設定')。
+  // クライアント側のボタン表示制御に加えた二重の防御で、検証済みセッションのemailで判定する。
+  function checkRestrictedFieldValues(fields) {
+    if (!config.restrictedFieldValues || !fields || typeof fields !== 'object') return null;
+    for (const rule of config.restrictedFieldValues) {
+      if (fields[rule.field] === rule.value) {
+        if (!changedBy || !rule.allowedEmails.includes(changedBy)) {
+          return { status: 403, body: { error: rule.message } };
+        }
+      }
+    }
+    return null;
+  }
+
   try {
     if (action === 'replace') {
       const { bookingId, rows } = req.body;
@@ -687,11 +737,19 @@ export default async function handler(req, res) {
     }
     if (action === 'updateById') {
       const { id, fields } = req.body;
+      const invalid = validateUpdatableFields(fields);
+      if (invalid) return res.status(invalid.status).json(invalid.body);
+      const denied = checkRestrictedFieldValues(fields);
+      if (denied) return res.status(denied.status).json(denied.body);
       const result = await doUpdateById(table, config.label, id, stampUpdateFields(fields), config, changedBy);
       return res.status(result.status).json(result.body);
     }
     if (action === 'updateByIds') {
       const { ids, fields } = req.body;
+      const invalid = validateUpdatableFields(fields);
+      if (invalid) return res.status(invalid.status).json(invalid.body);
+      const denied = checkRestrictedFieldValues(fields);
+      if (denied) return res.status(denied.status).json(denied.body);
       const result = await doUpdateByIds(table, config.label, ids, fields, config, changedBy);
       return res.status(result.status).json(result.body);
     }
