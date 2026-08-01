@@ -3149,6 +3149,14 @@ function resetBookingFilter(prefix){
   filterBookingListGeneric(prefix);
 }
 
+// 各ティアの開閉状態(ティアのmax値をキーに保持)。初期表示は全て折りたたみ。
+// ページ再読み込みでリセットされる(永続化はしない、セクションごとに独立してトグル)。
+let dbArrivalOpenTiers = {};
+function toggleDbArrivalTier(maxKey){
+  dbArrivalOpenTiers[maxKey] = !dbArrivalOpenTiers[maxKey];
+  renderDbArrivalAlert();
+}
+
 function renderDbArrivalAlert(){
   const el = document.getElementById('db-arrival-alert');
   if(!el) return;
@@ -3162,13 +3170,19 @@ function renderDbArrivalAlert(){
     return inDays(b.in_date) <= 90;
   });
 
+  // 色は3段階(赤=8日以内/黄=14日以内/グレー=それ以降)に集約。いずれも新規の色ではなく、
+  // このファイル内の既存ティア配色(赤=FACILITY_DEADLINE_TIERSの期限当日・超過、
+  // 黄=旧21日ティア、グレー=FACILITY_DEADLINE_TIERSの期限7日以内)をそのまま流用している。
+  const RED    = { bg:'#fde8ea', fg:'#c0392b', border:'#f5c6cb' };
+  const YELLOW = { bg:'#fffae6', fg:'#b8860b', border:'#ffe08a' };
+  const GRAY   = { bg:'#f2f2f2', fg:'#666666', border:'#dddddd' };
   const tiers = [
-    { max:8,  minEx:null, label:'🔴 8日以内',  bg:'#fde8ea', fg:'#c0392b', border:'#f5c6cb' },
-    { max:14, minEx:8,    label:'🟠 14日以内', bg:'#fff0e6', fg:'#d35400', border:'#ffd9b3' },
-    { max:21, minEx:14,   label:'🟡 21日以内', bg:'#fffae6', fg:'#b8860b', border:'#ffe08a' },
-    { max:30, minEx:21,   label:'🟢 30日以内', bg:'#eaf7ea', fg:'#2e7d32', border:'#c8e6c9' },
-    { max:60, minEx:30,   label:'🔵 60日以内', bg:'#e8f5ff', fg:'#0a7fad', border:'#b8e4f9' },
-    { max:90, minEx:60,   label:'🟣 90日以内', bg:'#f3e8ff', fg:'#6a1b9a', border:'#dcc6f5' },
+    { max:8,  minEx:null, label:'8日以内',  ...RED },
+    { max:14, minEx:8,    label:'14日以内', ...YELLOW },
+    { max:21, minEx:14,   label:'21日以内', ...GRAY },
+    { max:30, minEx:21,   label:'30日以内', ...GRAY },
+    { max:60, minEx:30,   label:'60日以内', ...GRAY },
+    { max:90, minEx:60,   label:'90日以内', ...GRAY },
   ];
 
   const buckets = tiers.map(t => ({
@@ -3184,50 +3198,33 @@ function renderDbArrivalAlert(){
     return;
   }
 
-  const tbodyRows = buckets.map(b => {
-    const sectionHd = `<tr class="section-row">
-      <td colspan="6" style="padding:6px 8px 4px;background:${b.bg};border-top:2px solid ${b.border}">
-        <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:${b.fg}">
-          ${b.label} <span style="background:rgba(0,0,0,.09);padding:1px 7px;border-radius:10px">${b.items.length}件</span>
-        </span>
-      </td>
-    </tr>`;
-    if(b.items.length === 0){
-      return sectionHd + `<tr class="section-row"><td colspan="6" style="padding:4px 8px 8px;font-size:11px;color:var(--text3)">該当する予約はありません</td></tr>`;
-    }
-    const rows = b.items.map(bk => {
+  el.innerHTML = buckets.map(b => {
+    const isOpen = !!dbArrivalOpenTiers[b.max];
+    const previewRefs = b.items.slice(0,3).map(x=>escHtml(x.ref_no||'')).join('、');
+    const moreCount = b.items.length - 3;
+    const previewText = b.items.length===0 ? '' : (previewRefs + (moreCount>0 ? ` 他${moreCount}件` : ''));
+    const rows = b.items.length ? b.items.map(bk => {
       const d = inDays(bk.in_date);
-      return `<tr onclick="openBookingDetail('${bk.id}')" style="cursor:pointer" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''">
-        <td data-label="REF#" class="lnk" style="padding:5px 8px;white-space:nowrap">${escHtml(bk.ref_no||'')}</td>
-        <td data-label="ツアー名" style="padding:5px 8px">${escHtml(bk.tour_name||'')}</td>
-        <td data-label="Agent" style="padding:5px 8px;color:var(--text3)">${escHtml(bk.agent_name||'')}</td>
-        <td data-label="Status" style="padding:5px 8px">${statusPill(bk.status)}</td>
-        <td data-label="到着日" style="padding:5px 8px;white-space:nowrap">${bk.in_date||''}</td>
-        <td data-label="残り" style="padding:5px 8px;text-align:center;font-weight:700;color:${b.fg}">${d}日</td>
-      </tr>`;
-    }).join('');
-    return sectionHd + rows;
+      return `<div onclick="event.stopPropagation();openBookingDetail('${bk.id}')" style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid ${b.border};cursor:pointer">
+        <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+          <span class="lnk" style="font-weight:600">${escHtml(bk.ref_no||'')}</span>
+          <span style="color:var(--text3);margin-left:6px">${escHtml(bk.tour_name||'')}</span>
+        </span>
+        <span style="white-space:nowrap;font-weight:700;color:${b.fg};flex-shrink:0">${d}日</span>
+      </div>`;
+    }).join('') : `<div style="padding:8px 12px;font-size:11px;color:var(--text3)">該当する予約はありません</div>`;
+    return `<div style="border:1px solid ${b.border};border-radius:10px;margin-bottom:6px;overflow:hidden">
+      <div onclick="toggleDbArrivalTier(${b.max})" style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;background:${b.bg};cursor:pointer">
+        <span style="display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden">
+          <span style="font-weight:700;color:${b.fg};white-space:nowrap;flex-shrink:0">${b.label}</span>
+          <span style="background:rgba(0,0,0,.09);color:${b.fg};padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700;white-space:nowrap;flex-shrink:0">${b.items.length}件</span>
+          ${!isOpen && previewText ? `<span style="font-size:11px;color:${b.fg};opacity:.85;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${previewText}</span>` : ''}
+        </span>
+        <span style="color:${b.fg};font-size:11px;flex-shrink:0">${isOpen?'▲':'▼'}</span>
+      </div>
+      ${isOpen ? rows : ''}
+    </div>`;
   }).join('');
-
-  el.innerHTML = `<div class="tbl-wrap"><table class="confirm-table" style="width:100%;border-collapse:collapse;font-size:12px">
-    <colgroup>
-      <col style="width:8%">
-      <col style="width:18%">
-      <col style="width:27%">
-      <col style="width:10%">
-      <col style="width:12%">
-      <col style="width:8%">
-    </colgroup>
-    <thead><tr style="background:var(--bg)">
-      <th style="padding:4px 8px;text-align:left;white-space:nowrap">REF#</th>
-      <th style="padding:4px 8px;text-align:left">ツアー名</th>
-      <th style="padding:4px 8px;text-align:left">Agent</th>
-      <th style="padding:4px 8px;text-align:left">Status</th>
-      <th style="padding:4px 8px;text-align:left;white-space:nowrap">到着日</th>
-      <th style="padding:4px 8px;text-align:center;white-space:nowrap">残り</th>
-    </tr></thead>
-    <tbody>${tbodyRows}</tbody>
-  </table></div>`;
 }
 
 // 観光施設・バス駐車場等の「対応期限日」が近い（または超過した）明細をダッシュボードに一覧表示
