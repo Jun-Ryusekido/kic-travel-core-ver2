@@ -84,6 +84,14 @@ table{width:100%;border-collapse:collapse;font-size:12px}
 .iv-table td:nth-child(8), .iv-table td:nth-child(9){overflow:visible;white-space:normal}
 .bl-table{table-layout:fixed}
 .bl-table th, .bl-table td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* 見積もり一覧の操作列(編集/コピー/削除)。PCは1行に横並び、768px未満では
+   3つ横並びだと1つあたりの幅が足りずタップしにくいため、2列のグリッドに折り返す。 */
+.est-actions{white-space:nowrap}
+.est-actions .btn{margin-right:2px}
+@media(max-width:768px){
+  .est-actions{white-space:normal;min-width:104px}
+  .est-actions .btn{display:inline-block;margin:0 2px 3px 0}
+}
 /* 予約一覧のソート導線(768px未満のカード表示専用。PCは見出し行クリックでソートする) */
 .bl-sort-bar{display:none;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
 .bl-sort-bar label{font-size:10px;color:var(--text3);font-weight:600}
@@ -1022,7 +1030,7 @@ input[type=number]{-moz-appearance:textfield}
             </span>
           </div>
           <div class="tbl-wrap"><table>
-            <thead><tr><th style="width:70px">種別</th><th>タイトル</th><th>ツアーコード</th><th>作成日</th><th>Status</th><th style="width:140px"></th></tr></thead>
+            <thead><tr><th style="width:70px">種別</th><th>タイトル</th><th>ツアーコード</th><th>作成日</th><th>Status</th><th style="width:190px"></th></tr></thead>
             <tbody id="est-tbody"><tr><td colspan="6" class="empty">読み込み中...</td></tr></tbody>
           </table></div>
         </div>
@@ -2453,8 +2461,12 @@ let currentUser = null;
 const ACCOUNTING_EMAILS = ['admin@kictravel.jp','kanri@kictravel.jp'];
 const BACKUP_EMAILS = ['admin@kictravel.jp','jr@kictravel.jp'];
 const ERROR_LOG_VIEWER_EMAILS = ['admin@kictravel.jp','jr@kictravel.jp'];
+// メール受信箱の「対象外にする」は、送信元学習(learned_mappings)にも記録され以後の
+// 新着メールの表示にも影響するため、操作できるアカウントを限定する。
+const EMAIL_EXCLUDE_EMAILS = ['admin@kictravel.jp','jr@kictravel.jp'];
 function isBackupUser(){ return currentUser && BACKUP_EMAILS.includes(currentUser.email); }
 function isErrorLogViewer(){ return currentUser && ERROR_LOG_VIEWER_EMAILS.includes(currentUser.email); }
+function isEmailExcludeUser(){ return currentUser && EMAIL_EXCLUDE_EMAILS.includes(currentUser.email); }
 function isAccountingUser(){ return currentUser && ACCOUNTING_EMAILS.includes(currentUser.email); }
 let currentPageId = 'dashboard';
 const SESSION_KEY = 'kic_session_v1';
@@ -7685,11 +7697,75 @@ function renderEstimationsList(){
       <td>${escHtml(e.tour_code||'')}</td>
       <td>${e.created_date||''}</td>
       <td>${estStatusPill(e.status)}</td>
-      <td style="white-space:nowrap">
+      <td class="est-actions">
         <button class="btn" style="font-size:10px" onclick="openEstimationEditor('${e.id}')">編集</button>
+        <button class="btn" style="font-size:10px" onclick="copyEstimation('${e.id}')">コピー</button>
         <button class="btn" style="font-size:10px" onclick="deleteEstimation('${e.id}')">削除</button>
       </td>
     </tr>`).join('');
+}
+
+// 既存の見積もりを丸ごと複製して新しい下書きを作る。
+// 明細(estimation_days / estimation_fixed_rows / estimation_fit_items)は毎回DBから
+// 取り直し、id・estimation_id・タイムスタンプを落としてから新しいIDで挿入するため、
+// 連続してコピーしても各見積もりは完全に独立する(元を削除しても複製には影響しない)。
+// converted_booking_id(予約への変換済みリンク)と予約反映履歴
+// (estimation_booking_reflections)は、複製先では「まだ何もしていない下書き」に
+// なるべきなので引き継がない。
+async function copyEstimation(id){
+  const src = estimationsCache.find(e=>e.id===id);
+  if(!confirm(`「${src ? (src.title||'(無題)') : ''}」をコピーして新しい見積もりを作成しますか?\n\n・タイトルの末尾に「(コピー)」が付きます\n・ステータスは下書きに戻ります\n・作成日は本日になります`)) return;
+  try{
+    const {data: est, error: estErr} = await sb.from('estimations').select('*').eq('id', id).maybeSingle();
+    if(estErr || !est){ alert('コピー元の見積もりを読み込めませんでした:\n'+(estErr ? estErr.message : '見つかりません')); return; }
+
+    const payload = {
+      title: (est.title||'(無題)') + ' (コピー)',
+      tour_code: est.tour_code||null,   // ツアーコードは引き継ぐ(編集画面で書き換える運用)
+      created_date: new Date().toISOString().slice(0,10),
+      status: 'draft',                  // 元がapproved等でも必ず下書きに戻す
+      handling_fee_pct: est.handling_fee_pct,
+      insurance_per_pax: est.insurance_per_pax,
+      pax_tiers: est.pax_tiers,
+      pax_count: est.pax_count,
+      notes: est.notes,
+      type: est.type||'group',
+      customer_name: est.customer_name,
+      selected_tier_index: est.selected_tier_index,
+      created_by: currentUser ? currentUser.email : null,
+      updated_at: new Date().toISOString()
+    };
+    const {data: created, error: insErr} = await sb.from('estimations').insert(payload).select().single();
+    if(insErr || !created){ alert('見積もりのコピーに失敗しました:\n'+(insErr ? insErr.message : '不明なエラー')); return; }
+    const newId = created.id;
+
+    // 明細行のコピー。id等の自動採番列を落とし、新しいestimation_idを付け直す。
+    const stripKeys = ({id, estimation_id, created_at, updated_at, ...rest})=>rest;
+    const copyChild = async (table)=>{
+      const {data: rows} = await sb.from(table).select('*').eq('estimation_id', id);
+      if(!rows || !rows.length) return null;   // 0件の明細もそのまま0件でコピーする
+      const newRows = rows.map(r=>({...stripKeys(r), estimation_id: newId}));
+      const {error} = await sb.from(table).insert(newRows);
+      return error;
+    };
+    for(const table of ['estimation_days','estimation_fixed_rows','estimation_fit_items']){
+      const error = await copyChild(table);
+      if(error){
+        // ヘッダだけ残ると中途半端な見積もりになるため、作成した分を取り消してから通知する
+        await sb.from('estimation_fit_items').delete().eq('estimation_id', newId);
+        await sb.from('estimation_fixed_rows').delete().eq('estimation_id', newId);
+        await sb.from('estimation_days').delete().eq('estimation_id', newId);
+        await sb.from('estimations').delete().eq('id', newId);
+        alert('明細のコピーに失敗したため、作成しかけた見積もりを取り消しました。\n\n原因: '+error.message);
+        return;
+      }
+    }
+
+    await logAction('見積もりコピー', payload.title);
+    await loadEstimations();
+  }catch(e){
+    alert('コピー中に予期しないエラーが発生しました。\n'+e.message);
+  }
 }
 
 async function deleteEstimation(id){
@@ -9830,6 +9906,8 @@ function switchEmailInboxMainTab(mode){
 // 「業務メール」タブの各行から手動で対象外に設定する(誤判定の広告等をユーザー自身が
 // その場で振り分けたい場合用)。自動判定(classifyEmailForExclusion)とは別の経路。
 async function excludeEmailInboxItemManually(emailId){
+  // ボタン自体を非表示にしているが、他経路から呼ばれても実行されないよう関数側でも判定する
+  if(!isEmailExcludeUser()){ alert('「対象外にする」は管理担当者のみ操作できます。'); return; }
   const reason = EMAIL_EXCLUSION_REASON_MANUAL;
   const {error} = await sb.from('email_import_queue').update({is_excluded:true, excluded_reason:reason}).eq('id', emailId);
   if(error){ alert('対象外への設定に失敗しました: '+error.message); return; }
@@ -10244,7 +10322,7 @@ async function renderEmailInboxPage(){
         <div class="email-inbox-row-actions">
           <button class="btn btn-p" id="email-inbox-send-${m.id}" style="font-size:11px" onclick="sendEmailToBooking('${m.id}')">📤 送る</button>
           <button class="btn" style="font-size:11px;color:var(--red)" onclick="if(confirm('このメールを一覧から除外しますか？')){ignoreEmailInboxItem('${m.id}')}">🗑 無視</button>
-          <button class="btn" style="font-size:11px" onclick="if(confirm('このメールを対象外にしますか？（「対象外」タブからいつでも戻せます）')){excludeEmailInboxItemManually('${m.id}')}">🚫 対象外にする</button>
+          ${isEmailExcludeUser() ? `<button class="btn" style="font-size:11px" onclick="if(confirm('このメールを対象外にしますか？（「対象外」タブからいつでも戻せます）')){excludeEmailInboxItemManually('${m.id}')}">🚫 対象外にする</button>` : ''}
           ${postponeBtn}
         </div>
         ${suggestHtml}
