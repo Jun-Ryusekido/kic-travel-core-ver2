@@ -1902,7 +1902,6 @@ input[type=number]{-moz-appearance:textfield}
     </div>
 
     <div id="bd-est-ref" style="display:none;background:#EEF6FF;border:1px solid #BDD8FF;border-radius:6px;padding:8px 12px;margin-bottom:8px;font-size:11px;line-height:1.7;color:#004A9F"></div>
-    <div id="bd-reflect-history" style="display:none;margin-bottom:12px"></div>
 
     <div class="modal-section-title">手配管理</div>
     <div style="display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap">
@@ -2224,6 +2223,10 @@ input[type=number]{-moz-appearance:textfield}
     <div id="bd-arrangements" style="margin-bottom:6px"></div>
     <button class="btn" style="font-size:10px" onclick="openArrangementEditor(null)">＋ 新規手配書作成</button>
 
+    <!-- 見積もり反映履歴: 決定単価の入力欄を持ち、売上明細の入力時に参照するため
+         「手配書」と「売上明細」の間に置く。中身はopenBookingDetail内で
+         getElementById('bd-reflect-history')に描画するため、DOM上の位置は自由に変えられる。 -->
+    <div id="bd-reflect-history" style="display:none;margin-bottom:12px"></div>
 
     <div class="modal-section-title">売上明細 / 仕入明細</div>
     <div id="bd-lock-banner" style="margin-bottom:8px"></div>
