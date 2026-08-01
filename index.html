@@ -694,7 +694,7 @@ input[type=number]{-moz-appearance:textfield}
           </div>
         </div>
         <div class="card" id="db-todo-summary-card" style="display:none">
-          <div class="card-title">📝 対応が必要な予約 <span style="font-size:10px;font-weight:400;color:var(--text3)">期限当日・超過分（施設名別）</span></div>
+          <div class="card-title">📝 対応が必要な予約 <span style="font-size:10px;font-weight:400;color:var(--text3)">期限7日以内（区分別）</span></div>
           <div id="db-todo-summary"></div>
         </div>
         <div class="card" id="db-arrival-alert-card">
@@ -3342,37 +3342,55 @@ const TODO_TABLE_THEAD_HTML = `<thead><tr style="background:var(--bg)">
       <th style="padding:4px 8px;text-align:center;white-space:nowrap">残り</th>
     </tr></thead>`;
 
-// ダッシュボードに常時表示する「対応が必要な予約」の簡易サマリー。期限当日・超過分
-// (対応リストページの🔴期限当日・超過バケットと同じ範囲)のみを対象に、施設名グループ化は
-// 行わず、個別のREF#明細を緊急性順(期限超過日数が大きい順)にそのまま表示する
-// (施設名グループ化は対応リストページ側だけの表示形式であり、こちらには適用しない)。
-// fetchFacilityDeadlineItemsが返すitemsは既に_days昇順(超過日数が大きい=より緊急な
-// ものほど_daysが小さい負の値になるため、昇順ソートがそのまま緊急性順になる)のため、
-// 追加のソートは不要でそのままslice(0, N)する。
-// 上位10件のみ表示し、11件目以降は「すべて表示」ボタン経由で対応リストページに
-// 一本化する(このセクション自体にチェック・削除操作は設けないが、行の見た目・列構成は
-// 対応リストページのtodoRowをそのまま再利用して統一する)。
-const DASHBOARD_TODO_SUMMARY_MAX_ITEMS = 10;
+// ダッシュボードに常時表示する「対応が必要な予約」の簡易サマリー。期限7日以内(対応リスト
+// ページ・グローバルバナーと同じ範囲=maxDays:7)を対象に、FACILITY_DEADLINE_TIERSの区分
+// (🔴期限当日・超過/🟠期限前日/🟡期限3日以内/⚪期限7日以内)ごとに1行(バッジ+件数+代表
+// REF#)へ折りたたみ、タップで該当区分の明細を展開する(ダッシュボードの「到着日アラート」
+// カードと同じ見た目・タップ挙動に統一。色も新規に増やさずFACILITY_DEADLINE_TIERSの
+// 配色をそのまま流用)。展開時の明細内容(REF#/ツアー名/施設名/利用日/対応期限日/残り)は
+// 対応リストページと共通のtodoRowをそのまま使う。
+// 開閉状態は区分ごとに独立(dbTodoOpenTiers、ページ再読み込みでリセット)。
+// トグルのたびに再フェッチしないよう、fetchFacilityDeadlineItemsの結果をキャッシュしておく。
+let dbTodoOpenTiers = {};
+let dbTodoSummaryCache = null;
+function toggleDbTodoTier(idx){
+  dbTodoOpenTiers[idx] = !dbTodoOpenTiers[idx];
+  renderDbTodoSummaryFromCache();
+}
 async function renderDashboardTodoSummary(){
   const card = document.getElementById('db-todo-summary-card');
   const el = document.getElementById('db-todo-summary');
   if(!card || !el) return;
-  const {items, error} = await fetchFacilityDeadlineItems(0); // maxDays=0 → 期限当日・超過のみ
+  const {buckets, items, error} = await fetchFacilityDeadlineItems(7); // maxDays=7 → 期限当日〜7日以内
   if(error || !items || !items.length){ card.style.display = 'none'; return; }
   card.style.display = '';
-
-  const shown = items.slice(0, DASHBOARD_TODO_SUMMARY_MAX_ITEMS);
-  const rows = shown.map(f=>todoRow(f, tierFgForDeadlineDays(f._days), false)).join('');
-  const moreNote = items.length > shown.length
-    ? `<div style="font-size:11px;color:var(--text3);margin:6px 0">他 ${items.length - shown.length}件があります</div>`
-    : '';
-  el.innerHTML = `
-    <div class="tbl-wrap"><table class="confirm-table" style="width:100%;border-collapse:collapse;font-size:12px">
-      ${TODO_TABLE_COLGROUP_HTML}${TODO_TABLE_THEAD_HTML}
-      <tbody>${rows}</tbody>
-    </table></div>
-    ${moreNote}
-    <button class="btn" style="margin-top:4px;font-size:12px" onclick="go('todo')">すべて表示（全${items.length}件）</button>`;
+  dbTodoSummaryCache = buckets;
+  renderDbTodoSummaryFromCache();
+}
+function renderDbTodoSummaryFromCache(){
+  const el = document.getElementById('db-todo-summary');
+  if(!el || !dbTodoSummaryCache) return;
+  const totalCount = dbTodoSummaryCache.reduce((s,b)=>s+b.items.length, 0);
+  el.innerHTML = dbTodoSummaryCache.map((b,idx) => {
+    const isOpen = !!dbTodoOpenTiers[idx];
+    const previewRefs = b.items.slice(0,3).map(f=>escHtml((f._booking&&f._booking.ref_no)||'')).join('、');
+    const moreCount = b.items.length - 3;
+    const previewText = b.items.length ? (previewRefs + (moreCount>0 ? ` 他${moreCount}件` : '')) : '';
+    const rowsHtml = b.items.length
+      ? `<div class="tbl-wrap"><table class="confirm-table" style="width:100%;border-collapse:collapse;font-size:12px">${TODO_TABLE_COLGROUP_HTML}${TODO_TABLE_THEAD_HTML}<tbody>${b.items.map(f=>todoRow(f, b.fg, false)).join('')}</tbody></table></div>`
+      : `<div style="padding:8px 12px;font-size:11px;color:var(--text3)">該当する予約はありません</div>`;
+    return `<div style="border:1px solid ${b.border};border-radius:10px;margin-bottom:6px;overflow:hidden">
+      <div onclick="toggleDbTodoTier(${idx})" style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;background:${b.bg};cursor:pointer">
+        <span style="display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden">
+          <span style="font-weight:700;color:${b.fg};white-space:nowrap;flex-shrink:0">${b.label}</span>
+          <span style="background:rgba(0,0,0,.09);color:${b.fg};padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700;white-space:nowrap;flex-shrink:0">${b.items.length}件</span>
+          ${!isOpen && previewText ? `<span style="font-size:11px;color:${b.fg};opacity:.85;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${previewText}</span>` : ''}
+        </span>
+        <span style="color:${b.fg};font-size:11px;flex-shrink:0">${isOpen?'▲':'▼'}</span>
+      </div>
+      ${isOpen ? rowsHtml : ''}
+    </div>`;
+  }).join('') + `<button class="btn" style="margin-top:4px;font-size:12px" onclick="go('todo')">すべて表示（全${totalCount}件）</button>`;
 }
 
 async function renderTodoPage(){
