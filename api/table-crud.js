@@ -20,7 +20,10 @@ const TABLE_CONFIG = {
   // booking_sales/booking_costsのstampIdentity/auditLogは、replace/insertアクションのみが
   // 対象(updatePayments/deleteByBookingは今回のスコープ外、既存の挙動のまま変更しない)。
   booking_sales: { actions: ['replace', 'updatePayments', 'deleteByBooking'], label: '売上明細', stampIdentity: true, auditLog: true },
-  booking_costs: { actions: ['replace', 'insert', 'deleteByBooking'], label: '仕入明細', stampIdentity: true, auditLog: true },
+  // booking_costsは書き込みが全てこのAPI経由であることを確認済み(直接anon書き込み0件)。
+  // 毎時バックアップの差分化のためupdated_at列を追加し(scripts/add_updated_at_to_booking_costs.sql)、
+  // booking_buses/booking_restaurantsと同じ方式でサーバー側に確実にスタンプする。
+  booking_costs: { actions: ['replace', 'insert', 'deleteByBooking'], label: '仕入明細', stampIdentity: true, stampUpdatedAt: true, auditLog: true },
   local_expenses: { actions: ['replace'], label: '現地費用明細' },
   parking_reservations: { actions: ['list', 'save', 'delete'], label: '駐車場予約' },
   // guide_settlements/guide_settlement_items: 社内スタッフ(index.html、ログインセッション

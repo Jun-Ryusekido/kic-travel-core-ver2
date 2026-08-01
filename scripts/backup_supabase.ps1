@@ -54,13 +54,14 @@ $Tables = @(
 # 差分取得の対象(updated_at列あり + 書き込み経路が全てtable-crud.js経由であることを
 # 確認済みのテーブルのみ)。他のテーブルを追加する場合は、書き込み箇所を全て洗い出して
 # 直接anon書き込みが残っていないことを必ず確認してから追加すること。
-# booking_costsは2026-08-01にupdated_at列を追加済み・table-crud.js側もstampUpdatedAt:true
-# 設定済みのため、本番SQL実行(scripts/add_updated_at_to_booking_costs.sql)確認後に
-# このリストへ追加する。
+# booking_costsは2026-08-01にupdated_at列を追加(scripts/add_updated_at_to_booking_costs.sql、
+# 本番実行済み)し、table-crud.js側もstampUpdatedAt:trueを設定済み。毎時バックアップ対象で
+# 最大の行数(約18,000件)のため、差分化による転送量削減の効果が最も大きい。
 $DiffTables = @(
   'bookings',
   'booking_buses',
-  'booking_restaurants'
+  'booking_restaurants',
+  'booking_costs'
 )
 
 # ===== Time window check (only run between 10:00 and 22:00) =====
