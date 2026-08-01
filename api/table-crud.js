@@ -150,7 +150,63 @@ const TABLE_CONFIG = {
     label: '仕入先確認メールログ',
     stampSentByField: 'sent_by',
   },
+  // learned_mappings(OCR学習データ): ユーザーの確定操作を「category+input_key+
+  // confirmed_value」で蓄積する共通テーブル。新設テーブルのため最初から書き込みは
+  // service_role専用(このAPI経由のみ。anon/authenticatedはSELECTのみ)。
+  // upsertConfirm: 同じ組み合わせが既に存在すればconfirmed_countをインクリメント、
+  // 無ければ新規行を作成する。guestUpsertConfirmはguide.html(ログイン無し・精算リンクの
+  // access_tokenのみで認証)からのレシートカテゴリ学習用で、categoryはサーバー側で
+  // 'receipt_merchant'に強制する(ゲストが他カテゴリを汚染できないようにするため)。
+  learned_mappings: {
+    actions: ['upsertConfirm', 'deleteById', 'guestUpsertConfirm'],
+    label: 'OCR学習データ',
+  },
 };
+
+// learned_mappingsのcategoryはこの3種のみ許可する(bodyの値をそのまま保存しない)。
+const LEARNED_MAPPING_CATEGORIES = ['email_sender', 'cc_merchant', 'receipt_merchant'];
+
+// learned_mappingsへの確定upsert。(category, input_key, confirmed_value)が既に存在すれば
+// confirmed_count+1とlast_confirmed_atのみ更新し、無ければ新規行を挿入する。
+// entries: [{inputKey, confirmedValue}] (categoryは引数で固定)。学習は補助機能のため、
+// 1件の失敗で全体をエラーにせず、失敗件数を返すのみとする。
+async function doLearnedUpsertConfirm(category, entries, confirmedBy) {
+  if (!LEARNED_MAPPING_CATEGORIES.includes(category)) {
+    return { status: 400, body: { error: `不正なcategoryです: ${category}` } };
+  }
+  if (!Array.isArray(entries) || !entries.length) return { status: 400, body: { error: '学習する内容がありません' } };
+  let saved = 0;
+  let failed = 0;
+  for (const e of entries.slice(0, 50)) {
+    const inputKey = String(e && e.inputKey || '').trim();
+    const confirmedValue = String(e && e.confirmedValue || '').trim();
+    if (!inputKey || !confirmedValue) { failed += 1; continue; }
+    try {
+      const q = `?category=eq.${encodeURIComponent(category)}&input_key=eq.${encodeURIComponent(inputKey)}&confirmed_value=eq.${encodeURIComponent(confirmedValue)}&select=id,confirmed_count`;
+      const selRes = await sbFetch('learned_mappings', q);
+      if (!selRes.ok) { failed += 1; continue; }
+      const existing = await selRes.json();
+      if (existing && existing[0]) {
+        const upRes = await sbFetch('learned_mappings', `?id=eq.${encodeURIComponent(existing[0].id)}`, {
+          method: 'PATCH',
+          prefer: 'return=minimal',
+          body: JSON.stringify({ confirmed_count: (Number(existing[0].confirmed_count) || 0) + 1, last_confirmed_at: new Date().toISOString() }),
+        });
+        if (upRes.ok) saved += 1; else failed += 1;
+      } else {
+        const insRes = await sbFetch('learned_mappings', '', {
+          method: 'POST',
+          prefer: 'return=minimal',
+          body: JSON.stringify({ category, input_key: inputKey, confirmed_value: confirmedValue, confirmed_by: confirmedBy || null }),
+        });
+        if (insRes.ok) saved += 1; else failed += 1;
+      }
+    } catch (err) {
+      failed += 1;
+    }
+  }
+  return { status: 200, body: { ok: true, saved, failed } };
+}
 
 function sbFetch(table, path, opts = {}) {
   const serviceKey = getServiceKey();
@@ -536,7 +592,7 @@ export default async function handler(req, res) {
   // guestInsert/guestUpdateByIdのみ、ログインセッションを持たないguide.html(ガイド本人が
   // 精算リンクのaccess_tokenだけでアクセスする画面)からの呼び出しを許可する。それ以外の
   // 全actionは、これまで通り社内スタッフのログインセッショントークン検証を必須とする。
-  const isGuestAction = action === 'guestInsert' || action === 'guestUpdateById';
+  const isGuestAction = action === 'guestInsert' || action === 'guestUpdateById' || action === 'guestUpsertConfirm';
   let guestSettlement = null;
   let session = null;
   if (isGuestAction) {
@@ -649,6 +705,18 @@ export default async function handler(req, res) {
     if (action === 'deleteByField') {
       const { field, value } = req.body;
       const result = await doDeleteByField(table, config.label, config, field, value);
+      return res.status(result.status).json(result.body);
+    }
+    if (action === 'upsertConfirm') {
+      const { category, entries } = req.body;
+      const result = await doLearnedUpsertConfirm(category, entries, changedBy);
+      return res.status(result.status).json(result.body);
+    }
+    if (action === 'guestUpsertConfirm') {
+      // ゲスト(ガイド本人)からの学習はレシートカテゴリのみ。categoryはbodyの値を使わず
+      // サーバー側で強制し、confirmed_byはログインセッションが無いためnullのままとする。
+      const { entries } = req.body;
+      const result = await doLearnedUpsertConfirm('receipt_merchant', entries, null);
       return res.status(result.status).json(result.body);
     }
     if (action === 'guestInsert') {

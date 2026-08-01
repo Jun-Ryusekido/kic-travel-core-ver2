@@ -302,6 +302,52 @@ function enablePasteUpload(containerEl, onFiles){
   });
 }
 
+// 学習キーの正規化。index.html側のnormalizeLearnKeyと同じロジックにすること
+// (片方だけ変えるとキーが一致しなくなり学習が効かなくなる)。
+function normalizeLearnKey(s){
+  return String(s||'').normalize('NFKC').trim().toLowerCase().replace(/\s+/g,' ');
+}
+
+// レシートOCR結果の各行について、過去に同じ店名(内容欄)で確定されたカテゴリを
+// learned_mappings(category='receipt_merchant')から引き、カテゴリ欄の初期選択にする。
+// あくまで「選択済みの状態で表示するだけ」で、ガイドは自由に変更できる(自動確定はしない)。
+// 参照に失敗した場合は何もしない(OCRの推測カテゴリのまま表示する)。
+async function applyLearnedReceiptCategories(receipts){
+  try{
+    const keys = [...new Set(receipts.map(r=>normalizeLearnKey(r.description)).filter(Boolean))];
+    if(!keys.length) return;
+    const {data, error} = await sb.from('learned_mappings')
+      .select('input_key,confirmed_value,confirmed_count')
+      .eq('category','receipt_merchant').in('input_key', keys)
+      .order('confirmed_count',{ascending:false});
+    if(error || !data || !data.length) return;
+    const topByKey = {};
+    data.forEach(r=>{ if(!topByKey[r.input_key]) topByKey[r.input_key] = r.confirmed_value; });
+    receipts.forEach(r=>{
+      const learned = topByKey[normalizeLearnKey(r.description)];
+      if(learned){ r.category = learned; r._learned = true; }
+    });
+  }catch(e){ /* 学習参照の失敗は無視し、通常通り表示する */ }
+}
+
+// 送信確定した「店名(内容欄)→カテゴリ」を学習として記録する(ベストエフォート)。
+// 書き込みはservice_role専用の/api/table-crud(guestUpsertConfirm、精算リンクの
+// access_tokenで認証、categoryはサーバー側でreceipt_merchantに強制)経由で行う。
+async function recordReceiptLearnings(rows){
+  try{
+    const entries = rows
+      .map(r=>({inputKey: normalizeLearnKey(r.description), confirmedValue: String(r.category||'').trim()}))
+      .filter(e=>e.inputKey && e.confirmedValue);
+    if(!entries.length) return;
+    const resp = await fetch('/api/table-crud', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ table:'learned_mappings', action:'guestUpsertConfirm', guestToken: token, entries })
+    });
+    await resp.json().catch(()=>({}));
+  }catch(e){ /* 学習の失敗は送信の成否に影響させない */ }
+}
+
 async function processReceiptFiles(files){
   if(!files || !files.length) return;
   pendingReceipts = [];
@@ -340,6 +386,7 @@ async function processReceiptFiles(files){
     status.style.display='none';
   }
   hideGlobalOcrBanner();
+  await applyLearnedReceiptCategories(pendingReceipts);
   renderReceiptResult();
 }
 async function handleReceiptImage(input){
@@ -373,6 +420,7 @@ async function handleReceiptImage(input){
     pendingReceipts = JSON.parse(clean);
     status.style.display = 'none';
     hideGlobalOcrBanner();
+    await applyLearnedReceiptCategories(pendingReceipts);
     renderReceiptResult();
   }catch(e){
     status.textContent = '読み取りに失敗しました: ' + (e.message || '不明なエラー') + ' もう一度お試しください。';
@@ -416,6 +464,7 @@ function renderReceiptResult(){
           <div style="font-size:10px;color:var(--text3);margin-bottom:2px">カテゴリ</div>
           <select id="pr-cat-${i}" onchange="toggleFreeInput('pr-cat-${i}','pr-free-${i}')" style="width:100%;border:1px solid var(--border);border-radius:8px;padding:8px;font-size:14px;background:#fff">${[...CATEGORIES,'その他（自由入力）'].map(c=>`<option value="${escHtml(c)}" ${catSelectVal===c?'selected':''}>${escHtml(CATEGORY_LABELS[c]||c)}</option>`).join('')}</select>
           <input type="text" id="pr-free-${i}" placeholder="カテゴリを入力" value="${escHtml(catFreeVal)}" style="display:${catSelectVal==='その他（自由入力）'?'block':'none'};width:100%;margin-top:4px;border:1px solid var(--border);border-radius:8px;padding:8px;font-size:14px;background:#fff">
+          ${r._learned?'<div style="font-size:10px;color:var(--green,#1B7F3B);margin-top:2px">★ 過去の確定内容から自動選択されています（変更可能）</div>':''}
         </div>
         <div>
           <div style="font-size:10px;color:var(--text3);margin-bottom:2px">金額</div>
@@ -465,6 +514,8 @@ async function submitReceipts(){
       throw new Error('領収書No '+dupes.map(d=>d.receipt_no).join(', ')+' は既に送信済みです');
     }
     await guideItemsApiCall('guestInsert', { rows });
+    // 送信に成功した行の「店名(内容)→カテゴリ」を学習として記録(失敗しても送信は成立済み)
+    await recordReceiptLearnings(rows);
     okEl.style.display='block';
     pendingReceipts=[];
     await reload();

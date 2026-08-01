@@ -1750,6 +1750,28 @@ input[type=number]{-moz-appearance:textfield}
             <span class="msg-ok" id="add-user-msg">✓ ユーザーを追加しました</span>
           </div>
         </div>
+        <div class="card">
+          <div class="card-title">🧠 OCR学習データ
+            <button class="btn" style="font-size:11px" onclick="loadLearnedMappingsAdmin()">🔄 更新</button>
+          </div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:8px">
+            「対象外にする」「この予約に確定」「レシート送信」等のユーザー確定操作から自動蓄積された学習データの一覧です。
+            誤って学習された行はここから削除できます（削除すると以後その候補は提示されなくなります）。
+          </div>
+          <div style="margin-bottom:8px">
+            <select id="lm-category-filter" onchange="renderLearnedMappingsAdmin()" style="font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:6px">
+              <option value="">すべてのカテゴリ</option>
+              <option value="email_sender">メール送信元</option>
+              <option value="cc_merchant">カード明細店舗名</option>
+              <option value="receipt_merchant">レシート店名</option>
+            </select>
+            <span id="lm-count" style="font-size:11px;color:var(--text3);margin-left:6px"></span>
+          </div>
+          <div class="tbl-wrap"><table class="confirm-table" style="font-size:11px">
+            <thead><tr><th>カテゴリ</th><th>入力キー</th><th>確定値</th><th style="text-align:right">確定回数</th><th>最終確定日時</th><th></th></tr></thead>
+            <tbody id="lm-tbody"><tr><td colspan="6" class="empty">読み込み中...</td></tr></tbody>
+          </table></div>
+        </div>
       </div>
 
       <!-- Logs -->
@@ -3040,7 +3062,7 @@ function go(id){
   if(id==='gross') loadGross();
   if(id==='payment') loadPayments();
   if(id==='credit-card-statements') loadCreditCardStatements();
-  if(id==='accounts') loadAccounts();
+  if(id==='accounts'){ loadAccounts(); loadLearnedMappingsAdmin(); }
   if(id==='partners') loadPartners();
   if(id==='agents') loadAgents();
   if(id==='hotels') loadHotelManagement();
@@ -3964,6 +3986,43 @@ async function bookingHotelsApiCall(action, payload){ return tableCrudApiCall('b
 async function bookingBusesApiCall(action, payload){ return tableCrudApiCall('booking_buses', action, payload); }
 async function bookingRestaurantsApiCall(action, payload){ return tableCrudApiCall('booking_restaurants', action, payload); }
 async function vendorEmailLogsApiCall(action, payload){ return tableCrudApiCall('vendor_email_logs', action, payload); }
+// learned_mappings(OCR学習データ)。書き込みはservice_role専用API経由のみ。
+// 読み取り(候補表示用)はanonキーでのSELECTを直接使う(fetchLearnedMappings参照)。
+async function learnedMappingsApiCall(action, payload){ return tableCrudApiCall('learned_mappings', action, payload); }
+
+// 学習キーの正規化(全角/半角・大文字小文字・空白ゆれを吸収)。index.html/guide.htmlで
+// 同じロジックを使うこと(片方だけ変えるとキーが一致しなくなり学習が効かなくなる)。
+function normalizeLearnKey(s){
+  return String(s||'').normalize('NFKC').trim().toLowerCase().replace(/\s+/g,' ');
+}
+
+// ユーザーの確定操作を学習として記録する(ベストエフォート)。学習は補助機能のため、
+// 失敗しても呼び出し元の本来の操作(メール除外・カード確定等)は失敗扱いにしない。
+async function recordLearnedMapping(category, inputKey, confirmedValue){
+  const key = normalizeLearnKey(inputKey);
+  const value = String(confirmedValue||'').trim();
+  if(!key || !value) return;
+  try{
+    await learnedMappingsApiCall('upsertConfirm', { category, entries: [{inputKey: key, confirmedValue: value}] });
+  }catch(e){ /* 学習の失敗は本来の操作を止めない */ }
+}
+
+// 学習データの読み取り(候補提示用)。失敗時は空配列を返し、呼び出し元は
+// 「サジェスト無し」の通常動作にフォールバックする。
+async function fetchLearnedMappings(category, inputKey){
+  try{
+    let q = sb.from('learned_mappings').select('id,input_key,confirmed_value,confirmed_count')
+      .eq('category', category).order('confirmed_count', {ascending:false});
+    if(inputKey !== undefined){
+      const key = normalizeLearnKey(inputKey);
+      if(!key) return [];
+      q = q.eq('input_key', key);
+    }
+    const {data, error} = await q;
+    if(error) return [];
+    return data||[];
+  }catch(e){ return []; }
+}
 
 // ===== 仕入先確認メール(対象抽出・テンプレート編集。実際の送信は未実装のスタブ) =====
 // 対象: booking_hotels/booking_buses/booking_restaurants(booking_facilitiesは既存の
@@ -9070,6 +9129,7 @@ function dedupeEmailInboxRows(rows){
 }
 
 let emailInboxRawList = []; // 未取込・無視されていないメールの軽量一覧（imported=false かつ ignored=false。postponed/自動除外判定の値は問わず両方含む）。重複除外済み。ページ表示中はDBに再取得しない
+let emailInboxLearnedExcludedSenders = new Set(); // 送信元学習(learned_mappings)で対象外確定済みのアドレス
 let emailInboxSearchToken = 0; // 検索中に別の検索が走った場合、古い検索結果を無視するためのトークン
 let emailInboxSelectedIds = new Set(); // 一括無視用に選択中のメールID
 
@@ -9165,6 +9225,12 @@ function emailInboxSenderDomain(sender){
 }
 function isRowOwnDomain(row){
   return emailInboxSenderDomain(row.sender) === EMAIL_INBOX_OWN_DOMAIN;
+}
+// sender欄("表示名 <addr@example.com>"等)からメールアドレス部分だけを取り出す。
+// 学習キー(learned_mappings category='email_sender')として使うため小文字に統一する。
+function emailInboxSenderAddress(sender){
+  const m = String(sender||'').toLowerCase().match(/[a-z0-9._%+-]+@[a-z0-9.-]+/);
+  return m ? m[0] : '';
 }
 
 // 広告・メルマガ判定(isAutoPromo)、自社ドメイン送信(isOwnDomain)、またはAIによる
@@ -9590,6 +9656,9 @@ function isRoomingListEmail(subject, body){
 // ばらつかないようにする。
 const EMAIL_EXCLUSION_REASON_AUTO = 'ツアーコード・REF#・名簿いずれも該当なし';
 const EMAIL_EXCLUSION_REASON_MANUAL = '手動で対象外に設定';
+// 送信元学習(learned_mappings)による表示上の自動対象外。DBのis_excludedには書き込まず
+// 一覧表示時に毎回判定する(誤学習の訂正は設定画面のOCR学習データUIから削除する)。
+const EMAIL_EXCLUSION_REASON_LEARNED = '送信元学習により自動対象外';
 
 // 判定に必要な参照データ(実在するref_no集合)をまとめて用意する。
 async function buildEmailExclusionContext(){
@@ -9639,8 +9708,22 @@ async function renderEmailInboxList(){
   }
 
   const deduped = dedupeEmailInboxRows(rows);
+  // 送信元学習(learned_mappings category='email_sender')を参照し、過去に「対象外にする」で
+  // 確定した送信元アドレスからの新着メールは自動的に対象外表示にする。参照に失敗した
+  // 場合は学習なしの通常動作にフォールバックする(fetchLearnedMappingsが空配列を返す)。
+  const learnedSenderRows = await fetchLearnedMappings('email_sender');
+  emailInboxLearnedExcludedSenders = new Set(
+    learnedSenderRows.filter(r=>r.confirmed_value==='excluded').map(r=>r.input_key)
+  );
   // 件名・送信者ベースの軽量判定はここで即座に確定。本文ベースの判定は非同期で後追い反映する
-  deduped.forEach(m=>{ m.isAutoPromo = isPromoEmailBySubjectSender(m.subject, m.sender); m.isOwnDomain = isRowOwnDomain(m); });
+  deduped.forEach(m=>{
+    m.isAutoPromo = isPromoEmailBySubjectSender(m.subject, m.sender);
+    m.isOwnDomain = isRowOwnDomain(m);
+    if(!m.is_excluded && emailInboxLearnedExcludedSenders.has(emailInboxSenderAddress(m.sender))){
+      m.is_excluded = true;
+      m.excluded_reason = EMAIL_EXCLUSION_REASON_LEARNED;
+    }
+  });
   emailInboxRawList = deduped;
   recomputeEmailInboxIndex();
   emailInboxPage = 1;
@@ -9737,12 +9820,33 @@ async function excludeEmailInboxItemManually(emailId){
   if(error){ alert('対象外への設定に失敗しました: '+error.message); return; }
   const row = emailInboxRawList.find(m=>m.id===emailId);
   if(row){ row.is_excluded = true; row.excluded_reason = reason; }
+  // 送信元アドレスを学習として記録し、以後同じ送信元の新着メールを一覧側で
+  // 自動的に対象外表示にする(recordLearnedMappingはベストエフォート・失敗しても
+  // 本来の対象外設定は成立している)。
+  if(row){
+    const senderAddr = emailInboxSenderAddress(row.sender);
+    if(senderAddr){
+      await recordLearnedMapping('email_sender', senderAddr, 'excluded');
+      emailInboxLearnedExcludedSenders.add(senderAddr);
+    }
+  }
   recomputeEmailInboxIndex();
   renderEmailInboxPage();
 }
 
 // 「対象外」タブから業務メールへ1クリックで戻す。
 async function restoreEmailInboxExcluded(emailId){
+  // 送信元学習による表示上の対象外(DBには書き込まれていない)は、この行だけ戻しても
+  // 次回読み込み時に再び対象外表示になるため、学習データ側の削除方法を案内する。
+  const learnedRow = emailInboxRawList.find(m=>m.id===emailId);
+  if(learnedRow && learnedRow.excluded_reason === EMAIL_EXCLUSION_REASON_LEARNED){
+    if(!confirm('このメールは送信元学習により自動的に対象外表示になっています。\nこの画面で戻しても、次回の一覧読み込み時に再び対象外になります。\n\n恒久的に戻すには、アカウント管理ページの「OCR学習データ」からこの送信元の学習を削除してください。\n\n今回だけ一時的に業務メールへ戻しますか？')) return;
+    learnedRow.is_excluded = false;
+    learnedRow.excluded_reason = null;
+    recomputeEmailInboxIndex();
+    renderEmailInboxPage();
+    return;
+  }
   const {error} = await sb.from('email_import_queue').update({is_excluded:false, excluded_reason:null}).eq('id', emailId);
   if(error){ alert('業務メールへの復元に失敗しました: '+error.message); return; }
   const row = emailInboxRawList.find(m=>m.id===emailId);
@@ -15619,30 +15723,75 @@ function _ccNormTourCode(s){
 // ref_no/tour_codeと一致する候補を最優先(hintMatch:true)としてリストの先頭に並べる。
 // それ以外の候補も全件表示し、次点として取引日に近い手配日順に並べる。
 async function findCcMatchCandidates(statement){
+  // 主候補: 従来通り「事前決済 + 金額完全一致 + 法人カード決済メモ」で抽出する
+  // (この条件は店名学習の導入後も変更しない)。
   const {data: costs, error} = await sb.from('booking_costs').select('*')
     .eq('payment_method','事前決済').eq('amount', statement.amount).ilike('memo','%法人カード決済%');
-  if(error || !costs || costs.length===0) return [];
-  const bookingIds = [...new Set(costs.map(c=>c.booking_id).filter(Boolean))];
+  const amountMatched = (!error && costs) ? costs : [];
+
+  // 店名学習(learned_mappings category='cc_merchant')の参照。同じ店舗名に複数の確定値が
+  // ある場合はconfirmed_countの多い順に上位3件まで使う。参照失敗時は空配列となり、
+  // 学習なしの従来動作にフォールバックする。
+  const learnedRows = (await fetchLearnedMappings('cc_merchant', statement.merchant_name)).slice(0,3);
+  const learnedRefs = new Set(learnedRows.map(r=>_ccNormTourCode(r.confirmed_value)));
+  // 金額不一致でも追加候補に含めるのは、confirmed_countが3以上の学習に限る(誤確定防止)。
+  const strongRefs = learnedRows.filter(r=>Number(r.confirmed_count)>=3).map(r=>_ccNormTourCode(r.confirmed_value));
+
+  // 追加候補: 学習3回以上の確定先ref_noに対応する予約の法人カード決済コスト
+  // (金額不一致でもリストに含めるが、モーダル上で明確に区別して表示する)。
+  let mismatchCosts = [];
+  let mismatchBookings = [];
+  if(strongRefs.length){
+    try{
+      const orExpr = strongRefs.map(r=>`ref_no.ilike.%${r}%`).join(',');
+      const {data: bks} = await sb.from('bookings').select('id,ref_no,tour_name,tour_code').or(orExpr).limit(20);
+      mismatchBookings = (bks||[]).filter(b=>strongRefs.includes(_ccNormTourCode(b.ref_no)) || strongRefs.includes(_ccNormTourCode(b.tour_code)));
+      const mmIds = mismatchBookings.map(b=>b.id);
+      if(mmIds.length){
+        const {data: mmCosts} = await sb.from('booking_costs').select('*')
+          .in('booking_id', mmIds).eq('payment_method','事前決済').ilike('memo','%法人カード決済%');
+        const amountMatchedIds = new Set(amountMatched.map(c=>c.id));
+        mismatchCosts = (mmCosts||[]).filter(c=>Number(c.amount)!==Number(statement.amount) && !amountMatchedIds.has(c.id));
+      }
+    }catch(e){ mismatchCosts = []; }
+  }
+
+  if(amountMatched.length===0 && mismatchCosts.length===0) return [];
+
+  const bookingIds = [...new Set(amountMatched.map(c=>c.booking_id).filter(Boolean))];
   let bookingsById = {};
   if(bookingIds.length){
     const {data: bks} = await sb.from('bookings').select('id,ref_no,tour_name,tour_code').in('id', bookingIds);
     (bks||[]).forEach(b=>{ bookingsById[b.id] = b; });
   }
+  mismatchBookings.forEach(b=>{ bookingsById[b.id] = b; });
+
   const hint = _ccNormTourCode(statement.hint_tour_code);
   const txDate = statement.transaction_date ? new Date(statement.transaction_date) : null;
-  const withDiff = costs.map(c=>{
+  const isLearnedBooking = booking => !!(booking && (
+    learnedRefs.has(_ccNormTourCode(booking.ref_no)) || learnedRefs.has(_ccNormTourCode(booking.tour_code))
+  ));
+  const buildEntry = (c, amountMismatch) => {
     const diffDays = (txDate && c.payment_date) ? Math.abs((new Date(c.payment_date) - txDate) / 86400000) : Infinity;
     const booking = bookingsById[c.booking_id]||null;
     const hintMatch = !!(hint && booking && (
       _ccNormTourCode(booking.ref_no)===hint || _ccNormTourCode(booking.tour_code)===hint
     ));
-    return { cost: c, booking, diffDays, hintMatch };
-  });
+    const learnedMatch = isLearnedBooking(booking);
+    // 優先順位: ①手書きコード一致 > ②金額一致+店名学習一致 > ③金額一致のみ
+    // > ④金額不一致だが店名学習3回以上一致(金額不一致候補は常に最下位グループ)
+    const rank = amountMismatch ? 3 : hintMatch ? 0 : learnedMatch ? 1 : 2;
+    return { cost: c, booking, diffDays, hintMatch, learnedMatch, amountMismatch, rank };
+  };
+  const withDiff = [
+    ...amountMatched.map(c=>buildEntry(c, false)),
+    ...mismatchCosts.map(c=>buildEntry(c, true)),
+  ];
   withDiff.sort((a,b)=>{
-    if(a.hintMatch !== b.hintMatch) return a.hintMatch ? -1 : 1;
+    if(a.rank !== b.rank) return a.rank - b.rank;
     return a.diffDays - b.diffDays;
   });
-  return withDiff.map(({cost, booking, hintMatch})=>({cost, booking, hintMatch}));
+  return withDiff.map(({cost, booking, hintMatch, learnedMatch, amountMismatch})=>({cost, booking, hintMatch, learnedMatch, amountMismatch}));
 }
 
 async function autoMatchCcStatement(statement){
@@ -15696,14 +15845,23 @@ async function openCcMatchModal(id){
   const modal = document.createElement('div');
   modal.id = 'cc-match-modal';
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:300;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto';
-  const candRows = candidates.map(c=>`
-    <div style="border:1px solid ${c.hintMatch?'var(--blue)':'var(--border)'};background:${c.hintMatch?'var(--blue-lt,#F0F6FF)':''};border-radius:8px;padding:8px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+  const candRows = candidates.map(c=>{
+    const borderColor = c.amountMismatch ? 'var(--amber,#854F0B)' : c.hintMatch ? 'var(--blue)' : c.learnedMatch ? 'var(--green)' : 'var(--border)';
+    const bg = c.amountMismatch ? 'var(--amber-lt,#FAEEDA)' : c.hintMatch ? 'var(--blue-lt,#F0F6FF)' : c.learnedMatch ? 'var(--green-lt,#EFFAF1)' : '';
+    const badges = [
+      c.hintMatch ? `<span style="font-size:9px;font-weight:700;color:var(--blue);background:#fff;border:1px solid var(--blue);border-radius:8px;padding:1px 6px;margin-right:4px">✓ 手書きコード一致</span>` : '',
+      c.learnedMatch ? `<span style="font-size:9px;font-weight:700;color:var(--green);background:#fff;border:1px solid var(--green);border-radius:8px;padding:1px 6px;margin-right:4px">★ 店名学習一致</span>` : '',
+      c.amountMismatch ? `<span style="font-size:9px;font-weight:700;color:var(--amber,#854F0B);background:#fff;border:1px solid var(--amber,#854F0B);border-radius:8px;padding:1px 6px;margin-right:4px">⚠ 金額不一致（明細: ${yen(s.amount||0)} / 候補: ${yen(c.cost.amount||0)}）</span>` : '',
+    ].join('');
+    return `
+    <div style="border:1px solid ${borderColor};background:${bg};border-radius:8px;padding:8px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
       <div style="font-size:11px">
-        <div>${c.hintMatch?`<span style="font-size:9px;font-weight:700;color:var(--blue);background:#fff;border:1px solid var(--blue);border-radius:8px;padding:1px 6px;margin-right:4px">✓ 手書きコード一致</span>`:''}<strong>${escHtml(c.booking?.tour_name||'(ツアー名不明)')}</strong> / REF# ${escHtml(c.booking?.ref_no||'')}</div>
+        <div>${badges}<strong>${escHtml(c.booking?.tour_name||'(ツアー名不明)')}</strong> / REF# ${escHtml(c.booking?.ref_no||'')}</div>
         <div style="color:var(--text3)">仕入先: ${escHtml(c.cost.item_name||'')} / 金額: ${yen(c.cost.amount||0)} / 出金日: ${escHtml(c.cost.payment_date||'')}</div>
       </div>
-      <button class="btn btn-p" style="font-size:11px" onclick="confirmCcMatch('${s.id}','${c.cost.id}','${c.cost.booking_id}')">この予約に確定</button>
-    </div>`).join('') || '<div class="empty" style="font-size:11px">候補が見つかりませんでした</div>';
+      <button class="btn btn-p" style="font-size:11px" onclick="confirmCcMatch('${s.id}','${c.cost.id}','${c.cost.booking_id}','${escAttr(c.booking?.ref_no||'')}')">この予約に確定</button>
+    </div>`;
+  }).join('') || '<div class="empty" style="font-size:11px">候補が見つかりませんでした</div>';
   modal.innerHTML = `
     <div style="background:var(--card,#fff);border-radius:12px;padding:20px;width:100%;max-width:640px;margin-top:10px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
@@ -15742,12 +15900,12 @@ async function searchCcManualMatch(ccId){
     const b = bById[c.booking_id]||{};
     return `<div style="border:1px solid var(--border);border-radius:8px;padding:6px 8px;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
       <div style="font-size:11px"><strong>${escHtml(b.tour_name||'')}</strong> / REF# ${escHtml(b.ref_no||'')} / 仕入先: ${escHtml(c.item_name||'')} / ${yen(c.amount||0)}</div>
-      <button class="btn btn-p" style="font-size:10px" onclick="confirmCcMatch('${ccId}','${c.id}','${c.booking_id}')">この予約に確定</button>
+      <button class="btn btn-p" style="font-size:10px" onclick="confirmCcMatch('${ccId}','${c.id}','${c.booking_id}','${escAttr(b.ref_no||'')}')">この予約に確定</button>
     </div>`;
   }).join('') || '<div class="empty" style="font-size:11px">この予約には仕入明細がありません</div>';
 }
 
-async function confirmCcMatch(ccId, bookingCostId, bookingId){
+async function confirmCcMatch(ccId, bookingCostId, bookingId, refNo){
   const {error} = await sb.from('credit_card_statements').update({
     matched_booking_cost_id: bookingCostId,
     matched_booking_id: bookingId,
@@ -15756,6 +15914,12 @@ async function confirmCcMatch(ccId, bookingCostId, bookingId){
     match_status: '確定済み'
   }).eq('id', ccId);
   if(error){ alert('確定に失敗しました: '+error.message); return; }
+  // 店名→ref_noの学習を記録(ベストエフォート。次回同じ店名の候補表示時の優先順位付けに
+  // のみ使用し、自動確定には使わない)。
+  const stmt = ccStatementsCache.find(x=>x.id===ccId);
+  if(stmt && stmt.merchant_name && refNo){
+    await recordLearnedMapping('cc_merchant', stmt.merchant_name, refNo);
+  }
   document.getElementById('cc-match-modal')?.remove();
   await loadCreditCardStatements();
 }
@@ -18945,6 +19109,61 @@ async function deleteAgent(id){
 // ===== Accounts =====
 // app_usersへのanonキーからの直接アクセスは廃止したため、一覧取得・追加は
 // /api/list-users・/api/add-user経由(service_role key)で行う。
+// ===== OCR学習データ(learned_mappings)の訂正UI(アカウント管理ページ内) =====
+let learnedMappingsAdminCache = [];
+const LEARNED_CATEGORY_LABELS = {
+  email_sender: 'メール送信元',
+  cc_merchant: 'カード明細店舗名',
+  receipt_merchant: 'レシート店名',
+};
+
+async function loadLearnedMappingsAdmin(){
+  const tbody = document.getElementById('lm-tbody');
+  if(!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="6" class="empty">読み込み中...</td></tr>';
+  try{
+    const {data, error} = await sb.from('learned_mappings').select('*')
+      .order('category').order('last_confirmed_at', {ascending:false});
+    if(error) throw error;
+    learnedMappingsAdminCache = data||[];
+    renderLearnedMappingsAdmin();
+  }catch(e){
+    tbody.innerHTML = '<tr><td colspan="6" class="empty">読み込みに失敗しました: '+escHtml(e.message||'')+'<br>（learned_mappingsテーブルが未作成の可能性があります）</td></tr>';
+  }
+}
+
+function renderLearnedMappingsAdmin(){
+  const tbody = document.getElementById('lm-tbody');
+  if(!tbody) return;
+  const filter = document.getElementById('lm-category-filter')?.value||'';
+  const list = filter ? learnedMappingsAdminCache.filter(r=>r.category===filter) : learnedMappingsAdminCache;
+  const countEl = document.getElementById('lm-count');
+  if(countEl) countEl.textContent = `${list.length}件`;
+  if(!list.length){ tbody.innerHTML = '<tr><td colspan="6" class="empty">学習データはありません</td></tr>'; return; }
+  tbody.innerHTML = list.map(r=>`<tr>
+    <td data-label="カテゴリ">${escHtml(LEARNED_CATEGORY_LABELS[r.category]||r.category)}</td>
+    <td data-label="入力キー" style="word-break:break-all">${escHtml(r.input_key)}</td>
+    <td data-label="確定値" style="word-break:break-all">${escHtml(r.confirmed_value)}</td>
+    <td data-label="確定回数" style="text-align:right">${Number(r.confirmed_count)||0}回</td>
+    <td data-label="最終確定日時">${r.last_confirmed_at?escHtml(new Date(r.last_confirmed_at).toLocaleString('ja-JP')):''}</td>
+    <td><button class="btn" style="font-size:10px;color:var(--red)" onclick="deleteLearnedMapping(${Number(r.id)})">🗑 削除</button></td>
+  </tr>`).join('');
+}
+
+async function deleteLearnedMapping(id){
+  const row = learnedMappingsAdminCache.find(r=>r.id===id);
+  if(!row) return;
+  const label = LEARNED_CATEGORY_LABELS[row.category]||row.category;
+  if(!confirm(`以下の学習データを削除しますか？\n\nカテゴリ: ${label}\n入力キー: ${row.input_key}\n確定値: ${row.confirmed_value}（${row.confirmed_count}回確定）\n\n削除すると、以後この組み合わせの候補は提示されなくなります。`)) return;
+  try{
+    await learnedMappingsApiCall('deleteById', { id });
+    learnedMappingsAdminCache = learnedMappingsAdminCache.filter(r=>r.id!==id);
+    renderLearnedMappingsAdmin();
+  }catch(e){
+    alert('削除に失敗しました: '+e.message);
+  }
+}
+
 async function loadAccounts(){
   const list=document.getElementById('user-list');
   const { data, error } = await sb.from('app_users').select('*').order('created_at');
