@@ -92,6 +92,32 @@ table{width:100%;border-collapse:collapse;font-size:12px}
   .est-actions{white-space:normal;min-width:104px}
   .est-actions .btn{display:inline-block;margin:0 2px 3px 0}
 }
+/* 見積もり一覧(通常一覧・テンプレートセクションとも).est-tableを付けたテーブルを
+   768px未満で「1見積もり=1カード」の縦積みに変更する(予約一覧Stage 3のbl-tableと
+   同じ考え方)。DOM構造・列順は変更せず、CSS Gridで表示位置のみ並べ替えるため、
+   estRowHtml()を生成する既存JS・onclickの参照先は一切変更不要。 */
+@media(max-width:768px){
+  .est-table{table-layout:auto;min-width:0;width:100%}
+  .est-table thead{display:none}
+  .est-table, .est-table tbody{display:block;width:100%}
+  .est-table td{display:block;border:none;padding:0;white-space:normal;overflow:visible;text-overflow:clip;font-size:12px}
+  /* 列順: 1 種別 / 2 タイトル / 3 ツアーコード / 4 作成日 / 5 Status / 6 操作 */
+  .est-table tbody tr:not(:has(td.empty)){
+    display:grid;grid-template-columns:1fr auto;gap:4px 8px;
+    padding:10px 12px;margin-bottom:8px;
+    border:1px solid var(--border);border-radius:10px;background:var(--card)
+  }
+  .est-table td:nth-child(2){grid-row:1;grid-column:1;font-weight:700;font-size:14px;color:var(--blue)}
+  .est-table td:nth-child(1){grid-row:1;grid-column:2;text-align:right}
+  .est-table td:nth-child(3){grid-row:2;grid-column:1/-1;color:var(--text3)}
+  .est-table td:nth-child(4){grid-row:3;grid-column:1;color:var(--text3);white-space:nowrap}
+  .est-table td:nth-child(5){grid-row:3;grid-column:2;text-align:right}
+  .est-table td.est-actions{grid-row:4;grid-column:1/-1;display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+  .est-table td.est-actions .btn{margin:0}
+  /* 空表示("見積もりはありません"等)の行はカード化せず、そのまま横幅いっぱいに表示する */
+  .est-table tr:has(td.empty){display:block;width:100%}
+  .est-table tr:has(td.empty) td{display:block;text-align:center}
+}
 /* 予約一覧のソート導線(768px未満のカード表示専用。PCは見出し行クリックでソートする) */
 .bl-sort-bar{display:none;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
 .bl-sort-bar label{font-size:10px;color:var(--text3);font-weight:600}
@@ -1126,7 +1152,7 @@ input[type=number]{-moz-appearance:textfield}
             </span>
           </div>
           <div id="est-template-section" style="margin-bottom:10px"></div>
-          <div class="tbl-wrap"><table>
+          <div class="tbl-wrap"><table class="est-table">
             <thead><tr><th style="width:70px">種別</th><th>タイトル</th><th>ツアーコード</th><th>作成日</th><th>Status</th><th style="width:190px"></th></tr></thead>
             <tbody id="est-tbody"><tr><td colspan="6" class="empty">読み込み中...</td></tr></tbody>
           </table></div>
@@ -7825,7 +7851,7 @@ function renderEstTemplateSection(){
   if(templates.length===0){ el.innerHTML=''; return; }
   const arrow = estTemplateSectionOpen ? '▼' : '▶';
   const rowsHtml = estTemplateSectionOpen
-    ? `<div class="tbl-wrap"><table>
+    ? `<div class="tbl-wrap"><table class="est-table">
         <thead><tr><th style="width:70px">種別</th><th>タイトル</th><th>ツアーコード</th><th>作成日</th><th>Status</th><th style="width:190px"></th></tr></thead>
         <tbody>${templates.map(estRowHtml).join('')}</tbody>
       </table></div>`
