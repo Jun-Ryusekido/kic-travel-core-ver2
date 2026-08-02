@@ -13724,15 +13724,6 @@ async function saveArrDoc(){
     last_revised_at: revisionChanged ? new Date().toISOString() : (h.last_revised_at||null),
     updated_at: new Date().toISOString()
   };
-  if(h.id){
-    try{ await tourArrangementHeadersApiCall('updateById', {id: h.id, fields: headerPayload}); }
-    catch(error){ throw new Error('手配書ヘッダーの保存に失敗: '+error.message); }
-  } else {
-    let inserted;
-    try{ inserted = await tourArrangementHeadersApiCall('insertReturning', {rows: [headerPayload]}); }
-    catch(error){ throw new Error('手配書ヘッダーの保存に失敗: '+error.message); }
-    bdArrHeader.id = inserted.rows[0].id;
-  }
   bdArrHeaderLoadedRevisionNo = headerPayload.revision_no;
   if(revisionChanged) bdArrHeader.last_revised_at = headerPayload.last_revised_at;
 
@@ -13744,7 +13735,6 @@ async function saveArrDoc(){
     start_date: sanitizeDateField(it.start_date),
     display_order: i
   }));
-  await tourGuidesApiCall('replace', { bookingId, rows: guideRows });
 
   const dayRows = bdArrDayItems.map((it,i)=>({
     booking_id: bookingId,
@@ -13765,15 +13755,27 @@ async function saveArrDoc(){
     dinner_text: it.dinner_text||'', dinner_time: it.dinner_time||'', dinner_phone: it.dinner_phone||'',
     departure_time: it.departure_time||null
   }));
-  await tourDayItineraryApiCall('replace', { bookingId, rows: dayRows });
-
   const noteRows = [
     {booking_id: bookingId, note_type:'fixed_template', content: bdArrNotes.fixed_template||'', display_order:0},
     {booking_id: bookingId, note_type:'mineral_water', content: bdArrNotes.mineral_water||'', display_order:1},
     {booking_id: bookingId, note_type:'driver_info', content: bdArrNotes.driver_info||'', display_order:2},
     {booking_id: bookingId, note_type:'tour_specific', content: bdArrNotes.tour_specific||'', display_order:3},
   ];
-  await tourArrangementNotesApiCall('replace', { bookingId, rows: noteRows });
+
+  // ヘッダー・ガイド・日毎明細・注意文言の4つはいずれもbooking_id列で紐づく独立した
+  // テーブルで、互いの結果(採番id等)に依存しないため並列実行する(全てservice_role経由の
+  // APIになった結果、逐次実行だと1回の保存操作でVercel関数への往復が積み重なり体感の
+  // 保存時間が長くなっていたための対応)。ヘッダーのみ新規作成時に採番idを
+  // bdArrHeader.idへ反映する必要があるため、他と合わせてPromise.allでまとめて待つ。
+  const headerSave = h.id
+    ? tourArrangementHeadersApiCall('updateById', {id: h.id, fields: headerPayload}).catch(error=>{ throw new Error('手配書ヘッダーの保存に失敗: '+error.message); })
+    : tourArrangementHeadersApiCall('insertReturning', {rows: [headerPayload]}).then(inserted=>{ bdArrHeader.id = inserted.rows[0].id; }).catch(error=>{ throw new Error('手配書ヘッダーの保存に失敗: '+error.message); });
+  await Promise.all([
+    headerSave,
+    tourGuidesApiCall('replace', { bookingId, rows: guideRows }),
+    tourDayItineraryApiCall('replace', { bookingId, rows: dayRows }),
+    tourArrangementNotesApiCall('replace', { bookingId, rows: noteRows }),
+  ]);
 }
 
 // ─── 手配書Excel出力 ───────────────────────────────────────────────
@@ -13964,7 +13966,12 @@ async function syncArrangementDocumentsFromDraft(bookingId){
     tour_specific: bdArrNotes.tour_specific||'',
   };
 
-  for(const g of missingGuides){
+  // ガイドが複数名いる場合、1名ずつ逐次実行すると(手配書insert→日毎明細insert→
+  // 注意文言insert)×人数分のVercel関数往復が積み重なり保存が遅くなるため、
+  // ガイドごとの処理は互いに独立(別々のarrangement_documents行)なのでPromise.allで
+  // 並列実行する。各ガイド内でも、日毎明細と注意文言のinsertは互いに依存しない
+  // (どちらもarrangement_documents insert後のnewDoc.idのみに依存)ため並列化する。
+  await Promise.all(missingGuides.map(async (g) => {
     const guideName = g.guide_id ? (guideRegistryCache.find(x=>String(x.id)===String(g.guide_id))?.name||'') : (g.guide_name_freetext||'');
     const guidePhone = g.guide_id ? (guideRegistryCache.find(x=>String(x.id)===String(g.guide_id))?.phone||'') : '';
     const docPayload = {
@@ -13980,20 +13987,19 @@ async function syncArrangementDocumentsFromDraft(bookingId){
     const {data: newDoc, error: insErr} = await sb.from('arrangement_documents').insert(docPayload).select().single();
     if(insErr) throw new Error('ガイド別手配書の作成に失敗（'+guideName+'）: '+insErr.message);
 
-    if(daySnapshots.length){
-      const rows = daySnapshots.map(d=>Object.assign({arrangement_document_id: newDoc.id}, d));
-      try{ await arrangementDocumentDaysApiCall('insert', {rows}); }
-      catch(dayErr){ throw new Error('ガイド別手配書の日毎明細作成に失敗（'+guideName+'）: '+dayErr.message); }
-    }
     const noteRows = [
       {arrangement_document_id: newDoc.id, note_type:'fixed_template', content: noteSnapshot.fixed_template, display_order:0},
       {arrangement_document_id: newDoc.id, note_type:'mineral_water', content: noteSnapshot.mineral_water, display_order:1},
       {arrangement_document_id: newDoc.id, note_type:'driver_info', content: noteSnapshot.driver_info, display_order:2},
       {arrangement_document_id: newDoc.id, note_type:'tour_specific', content: noteSnapshot.tour_specific, display_order:3},
     ];
-    try{ await arrangementDocumentNotesApiCall('insert', {rows: noteRows}); }
-    catch(noteErr){ throw new Error('ガイド別手配書の注意文言作成に失敗（'+guideName+'）: '+noteErr.message); }
-  }
+    await Promise.all([
+      daySnapshots.length
+        ? arrangementDocumentDaysApiCall('insert', {rows: daySnapshots.map(d=>Object.assign({arrangement_document_id: newDoc.id}, d))}).catch(dayErr=>{ throw new Error('ガイド別手配書の日毎明細作成に失敗（'+guideName+'）: '+dayErr.message); })
+        : Promise.resolve(),
+      arrangementDocumentNotesApiCall('insert', {rows: noteRows}).catch(noteErr=>{ throw new Error('ガイド別手配書の注意文言作成に失敗（'+guideName+'）: '+noteErr.message); }),
+    ]);
+  }));
   await loadGuideDocsList(bookingId);
 }
 
