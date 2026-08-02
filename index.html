@@ -262,6 +262,23 @@ th.sortable:hover{color:var(--blue)}
 /* 「結果を見る」はシート(モバイル)専用の導線。PCは検索欄と一覧が同時に見えており
    不要なため表示しない。 */
 .db-show-results-btn{display:none}
+/* PC(761px以上)で検索・絞り込みカードを画面上部(topbarの直下)に固定表示する。
+   調査の結果、この構造(#db-filter-card/#bl-filter-cardの祖先にoverflow:autoが無く、
+   通常のドキュメントスクロールのみ)ではHTML側インラインstyleのposition:stickyが
+   実際に正しく機能することを、実スクロールイベントでの座標確認により確認済み
+   (以前報告されていた「overflow-y:autoの親内でstickyが効かない」問題は、
+   予約詳細モーダル(.modal-overlay/.modal-boxの二重overflow構造)固有の別問題であり、
+   このダッシュボード/予約一覧の構造には該当しない)。
+   position:fixedへの切り替えは検討したが、フローから完全に外れることで
+   到着日アラート等、カードより上にある要素と重なってしまう副作用があり、
+   複雑な補正が必要になる割に既に動いているstickyを置き換える利点が無いため採用しない。
+   ここでは!importantの明示ルールでstickyの値を確実にし、将来的な他CSSとの
+   競合に備える(念のための堅牢化。インラインstyleの値と同じ)。 */
+@media(min-width:761px){
+  #db-filter-card,#bl-filter-card{
+    position:sticky!important;top:50px!important;z-index:10!important
+  }
+}
 @media(max-width:760px){
   .sb{position:fixed;left:-210px;transition:left .2s;z-index:50;box-shadow:2px 0 8px rgba(0,0,0,.1)}
   .sb.open{left:0}
@@ -1050,7 +1067,7 @@ input[type=number]{-moz-appearance:textfield}
 
       <!-- Booking List -->
       <div id="pg-booking-list" class="page" style="display:none">
-        <div class="card" style="position:sticky;top:50px;z-index:10;margin-bottom:0;border-radius:12px 12px 0 0">
+        <div class="card" id="bl-filter-card" style="position:sticky;top:50px;z-index:10;margin-bottom:0;border-radius:12px 12px 0 0">
           <div class="card-title">検索・絞り込み</div>
           <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr 1fr">
             <div class="form-field"><label>検索（REF# / Agent / Tour）</label><input id="bl-search" placeholder="例: Kesari, #1374, Kyoto" oninput="filterBookingListGeneric('bl')"></div>
@@ -1076,7 +1093,7 @@ input[type=number]{-moz-appearance:textfield}
             <button class="btn" onclick="resetBookingFilter('bl')">条件クリア</button>
           </div>
         </div>
-        <div class="card" style="border-top:none;border-radius:0 0 12px 12px;padding-top:0;margin-bottom:14px">
+        <div class="card" id="bl-list-card" style="border-top:none;border-radius:0 0 12px 12px;padding-top:0;margin-bottom:14px">
           <div class="card-title">Booking List</div>
           <!-- カード表示(768px未満)では見出し行が消えるため、ソートの導線をここに置く -->
           <div class="bl-sort-bar" id="bl-sort-bar"></div>
