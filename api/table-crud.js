@@ -185,6 +185,34 @@ const TABLE_CONFIG = {
       },
     ],
   },
+  // セキュリティ移行フェーズ グループ1・フェーズA(コード変更のみ、DB側anon権限は
+  // まだ剥奪しない。剥奪は別途フェーズBで実施)。
+  // booking_guides/tour_guides/tour_day_itinerary/tour_arrangement_notes/booking_water_itemsは
+  // booking_hotels等と同じbooking_idキーのdoReplace(action:'replace')にそのまま統一する。
+  booking_guides: { actions: ['replace'], label: 'ガイド明細' },
+  tour_guides: { actions: ['replace'], label: '手配書ガイド' },
+  tour_day_itinerary: { actions: ['replace'], label: '手配書日毎明細' },
+  tour_arrangement_notes: { actions: ['replace'], label: '手配書注意文言' },
+  booking_water_items: { actions: ['replace'], label: 'ミネラルウォーター明細' },
+  // tour_arrangement_headers: booking_idに1:1のヘッダー行。既存クライアントコードは
+  // replaceではなくupdate(存在時)/insert(新規時)の直接呼び出しのため、汎用の
+  // updateById/insertReturningをそのまま使う(insertReturningは新規作成時に採番id を
+  // クライアントへ返す必要があるため)。
+  tour_arrangement_headers: { actions: ['updateById', 'insertReturning'], label: '手配書ヘッダー' },
+  // arrangement_document_days/arrangement_document_notes: キー列がbooking_idではなく
+  // arrangement_document_idのため、doReplaceをそのまま使えない。allowedDeleteFieldsと
+  // 同じ考え方でキー列をホワイトリスト化した新規action『replaceByKey』を使う
+  // (doReplaceByKey/handler側のreplaceByKey分岐を参照)。
+  arrangement_document_days: {
+    actions: ['replaceByKey', 'insert'],
+    label: 'ガイド別手配書日毎明細',
+    allowedReplaceKeyFields: ['arrangement_document_id'],
+  },
+  arrangement_document_notes: {
+    actions: ['replaceByKey', 'insert'],
+    label: 'ガイド別手配書注意文言',
+    allowedReplaceKeyFields: ['arrangement_document_id'],
+  },
 };
 
 // learned_mappingsのcategoryはこの3種のみ許可する(bodyの値をそのまま保存しない)。
@@ -320,6 +348,39 @@ async function doReplace(table, label, bookingId, rows, config, changedBy) {
       ...insertedRows.map((r) => ({ recordId: r.id, action: 'insert', before: null, after: r })),
     ];
     await writeAuditLogs(table, entries, changedBy);
+  }
+  return { status: 200, body: { ok: true } };
+}
+
+// doReplaceの汎用版。booking_id以外のキー列(arrangement_document_id等)で「既存行を
+// 全削除→新データ挿入」の置き換えを行いたい場合に使う(クライアント側の
+// safeReplaceRowsByKeyのサーバー版)。keyFieldはbodyの値をそのままクエリに埋め込まず、
+// allowedDeleteFieldsと同じ考え方でconfig.allowedReplaceKeyFieldsのホワイトリストに
+// 含まれる列名のみを許可する。
+async function doReplaceByKey(table, label, keyField, keyValue, rows, config) {
+  if (!config.allowedReplaceKeyFields || !config.allowedReplaceKeyFields.includes(keyField)) {
+    return { status: 400, body: { error: `${table}に対して許可されていないキー列です: ${keyField}` } };
+  }
+  if (keyValue === undefined || keyValue === null || keyValue === '') return { status: 400, body: { error: 'キー値が指定されていません' } };
+
+  const existingRes = await sbFetch(table, `?${keyField}=eq.${encodeURIComponent(keyValue)}&select=id`);
+  if (!existingRes.ok) return { status: 500, body: { error: '既存データの確認に失敗しました' } };
+  const existing = await existingRes.json();
+  const existingIds = (existing || []).map((r) => r.id);
+
+  if (Array.isArray(rows) && rows.length) {
+    const insRes = await sbFetch(table, '', { method: 'POST', prefer: 'return=minimal', body: JSON.stringify(rows) });
+    if (!insRes.ok) {
+      const e = await readJsonSafe(insRes);
+      return { status: 500, body: { error: withGrantHint(e.message, table) || `${label}の保存に失敗しました` } };
+    }
+  }
+  if (existingIds.length) {
+    const delRes = await sbFetch(table, `?id=in.(${existingIds.join(',')})`, { method: 'DELETE', prefer: 'return=minimal' });
+    if (!delRes.ok) {
+      const e = await readJsonSafe(delRes);
+      return { status: 500, body: { error: withGrantHint(e.message, table) || `${label}の旧データ削除に失敗しました（新データは保存済みのため重複している可能性があります）` } };
+    }
   }
   return { status: 200, body: { ok: true } };
 }
@@ -703,6 +764,11 @@ export default async function handler(req, res) {
     if (action === 'insert') {
       const { rows } = req.body;
       const result = await doInsert(table, config.label, stampNewRows(rows), config, changedBy);
+      return res.status(result.status).json(result.body);
+    }
+    if (action === 'replaceByKey') {
+      const { keyField, keyValue, rows } = req.body;
+      const result = await doReplaceByKey(table, config.label, keyField, keyValue, stampNewRows(rows), config);
       return res.status(result.status).json(result.body);
     }
     if (action === 'insertReturning') {

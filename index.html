@@ -4177,6 +4177,20 @@ async function emailImportQueueApiCall(action, payload){ return tableCrudApiCall
 // learned_mappings(OCR学習データ)。書き込みはservice_role専用API経由のみ。
 // 読み取り(候補表示用)はanonキーでのSELECTを直接使う(fetchLearnedMappings参照)。
 async function learnedMappingsApiCall(action, payload){ return tableCrudApiCall('learned_mappings', action, payload); }
+// セキュリティ移行フェーズ グループ1・フェーズA(コード変更のみ、DB権限はまだ触らない)。
+// booking_guides/tour_guides/tour_day_itinerary/tour_arrangement_notes/booking_water_itemsは
+// booking_hotels等と同じbooking_idキーのreplaceアクション。
+async function bookingGuidesApiCall(action, payload){ return tableCrudApiCall('booking_guides', action, payload); }
+async function tourGuidesApiCall(action, payload){ return tableCrudApiCall('tour_guides', action, payload); }
+async function tourDayItineraryApiCall(action, payload){ return tableCrudApiCall('tour_day_itinerary', action, payload); }
+async function tourArrangementNotesApiCall(action, payload){ return tableCrudApiCall('tour_arrangement_notes', action, payload); }
+async function bookingWaterItemsApiCall(action, payload){ return tableCrudApiCall('booking_water_items', action, payload); }
+async function tourArrangementHeadersApiCall(action, payload){ return tableCrudApiCall('tour_arrangement_headers', action, payload); }
+// arrangement_document_days/arrangement_document_notesはbooking_idではなく
+// arrangement_document_idをキーに置き換えるため、table-crud.js側の新規action
+// 『replaceByKey』を使う(safeReplaceRowsByKeyのサーバー版)。
+async function arrangementDocumentDaysApiCall(action, payload){ return tableCrudApiCall('arrangement_document_days', action, payload); }
+async function arrangementDocumentNotesApiCall(action, payload){ return tableCrudApiCall('arrangement_document_notes', action, payload); }
 
 // 学習キーの正規化(全角/半角・大文字小文字・空白ゆれを吸収)。index.html/guide.htmlで
 // 同じロジックを使うこと(片方だけ変えるとキーが一致しなくなり学習が効かなくなる)。
@@ -12181,7 +12195,7 @@ async function saveWaterItems(){
     payment_method: it.payment_method||'',
     cost_added: !!it.cost_added
   }));
-  await safeReplaceBookingRows('booking_water_items', bookingId, rows, 'ミネラルウォーター明細');
+  await bookingWaterItemsApiCall('replace', { bookingId, rows });
 }
 
 // ─── 観光施設AI読み取り ───────────────────────────────────────────────────────
@@ -13238,7 +13252,7 @@ async function saveGuideItems(){
     payment_method: it.payment_method||'',
     amount: Number(it.amount)||0
   }));
-  await safeReplaceBookingRows('booking_guides', bookingId, rows, 'ガイド明細');
+  await bookingGuidesApiCall('replace', { bookingId, rows });
   // 保存後に他予約との二重アサインを再チェックする(警告表示のみで、保存自体はブロックしない)
   checkGuideDoubleBookings().catch(e=>logError('ガイド二重アサインチェック', e, {toast:false}));
 }
@@ -13711,12 +13725,13 @@ async function saveArrDoc(){
     updated_at: new Date().toISOString()
   };
   if(h.id){
-    const {error} = await sb.from('tour_arrangement_headers').update(headerPayload).eq('id', h.id);
-    if(error) throw new Error('手配書ヘッダーの保存に失敗: '+error.message);
+    try{ await tourArrangementHeadersApiCall('updateById', {id: h.id, fields: headerPayload}); }
+    catch(error){ throw new Error('手配書ヘッダーの保存に失敗: '+error.message); }
   } else {
-    const {data, error} = await sb.from('tour_arrangement_headers').insert(headerPayload).select().single();
-    if(error) throw new Error('手配書ヘッダーの保存に失敗: '+error.message);
-    bdArrHeader.id = data.id;
+    let inserted;
+    try{ inserted = await tourArrangementHeadersApiCall('insertReturning', {rows: [headerPayload]}); }
+    catch(error){ throw new Error('手配書ヘッダーの保存に失敗: '+error.message); }
+    bdArrHeader.id = inserted.rows[0].id;
   }
   bdArrHeaderLoadedRevisionNo = headerPayload.revision_no;
   if(revisionChanged) bdArrHeader.last_revised_at = headerPayload.last_revised_at;
@@ -13729,7 +13744,7 @@ async function saveArrDoc(){
     start_date: sanitizeDateField(it.start_date),
     display_order: i
   }));
-  await safeReplaceBookingRows('tour_guides', bookingId, guideRows, '手配書ガイド');
+  await tourGuidesApiCall('replace', { bookingId, rows: guideRows });
 
   const dayRows = bdArrDayItems.map((it,i)=>({
     booking_id: bookingId,
@@ -13750,7 +13765,7 @@ async function saveArrDoc(){
     dinner_text: it.dinner_text||'', dinner_time: it.dinner_time||'', dinner_phone: it.dinner_phone||'',
     departure_time: it.departure_time||null
   }));
-  await safeReplaceBookingRows('tour_day_itinerary', bookingId, dayRows, '手配書日毎明細');
+  await tourDayItineraryApiCall('replace', { bookingId, rows: dayRows });
 
   const noteRows = [
     {booking_id: bookingId, note_type:'fixed_template', content: bdArrNotes.fixed_template||'', display_order:0},
@@ -13758,7 +13773,7 @@ async function saveArrDoc(){
     {booking_id: bookingId, note_type:'driver_info', content: bdArrNotes.driver_info||'', display_order:2},
     {booking_id: bookingId, note_type:'tour_specific', content: bdArrNotes.tour_specific||'', display_order:3},
   ];
-  await safeReplaceBookingRows('tour_arrangement_notes', bookingId, noteRows, '手配書注意文言');
+  await tourArrangementNotesApiCall('replace', { bookingId, rows: noteRows });
 }
 
 // ─── 手配書Excel出力 ───────────────────────────────────────────────
@@ -13967,8 +13982,8 @@ async function syncArrangementDocumentsFromDraft(bookingId){
 
     if(daySnapshots.length){
       const rows = daySnapshots.map(d=>Object.assign({arrangement_document_id: newDoc.id}, d));
-      const {error: dayErr} = await sb.from('arrangement_document_days').insert(rows);
-      if(dayErr) throw new Error('ガイド別手配書の日毎明細作成に失敗（'+guideName+'）: '+dayErr.message);
+      try{ await arrangementDocumentDaysApiCall('insert', {rows}); }
+      catch(dayErr){ throw new Error('ガイド別手配書の日毎明細作成に失敗（'+guideName+'）: '+dayErr.message); }
     }
     const noteRows = [
       {arrangement_document_id: newDoc.id, note_type:'fixed_template', content: noteSnapshot.fixed_template, display_order:0},
@@ -13976,8 +13991,8 @@ async function syncArrangementDocumentsFromDraft(bookingId){
       {arrangement_document_id: newDoc.id, note_type:'driver_info', content: noteSnapshot.driver_info, display_order:2},
       {arrangement_document_id: newDoc.id, note_type:'tour_specific', content: noteSnapshot.tour_specific, display_order:3},
     ];
-    const {error: noteErr} = await sb.from('arrangement_document_notes').insert(noteRows);
-    if(noteErr) throw new Error('ガイド別手配書の注意文言作成に失敗（'+guideName+'）: '+noteErr.message);
+    try{ await arrangementDocumentNotesApiCall('insert', {rows: noteRows}); }
+    catch(noteErr){ throw new Error('ガイド別手配書の注意文言作成に失敗（'+guideName+'）: '+noteErr.message); }
   }
   await loadGuideDocsList(bookingId);
 }
@@ -14145,7 +14160,7 @@ async function saveGuideDocEditor(){
       dinner_text: it.dinner_text||'', dinner_time: it.dinner_time||'', dinner_phone: it.dinner_phone||'',
       departure_time: it.departure_time||null,
     }));
-    await safeReplaceRowsByKey('arrangement_document_days', 'arrangement_document_id', d.id, dayRows, 'ガイド別手配書日毎明細');
+    await arrangementDocumentDaysApiCall('replaceByKey', { keyField: 'arrangement_document_id', keyValue: d.id, rows: dayRows });
 
     const noteRows = [
       {arrangement_document_id: d.id, note_type:'fixed_template', content: d.notes.fixed_template||'', display_order:0},
@@ -14153,7 +14168,7 @@ async function saveGuideDocEditor(){
       {arrangement_document_id: d.id, note_type:'driver_info', content: d.notes.driver_info||'', display_order:2},
       {arrangement_document_id: d.id, note_type:'tour_specific', content: d.notes.tour_specific||'', display_order:3},
     ];
-    await safeReplaceRowsByKey('arrangement_document_notes', 'arrangement_document_id', d.id, noteRows, 'ガイド別手配書注意文言');
+    await arrangementDocumentNotesApiCall('replaceByKey', { keyField: 'arrangement_document_id', keyValue: d.id, rows: noteRows });
 
     closeGuideDocEditor();
     await loadGuideDocsList(currentDetailId);
