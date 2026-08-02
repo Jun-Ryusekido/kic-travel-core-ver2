@@ -4139,12 +4139,22 @@ async function safeReplaceRowsByKey(table, keyCol, keyVal, rows, label){
 // サーバー側が正当なログインユーザーからのリクエストであることを検証する。
 async function tableCrudApiCall(table, action, payload){
   const token = currentUser ? currentUser.token : null;
+  const __t0 = performance.now();
   const resp = await fetch('/api/table-crud', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({ table, action, token, ...payload })
   });
   const data = await parseJsonResponseSafe(resp);
+  // 保存処理のボトルネック調査用の計測(2026-08時点、一時追加)。往復合計(clientMs)と
+  // サーバー処理時間(serverMs、api/table-crud.js側で計測)・コールドスタートの有無を
+  // window.__tableCrudCallLogに蓄積する。ネットワーク往復とサーバー処理の内訳、および
+  // コールドスタートが実際に発生しているかを切り分けるための計測で、挙動には影響しない。
+  const __clientMs = Math.round(performance.now()-__t0);
+  window.__tableCrudCallLog = window.__tableCrudCallLog || [];
+  window.__tableCrudCallLog.push({ 'table': table, 'action': action, 'clientMs(往復合計)': __clientMs,
+    'serverMs(関数内処理)': data && data.__meta ? data.__meta.serverMs : null,
+    'coldStart': data && data.__meta ? data.__meta.coldStart : null });
   if(!resp.ok || data.error) throw new Error(data.error || `${table}の処理でサーバーエラーが発生しました`);
   return data;
 }
@@ -13770,12 +13780,39 @@ async function saveArrDoc(){
   const headerSave = h.id
     ? tourArrangementHeadersApiCall('updateById', {id: h.id, fields: headerPayload}).catch(error=>{ throw new Error('手配書ヘッダーの保存に失敗: '+error.message); })
     : tourArrangementHeadersApiCall('insertReturning', {rows: [headerPayload]}).then(inserted=>{ bdArrHeader.id = inserted.rows[0].id; }).catch(error=>{ throw new Error('手配書ヘッダーの保存に失敗: '+error.message); });
-  await Promise.all([
-    headerSave,
-    tourGuidesApiCall('replace', { bookingId, rows: guideRows }),
-    tourDayItineraryApiCall('replace', { bookingId, rows: dayRows }),
-    tourArrangementNotesApiCall('replace', { bookingId, rows: noteRows }),
-  ]);
+
+  // 計測用(2026-08時点、並列実行が実際に同時発火しているか確認するため一時追加)。
+  // 各呼び出しの開始/終了オフセット(ms、この関数の開始時刻を0とする)を記録し、
+  // window.__arrDocPerfLogとconsole.tableで出力する。allSettledで全件完了を待ってから
+  // 最初の失敗をrethrowすることで、外部から見た成否判定はPromise.allの時と同じにする。
+  const __t0 = performance.now();
+  const __mark = (label) => {
+    const start = performance.now() - __t0;
+    return {
+      start,
+      end: (p) => p.then(
+        v => { __arrDocPerfEntry(label, start, true); return v; },
+        e => { __arrDocPerfEntry(label, start, false); throw e; }
+      ),
+    };
+  };
+  const __arrDocPerfLog = [];
+  window.__arrDocPerfLog = __arrDocPerfLog;
+  function __arrDocPerfEntry(label, startOffset, ok){
+    const endOffset = performance.now() - __t0;
+    __arrDocPerfLog.push({ '呼び出し': label, '開始(ms)': Math.round(startOffset), '終了(ms)': Math.round(endOffset), '所要(ms)': Math.round(endOffset-startOffset), '結果': ok?'成功':'失敗' });
+  }
+  const calls = [
+    { label: '手配書ヘッダー(tour_arrangement_headers)', p: headerSave },
+    { label: 'tour_guides', p: tourGuidesApiCall('replace', { bookingId, rows: guideRows }) },
+    { label: 'tour_day_itinerary', p: tourDayItineraryApiCall('replace', { bookingId, rows: dayRows }) },
+    { label: 'tour_arrangement_notes', p: tourArrangementNotesApiCall('replace', { bookingId, rows: noteRows }) },
+  ].map(c => __mark(c.label).end(c.p).then(v=>({status:'fulfilled',value:v}), e=>({status:'rejected',reason:e})));
+  const settled = await Promise.all(calls);
+  console.log('【手配書(saveArrDoc)4テーブルの並列実行タイミング】(window.__arrDocPerfLogでも参照可)');
+  console.table(__arrDocPerfLog);
+  const firstFailure = settled.find(r=>r.status==='rejected');
+  if(firstFailure) throw firstFailure.reason;
 }
 
 // ─── 手配書Excel出力 ───────────────────────────────────────────────
@@ -14589,11 +14626,23 @@ async function saveBookingDetail(){
   const saveBtns = [...document.querySelectorAll('.bd-save-btn')];
   const saveBtnOrigHtml = saveBtns.map(b=>b.innerHTML);
   saveBtns.forEach(b=>{ b.disabled = true; b.innerHTML = '⏳ 保存中...'; });
+  // 保存処理のボトルネック調査用の計測(2026-08時点、体感の保存遅延の原因切り分けのため一時追加)。
+  // 各ステップの所要時間をwindow.__savePerfLogに記録し、成功/失敗に関わらず最後に
+  // console.tableへ出力する。挙動そのものには一切影響しない(計測のみ)。
+  const __savePerfT0 = performance.now();
+  const __savePerfLog = [];
+  window.__savePerfLog = __savePerfLog;
+  window.__tableCrudCallLog = []; // 今回の保存で発生した/api/table-crud呼び出しのみを見るためリセット
+  async function __timed(label, fn){
+    const t0 = performance.now();
+    try{ return await fn(); }
+    finally{ __savePerfLog.push({ 'ステップ': label, '所要時間(ms)': Math.round(performance.now()-t0) }); }
+  }
   try {
     // 更新後の行を返してもらい、実際に反映されたか(0件更新でないか)を検証する
     let updatedRows;
     try{
-      const result = await bookingsApiCall('updateById', { id: bookingId, fields: payload });
+      const result = await __timed('予約情報(bookings)', () => bookingsApiCall('updateById', { id: bookingId, fields: payload }));
       updatedRows = result.rows;
     }catch(e){ alert('保存に失敗しました: '+e.message); return; }
     if(!updatedRows || updatedRows.length === 0){
@@ -14611,20 +14660,22 @@ async function saveBookingDetail(){
       booking_id: bookingId, item_name: it.item_name||'', amount: Number(it.amount)||0,
       payment_date: sanitizeDateField(it.payment_date), payment_method: it.payment_method||null, memo: it.memo||'', status: it.status||'pending'
     }));
-    await bookingSalesApiCall('replace', { bookingId, rows: salesToInsert });
-    await bookingCostsApiCall('replace', { bookingId, rows: costToInsert });
+    await __timed('売上明細(booking_sales)', () => bookingSalesApiCall('replace', { bookingId, rows: salesToInsert }));
+    await __timed('仕入明細(booking_costs)', () => bookingCostsApiCall('replace', { bookingId, rows: costToInsert }));
 
     const bForSync = findBookingById(bookingId);
-    if(bForSync) await syncAdvancePaymentsFromCosts(bookingId, bForSync.ref_no);
+    if(bForSync) await __timed('入金消込(syncAdvancePaymentsFromCosts)', () => syncAdvancePaymentsFromCosts(bookingId, bForSync.ref_no));
 
-    for(const it of costToInsert){
-      if(it.item_name) await registerNewSupplier(it.item_name);
-    }
-    await saveLocalExpenses();
-    await saveHotelItems();
-    await saveBusItems();
-    await saveRestaurantItems();
-    await saveFacilityItems();
+    await __timed('仕入先マスタ登録(registerNewSupplier×'+costToInsert.filter(it=>it.item_name).length+'件)', async () => {
+      for(const it of costToInsert){
+        if(it.item_name) await registerNewSupplier(it.item_name);
+      }
+    });
+    await __timed('現地費用(local_expenses)', () => saveLocalExpenses());
+    await __timed('ホテル(booking_hotels)', () => saveHotelItems());
+    await __timed('バス(booking_buses)', () => saveBusItems());
+    await __timed('レストラン(booking_restaurants)', () => saveRestaurantItems());
+    await __timed('観光施設(booking_facilities)', () => saveFacilityItems());
     // ここから先の明細保存は、1つが失敗しても残りを止めない。
     // 以前は逐次awaitだったため、途中で例外が出るとそれ以降のタブが丸ごと未保存になり、
     // かつユーザーには「どこまで保存されたか」が分からない状態だった(部分保存の事故)。
@@ -14645,13 +14696,18 @@ async function saveBookingDetail(){
     const detailSaveFailed = []; // {label, table, message}
     for(const step of detailSaveSteps){
       try{
-        await step.run();
+        await __timed(step.label, () => step.run());
         detailSaveOk.push(step.label);
       }catch(e){
         logError(`予約詳細の保存(${step.label})`, e, {toast:false});
         detailSaveFailed.push({ label: step.label, table: step.table, message: e.message });
       }
     }
+    __savePerfLog.push({ 'ステップ': '─合計(全ステップ)', '所要時間(ms)': Math.round(performance.now()-__savePerfT0) });
+    console.log('【保存処理の所要時間 内訳】(window.__savePerfLogでも参照可)');
+    console.table(__savePerfLog);
+    console.log('【/api/table-crud 呼び出し毎の内訳(往復合計/サーバー処理時間/コールドスタート)】(window.__tableCrudCallLogでも参照可)');
+    console.table(window.__tableCrudCallLog);
     let newTableSaveWarning = '';
     if(detailSaveFailed.length){
       const failedList = detailSaveFailed.map(f=>`・「${f.label}」タブ（${f.table}）\n　　${f.message}`).join('\n');
@@ -14684,6 +14740,11 @@ async function saveBookingDetail(){
       await sb.from('invoices').update({status:'paid'}).eq('booking_id', bookingId).eq('status','pending');
     }
   } catch(e) {
+    __savePerfLog.push({ 'ステップ': '─合計(エラー発生まで)', '所要時間(ms)': Math.round(performance.now()-__savePerfT0) });
+    console.log('【保存処理の所要時間 内訳(エラーで中断)】(window.__savePerfLogでも参照可)');
+    console.table(__savePerfLog);
+    console.log('【/api/table-crud 呼び出し毎の内訳(往復合計/サーバー処理時間/コールドスタート)】(window.__tableCrudCallLogでも参照可)');
+    console.table(window.__tableCrudCallLog);
     alert('保存中にエラーが発生しました: ' + (e.message || String(e)));
     logError('予約台帳の保存', e, {toast:false});
   } finally {

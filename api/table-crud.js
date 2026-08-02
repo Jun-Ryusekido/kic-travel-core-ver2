@@ -666,7 +666,22 @@ async function doAuditHistory(targetTable, recordId) {
 // 既に開いていたタブだけ404で保存できない」という事故を防ぐ(2026-07-27 本番インシデント対応)。
 // vercel.jsonでこれらの旧パスは全てこの同じapi/table-crud.jsにルーティングされる
 // (別ファイルではないためVercelの関数数は増えない)。
+// 保存処理のボトルネック調査用の計測(2026-08時点、体感の保存遅延の原因切り分けのため一時追加)。
+// globalThisはVercelのサーバーレス関数インスタンスが使い回される(=ウォーム)間は保持される
+// ため、その最初の1回だけcoldStart:trueになる。レスポンスJSONに__metaとして
+// {serverMs, coldStart}を付加するだけで、他の処理・レスポンス形状には一切影響しない。
 export default async function handler(req, res) {
+  const __reqT0 = Date.now();
+  const __wasCold = !globalThis.__tableCrudWarm;
+  globalThis.__tableCrudWarm = true;
+  const __origJson = res.json.bind(res);
+  res.json = (body) => {
+    if (body && typeof body === 'object') {
+      body.__meta = { serverMs: Date.now() - __reqT0, coldStart: __wasCold };
+    }
+    return __origJson(body);
+  };
+
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (!getServiceKey()) return res.status(500).json({ error: 'サーバー側にSUPABASE_SERVICE_ROLE_KEYが設定されていません' });
 
