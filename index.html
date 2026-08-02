@@ -600,96 +600,106 @@ input[type=number]{-moz-appearance:textfield}
      スコープし、bus/restaurant/facility等の他confirm-tableには一切影響させない)。
      DOM順序・data属性・id参照は一切変更していないため、hotelCalc()等の既存JSは
      そのまま動作する(表示位置のみCSS Gridで並べ替え)。
-     全行を12分割の同一グリッド(grid-template-columns:repeat(12,1fr))にすることで、
-     行ごとに列幅がバラバラで右端が揃わない問題(旧実装の指摘事項)を解消する。
-     1〜3行目は4:4:4→5:5:2トラック(=1fr:1fr:0.4fr)を共有するため、ホテル名(col1+2)・
-     アウト(col2)・部屋数(col2)の右端は必ず同じ位置(トラック10/11境界)で揃う。
-     4〜6行目は3行目までと独立した別グリッド配分(同じ12トラックの別スパン)でよいため
-     揃える対象にしていない。 */
+     全行を12分割の同一グリッド(grid-template-columns:repeat(12,1fr))にし、
+     行ごとに列幅がバラバラで右端が揃わない問題を解消する。
+     前回実装では「ラベルを::beforeで表示する」がデフォルトで、個別にdisplay:noneで
+     打ち消す方式だったため、打ち消し忘れ(ホテル名/金額/支払方法/ステータス)が発生した。
+     今回はデフォルトを「ラベル非表示」に反転し、金額・仕入明細の2箇所だけ明示的に
+     ::beforeへラベルを追加する方式にする(打ち消し忘れが起こり得ない設計)。
+     また、¥/室の単位表示はposition:absoluteをやめ、td自体をflexにして
+     ::before/::afterを実際のflexアイテムとして並べる方式にする(実機によって
+     absolute+transform:translateY(-50%)の基準ボックスがズレる問題を根本的に回避する)。
+     全セルの高さを30pxに統一し、align-items:centerで垂直中央揃えにすることで、
+     同じ行の全項目のtop/heightが厳密に一致するようにする。 */
   #bd-hotels-tbody tr{
     display:grid;grid-template-columns:repeat(12,1fr);gap:6px 8px;
     border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:8px;background:var(--card)
   }
   #bd-hotels-tbody tr:has(td.empty){display:block}
-  #bd-hotels-tbody td{display:block!important;padding:0!important;border:none!important;min-width:0!important;position:relative}
-  #bd-hotels-tbody td::before{content:attr(data-label);display:block;font-weight:600;font-size:10px;color:var(--text3);margin-bottom:2px}
-  #bd-hotels-tbody td:not([data-label])::before{display:none}
+  #bd-hotels-tbody td{
+    display:flex!important;align-items:center;height:30px;box-sizing:border-box;
+    padding:0!important;border:none!important;min-width:0!important
+  }
+  /* デフォルトは全項目ラベル非表示。金額・仕入明細のみ後段で個別に::beforeを追加する。 */
+  #bd-hotels-tbody td::before{content:none;display:none}
   #bd-hotels-tbody td input:not([type="checkbox"]),
   #bd-hotels-tbody td select{width:100%!important;height:30px;box-sizing:border-box;font-size:11px;padding:2px 6px}
-  #bd-hotels-tbody td .st-dd-btn{width:100%;box-sizing:border-box}
-  #bd-hotels-tbody td.empty{grid-column:1/13}
+  #bd-hotels-tbody td .st-dd-btn{width:100%;height:28px;box-sizing:border-box}
+  #bd-hotels-tbody td.empty{grid-column:1/13;display:block}
 
-  /* 1行目: ホテル名(col1+col2=トラック1-10) + 削除ボタン(col3=トラック11-12、中央寄せ) */
-  #bd-hotels-tbody td:nth-child(1){grid-row:1;grid-column:1/11}
-  #bd-hotels-tbody td.li-del{grid-row:1;grid-column:11/13;align-self:center;text-align:center}
+  /* 1行目: ホテル名(col1-11=トラック1-11) + 削除ボタン(col12=トラック11-12、
+     1トラック分の狭い幅にして入力欄のすぐ右に来るようにする) */
+  #bd-hotels-tbody td:nth-child(1){grid-row:1;grid-column:1/12}
+  #bd-hotels-tbody td.li-del{grid-row:1;grid-column:12/13;justify-content:center}
 
   /* 2行目: イン(col1) / アウト(col2) / 泊数(col3、背景色付きバッジ)。ラベル「イン」
-     「アウト」は日付欄自体で分かるため非表示にし、泊数は元のテキストは変更せず
+     「アウト」は日付欄自体で分かるため非表示のまま。泊数は元のテキストは変更せず
      (PC表示に影響させないため)CSSの::afterで「泊」を付与する。 */
   #bd-hotels-tbody td:nth-child(2){grid-row:2;grid-column:1/6}
   #bd-hotels-tbody td:nth-child(3){grid-row:2;grid-column:6/11}
-  #bd-hotels-tbody td:nth-child(2)::before,#bd-hotels-tbody td:nth-child(3)::before{display:none}
   #bd-hotels-tbody td:nth-child(6){
-    grid-row:2;grid-column:11/13;align-self:stretch;display:flex!important;align-items:center;justify-content:center;
+    grid-row:2;grid-column:11/13;justify-content:center;
     background:var(--bg2,#EEF1F4);border-radius:6px;font-size:11px;font-weight:700;color:var(--text2)
   }
-  #bd-hotels-tbody td:nth-child(6)::before{display:none}
   #bd-hotels-tbody td[data-hotel-nights]::after{content:"泊";font-size:9px;font-weight:400;margin-left:1px}
 
-  /* 3行目: 部屋タイプ(col1、placeholderのみでラベル無し) / 部屋数(col2、欄内右端に
-     「室」を表示、ラベル無し) / 朝食(col3、チェックボックスのみ・背景色付き) */
+  /* 3行目: 部屋タイプ(col1、placeholderのみでラベル無し) / 部屋数(col2、入力欄の
+     右側に「室」を並べて表示、ラベル無し) / 朝食(col3、チェックボックスのみ・背景色付き) */
   #bd-hotels-tbody td:nth-child(4){grid-row:3;grid-column:1/6}
-  #bd-hotels-tbody td:nth-child(5){grid-row:3;grid-column:6/11}
+  #bd-hotels-tbody td:nth-child(5){grid-row:3;grid-column:6/11;gap:4px}
   #bd-hotels-tbody td:nth-child(7){
-    grid-row:3;grid-column:11/13;align-self:stretch;display:flex!important;align-items:center;justify-content:center;
+    grid-row:3;grid-column:11/13;justify-content:center;
     background:var(--bg2,#EEF1F4);border-radius:6px
   }
-  #bd-hotels-tbody td:nth-child(4)::before,#bd-hotels-tbody td:nth-child(7)::before{display:none}
-  /* 部屋数は「室」表示を欄の右端内側に重ねるため、ラベル用::beforeを転用する
-     (ラベルは非表示にする代わりにabsolute配置の単位表示に差し替える)。 */
-  #bd-hotels-tbody td:nth-child(5)::before{
-    content:"室";display:block;position:absolute;right:8px;top:50%;transform:translateY(-50%);
-    font-size:10px;font-weight:400;color:var(--text3);margin:0;pointer-events:none;z-index:1
+  /* 「室」はflexアイテムとして入力欄の後ろ(右)に実際に並べる。DOM順は
+     input→::afterのため、::afterは自動的に最後(右側)に配置される。 */
+  #bd-hotels-tbody td:nth-child(5)::after{
+    content:"室";display:block;font-size:10px;font-weight:400;color:var(--text3);
+    flex:0 0 auto;white-space:nowrap
   }
-  #bd-hotels-tbody td:nth-child(5) input{padding-right:20px;-moz-appearance:textfield}
+  #bd-hotels-tbody td:nth-child(5) input{-moz-appearance:textfield;width:auto!important;flex:1;min-width:0}
   #bd-hotels-tbody td:nth-child(5) input::-webkit-outer-spin-button,
   #bd-hotels-tbody td:nth-child(5) input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 
-  /* 4行目: 単価(欄内左端に「¥」、ラベル無し) / 金額(表示のみ) / 支払方法(広め)。
-     3行目までの1fr:1fr:0.4fr共有グリッドとは独立した配分でよいため、
-     同じ12トラックを4:3:5で振り直す(3行目までとの右端一致は求められていない)。
+  /* 4行目: 単価(入力欄の前(左)に「¥」を並べて表示、ラベル無し) / 金額(「金額」ラベル+
+     値を1つの塊で表示) / 支払方法(広め)。3行目までの1fr:1fr:0.4fr共有グリッドとは
+     独立した配分でよいため、同じ12トラックを4:3:5で振り直す。
      ※元の指示には金額(単価×部屋数×泊数の計算結果)の配置が明記されていなかったが、
      省略すると合計金額が画面から見えなくなる回帰になるため、単価と支払方法の間に
      残している。 */
-  #bd-hotels-tbody td:nth-child(8){grid-row:4;grid-column:1/5}
-  #bd-hotels-tbody td:nth-child(9){grid-row:4;grid-column:5/8}
+  #bd-hotels-tbody td:nth-child(8){grid-row:4;grid-column:1/5;gap:4px}
+  #bd-hotels-tbody td:nth-child(9){grid-row:4;grid-column:5/8;gap:4px;font-size:11px;white-space:nowrap;overflow:hidden}
   #bd-hotels-tbody td:nth-child(10){grid-row:4;grid-column:8/13}
+  /* 「¥」はflexアイテムとして入力欄の前(左)に実際に並べる。::beforeはDOM順で
+     input(実要素)より必ず前に生成されるため、自動的に左側に配置される。 */
   #bd-hotels-tbody td:nth-child(8)::before{
-    content:"¥";display:block;position:absolute;left:8px;top:50%;transform:translateY(-50%);
-    font-size:10px;font-weight:400;color:var(--text3);margin:0;pointer-events:none;z-index:1
+    content:"¥";display:block;font-size:10px;font-weight:400;color:var(--text3);
+    flex:0 0 auto;white-space:nowrap
   }
-  #bd-hotels-tbody td:nth-child(8) input{padding-left:16px}
+  #bd-hotels-tbody td:nth-child(8) input{width:auto!important;flex:1;min-width:0}
+  #bd-hotels-tbody td:nth-child(9)::before{
+    content:"金額";display:block;font-size:10px;font-weight:600;color:var(--text3);
+    flex:0 0 auto;white-space:nowrap
+  }
 
   /* 5行目: 確認番号(placeholderのみ) / ステータス / 仕入明細(ラベル+バッジを
      1つの枠にまとめ、バッジをラベルのすぐ右に寄せる)の均等3分割(4:4:4)。 */
   #bd-hotels-tbody td:nth-child(11){grid-row:5;grid-column:1/5}
   #bd-hotels-tbody td:nth-child(12){grid-row:5;grid-column:5/9}
-  #bd-hotels-tbody td:nth-child(11)::before{display:none}
   #bd-hotels-tbody td:nth-child(14){
-    grid-row:5;grid-column:9/13;display:flex!important;align-items:center;justify-content:flex-start;gap:6px;
-    background:var(--bg2,#EEF1F4);border-radius:6px;padding:6px 8px!important
+    grid-row:5;grid-column:9/13;justify-content:flex-start;gap:6px;
+    background:var(--bg2,#EEF1F4);border-radius:6px;padding:0 8px!important
   }
   /* PC側の見出し(th)は「仕入明細へ」のままだが、data-label属性を変えるとbus/rest/fac等の
      共通ヘルパー(arrCostCheckboxHtml)全体に影響してしまうため、属性値は変更せず、
      ホテルのモバイル表示に限定してこのセレクタだけ表示文言をCSSで差し替える。 */
-  /* .confirm-table td::before{flex:0 0 76px}(ラベル左寄せレイアウト用の固定幅)が
-     このtd自体には効いていても、より優先度の高い属性のみ書き換えていたためflex-basis:76px
-     が残ってボタンが右へ押し出されていた。flex-basis:autoで実際の文字幅に合わせる。 */
-  #bd-hotels-tbody td:nth-child(14)::before{content:"仕入明細";display:inline;margin:0;flex:0 0 auto;white-space:nowrap}
+  #bd-hotels-tbody td:nth-child(14)::before{
+    content:"仕入明細";display:block;font-size:10px;font-weight:600;color:var(--text3);
+    flex:0 0 auto;white-space:nowrap
+  }
 
   /* 6行目: 備考(placeholderのみでラベル無し、フル幅) */
   #bd-hotels-tbody td:nth-child(13){grid-row:6;grid-column:1/13}
-  #bd-hotels-tbody td:nth-child(13)::before{display:none}
 }
 
 /* ===== エラートースト（画面右下、スマホは下部中央） ===== */
