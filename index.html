@@ -1336,6 +1336,44 @@ input[type=number]{-moz-appearance:textfield}
           </table></div>
         </div>
         <div class="card">
+          <div class="card-title">四半期サマリー <span class="lnk" style="font-size:11px;font-weight:400" id="g-quarterly-toggle" onclick="toggleGrossSection('quarterly')">▼ 表示</span></div>
+          <div id="g-quarterly-body" style="display:none">
+            <div class="tbl-wrap"><table>
+              <thead><tr><th>四半期</th><th>売上</th><th>原価</th><th>GROSS</th><th>GROSS率</th><th>件数</th></tr></thead>
+              <tbody id="g-quarterly-tbody"><tr><td colspan="6" class="empty">読み込み中...</td></tr></tbody>
+            </table></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">前年同期比較（月別） <span class="lnk" style="font-size:11px;font-weight:400" id="g-yoy-toggle" onclick="toggleGrossSection('yoy')">▼ 表示</span></div>
+          <div id="g-yoy-body" style="display:none">
+            <div class="tbl-wrap"><table>
+              <thead><tr><th>月</th><th>当年GROSS</th><th>前年GROSS</th><th>差額</th><th>増減率</th></tr></thead>
+              <tbody id="g-yoy-tbody"><tr><td colspan="5" class="empty">読み込み中...</td></tr></tbody>
+            </table></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">GROSS Top-N <span class="lnk" style="font-size:11px;font-weight:400" id="g-topn-toggle" onclick="toggleGrossSection('topn')">▼ 表示</span></div>
+          <div id="g-topn-body" style="display:none">
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+              <label style="font-size:11px;color:var(--text3);font-weight:600">件数</label>
+              <select id="g-topn-limit" onchange="loadGrossTopTours()"><option value="5">5件</option><option value="10" selected>10件</option><option value="20">20件</option></select>
+              <label style="font-size:11px;color:var(--text3);font-weight:600">並び順</label>
+              <select id="g-topn-order" onchange="loadGrossTopTours()">
+                <option value="gross_desc">GROSS額が大きい順</option>
+                <option value="gross_asc">GROSS額が小さい順</option>
+                <option value="rate_desc">GROSS率が高い順</option>
+                <option value="rate_asc">GROSS率が低い順</option>
+              </select>
+            </div>
+            <div class="tbl-wrap"><table>
+              <thead><tr><th>#</th><th>REF#</th><th>Agent</th><th>Tour</th><th>Out</th><th>売上</th><th>原価</th><th>GROSS</th><th>率</th></tr></thead>
+              <tbody id="g-topn-tbody"><tr><td colspan="9" class="empty">読み込み中...</td></tr></tbody>
+            </table></div>
+          </div>
+        </div>
+        <div class="card">
           <div class="card-title">GROSS明細 — ツアー別</div>
           <div class="tbl-wrap"><table>
             <thead><tr><th>REF#</th><th>Agent</th><th>Tour</th><th>Out</th><th>売上</th><th>原価</th><th>GROSS</th><th>率</th><th>Status</th></tr></thead>
@@ -15035,6 +15073,101 @@ async function loadGross(){
       <td>${yen(sales)}</td><td>${yen(cost)}</td>
       <td class="${cls}">${yen(g)}</td><td class="${cls}">${r}%</td>
       <td>${statusPill(b.status)}</td>
+    </tr>`;
+  }).join('');
+
+  // 決算年度が変わった場合、既に開いているセクションがあれば追随して再取得する
+  // (閉じたままのセクションは、次に開かれたタイミングでその時点のg-fy値を見て取得する)
+  grossTrendsCache = null;
+  if(grossSectionsOpen.quarterly || grossSectionsOpen.yoy) loadGrossTrends();
+  if(grossSectionsOpen.topn) loadGrossTopTours();
+}
+
+// GROSS拡張(四半期・前年同期比較・Top-N)。既存のloadGross()(月次集計・ツアー別明細)には
+// 手を加えず、開いたセクションだけ都度RPCで取得する(常時全部読み込むと不要な通信が増えるため)。
+const grossSectionsOpen = {quarterly:false, yoy:false, topn:false};
+let grossTrendsCache = null; // {fy, rows} get_gross_trends()の結果。決算年度セレクター変更時に破棄する。
+function toggleGrossSection(name){
+  const body = document.getElementById(`g-${name}-body`);
+  const toggle = document.getElementById(`g-${name}-toggle`);
+  if(!body || !toggle) return;
+  const opening = body.style.display === 'none';
+  body.style.display = opening ? 'block' : 'none';
+  toggle.textContent = opening ? '▲ 閉じる' : '▼ 表示';
+  grossSectionsOpen[name] = opening;
+  if(!opening) return;
+  if(name==='quarterly' || name==='yoy') loadGrossTrends();
+  if(name==='topn') loadGrossTopTours();
+}
+async function loadGrossTrends(){
+  const fy = Number(document.getElementById('g-fy').value);
+  if(grossTrendsCache && grossTrendsCache.fy===fy){ renderGrossQuarterly(); renderGrossYoy(); return; }
+  const {data, error} = await sb.rpc('get_gross_trends', {p_fiscal_year: fy});
+  if(error){ logError('GROSS四半期・前年比較の読み込み(get_gross_trends)', error); return; }
+  grossTrendsCache = {fy, rows: data||[]};
+  renderGrossQuarterly();
+  renderGrossYoy();
+}
+function renderGrossQuarterly(){
+  const tbody = document.getElementById('g-quarterly-tbody');
+  if(!grossTrendsCache || !tbody) return;
+  const fy = grossTrendsCache.fy;
+  const map = {};
+  grossTrendsCache.rows.filter(r=>r.fiscal_year===fy && r.period_type==='quarter').forEach(r=>{ map[r.period_key]=r; });
+  const labels = {Q1:'第1四半期（3-5月）', Q2:'第2四半期（6-8月）', Q3:'第3四半期（9-11月）', Q4:'第4四半期（12-2月）'};
+  tbody.innerHTML = ['Q1','Q2','Q3','Q4'].map(q=>{
+    const v = map[q] || {sales:0, cost:0, booking_count:0};
+    const sales = Number(v.sales||0), cost = Number(v.cost||0), g = sales-cost;
+    const r = sales ? (g/sales*100).toFixed(1) : '0.0';
+    const cls = g<0 ? 'red' : 'green';
+    return `<tr><td>${labels[q]}</td><td>${yen(sales)}</td><td>${yen(cost)}</td><td class="${cls}">${yen(g)}</td><td class="${cls}">${r}%</td><td>${v.booking_count||0}</td></tr>`;
+  }).join('');
+}
+function renderGrossYoy(){
+  const tbody = document.getElementById('g-yoy-tbody');
+  if(!grossTrendsCache || !tbody) return;
+  const fy = grossTrendsCache.fy;
+  const curMap = {}, prevMap = {};
+  grossTrendsCache.rows.filter(r=>r.fiscal_year===fy && r.period_type==='month').forEach(r=>{ curMap[r.period_key]=r; });
+  grossTrendsCache.rows.filter(r=>r.fiscal_year===fy-1 && r.period_type==='month').forEach(r=>{ prevMap[r.period_key]=r; });
+  const hasPrevYear = Object.keys(prevMap).length > 0;
+  const months = fiscalYearMonths(fy), prevMonths = fiscalYearMonths(fy-1);
+  tbody.innerHTML = months.map((m,i)=>{
+    const [yy,mm] = m.split('-');
+    const label = `${yy}年${Number(mm)}月`;
+    const cur = curMap[m];
+    const curGross = cur ? Number(cur.sales||0)-Number(cur.cost||0) : 0;
+    if(!hasPrevYear){
+      return `<tr><td>${label}</td><td>${yen(curGross)}</td><td colspan="3" class="empty" style="text-align:left;padding:8px">前年データなし</td></tr>`;
+    }
+    const prev = prevMap[prevMonths[i]];
+    const prevGross = prev ? Number(prev.sales||0)-Number(prev.cost||0) : 0;
+    const diff = curGross - prevGross;
+    const diffCls = diff<0 ? 'red' : 'green';
+    const diffRate = prevGross!==0 ? ((diff/Math.abs(prevGross))*100).toFixed(1)+'%' : (curGross!==0 ? '-' : '0.0%');
+    return `<tr><td>${label}</td><td>${yen(curGross)}</td><td>${yen(prevGross)}</td><td class="${diffCls}">${yen(diff)}</td><td class="${diffCls}">${diffRate}</td></tr>`;
+  }).join('');
+}
+async function loadGrossTopTours(){
+  const fy = Number(document.getElementById('g-fy').value);
+  const limit = Number(document.getElementById('g-topn-limit').value) || 10;
+  const order = document.getElementById('g-topn-order').value;
+  const tbody = document.getElementById('g-topn-tbody');
+  if(!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="9" class="empty">読み込み中...</td></tr>';
+  const {data, error} = await sb.rpc('get_gross_top_tours', {p_fiscal_year: fy, p_limit: limit, p_order: order});
+  if(error){ logError('GROSS Top-Nの読み込み(get_gross_top_tours)', error); tbody.innerHTML = '<tr><td colspan="9" class="empty">読み込みに失敗しました</td></tr>'; return; }
+  if(!data || data.length===0){ tbody.innerHTML = '<tr><td colspan="9" class="empty">この決算年度のデータがありません</td></tr>'; return; }
+  tbody.innerHTML = data.map((b,i)=>{
+    const sales = Number(b.sales||0), cost = Number(b.cost||0), g = Number(b.gross||0);
+    const r = Number(b.gross_rate||0).toFixed(1);
+    const cls = g<0 ? 'red' : (r>=25 ? 'green' : 'amber');
+    return `<tr ondblclick="openBookingDetail('${b.id}')">
+      <td>${i+1}</td>
+      <td class="lnk" onclick="openBookingDetail('${b.id}')">${b.ref_no||''}</td><td>${b.agent_name||''}</td><td>${b.tour_name||''}</td>
+      <td>${b.out_date||''}</td>
+      <td>${yen(sales)}</td><td>${yen(cost)}</td>
+      <td class="${cls}">${yen(g)}</td><td class="${cls}">${r}%</td>
     </tr>`;
   }).join('');
 }
