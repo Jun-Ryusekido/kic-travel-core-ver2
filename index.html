@@ -564,7 +564,19 @@ input[type=number]{-moz-appearance:textfield}
     border-bottom: 1px solid var(--border);
     background: var(--bg);
   }
-  #pt-save-bar {
+  #pt-save-bar, #pt-batch-bar {
+    /* PC用のposition:fixed(インライン style)がスマホのflex order レイアウトでも
+       そのまま効いてしまい、モーダル下端に常時かぶさって最後の入力欄(備考欄)を
+       タップできなくする不具合があったため、スマホでは通常のflex子要素に戻す。
+       (order指定はPC用インラインstyleより優先されるが、position:fixedはCSSの
+       他プロパティと独立して効いてしまうため、position自体を明示的に上書きする必要がある) */
+    /* インラインstyle(PC用、position:fixed;left:50%;transform:translateX(-50%))が
+       スマホのflex orderレイアウトでもそのまま効いてしまい、モーダル下端に常時かぶさって
+       最後の入力欄(備考欄)をタップできなくする不具合があったため、スマホでは通常の
+       flex子要素に戻す(position以外にleft/transformも打ち消さないと画面外にずれる)。 */
+    position: static !important;
+    left: auto !important;
+    transform: none !important;
     order: 3;
     flex-shrink: 0;
     margin: 0;
