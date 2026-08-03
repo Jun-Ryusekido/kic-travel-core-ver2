@@ -72,6 +72,12 @@ html,body{overflow-x:clip}
 .btn-p{background:var(--blue);color:#fff;border-color:var(--blue)}
 .btn-p:hover{background:#0C447C}
 .content{flex:1;padding:18px 20px;max-width:100%;width:100%;margin:0}
+/* ダッシュボードの折りたたみ区分バッジ行(到着日アラート・対応が必要な予約)。
+   行全体(onclick="toggleDbArrivalTier()"/"toggleDbTodoTier()")は既にクリック可能だったが、
+   タップ時の視覚的フィードバックが無く、矢印アイコンしか反応していないように見えていたため
+   :active(タップ中)のフィードバックを追加する。*/
+.db-tier-row-header{transition:filter .1s}
+.db-tier-row-header:active{filter:brightness(.92)}
 .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:14px}
 .card-title{font-size:12px;font-weight:600;color:var(--text2);margin-bottom:10px;display:flex;align-items:center;justify-content:space-between}
 .kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
@@ -3640,7 +3646,7 @@ function renderDbArrivalAlert(){
       </div>`;
     }).join('') : `<div style="padding:8px 12px;font-size:11px;color:var(--text3)">該当する予約はありません</div>`;
     return `<div style="border:1px solid ${b.border};border-radius:10px;margin-bottom:6px;overflow:hidden">
-      <div onclick="toggleDbArrivalTier(${b.max})" style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;background:${b.bg};cursor:pointer">
+      <div class="db-tier-row-header" onclick="toggleDbArrivalTier(${b.max})" style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;background:${b.bg};cursor:pointer">
         <span style="display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden">
           <span style="font-weight:700;color:${b.fg};white-space:nowrap;flex-shrink:0">${b.label}</span>
           <span style="background:rgba(0,0,0,.09);color:${b.fg};padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700;white-space:nowrap;flex-shrink:0">${b.items.length}件</span>
@@ -3806,7 +3812,7 @@ function renderDbTodoSummaryFromCache(){
       ? `<div class="tbl-wrap"><table class="confirm-table" style="width:100%;border-collapse:collapse;font-size:12px">${TODO_TABLE_COLGROUP_HTML}${TODO_TABLE_THEAD_HTML}<tbody>${b.items.map(f=>todoRow(f, b.fg, false)).join('')}</tbody></table></div>`
       : `<div style="padding:8px 12px;font-size:11px;color:var(--text3)">該当する予約はありません</div>`;
     return `<div style="border:1px solid ${b.border};border-radius:10px;margin-bottom:6px;overflow:hidden">
-      <div onclick="toggleDbTodoTier(${idx})" style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;background:${b.bg};cursor:pointer">
+      <div class="db-tier-row-header" onclick="toggleDbTodoTier(${idx})" style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;background:${b.bg};cursor:pointer">
         <span style="display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden">
           <span style="font-weight:700;color:${b.fg};white-space:nowrap;flex-shrink:0">${b.label}</span>
           <span style="background:rgba(0,0,0,.09);color:${b.fg};padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700;white-space:nowrap;flex-shrink:0">${b.items.length}件</span>
@@ -9904,13 +9910,46 @@ function applyRefSuggestion(emailId, refNo){
 // リンクで全文(改行そのまま)を展開できるようにする。プレビュー・全文の両方を
 // 事前にDOMへ描画しておき、表示/非表示をトグルするだけなので、行の再描画
 // (REF#入力欄やカテゴリ選択の状態が消える)を伴わない。
+// 免責文言・署名の定型文(多言語で同じ内容が繰り返される、"confidential"・
+// "strictly prohibited"・「機密」等を含む段落)を検出する。誤検出(実際に必要な
+// 内容を隠してしまう)を避けるため、以下の条件を両方満たす場合のみ対象とする:
+// ・本文の末尾から連続する段落であること(本文途中に短く挟まれているだけなら対象外)
+// ・その段落が十分な長さ(40文字以上)かつ、いかにも法的定型文らしい特定フレーズを含むこと
+//   (「confidential」単体等の曖昧な語だけでは反応しない、より具体的なフレーズに限定)
+const EMAIL_DISCLAIMER_SIGNAL_RE = /(strictly prohibited|privileged information|intended recipient|please notify the sender|please delete this|do not disseminate|distribute or copy|this (e-?mail|message) (and any|is intended)|message électronique|ce message est confidentiel|est destiné exclusivement|toute diffusion|toute utilisation non autorisée|本メールは.{0,10}(関係者|受信者).{0,10}(限り|のみ)|機密情報|免責事項|複製.{0,5}(転送|配布).{0,5}禁止)/i;
+function splitEmailBodyDisclaimer(bodyText){
+  const text = String(bodyText||'');
+  if(!text) return {main:text, disclaimer:''};
+  const paragraphs = text.split(/\n\s*\n/);
+  if(paragraphs.length < 2) return {main:text, disclaimer:''};
+  // 末尾の段落から遡り、免責文言らしい段落が連続する範囲だけを切り出す。
+  // 免責文言でない段落に当たった時点で遡るのをやめる(本文途中の誤爆を防ぐ)。
+  let cutIdx = paragraphs.length;
+  for(let i = paragraphs.length - 1; i >= 0; i--){
+    const p = paragraphs[i].trim();
+    if(p.length >= 40 && EMAIL_DISCLAIMER_SIGNAL_RE.test(p)){
+      cutIdx = i;
+    } else {
+      break;
+    }
+  }
+  if(cutIdx >= paragraphs.length) return {main:text, disclaimer:''};
+  return {
+    main: paragraphs.slice(0, cutIdx).join('\n\n'),
+    disclaimer: paragraphs.slice(cutIdx).join('\n\n'),
+  };
+}
 function emailInboxBodyBlockHtml(m, preview){
   const bodyText = String(m.body||'').replace(/\s+/g,' ').trim();
   const hasMore = bodyText.length > preview.length;
   const expandLink = hasMore ? ` <span class="lnk" style="font-size:10px" onclick="toggleEmailInboxBody('${m.id}')">本文を全て表示</span>` : '';
-  const fullBodyHtml = escHtml(String(m.body||'')).replace(/\n/g,'<br>');
+  const {main, disclaimer} = splitEmailBodyDisclaimer(String(m.body||''));
+  const fullBodyHtml = escHtml(main).replace(/\n/g,'<br>');
+  const disclaimerHtml = disclaimer
+    ? `<details style="margin-top:8px;border-top:1px solid var(--border);padding-top:6px"><summary class="lnk" style="font-size:10px;cursor:pointer">免責文言・署名を表示</summary><div style="margin-top:4px;font-size:10px;color:var(--text3);white-space:pre-wrap">${escHtml(disclaimer)}</div></details>`
+    : '';
   return `<div id="email-inbox-preview-${m.id}" style="font-size:11px;color:var(--text2);margin-bottom:8px;overflow-wrap:break-word;word-break:break-word">${escHtml(preview)}${preview.length>=80?'…':''}${expandLink}</div>
-    <div id="email-inbox-full-${m.id}" style="display:none;font-size:11px;color:var(--text2);margin-bottom:8px;white-space:pre-wrap;overflow-wrap:break-word;word-break:break-word;border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--bg);max-height:400px;overflow-y:auto">${fullBodyHtml}<div style="margin-top:6px"><span class="lnk" style="font-size:10px" onclick="toggleEmailInboxBody('${m.id}')">折りたたむ</span></div></div>`;
+    <div id="email-inbox-full-${m.id}" style="display:none;font-size:11px;color:var(--text2);margin-bottom:8px;white-space:pre-wrap;overflow-wrap:break-word;word-break:break-word;border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--bg);max-height:400px;overflow-y:auto">${fullBodyHtml}${disclaimerHtml}<div style="margin-top:6px"><span class="lnk" style="font-size:10px" onclick="toggleEmailInboxBody('${m.id}')">折りたたむ</span></div></div>`;
 }
 function toggleEmailInboxBody(id){
   const preview = document.getElementById('email-inbox-preview-'+id);
