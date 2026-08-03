@@ -8198,7 +8198,7 @@ async function openEstimationEditor(id){
 
       const {data: frows} = await sb.from('estimation_fixed_rows').select('*').eq('estimation_id', id).order('sort_order');
       const _admPrefix = '@admission:';
-      estFixedRows = (frows||[]).filter(r=>!(r.label||'').startsWith(_admPrefix)).map(r=>({label:r.label||'', amounts:(r.amounts||[]).map(a=>Number(a)||0)}));
+      estFixedRows = (frows||[]).filter(r=>!(r.label||'').startsWith(_admPrefix)).map(r=>({label:r.label||'', amounts:(r.amounts||[]).map(a=>Number(a)||0), section:r.section||'hotel'}));
       estAdmissionRows = (frows||[]).filter(r=>(r.label||'').startsWith(_admPrefix)).map(r=>{
         const raw = (r.label||'').slice(_admPrefix.length);
         const sep = raw.indexOf('@@');
