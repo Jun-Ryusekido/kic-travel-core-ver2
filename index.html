@@ -16877,7 +16877,7 @@ function renderCcTable(){
 }
 
 async function openCcMatchModal(id){
-  const s = ccStatementsCache.find(x=>x.id===id);
+  const s = ccStatementsCache.find(x=>String(x.id)===String(id));
   if(!s) return;
   const candidates = await findCcMatchCandidates(s);
   document.getElementById('cc-match-modal')?.remove();
