@@ -11557,6 +11557,7 @@ function fallbackExtractAmount(text){
 // 専用フィールドへの分類に失敗し(実運用のAI応答は必ずしもプロンプト通りにならない)、
 // start_date/end_date/amountも空のまま返ってくることがあったため保険を掛ける。
 // 既にバスらしい情報が何か1つでも入っている場合は(実データの可能性が高いため)上書きしない。
+const BUS_DRIVER_LODGING_MEMO_PREFIX = 'ドライバー宿泊';
 function fillMissingBusGenericFields(buses, sourceText){
   buses.forEach(b=>{
     const hasBusData = b.bus_company || b.start_date || b.end_date || Number(b.amount);
@@ -11572,6 +11573,13 @@ function fillMissingBusGenericFields(buses, sourceText){
     if(!Number(b.amount)){
       const found = Number(b.driver_hotel_amount) || fallbackExtractAmount(sourceText);
       if(found) b.amount = found;
+    }
+    // バス自体の情報が無く宿泊情報のみの行だと、備考を見ただけでは「何のための行か」が
+    // 分からず紛らわしいため、既存の備考を上書きせず先頭に用途を追記する
+    // (重複追記を避けるため、既に同じ文言が付いている場合は追加しない)。
+    const memo = b.memo || '';
+    if(!memo.includes(BUS_DRIVER_LODGING_MEMO_PREFIX)){
+      b.memo = memo ? `${BUS_DRIVER_LODGING_MEMO_PREFIX}: ${memo}` : BUS_DRIVER_LODGING_MEMO_PREFIX;
     }
   });
   return buses;
