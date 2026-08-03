@@ -9917,17 +9917,32 @@ function applyRefSuggestion(emailId, refNo){
 // ・その段落が十分な長さ(40文字以上)かつ、いかにも法的定型文らしい特定フレーズを含むこと
 //   (「confidential」単体等の曖昧な語だけでは反応しない、より具体的なフレーズに限定)
 const EMAIL_DISCLAIMER_SIGNAL_RE = /(strictly prohibited|privileged information|intended recipient|please notify the sender|please delete this|do not disseminate|distribute or copy|this (e-?mail|message) (and any|is intended)|message électronique|ce message est confidentiel|est destiné exclusivement|toute diffusion|toute utilisation non autorisée|本メールは.{0,10}(関係者|受信者).{0,10}(限り|のみ)|機密情報|免責事項|複製.{0,5}(転送|配布).{0,5}禁止)/i;
+// 法的な免責文言だけでなく、会社名・TEL・FAX・E-mail・住所・登録番号等が並ぶ
+// 「署名ブロック」も定型的な付帯情報という点では同種のため、あわせて検出対象とする。
+// 1種類だけ(例: 本文中で電話番号を1つ案内しているだけ)では反応せず、複数の異なる
+// 種類の連絡先/署名情報がまとまって出現する場合のみ「署名ブロックらしい」と判定する
+// ことで誤検出を抑える(密度ベースの判定、閾値は3種類以上)。
+const EMAIL_SIGNATURE_SIGNAL_PATTERNS = [
+  /TEL[:：]/i, /FAX[:：]/i, /E-?mail[:：]/i, /℡/, /〒\s*\d{3}-?\d{4}/,
+  /https?:\/\//i, /(インボイス)?登録番号[:：]?\s*T?\d/i, /invoice registration/i,
+  /株式会社|（株）|\(株\)|Co\.,?\s*Ltd\.?|Inc\.?/i, /本社|営業所|支店|Head[- ]?Office/i,
+];
+function countEmailSignatureSignals(p){
+  return EMAIL_SIGNATURE_SIGNAL_PATTERNS.reduce((n,re)=>n+(re.test(p)?1:0),0);
+}
 function splitEmailBodyDisclaimer(bodyText){
   const text = String(bodyText||'');
   if(!text) return {main:text, disclaimer:''};
   const paragraphs = text.split(/\n\s*\n/);
   if(paragraphs.length < 2) return {main:text, disclaimer:''};
-  // 末尾の段落から遡り、免責文言らしい段落が連続する範囲だけを切り出す。
-  // 免責文言でない段落に当たった時点で遡るのをやめる(本文途中の誤爆を防ぐ)。
+  // 末尾の段落から遡り、免責文言・署名らしい段落が連続する範囲だけを切り出す。
+  // 該当しない段落に当たった時点で遡るのをやめる(本文途中の誤爆を防ぐ)。
   let cutIdx = paragraphs.length;
   for(let i = paragraphs.length - 1; i >= 0; i--){
     const p = paragraphs[i].trim();
-    if(p.length >= 40 && EMAIL_DISCLAIMER_SIGNAL_RE.test(p)){
+    const looksLikeDisclaimer = p.length >= 40 && EMAIL_DISCLAIMER_SIGNAL_RE.test(p);
+    const looksLikeSignature = p.length >= 20 && countEmailSignatureSignals(p) >= 3;
+    if(looksLikeDisclaimer || looksLikeSignature){
       cutIdx = i;
     } else {
       break;
@@ -11523,6 +11538,44 @@ function fillMissingDriverHotelDates(buses, sourceText){
   });
   return buses;
 }
+// 「合計金額」「合計」「total」等の直後の数値を金額として拾う汎用フォールバック。
+function fallbackExtractAmount(text){
+  const patterns = [
+    /合計金額[:：\s]*[¥￥]?\s*([\d,]+)\s*円?/,
+    /合計[:：\s]*[¥￥]?\s*([\d,]+)\s*円?/,
+    /total\s*amount[:：\s]*[¥$]?\s*([\d,]+)/i,
+    /total[:：\s]*[¥$]?\s*([\d,]+)/i,
+  ];
+  for(const re of patterns){
+    const m = String(text||'').match(re);
+    if(m) return Number(m[1].replace(/,/g,'')) || 0;
+  }
+  return 0;
+}
+// バス手配確認書に実質バスの情報(バス会社・運行日・金額)が一切無く、宿泊情報のみが
+// 記載されているケース(ドライバー用の別ホテル手配等)で、AIがdriver_hotel_*系の
+// 専用フィールドへの分類に失敗し(実運用のAI応答は必ずしもプロンプト通りにならない)、
+// start_date/end_date/amountも空のまま返ってくることがあったため保険を掛ける。
+// 既にバスらしい情報が何か1つでも入っている場合は(実データの可能性が高いため)上書きしない。
+function fillMissingBusGenericFields(buses, sourceText){
+  buses.forEach(b=>{
+    const hasBusData = b.bus_company || b.start_date || b.end_date || Number(b.amount);
+    if(hasBusData) return;
+    if(!b.start_date){
+      const found = b.driver_check_in || fallbackExtractHotelDate(sourceText, ['チェックイン','宿泊日','IN:','IN：']);
+      if(found) b.start_date = found;
+    }
+    if(!b.end_date){
+      const found = b.driver_check_out || fallbackExtractHotelDate(sourceText, ['チェックアウト','退室日','OUT:','OUT：']);
+      if(found) b.end_date = found;
+    }
+    if(!Number(b.amount)){
+      const found = Number(b.driver_hotel_amount) || fallbackExtractAmount(sourceText);
+      if(found) b.amount = found;
+    }
+  });
+  return buses;
+}
 
 async function extractBusFromText(){
   const text=(document.getElementById('bus-ocr-text')||{}).value||'';
@@ -11540,6 +11593,7 @@ async function extractBusFromText(){
     const parsed=JSON.parse(cleaned);
     let buses=Array.isArray(parsed)?parsed:[parsed];
     buses = fillMissingDriverHotelDates(buses, text);
+    buses = fillMissingBusGenericFields(buses, text);
     if(buses.length===0 && (targetCheckIn||targetCheckOut)){
       statusEl.textContent = `対象日程（チェックイン: ${targetCheckIn||'未設定'}）に一致する内容が見つかりませんでした。メール内容をご確認ください。`;
       statusEl.classList.remove('ocr-loading');
