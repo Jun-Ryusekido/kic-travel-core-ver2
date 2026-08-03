@@ -213,6 +213,16 @@ const TABLE_CONFIG = {
     label: 'ガイド別手配書注意文言',
     allowedReplaceKeyFields: ['arrangement_document_id'],
   },
+  // partner_merge_pending(名刺スキャン自動マージ・確認バナー機能): 新設テーブルのため
+  // guide_bank_accounts等と同じ方針で最初からservice_role専用の書き込みとする
+  // (anonへの直接insert/update/delete GRANTは一切行わない、scripts/create_partner_merge_pending.sql参照)。
+  // scanned_byはvendor_email_logsと同じstampSentByField方式で、クライアント自己申告値を
+  // 使わず検証済みセッションのemailをサーバー側でスタンプする。
+  partner_merge_pending: {
+    actions: ['insert', 'updateById'],
+    label: '名刺マージ保留候補',
+    stampSentByField: 'scanned_by',
+  },
 };
 
 // learned_mappingsのcategoryはこの3種のみ許可する(bodyの値をそのまま保存しない)。
