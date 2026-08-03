@@ -285,6 +285,14 @@ th.sortable:hover{color:var(--blue)}
   .kpi-grid{grid-template-columns:1fr 1fr}
   .form-grid{grid-template-columns:1fr}
   .content{padding:12px}
+  /* Stage4: 全体の余白・フォントサイズのモバイル調整。.contentは既に12px(PCの18px 20pxより
+     詰めた値)になっていたためここでは変更しない。.card/.card-titleはPCと同じ値
+     (14px 16px / 12px)のままだったため、狭い画面でのタップしやすさ・情報密度の
+     バランスを取るためモバイルのみ調整する。到着日アラート・対応が必要な予約・
+     検索絞り込み・予約一覧カード等はいずれも共通の.card/.card-titleを使っているため、
+     この1箇所の調整で全画面に一貫して反映される(個別画面のCSSとは競合しない)。 */
+  .card{padding:10px 12px}
+  .card-title{font-size:13px}
   .menu-btn{display:flex!important}
   /* 取引先マスタ画面: 見出し+複数ボタンが横並びのままだとボタン群が
      折り返して見出しを圧迫するため、見出しを上・ボタン群をその下の行
