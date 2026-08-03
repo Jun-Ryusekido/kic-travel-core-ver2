@@ -9964,15 +9964,18 @@ function emailInboxBodyBlockHtml(m, preview){
     ? `<details style="margin-top:8px;border-top:1px solid var(--border);padding-top:6px"><summary class="lnk" style="font-size:10px;cursor:pointer">免責文言・署名を表示</summary><div style="margin-top:4px;font-size:10px;color:var(--text3);white-space:pre-wrap">${escHtml(disclaimer)}</div></details>`
     : '';
   // 本文を展開すると、折りたたむにはこれまで末尾までスクロールする必要があったため、
-  // 見出しに近い位置(本文の先頭)にも同じ操作をするボタンを常設する。スクロール領域
-  // (max-height:400px;overflow-y:auto)の内側でposition:stickyにすることで、
-  // 本文を下までスクロールしてもボタン自体は上部に留まり続ける。
+  // 見出しに近い位置(本文の先頭)にも同じ操作をするボタンを常設する。当初はスクロール領域
+  // (max-height:400px;overflow-y:auto)の内側でposition:stickyにしていたが、実機のスマホ
+  // (iOS Safari)では入れ子のflex/スクロール構造下でstickyが効かないことが確認された
+  // (.modal-header等で既知の同種問題。index.html内の.modal-boxコメント参照)。
+  // そのためsticky自体をやめ、ボタン行をスクロール領域の外側に固定ヘッダーとして配置し、
+  // スクロールの影響を受けずに常に見える構造に変更する(ブラウザ非依存で確実)。
   return `<div id="email-inbox-preview-${m.id}" style="font-size:11px;color:var(--text2);margin-bottom:8px;overflow-wrap:break-word;word-break:break-word">${escHtml(preview)}${preview.length>=80?'…':''}${expandLink}</div>
-    <div id="email-inbox-full-${m.id}" style="display:none;font-size:11px;color:var(--text2);margin-bottom:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);max-height:400px;overflow-y:auto">
-      <div style="position:sticky;top:0;background:var(--bg);padding:4px 8px;border-bottom:1px solid var(--border);text-align:right;z-index:1">
+    <div id="email-inbox-full-${m.id}" style="display:none;font-size:11px;color:var(--text2);margin-bottom:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg)">
+      <div style="background:var(--bg);padding:4px 8px;border-bottom:1px solid var(--border);text-align:right;border-radius:6px 6px 0 0">
         <span class="lnk" style="font-size:10px" onclick="toggleEmailInboxBody('${m.id}')">▲ 折りたたむ</span>
       </div>
-      <div style="padding:8px;white-space:pre-wrap;overflow-wrap:break-word;word-break:break-word">${fullBodyHtml}${disclaimerHtml}<div style="margin-top:6px"><span class="lnk" style="font-size:10px" onclick="toggleEmailInboxBody('${m.id}')">折りたたむ</span></div></div>
+      <div style="max-height:360px;overflow-y:auto;padding:8px;white-space:pre-wrap;overflow-wrap:break-word;word-break:break-word">${fullBodyHtml}${disclaimerHtml}<div style="margin-top:6px"><span class="lnk" style="font-size:10px" onclick="toggleEmailInboxBody('${m.id}')">折りたたむ</span></div></div>
     </div>`;
 }
 function toggleEmailInboxBody(id){
