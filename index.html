@@ -16726,8 +16726,32 @@ async function saveCcExtractedRows(){
 
 // 手書きツアーコード(hint_tour_code)とREF#/ツアーコードを比較するための正規化。
 // 「#851」「851」「851_KK」等の表記ゆれ・大文字小文字を吸収する。
+// (店名学習(learned_mappings)のconfirmed_valueとの完全一致判定にも使うため、
+// この関数自体の出力形式(文字列)は変更しない。)
 function _ccNormTourCode(s){
   return String(s||'').trim().toUpperCase().replace(/^#/,'');
+}
+
+// 手書きツアーコード(hint_tour_code)専用の構造化パーサ。
+// 手書きの略記("851-KK"/"1044-DP"等、区切りはハイフンが実態)と、tour_codeの正式表記
+// ("KIC1058_AKB"のような「KIC」+数字(0埋めあり)+区切り+取引先略称")は表記形式が
+// 異なるため、_ccNormTourCode()の単純な文字列一致では絶対に一致しない。数字部分
+// (先頭ゼロを除いた数値)とアルファベット部分(取引先略称)に分解し、構造的に比較する。
+// ref_no("#851"等)にはアルファベット略称が付かないため、alphaは空文字になる。
+function _ccParseTourCode(s){
+  let t = String(s||'').trim().toUpperCase().replace(/^#/,'').replace(/^KIC/,'');
+  const m = t.match(/^0*(\d+)[-_ ]?([A-Z]*)$/);
+  if(!m) return null;
+  return { num: parseInt(m[1],10), alpha: m[2]||'' };
+}
+// 数字部分が一致し、かつ双方にアルファベット略称がある場合はそれも一致することを求める。
+// 片方(通常はref_no側)に略称が無い場合は数字のみで判定する。
+function _ccTourCodeMatches(a, b){
+  const pa = _ccParseTourCode(a), pb = _ccParseTourCode(b);
+  if(!pa || !pb) return false;
+  if(pa.num !== pb.num) return false;
+  if(!pa.alpha || !pb.alpha) return true;
+  return pa.alpha === pb.alpha;
 }
 
 // 事前決済・法人カード決済・金額完全一致のbooking_costs候補を検索する。
@@ -16781,7 +16805,7 @@ async function findCcMatchCandidates(statement){
   }
   mismatchBookings.forEach(b=>{ bookingsById[b.id] = b; });
 
-  const hint = _ccNormTourCode(statement.hint_tour_code);
+  const hint = statement.hint_tour_code;
   const txDate = statement.transaction_date ? new Date(statement.transaction_date) : null;
   const isLearnedBooking = booking => !!(booking && (
     learnedRefs.has(_ccNormTourCode(booking.ref_no)) || learnedRefs.has(_ccNormTourCode(booking.tour_code))
@@ -16790,7 +16814,7 @@ async function findCcMatchCandidates(statement){
     const diffDays = (txDate && c.payment_date) ? Math.abs((new Date(c.payment_date) - txDate) / 86400000) : Infinity;
     const booking = bookingsById[c.booking_id]||null;
     const hintMatch = !!(hint && booking && (
-      _ccNormTourCode(booking.ref_no)===hint || _ccNormTourCode(booking.tour_code)===hint
+      _ccTourCodeMatches(booking.ref_no, hint) || _ccTourCodeMatches(booking.tour_code, hint)
     ));
     const learnedMatch = isLearnedBooking(booking);
     // 優先順位: ①手書きコード一致 > ②金額一致+店名学習一致 > ③金額一致のみ
