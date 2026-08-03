@@ -6110,6 +6110,7 @@ async function openBookingDetail(id){
     b = data;
   }
   currentDetailId = id;
+  bdCurrentRefNo = b.ref_no;
   bdLoadSnapshot = {}; // 予約を開き直すたびに差分保存のスナップショットをリセットする
 
   // 手配管理タブのOCR貼り付け欄は予約に紐づかない共有DOM要素のため、前に開いていた別予約の
@@ -6250,13 +6251,16 @@ async function openBookingDetail(id){
   bdLoadSnapshot.buses = JSON.stringify(buildBusRows(id));
   bdRestaurantItems = (restRows||[]).map(r=>({id:r.id,restaurant_name:r.restaurant_name||'',meal_type:r.meal_type||'昼食',date:r.date||'',reservation_time:r.reservation_time||'',pax:r.pax||0,amount:r.amount||0,status:r.status||'問い合わせ中',payment_method:r.payment_method||'',memo:r.memo||'',guide_id:r.guide_id||null,guide_name_freetext:r.guide_name_freetext||'',cost_added:r.cost_added||false}));
   originalRestaurantCount = bdRestaurantItems.length;
-  // スナップショットは「DBから読み込んだそのままの状態」で取る(この直後のテンプレート
-  // 自動生成による行はDBにまだ存在しないローカルのみの内容のため、スナップショットに
-  // 含めてしまうと『無変更』と誤判定され、従来なら保存されていたテンプレート行が
-  // 保存されなくなってしまう)。
-  bdLoadSnapshot.restaurants = JSON.stringify(buildRestaurantRows(id));
   // レストラン明細が空の場合、到着日〜出発日の期間分の昼食・夕食の空行をあらかじめ用意しておく
   if(bdRestaurantItems.length===0) generateRestaurantTemplateRows(b);
+  // スナップショットはテンプレート自動生成の後(=この予約を開いた時点で画面に見えている
+  // そのままの状態)で取る。自動生成される行はrestaurant_name等が空の単なる日付だけの
+  // プレースホルダーで、ユーザーが何も入力していなければ実質「空」と同じであるため、
+  // 生成前を基準にしてしまうと、ホテル等の無関係なタブしか変更していない場合でも
+  // レストランタブが毎回「変更あり」と誤判定され、booking_restaurantsへの不要な書き込みが
+  // 発生していた(実機で確認された不具合)。テンプレート行はユーザーが実際に何か入力して
+  // 初めて『変更』として保存対象になる。
+  bdLoadSnapshot.restaurants = JSON.stringify(buildRestaurantRows(id));
   bdFacilityItems = (facRows||[]).map(r=>({id:r.id,facility_name:r.facility_name||'',date:r.date||'',pax:r.pax||0,amount:r.amount||0,status:r.status||'問い合わせ中',confirmation_no:r.confirmation_no||'',deadline_date:r.deadline_date||'',payment_method:r.payment_method||'',memo:r.memo||'',deadline_completed:r.deadline_completed||false,deadline_completed_at:r.deadline_completed_at||null,cost_added:r.cost_added||false}));
   originalFacilityCount = bdFacilityItems.length;
   bdLoadSnapshot.facilities = JSON.stringify(buildFacilityRows(id));
@@ -6264,7 +6268,7 @@ async function openBookingDetail(id){
   originalWaterCount = bdWaterItems.length;
   bdLoadSnapshot.water = JSON.stringify(buildWaterRows(id));
   bdBulletTrainItems = (btRows||[]).map(r=>({ride_date:r.ride_date||'',train_name:r.train_name||'',train_number:r.train_number||'',departure_station:r.departure_station||'',departure_time:r.departure_time||'',arrival_station:r.arrival_station||'',arrival_time:r.arrival_time||'',pax_adult:r.pax_adult||0,pax_child:r.pax_child||0,pax_free:r.pax_free||0,discount_rate:r.discount_rate||0,status:r.status||'回答待ち',memo:r.memo||'',payment_method:r.payment_method||'',amount:r.amount||0}));
-  bdLoadSnapshot.bulletTrain = JSON.stringify(buildBulletTrainRows(b.ref_no));
+  bdLoadSnapshot.bulletTrain = JSON.stringify(buildBulletTrainRows(bdCurrentRefNo));
   renderBusTable(); renderRestaurantTable(); renderFacilityTable(); renderWaterTable(); renderBulletTrainTable();
 
   // 手配書(新テーブル群)を読み込み。bdHotelItems/bdRestaurantItemsが読み込み済みであることに依存する
@@ -6291,11 +6295,6 @@ async function openBookingDetail(id){
     id:r.id, guide_id:r.guide_id||null, guide_name_freetext:r.guide_name_freetext||'', phone:r.phone||'',
     start_date:r.start_date||'', _freetextMode: !r.guide_id && !!r.guide_name_freetext
   }));
-  // 差分保存のスナップショットは、この直後に行われる「ガイドタブからの自動コピー」より前の
-  // (=DBに実際にある)状態で取る。自動コピー後の内容を基準にしてしまうと、コピーされた
-  // ガイドが未保存のまま『無変更』と誤判定され、従来なら初回保存時に作成されていた
-  // tour_guides行が作られなくなってしまう。
-  const _rawArrGuideRowsForSnapshot = buildArrGuideRows(id);
   // 手配書側(tour_guides)がまだ空で、ガイドタブ(booking_guides)には既にガイドが
   // 登録されている場合、それを初期値として自動コピーする。コピー後は手配書側で独立して
   // 編集でき、以後booking_guidesを変更してもここには自動追従しない(手配書の既存の
@@ -6324,20 +6323,9 @@ async function openBookingDetail(id){
     departure_time:r.departure_time||''
   }));
   originalArrDayCount = bdArrDayItems.length;
-  let _rawArrNotesForSnapshot;
   {
     const notesByType = {};
     (arrNoteRows||[]).forEach(r=>{ notesByType[r.note_type] = r.content; });
-    // スナップショット用は、fixed_templateが未設定(DBにまだ行が無い)場合の既定テンプレート
-    // 文言の自動補完を適用する前の状態(空文字)を基準にする。補完後の値を基準にしてしまうと、
-    // 既定文言が『無変更』と誤判定され、従来なら初回保存時に作成されていたnote行が
-    // 作られなくなってしまう。
-    _rawArrNotesForSnapshot = {
-      fixed_template: notesByType.fixed_template!=null ? notesByType.fixed_template : '',
-      mineral_water: notesByType.mineral_water || '',
-      driver_info: notesByType.driver_info || '',
-      tour_specific: notesByType.tour_specific || '',
-    };
     bdArrNotes = {
       fixed_template: notesByType.fixed_template!=null ? notesByType.fixed_template : ARR_DOC_FIXED_TEMPLATE_DEFAULT,
       mineral_water: notesByType.mineral_water || '',
@@ -6345,18 +6333,18 @@ async function openBookingDetail(id){
       tour_specific: notesByType.tour_specific || '',
     };
   }
-  // 手配書タブ全体(ヘッダー+ガイド+日毎明細+注意文言)のスナップショット。
-  // それぞれ「DBにあった/初期値のまま」の状態を使う(自動コピー・既定文言補完より前)。
+  // 手配書タブ全体(ヘッダー+ガイド+日毎明細+注意文言)のスナップショットは、自動コピー
+  // (ガイドタブからのtour_guides初期値コピー)・既定テンプレート文言の補完が終わった後、
+  // この予約を開いた時点で実際に画面に表示されている内容を基準にする。生成前(DBの生の状態)を
+  // 基準にすると、ユーザーが何も編集していなくても自動生成された内容が常に「変更あり」と
+  // 誤判定され、無関係なタブしか触っていない保存でも手配書が毎回書き込まれてしまう
+  // (実機で確認された不具合。ホテルタブのみ変更した保存でbooking_restaurantsも実行されて
+  // いた件と同種の問題)。ユーザーが実際に内容を編集して初めて「変更」として保存対象になる。
   bdLoadSnapshot.arrDoc = JSON.stringify({
     header: buildArrHeaderCompareFields(bdArrHeader),
-    guides: _rawArrGuideRowsForSnapshot,
+    guides: buildArrGuideRows(id),
     days: buildArrDayRows(id),
-    notes: [
-      {booking_id: id, note_type:'fixed_template', content: _rawArrNotesForSnapshot.fixed_template, display_order:0},
-      {booking_id: id, note_type:'mineral_water', content: _rawArrNotesForSnapshot.mineral_water, display_order:1},
-      {booking_id: id, note_type:'driver_info', content: _rawArrNotesForSnapshot.driver_info, display_order:2},
-      {booking_id: id, note_type:'tour_specific', content: _rawArrNotesForSnapshot.tour_specific, display_order:3},
-    ],
+    notes: buildArrNoteRows(id),
   });
   renderArrDocAll();
   await loadGuideDocsList(id);
@@ -9024,6 +9012,15 @@ let bdBusItems = [], bdRestaurantItems = [], bdFacilityItems = [];
 let bdBulletTrainItems = [];
 let bdWaterItems = [];
 let bdGuideItems = [];
+// bullet_train_arrangementsはbooking_idではなくbooking_ref(予約のref_no)で紐づいている。
+// findBookingById(currentDetailId)はブラウザ側にキャッシュされた予約一覧配列からの検索のため、
+// 一覧を経由せずメール受信箱等から直接開いた場合や一覧の読み込みタイミングによっては
+// 該当予約がキャッシュに存在せずundefinedを返すことがある。ref_noが取れないと
+// buildBulletTrainRows(undefined)になり、ロード時(openBookingDetail内で正しく取得できたb.ref_no
+// を使用)と保存時とで基準となるref_noがズレて、無変更でも常に「変更あり」と誤判定される
+// 不具合があった。そのためref_noはopenBookingDetail()で確実に取得できた時点でここに保持し、
+// 以降はキャッシュに依存せずこの変数を使う。
+let bdCurrentRefNo = null;
 // ─── 差分保存用スナップショット ──────────────────────────────────────────
 // openBookingDetail()でのロード直後(≒DBの内容そのまま)に、各タブの送信用行データを
 // JSON文字列化して保持しておき、saveBookingDetail()の保存直前に同じ変換(buildXxxRows等)を
@@ -13173,9 +13170,11 @@ function buildBulletTrainRows(ref){
   }));
 }
 async function saveBulletTrainItems(){
-  const b = findBookingById(currentDetailId);
-  if(!b) return;
-  const ref = b.ref_no;
+  // ref_noはfindBookingById(一覧キャッシュからの検索)ではなく、openBookingDetail()で
+  // 確実に取得しbdCurrentRefNoに保持した値を使う(理由はbdCurrentRefNo宣言部のコメント参照。
+  // キャッシュ未読み込み時にfindBookingByIdがundefinedを返すと保存自体が失敗していた)。
+  const ref = bdCurrentRefNo;
+  if(!ref) return;
   const rows = buildBulletTrainRows(ref);
   const {error: delErr} = await sb.from('bullet_train_arrangements').delete().eq('booking_ref', ref);
   if(delErr) throw new Error(appendSchemaErrorHint('新幹線明細の削除に失敗: '+delErr.message));
@@ -14981,8 +14980,10 @@ async function saveBookingDetail(){
     const restaurantRows = buildRestaurantRows(bookingId);
     const facilityRows = buildFacilityRows(bookingId);
     const waterRows = buildWaterRows(bookingId);
-    const bForSyncRefNo = (findBookingById(bookingId)||{}).ref_no;
-    const bulletTrainRows = bForSyncRefNo ? buildBulletTrainRows(bForSyncRefNo) : [];
+    // bdCurrentRefNoを使う(findBookingByIdは一覧キャッシュ依存で、キャッシュ未読み込み時に
+    // undefinedを返すと、ロード時のスナップショットと基準がズレて無変更でも常に
+    // 「変更あり」と誤判定される不具合があった。bdCurrentRefNo宣言部のコメント参照)。
+    const bulletTrainRows = bdCurrentRefNo ? buildBulletTrainRows(bdCurrentRefNo) : [];
     const guideRows = buildGuideRows(bookingId);
     const arrDocCurrentJson = JSON.stringify({
       header: buildArrHeaderCompareFields(bdArrHeader), guides: buildArrGuideRows(bookingId),
