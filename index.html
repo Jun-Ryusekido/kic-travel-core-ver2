@@ -5374,6 +5374,20 @@ function bdCostRowCalc(i, el){
   updateDetailGrossPreview();
 }
 
+function buildSalesRows(bookingId){
+  return bdSalesItems.filter(it=>it.item_name||Number(it.amount)||it.memo||it.agent_name||it.payment_date||(it.payments&&it.payments.length)).map(it=>({
+    booking_id: bookingId, item_name: it.item_name||'', memo: it.memo||null, unit_price: Number(it.unit_price)||0,
+    pax: Number(it.pax)||1, qty: Number(it.qty)||1, amount: Number(it.amount)||0, payment_date: sanitizeDateField(it.payment_date),
+    agent_name: it.agent_name||null, payments: it.payments||[]
+  }));
+}
+function buildCostRows(bookingId){
+  return bdCostItems.filter(it=>it.item_name||Number(it.amount)||it.memo||it.payment_date).map(it=>({
+    booking_id: bookingId, item_name: it.item_name||'', amount: Number(it.amount)||0,
+    payment_date: sanitizeDateField(it.payment_date), payment_method: it.payment_method||null, memo: it.memo||'', status: it.status||'pending'
+  }));
+}
+
 function addSalesRow(){
   if(bdLocked) return;
   bdSalesItems.push({item_name:'', memo:'', unit_price:0, pax:1, qty:1, amount:0, payment_date:null, agent_name:''});
@@ -6053,10 +6067,8 @@ function sanitizeDatetimeLocalYear(el){
   }
 }
 
-async function saveLocalExpenses(){
-  if(!currentDetailId) return;
-  const bookingId = currentDetailId; // await中のcurrentDetailId変更に影響されないようスナップショットを保持
-  const rows = bdLocalExpenses.filter(it=>it.content||it.expense_type||it.expense_date||it.category||Number(it.amount)).map((it,i)=>({
+function buildLocalExpenseRows(bookingId){
+  return bdLocalExpenses.filter(it=>it.content||it.expense_type||it.expense_date||it.category||Number(it.amount)).map((it,i)=>({
     booking_id: bookingId,
     expense_date: sanitizeDateField(it.expense_date),
     expense_type: it.expense_type||'',
@@ -6068,7 +6080,13 @@ async function saveLocalExpenses(){
     payment_method: it.payment_method||'',
     sort_order: i
   }));
+}
+async function saveLocalExpenses(){
+  if(!currentDetailId) return;
+  const bookingId = currentDetailId; // await中のcurrentDetailId変更に影響されないようスナップショットを保持
+  const rows = buildLocalExpenseRows(bookingId);
   await localExpensesApiCall('replace', { bookingId, rows });
+  bdLoadSnapshot.localExpenses = JSON.stringify(rows);
 }
 
 // openBookingDetail()は非常に多くのawait(明細の各テーブル読み込み)を挟む長い処理のため、
@@ -6092,6 +6110,7 @@ async function openBookingDetail(id){
     b = data;
   }
   currentDetailId = id;
+  bdLoadSnapshot = {}; // 予約を開き直すたびに差分保存のスナップショットをリセットする
 
   // 手配管理タブのOCR貼り付け欄は予約に紐づかない共有DOM要素のため、前に開いていた別予約の
   // 内容が残ったまま見えてしまうことがあった（メール一括送信機能で実際に発生を確認）。
@@ -6131,6 +6150,9 @@ async function openBookingDetail(id){
   document.getElementById('bd-updated').textContent = b.updated_at ? ('最終更新: '+new Date(b.updated_at).toLocaleString('ja-JP')) : '';
   document.getElementById('bd-msg').style.display='none';
   document.getElementById('bd-msg-top').style.display='none';
+  // 予約情報タブ(bookings本体)のスナップショット。ここで各input要素に値をセットした直後の
+  // DOM状態を読み取ることで、保存時と全く同じ関数(buildBookingCompareFields)で比較できる。
+  bdLoadSnapshot.booking = JSON.stringify(buildBookingCompareFields());
 
   // 売上明細・仕入明細を読み込み
   document.getElementById('bd-sales-tbody').innerHTML = '<tr><td colspan="6" class="empty" style="padding:6px;font-size:10px">読み込み中...</td></tr>';
@@ -6146,6 +6168,8 @@ async function openBookingDetail(id){
   bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, payment_method:r.payment_method||'', memo:r.memo, status:r.status||'pending'}));
   originalSalesCount = bdSalesItems.length;
   originalCostsCount = bdCostItems.length;
+  bdLoadSnapshot.sales = JSON.stringify(buildSalesRows(id));
+  bdLoadSnapshot.costs = JSON.stringify(buildCostRows(id));
   bankbookExtracted = [];
 
   bdLocked = !!b.locked;
@@ -6191,6 +6215,7 @@ async function openBookingDetail(id){
     _freetextMode: !r.guide_id && !!r.guide_name_freetext
   }));
   originalGuideCount = bdGuideItems.length;
+  bdLoadSnapshot.guides = JSON.stringify(buildGuideRows(id));
   renderGuideTable();
   // 既存データの表示時点で二重アサイン警告を出しておく(タブを開いた瞬間に見えるように)
   checkGuideDoubleBookings().catch(e=>logError('ガイド二重アサインチェック', e, {toast:false}));
@@ -6208,6 +6233,7 @@ async function openBookingDetail(id){
     cost_added: r.cost_added||false
   }));
   originalHotelCount = bdHotelItems.length;
+  bdLoadSnapshot.hotels = JSON.stringify(buildHotelRows(id));
   renderHotelTable();
   // バス・レストラン・観光施設・ミネラルウォーター・新幹線を読み込み
   const [{data: busRows, error: busFetchErr}, {data: restRows, error: restFetchErr}, {data: facRows, error: facFetchErr}, {data: waterRows, error: waterFetchErr}, {data: btRows}] = await Promise.all([
@@ -6221,15 +6247,24 @@ async function openBookingDetail(id){
   if(busFetchErr||restFetchErr||facFetchErr||waterFetchErr){ alert('手配明細の読み込みに一部失敗しました。このまま保存すると既存データが消える危険があるため、画面を再読み込みしてください。\n'+(busFetchErr||restFetchErr||facFetchErr||waterFetchErr).message); }
   bdBusItems = (busRows||[]).map(r=>({id:r.id,bus_company:r.bus_company||'',bus_type:r.bus_type||'',buses:r.buses||1,start_date:r.start_date||'',end_date:r.end_date||'',amount:r.amount||0,status:r.status||'問い合わせ中',confirmation_no:r.confirmation_no||'',driver_hotel_name:r.driver_hotel_name||'',driver_hotel_phone:r.driver_hotel_phone||'',driver_hotel_address:r.driver_hotel_address||'',driver_check_in:r.driver_check_in||'',driver_check_out:r.driver_check_out||'',driver_hotel_amount:r.driver_hotel_amount||0,memo:r.memo||'',payment_method:r.payment_method||'',cost_added:r.cost_added||false}));
   originalBusCount = bdBusItems.length;
+  bdLoadSnapshot.buses = JSON.stringify(buildBusRows(id));
   bdRestaurantItems = (restRows||[]).map(r=>({id:r.id,restaurant_name:r.restaurant_name||'',meal_type:r.meal_type||'昼食',date:r.date||'',reservation_time:r.reservation_time||'',pax:r.pax||0,amount:r.amount||0,status:r.status||'問い合わせ中',payment_method:r.payment_method||'',memo:r.memo||'',guide_id:r.guide_id||null,guide_name_freetext:r.guide_name_freetext||'',cost_added:r.cost_added||false}));
   originalRestaurantCount = bdRestaurantItems.length;
+  // スナップショットは「DBから読み込んだそのままの状態」で取る(この直後のテンプレート
+  // 自動生成による行はDBにまだ存在しないローカルのみの内容のため、スナップショットに
+  // 含めてしまうと『無変更』と誤判定され、従来なら保存されていたテンプレート行が
+  // 保存されなくなってしまう)。
+  bdLoadSnapshot.restaurants = JSON.stringify(buildRestaurantRows(id));
   // レストラン明細が空の場合、到着日〜出発日の期間分の昼食・夕食の空行をあらかじめ用意しておく
   if(bdRestaurantItems.length===0) generateRestaurantTemplateRows(b);
   bdFacilityItems = (facRows||[]).map(r=>({id:r.id,facility_name:r.facility_name||'',date:r.date||'',pax:r.pax||0,amount:r.amount||0,status:r.status||'問い合わせ中',confirmation_no:r.confirmation_no||'',deadline_date:r.deadline_date||'',payment_method:r.payment_method||'',memo:r.memo||'',deadline_completed:r.deadline_completed||false,deadline_completed_at:r.deadline_completed_at||null,cost_added:r.cost_added||false}));
   originalFacilityCount = bdFacilityItems.length;
+  bdLoadSnapshot.facilities = JSON.stringify(buildFacilityRows(id));
   bdWaterItems = (waterRows||[]).map(r=>({id:r.id,item_name:r.item_name||'',date:r.date||'',qty:r.qty||0,unit_price:r.unit_price||0,amount:r.amount||0,status:r.status||'問い合わせ中',memo:r.memo||'',payment_method:r.payment_method||'',cost_added:r.cost_added||false}));
   originalWaterCount = bdWaterItems.length;
+  bdLoadSnapshot.water = JSON.stringify(buildWaterRows(id));
   bdBulletTrainItems = (btRows||[]).map(r=>({ride_date:r.ride_date||'',train_name:r.train_name||'',train_number:r.train_number||'',departure_station:r.departure_station||'',departure_time:r.departure_time||'',arrival_station:r.arrival_station||'',arrival_time:r.arrival_time||'',pax_adult:r.pax_adult||0,pax_child:r.pax_child||0,pax_free:r.pax_free||0,discount_rate:r.discount_rate||0,status:r.status||'回答待ち',memo:r.memo||'',payment_method:r.payment_method||'',amount:r.amount||0}));
+  bdLoadSnapshot.bulletTrain = JSON.stringify(buildBulletTrainRows(b.ref_no));
   renderBusTable(); renderRestaurantTable(); renderFacilityTable(); renderWaterTable(); renderBulletTrainTable();
 
   // 手配書(新テーブル群)を読み込み。bdHotelItems/bdRestaurantItemsが読み込み済みであることに依存する
@@ -6256,6 +6291,11 @@ async function openBookingDetail(id){
     id:r.id, guide_id:r.guide_id||null, guide_name_freetext:r.guide_name_freetext||'', phone:r.phone||'',
     start_date:r.start_date||'', _freetextMode: !r.guide_id && !!r.guide_name_freetext
   }));
+  // 差分保存のスナップショットは、この直後に行われる「ガイドタブからの自動コピー」より前の
+  // (=DBに実際にある)状態で取る。自動コピー後の内容を基準にしてしまうと、コピーされた
+  // ガイドが未保存のまま『無変更』と誤判定され、従来なら初回保存時に作成されていた
+  // tour_guides行が作られなくなってしまう。
+  const _rawArrGuideRowsForSnapshot = buildArrGuideRows(id);
   // 手配書側(tour_guides)がまだ空で、ガイドタブ(booking_guides)には既にガイドが
   // 登録されている場合、それを初期値として自動コピーする。コピー後は手配書側で独立して
   // 編集でき、以後booking_guidesを変更してもここには自動追従しない(手配書の既存の
@@ -6284,9 +6324,20 @@ async function openBookingDetail(id){
     departure_time:r.departure_time||''
   }));
   originalArrDayCount = bdArrDayItems.length;
+  let _rawArrNotesForSnapshot;
   {
     const notesByType = {};
     (arrNoteRows||[]).forEach(r=>{ notesByType[r.note_type] = r.content; });
+    // スナップショット用は、fixed_templateが未設定(DBにまだ行が無い)場合の既定テンプレート
+    // 文言の自動補完を適用する前の状態(空文字)を基準にする。補完後の値を基準にしてしまうと、
+    // 既定文言が『無変更』と誤判定され、従来なら初回保存時に作成されていたnote行が
+    // 作られなくなってしまう。
+    _rawArrNotesForSnapshot = {
+      fixed_template: notesByType.fixed_template!=null ? notesByType.fixed_template : '',
+      mineral_water: notesByType.mineral_water || '',
+      driver_info: notesByType.driver_info || '',
+      tour_specific: notesByType.tour_specific || '',
+    };
     bdArrNotes = {
       fixed_template: notesByType.fixed_template!=null ? notesByType.fixed_template : ARR_DOC_FIXED_TEMPLATE_DEFAULT,
       mineral_water: notesByType.mineral_water || '',
@@ -6294,6 +6345,19 @@ async function openBookingDetail(id){
       tour_specific: notesByType.tour_specific || '',
     };
   }
+  // 手配書タブ全体(ヘッダー+ガイド+日毎明細+注意文言)のスナップショット。
+  // それぞれ「DBにあった/初期値のまま」の状態を使う(自動コピー・既定文言補完より前)。
+  bdLoadSnapshot.arrDoc = JSON.stringify({
+    header: buildArrHeaderCompareFields(bdArrHeader),
+    guides: _rawArrGuideRowsForSnapshot,
+    days: buildArrDayRows(id),
+    notes: [
+      {booking_id: id, note_type:'fixed_template', content: _rawArrNotesForSnapshot.fixed_template, display_order:0},
+      {booking_id: id, note_type:'mineral_water', content: _rawArrNotesForSnapshot.mineral_water, display_order:1},
+      {booking_id: id, note_type:'driver_info', content: _rawArrNotesForSnapshot.driver_info, display_order:2},
+      {booking_id: id, note_type:'tour_specific', content: _rawArrNotesForSnapshot.tour_specific, display_order:3},
+    ],
+  });
   renderArrDocAll();
   await loadGuideDocsList(id);
   if(_stale()) return;
@@ -6309,6 +6373,7 @@ async function openBookingDetail(id){
     unit_price: r.unit_price||0, qty: r.qty||1, amount: r.amount||0, payment_method: r.payment_method||''
   }));
   originalLocalExpenseCount = bdLocalExpenses.length;
+  bdLoadSnapshot.localExpenses = JSON.stringify(buildLocalExpenseRows(id));
   renderLocalExpenses();
 
   // 見積もり参照ノートを表示
@@ -8959,6 +9024,12 @@ let bdBusItems = [], bdRestaurantItems = [], bdFacilityItems = [];
 let bdBulletTrainItems = [];
 let bdWaterItems = [];
 let bdGuideItems = [];
+// ─── 差分保存用スナップショット ──────────────────────────────────────────
+// openBookingDetail()でのロード直後(≒DBの内容そのまま)に、各タブの送信用行データを
+// JSON文字列化して保持しておき、saveBookingDetail()の保存直前に同じ変換(buildXxxRows等)を
+// 再実行して文字列比較することで「実際に変更されたタブだけ」を検出する。値はキーごとに
+// JSON.stringify済みの文字列(比較専用。表示や再構築には使わない)。
+let bdLoadSnapshot = {};
 // ─── 手配書(tour_arrangement_headers/tour_guides/tour_day_itinerary/tour_arrangement_notes) ───
 let bdArrHeader = null;
 let bdArrHeaderLoadedRevisionNo = 0;
@@ -9167,13 +9238,12 @@ function addHotelRow(){
   renderHotelTable();
 }
 
-async function saveHotelItems(){
-  if(!currentDetailId) return;
-  // currentDetailIdはグローバル変数のため、await中に閉じる/別の予約を開く等で
-  // 値が変わる可能性がある。保存処理の間はこのローカル変数のスナップショットを使い、
-  // booking_idがnullのまま保存されてしまう不具合(#782で発生)を防ぐ。
-  const bookingId = currentDetailId;
-  const rows = bdHotelItems.filter(it=>it.hotel_name||it.room_type||it.check_in||it.check_out||it.amount||it.confirmation_no||it.memo||it.breakfast).map((it,i)=>({
+// DB行→送信rows形式への変換のみを行う純粋関数。差分保存の比較(ロード直後/保存直前の
+// 2時点でこれを呼びJSON文字列化して比較する)と、実際の保存(saveHotelItems)の両方から
+// 同じロジックを使うことで、正規化のズレによる誤検知(変更なしなのに差分ありと誤判定、
+// またはその逆)を防ぐ。
+function buildHotelRows(bookingId){
+  return bdHotelItems.filter(it=>it.hotel_name||it.room_type||it.check_in||it.check_out||it.amount||it.confirmation_no||it.memo||it.breakfast).map((it,i)=>({
     booking_id: bookingId,
     hotel_name: it.hotel_name||'',
     check_in: sanitizeDateField(it.check_in),
@@ -9190,7 +9260,16 @@ async function saveHotelItems(){
     cost_added: !!it.cost_added,
     sort_order: i
   }));
+}
+async function saveHotelItems(){
+  if(!currentDetailId) return;
+  // currentDetailIdはグローバル変数のため、await中に閉じる/別の予約を開く等で
+  // 値が変わる可能性がある。保存処理の間はこのローカル変数のスナップショットを使い、
+  // booking_idがnullのまま保存されてしまう不具合(#782で発生)を防ぐ。
+  const bookingId = currentDetailId;
+  const rows = buildHotelRows(bookingId);
   await bookingHotelsApiCall('replace', { bookingId, rows });
+  bdLoadSnapshot.hotels = JSON.stringify(rows);
 }
 
 // テーブル全体を再描画せずに合計のみ更新するヘルパー（フォーカス中の日付入力を破壊しない）
@@ -9243,10 +9322,8 @@ function addBusRow(){
   bdBusItems.push({bus_company:'',bus_type:'',buses:1,start_date:'',end_date:'',amount:0,status:'問い合わせ中',confirmation_no:'',memo:'',payment_method:''});
   renderBusTable();
 }
-async function saveBusItems(){
-  if(!currentDetailId) return;
-  const bookingId = currentDetailId; // await中のcurrentDetailId変更に影響されないようスナップショットを保持
-  const rows = bdBusItems.filter(it=>it.bus_company||it.bus_type||it.start_date||it.end_date||it.amount||it.confirmation_no||it.memo).map(it=>({
+function buildBusRows(bookingId){
+  return bdBusItems.filter(it=>it.bus_company||it.bus_type||it.start_date||it.end_date||it.amount||it.confirmation_no||it.memo).map(it=>({
     booking_id: bookingId,
     bus_company: it.bus_company||'', bus_type: it.bus_type||'',
     buses: Number(it.buses)||1,
@@ -9258,7 +9335,13 @@ async function saveBusItems(){
     payment_method: it.payment_method||'',
     cost_added: !!it.cost_added
   }));
+}
+async function saveBusItems(){
+  if(!currentDetailId) return;
+  const bookingId = currentDetailId; // await中のcurrentDetailId変更に影響されないようスナップショットを保持
+  const rows = buildBusRows(bookingId);
   await bookingBusesApiCall('replace', { bookingId, rows });
+  bdLoadSnapshot.buses = JSON.stringify(rows);
   // 保存後に同一予約内の重複登録を再チェックする(警告表示のみで、保存自体はブロックしない)
   checkBusDoubleBookings();
 }
@@ -12029,13 +12112,8 @@ function generateRestaurantTemplateRowsClick(){
   renderRestaurantTable();
   alert(added>0 ? added+'件の空行を追加しました。' : '追加する行はありませんでした（既に全ての日付・食事種別が揃っています）。');
 }
-async function saveRestaurantItems(){
-  if(!currentDetailId) return;
-  // currentDetailIdはグローバル変数のため、削除〜挿入のawaitの間に予約を閉じる/切り替える等の
-  // 操作が挟まるとnullに変わってしまい、booking_idがnullのまま保存されようとして
-  // not-null制約違反になる不具合があった(#782で発生)。ローカルにスナップショットして防止する。
-  const bookingId = currentDetailId;
-  const rows = bdRestaurantItems.filter(it=>it.restaurant_name||it.date||it.reservation_time||it.amount||it.payment_method||it.memo).map(it=>({
+function buildRestaurantRows(bookingId){
+  return bdRestaurantItems.filter(it=>it.restaurant_name||it.date||it.reservation_time||it.amount||it.payment_method||it.memo).map(it=>({
     booking_id: bookingId,
     restaurant_name: it.restaurant_name||'', meal_type: it.meal_type||'昼食',
     date: sanitizeDateField(it.date), pax: Number(it.pax)||0,
@@ -12045,7 +12123,16 @@ async function saveRestaurantItems(){
     guide_id: it.guide_id||null, guide_name_freetext: it.guide_id ? '' : (it.guide_name_freetext||''),
     cost_added: !!it.cost_added
   }));
+}
+async function saveRestaurantItems(){
+  if(!currentDetailId) return;
+  // currentDetailIdはグローバル変数のため、削除〜挿入のawaitの間に予約を閉じる/切り替える等の
+  // 操作が挟まるとnullに変わってしまい、booking_idがnullのまま保存されようとして
+  // not-null制約違反になる不具合があった(#782で発生)。ローカルにスナップショットして防止する。
+  const bookingId = currentDetailId;
+  const rows = buildRestaurantRows(bookingId);
   await bookingRestaurantsApiCall('replace', { bookingId, rows });
+  bdLoadSnapshot.restaurants = JSON.stringify(rows);
 }
 
 // ─── レストランAI読み取り ─────────────────────────────────────────────────────
@@ -12316,10 +12403,8 @@ function addFacilityRow(){
   bdFacilityItems.push({facility_name:'',date:'',pax:b?b.pax||0:0,amount:0,status:'問い合わせ中',confirmation_no:'',deadline_date:'',payment_method:'',memo:''});
   renderFacilityTable();
 }
-async function saveFacilityItems(){
-  if(!currentDetailId) return;
-  const bookingId = currentDetailId; // await中のcurrentDetailId変更に影響されないようスナップショットを保持
-  const rows = bdFacilityItems.filter(it=>it.facility_name||it.date||it.amount||it.confirmation_no||it.deadline_date||it.payment_method||it.memo).map(it=>({
+function buildFacilityRows(bookingId){
+  return bdFacilityItems.filter(it=>it.facility_name||it.date||it.amount||it.confirmation_no||it.deadline_date||it.payment_method||it.memo).map(it=>({
     booking_id: bookingId,
     facility_name: it.facility_name||'',
     date: sanitizeDateField(it.date), pax: Number(it.pax)||0,
@@ -12333,7 +12418,13 @@ async function saveFacilityItems(){
     deadline_completed_at: it.deadline_completed_at||null,
     cost_added: !!it.cost_added
   }));
+}
+async function saveFacilityItems(){
+  if(!currentDetailId) return;
+  const bookingId = currentDetailId; // await中のcurrentDetailId変更に影響されないようスナップショットを保持
+  const rows = buildFacilityRows(bookingId);
   await bookingFacilitiesApiCall('replace', { bookingId, rows });
+  bdLoadSnapshot.facilities = JSON.stringify(rows);
 }
 
 // ─── ミネラルウォーター ─────────────────────────────────────────────────────
@@ -12375,10 +12466,8 @@ function addWaterRow(){
   renderWaterTable();
 }
 
-async function saveWaterItems(){
-  if(!currentDetailId) return;
-  const bookingId = currentDetailId; // await中のcurrentDetailId変更に影響されないようスナップショットを保持
-  const rows = bdWaterItems.filter(it=>it.item_name||it.date||it.qty||it.unit_price||it.memo).map(it=>({
+function buildWaterRows(bookingId){
+  return bdWaterItems.filter(it=>it.item_name||it.date||it.qty||it.unit_price||it.memo).map(it=>({
     booking_id: bookingId,
     item_name: it.item_name||'',
     date: sanitizeDateField(it.date), qty: Number(it.qty)||0,
@@ -12389,7 +12478,13 @@ async function saveWaterItems(){
     payment_method: it.payment_method||'',
     cost_added: !!it.cost_added
   }));
+}
+async function saveWaterItems(){
+  if(!currentDetailId) return;
+  const bookingId = currentDetailId; // await中のcurrentDetailId変更に影響されないようスナップショットを保持
+  const rows = buildWaterRows(bookingId);
   await bookingWaterItemsApiCall('replace', { bookingId, rows });
+  bdLoadSnapshot.water = JSON.stringify(rows);
 }
 
 // ─── 観光施設AI読み取り ───────────────────────────────────────────────────────
@@ -13056,13 +13151,8 @@ function addBulletTrainRow(){
   renderBulletTrainTable();
 }
 
-async function saveBulletTrainItems(){
-  const b = findBookingById(currentDetailId);
-  if(!b) return;
-  const ref = b.ref_no;
-  const {error: delErr} = await sb.from('bullet_train_arrangements').delete().eq('booking_ref', ref);
-  if(delErr) throw new Error(appendSchemaErrorHint('新幹線明細の削除に失敗: '+delErr.message));
-  const rows = bdBulletTrainItems.filter(it=>it.departure_station||it.arrival_station||it.train_name||it.train_number||it.ride_date||it.memo||it.amount).map((it,i)=>({
+function buildBulletTrainRows(ref){
+  return bdBulletTrainItems.filter(it=>it.departure_station||it.arrival_station||it.train_name||it.train_number||it.ride_date||it.memo||it.amount).map((it,i)=>({
     booking_ref: ref,
     ride_date: sanitizeDateField(it.ride_date),
     train_name: it.train_name||'',
@@ -13081,10 +13171,19 @@ async function saveBulletTrainItems(){
     amount: Number(it.amount)||0,
     sort_order: i
   }));
+}
+async function saveBulletTrainItems(){
+  const b = findBookingById(currentDetailId);
+  if(!b) return;
+  const ref = b.ref_no;
+  const rows = buildBulletTrainRows(ref);
+  const {error: delErr} = await sb.from('bullet_train_arrangements').delete().eq('booking_ref', ref);
+  if(delErr) throw new Error(appendSchemaErrorHint('新幹線明細の削除に失敗: '+delErr.message));
   if(rows.length){
     const {error: insErr} = await sb.from('bullet_train_arrangements').insert(rows);
     if(insErr) throw new Error(appendSchemaErrorHint('新幹線明細の保存に失敗: '+insErr.message));
   }
+  bdLoadSnapshot.bulletTrain = JSON.stringify(rows);
 }
 
 // 予約詳細モーダル内「新幹線」タブ用のCSV取込。実運用ではVIEW/びゅうのエクスポートCSV
@@ -13432,10 +13531,8 @@ function addGuideRow(){
   renderGuideTable();
 }
 
-async function saveGuideItems(){
-  if(!currentDetailId) return;
-  const bookingId = currentDetailId; // await中のcurrentDetailId変更に影響されないようスナップショットを保持
-  const rows = bdGuideItems.filter(it=>it.guide_id||it.guide_name_freetext||it.start_date||it.end_date||it.memo||it.amount).map(it=>({
+function buildGuideRows(bookingId){
+  return bdGuideItems.filter(it=>it.guide_id||it.guide_name_freetext||it.start_date||it.end_date||it.memo||it.amount).map(it=>({
     booking_id: bookingId,
     guide_id: it.guide_id||null,
     guide_name_freetext: it.guide_id ? '' : (it.guide_name_freetext||''),
@@ -13446,7 +13543,13 @@ async function saveGuideItems(){
     payment_method: it.payment_method||'',
     amount: Number(it.amount)||0
   }));
+}
+async function saveGuideItems(){
+  if(!currentDetailId) return;
+  const bookingId = currentDetailId; // await中のcurrentDetailId変更に影響されないようスナップショットを保持
+  const rows = buildGuideRows(bookingId);
   await bookingGuidesApiCall('replace', { bookingId, rows });
+  bdLoadSnapshot.guides = JSON.stringify(rows);
   // 保存後に他予約との二重アサインを再チェックする(警告表示のみで、保存自体はブロックしない)
   checkGuideDoubleBookings().catch(e=>logError('ガイド二重アサインチェック', e, {toast:false}));
 }
@@ -13895,16 +13998,12 @@ async function remapArrDayForeignKeys(bookingId){
   });
 }
 
-async function saveArrDoc(){
-  if(!currentDetailId) return;
-  const bookingId = currentDetailId; // await中のcurrentDetailId変更に影響されないようスナップショットを保持
-
-  // ヘッダー(booking_idに1:1)はupsert。revision_noが読み込み時から変化していれば
-  // last_revised_atを自動更新する（手動でrevision_noを書き換えた場合も同様に扱う）。
-  const h = bdArrHeader || {};
-  const revisionChanged = (Number(h.revision_no)||0) !== bdArrHeaderLoadedRevisionNo;
-  const headerPayload = {
-    booking_id: bookingId,
+// ヘッダーの差分比較専用フィールド(last_revised_at/updated_atは保存の都度書き換わる
+// 派生値のため、これらを含めて比較すると常に「変更あり」判定になってしまう。
+// ユーザーが実際に編集し得る項目のみを対象にする)。
+function buildArrHeaderCompareFields(h){
+  h = h || {};
+  return {
     bus_signage_name: h.bus_signage_name||'',
     nationality: h.nationality||'',
     pax_adult: Number(h.pax_adult)||0,
@@ -13915,13 +14014,10 @@ async function saveArrDoc(){
     status: h.status||'draft',
     revision_no: Number(h.revision_no)||0,
     revision_note: h.revision_note||null,
-    last_revised_at: revisionChanged ? new Date().toISOString() : (h.last_revised_at||null),
-    updated_at: new Date().toISOString()
   };
-  bdArrHeaderLoadedRevisionNo = headerPayload.revision_no;
-  if(revisionChanged) bdArrHeader.last_revised_at = headerPayload.last_revised_at;
-
-  const guideRows = bdArrGuideItems.filter(it=>it.guide_id||it.guide_name_freetext||it.phone||it.start_date).map((it,i)=>({
+}
+function buildArrGuideRows(bookingId){
+  return bdArrGuideItems.filter(it=>it.guide_id||it.guide_name_freetext||it.phone||it.start_date).map((it,i)=>({
     booking_id: bookingId,
     guide_id: it.guide_id||null,
     guide_name_freetext: it.guide_id ? '' : (it.guide_name_freetext||''),
@@ -13929,8 +14025,9 @@ async function saveArrDoc(){
     start_date: sanitizeDateField(it.start_date),
     display_order: i
   }));
-
-  const dayRows = bdArrDayItems.map((it,i)=>({
+}
+function buildArrDayRows(bookingId){
+  return bdArrDayItems.map((it,i)=>({
     booking_id: bookingId,
     day_no: i+1,
     date: sanitizeDateField(it.date),
@@ -13949,12 +14046,34 @@ async function saveArrDoc(){
     dinner_text: it.dinner_text||'', dinner_time: it.dinner_time||'', dinner_phone: it.dinner_phone||'',
     departure_time: it.departure_time||null
   }));
-  const noteRows = [
+}
+function buildArrNoteRows(bookingId){
+  return [
     {booking_id: bookingId, note_type:'fixed_template', content: bdArrNotes.fixed_template||'', display_order:0},
     {booking_id: bookingId, note_type:'mineral_water', content: bdArrNotes.mineral_water||'', display_order:1},
     {booking_id: bookingId, note_type:'driver_info', content: bdArrNotes.driver_info||'', display_order:2},
     {booking_id: bookingId, note_type:'tour_specific', content: bdArrNotes.tour_specific||'', display_order:3},
   ];
+}
+async function saveArrDoc(){
+  if(!currentDetailId) return;
+  const bookingId = currentDetailId; // await中のcurrentDetailId変更に影響されないようスナップショットを保持
+
+  // ヘッダー(booking_idに1:1)はupsert。revision_noが読み込み時から変化していれば
+  // last_revised_atを自動更新する（手動でrevision_noを書き換えた場合も同様に扱う）。
+  const h = bdArrHeader || {};
+  const revisionChanged = (Number(h.revision_no)||0) !== bdArrHeaderLoadedRevisionNo;
+  const headerPayload = Object.assign(buildArrHeaderCompareFields(h), {
+    booking_id: bookingId,
+    last_revised_at: revisionChanged ? new Date().toISOString() : (h.last_revised_at||null),
+    updated_at: new Date().toISOString()
+  });
+  bdArrHeaderLoadedRevisionNo = headerPayload.revision_no;
+  if(revisionChanged) bdArrHeader.last_revised_at = headerPayload.last_revised_at;
+
+  const guideRows = buildArrGuideRows(bookingId);
+  const dayRows = buildArrDayRows(bookingId);
+  const noteRows = buildArrNoteRows(bookingId);
 
   // ヘッダー・ガイド・日毎明細・注意文言の4つはいずれもbooking_id列で紐づく独立した
   // テーブルで、互いの結果(採番id等)に依存しないため並列実行する(全てservice_role経由の
@@ -13997,6 +14116,11 @@ async function saveArrDoc(){
   console.table(__arrDocPerfLog);
   const firstFailure = settled.find(r=>r.status==='rejected');
   if(firstFailure) throw firstFailure.reason;
+  // 4テーブル全て成功した場合のみスナップショットを更新する(一部失敗時はDBの実際の内容と
+  // ズレるため更新しない。次回保存時に改めて差分ありと判定させ、再送させる)。
+  // remapArrDayForeignKeysによるID張り替え後のdayRowsで更新するため、次回保存時は
+  // 「IDが変わっただけ」を誤って差分ありと判定しない。
+  bdLoadSnapshot.arrDoc = JSON.stringify({header: buildArrHeaderCompareFields(h), guides: guideRows, days: dayRows, notes: noteRows});
 }
 
 // ─── 手配書Excel出力 ───────────────────────────────────────────────
@@ -14702,6 +14826,34 @@ async function reflectHotelsToCost(){
   renderCostTable();
   alert('仕入明細に転記しました。保存ボタンで確定してください。');
 }
+// 予約情報タブ(bookings本体)の差分比較用フィールド。gross_sales/gross_cost/
+// deposit_amount/updated_atは売上・仕入明細から都度再計算/更新される派生値のため、
+// これらを含めて比較すると常に「変更あり」判定になってしまう。ユーザーが実際に
+// 入力・編集する項目のみを対象にする。DOM要素から読み取るため、ロード直後
+// (openBookingDetail内で各inputに値をセットした直後)と保存直前の両方で同じ関数を
+// 呼べば、正規化のズレなく比較できる。
+function buildBookingCompareFields(){
+  const adt = Number(document.getElementById('bd-pax-adt').value)||0;
+  const chd = Number(document.getElementById('bd-pax-chd').value)||0;
+  const inf = Number(document.getElementById('bd-pax-inf').value)||0;
+  return {
+    agent_name: document.getElementById('bd-agent').value.trim(),
+    tour_code: document.getElementById('bd-tour-code').value.trim() || null,
+    tour_name: document.getElementById('bd-tour').value.trim(),
+    pax_adult: adt, pax_child: chd, pax_infant: inf,
+    children_ages: document.getElementById('bd-children-ages').value.trim() || null,
+    status: document.getElementById('bd-status').value,
+    in_date: sanitizeDateField(document.getElementById('bd-in').value),
+    out_date: sanitizeDateField(document.getElementById('bd-out').value),
+    staff_in_charge: document.getElementById('bd-staff').value.trim() || null,
+    country: document.getElementById('bd-country').value.trim() || null,
+    booking_type: document.getElementById('bd-booking-type').value.trim() || null,
+    memo1: document.getElementById('bd-memo1').value.trim() || null,
+    memo2: document.getElementById('bd-memo2').value.trim() || null,
+    memo3: document.getElementById('bd-memo3').value.trim() || null,
+    memo: document.getElementById('bd-memo').value.trim() || null,
+  };
+}
 async function saveBookingDetail(){
   if(!currentDetailId) return;
   // currentDetailIdはグローバル変数のため、保存処理中の複数のawaitの間に
@@ -14775,34 +14927,15 @@ async function saveBookingDetail(){
   const totalSales = bdSalesTotal();
   const totalCost = bdCostTotal();
 
-  const adt = Number(document.getElementById('bd-pax-adt').value)||0;
-  const chd = Number(document.getElementById('bd-pax-chd').value)||0;
-  const inf = Number(document.getElementById('bd-pax-inf').value)||0;
-
-  const payload = {
-    agent_name: document.getElementById('bd-agent').value.trim(),
-    tour_code: document.getElementById('bd-tour-code').value.trim() || null,
-    tour_name: document.getElementById('bd-tour').value.trim(),
-    pax: adt+chd+inf,
-    pax_adult: adt,
-    pax_child: chd,
-    pax_infant: inf,
-    children_ages: document.getElementById('bd-children-ages').value.trim() || null,
-    status: document.getElementById('bd-status').value,
-    in_date: sanitizeDateField(document.getElementById('bd-in').value),
-    out_date: sanitizeDateField(document.getElementById('bd-out').value),
-    staff_in_charge: document.getElementById('bd-staff').value.trim() || null,
-    country: document.getElementById('bd-country').value.trim() || null,
-    booking_type: document.getElementById('bd-booking-type').value.trim() || null,
-    memo1: document.getElementById('bd-memo1').value.trim() || null,
-    memo2: document.getElementById('bd-memo2').value.trim() || null,
-    memo3: document.getElementById('bd-memo3').value.trim() || null,
-    memo: document.getElementById('bd-memo').value.trim() || null,
+  const bookingCompareFields = buildBookingCompareFields();
+  const bookingDirty = bdLoadSnapshot.booking !== JSON.stringify(bookingCompareFields);
+  const payload = Object.assign({}, bookingCompareFields, {
+    pax: bookingCompareFields.pax_adult + bookingCompareFields.pax_child + bookingCompareFields.pax_infant,
     gross_sales: totalSales,
     gross_cost: totalCost,
     deposit_amount: bdSalesItems.reduce((s,it)=>s+(it.payments||[]).reduce((ps,p)=>ps+(Number(p.amount)||0),0),0),
     updated_at: new Date().toISOString()
-  };
+  });
   // 保存ボタン押下から完了メッセージが出るまでの間、何も画面が変化せず処理中か
   // フリーズしているか分かりにくいという指摘への対応。ボタン(ヘッダー・下部の2箇所)を
   // 無効化して二重クリックを防ぎ、「保存中...」表示に変える。成功・失敗いずれの経路でも
@@ -14834,69 +14967,127 @@ async function saveBookingDetail(){
       return;
     }
 
-    // 明細の同期（新規INSERT成功後に旧行のみをidで削除する安全な差分更新。詳細はsafeReplaceBookingRows参照）
-    const salesToInsert = bdSalesItems.filter(it=>it.item_name||Number(it.amount)||it.memo||it.agent_name||it.payment_date||(it.payments&&it.payments.length)).map(it=>({
-      booking_id: bookingId, item_name: it.item_name||'', memo: it.memo||null, unit_price: Number(it.unit_price)||0,
-      pax: Number(it.pax)||1, qty: Number(it.qty)||1, amount: Number(it.amount)||0, payment_date: sanitizeDateField(it.payment_date),
-      agent_name: it.agent_name||null, payments: it.payments||[]
-    }));
-    const costToInsert = bdCostItems.filter(it=>it.item_name||Number(it.amount)||it.memo||it.payment_date).map(it=>({
-      booking_id: bookingId, item_name: it.item_name||'', amount: Number(it.amount)||0,
-      payment_date: sanitizeDateField(it.payment_date), payment_method: it.payment_method||null, memo: it.memo||'', status: it.status||'pending'
-    }));
-    await __timed('売上明細(booking_sales)', () => bookingSalesApiCall('replace', { bookingId, rows: salesToInsert }));
-    await __timed('仕入明細(booking_costs)', () => bookingCostsApiCall('replace', { bookingId, rows: costToInsert }));
+    if(bookingDirty) bdLoadSnapshot.booking = JSON.stringify(bookingCompareFields);
 
-    const bForSync = findBookingById(bookingId);
-    if(bForSync) await __timed('入金消込(syncAdvancePaymentsFromCosts)', () => syncAdvancePaymentsFromCosts(bookingId, bForSync.ref_no));
+    // ── 差分検出 ──────────────────────────────────────────────────────────
+    // 各タブについて、ロード直後に取ったスナップショット(bdLoadSnapshot.xxx)と
+    // 現在の内容(同じbuildXxxRows関数で正規化)を比較し、実際に変更されたタブだけを
+    // 保存対象にする。無変更のタブはAPI呼び出し自体を行わない。
+    const salesRows = buildSalesRows(bookingId);
+    const costRows = buildCostRows(bookingId);
+    const localExpenseRows = buildLocalExpenseRows(bookingId);
+    const hotelRows = buildHotelRows(bookingId);
+    const busRows = buildBusRows(bookingId);
+    const restaurantRows = buildRestaurantRows(bookingId);
+    const facilityRows = buildFacilityRows(bookingId);
+    const waterRows = buildWaterRows(bookingId);
+    const bForSyncRefNo = (findBookingById(bookingId)||{}).ref_no;
+    const bulletTrainRows = bForSyncRefNo ? buildBulletTrainRows(bForSyncRefNo) : [];
+    const guideRows = buildGuideRows(bookingId);
+    const arrDocCurrentJson = JSON.stringify({
+      header: buildArrHeaderCompareFields(bdArrHeader), guides: buildArrGuideRows(bookingId),
+      days: buildArrDayRows(bookingId), notes: buildArrNoteRows(bookingId)
+    });
 
-    await __timed('仕入先マスタ登録(registerNewSupplier×'+costToInsert.filter(it=>it.item_name).length+'件)', async () => {
-      for(const it of costToInsert){
+    const salesDirty = bdLoadSnapshot.sales !== JSON.stringify(salesRows);
+    const costsDirty = bdLoadSnapshot.costs !== JSON.stringify(costRows);
+    const localExpensesDirty = bdLoadSnapshot.localExpenses !== JSON.stringify(localExpenseRows);
+    const hotelsDirty = bdLoadSnapshot.hotels !== JSON.stringify(hotelRows);
+    const busesDirty = bdLoadSnapshot.buses !== JSON.stringify(busRows);
+    const restaurantsDirty = bdLoadSnapshot.restaurants !== JSON.stringify(restaurantRows);
+    const facilitiesDirty = bdLoadSnapshot.facilities !== JSON.stringify(facilityRows);
+    const waterDirty = bdLoadSnapshot.water !== JSON.stringify(waterRows);
+    const bulletTrainDirty = bdLoadSnapshot.bulletTrain !== JSON.stringify(bulletTrainRows);
+    const guidesDirty = bdLoadSnapshot.guides !== JSON.stringify(guideRows);
+    const arrDocOwnDirty = bdLoadSnapshot.arrDoc !== arrDocCurrentJson;
+    // ホテル/バス/レストランのいずれかが変更された場合、手配書の日毎明細が参照している
+    // hotel_booking_id/bus_booking_id/*_restaurant_booking_idがDB上では旧IDのままになり
+    // FK不整合(remapArrDayForeignKeysの出番)が起き得るため、日毎明細が1件でもあれば
+    // 手配書タブ自体は無変更でも合わせて再保存する。
+    const arrDocNeedsRemap = (hotelsDirty || busesDirty || restaurantsDirty) && bdArrDayItems.length > 0;
+    const arrDocDirty = arrDocOwnDirty || arrDocNeedsRemap;
+    // ガイド別手配書は、ガイド構成(booking_guides)か手配書(日毎明細・ヘッダー)のいずれかに
+    // 変更があった場合のみ意味を持つため、両方無変更ならスキップする。
+    const guideDocsDirty = guidesDirty || arrDocDirty;
+
+    const savedLabels = [];    // 実際にAPI呼び出しを行い保存したタブ
+    const skippedLabels = [];  // 無変更のためAPI呼び出し自体を行わなかったタブ
+    const failedSteps = [];    // {label, table, message}(個別try/catch対象のみ)
+    function __recordSkip(label){
+      skippedLabels.push(label);
+      __savePerfLog.push({ 'ステップ': label, '所要時間(ms)': '変更なし(スキップ)' });
+    }
+    // 従来、失敗時に丸ごと保存中断していた項目群(売上/仕入/入金消込/仕入先マスタ登録/
+    // 現地費用/ホテル/バス/レストラン/観光施設)。ここでは差分によるスキップのみ追加し、
+    // フォールトアイソレーション自体は変更しない(失敗時は従来通り例外を外側のcatchまで
+    // 伝播させ、以降のステップを中断する)。
+    async function runSkippable(label, dirty, run){
+      if(!dirty){ __recordSkip(label); return; }
+      await __timed(label, run);
+      savedLabels.push(label);
+    }
+    // 従来から個別にtry/catchしていた項目群(ミネラルウォーター/新幹線/ガイド/手配書/
+    // ガイド別手配書)。差分によるスキップを追加しつつ、1つが失敗しても他は継続する
+    // 既存のフォールトアイソレーションを維持する。
+    async function runSkippableIsolated(label, table, dirty, run){
+      if(!dirty){ __recordSkip(label); return; }
+      try{
+        await __timed(label, run);
+        savedLabels.push(label);
+      }catch(e){
+        logError(`予約詳細の保存(${label})`, e, {toast:false});
+        failedSteps.push({ label, table, message: e.message });
+      }
+    }
+
+    await runSkippable('売上明細(booking_sales)', salesDirty, async () => {
+      await bookingSalesApiCall('replace', { bookingId, rows: salesRows });
+      bdLoadSnapshot.sales = JSON.stringify(salesRows);
+    });
+    await runSkippable('仕入明細(booking_costs)', costsDirty, async () => {
+      await bookingCostsApiCall('replace', { bookingId, rows: costRows });
+      bdLoadSnapshot.costs = JSON.stringify(costRows);
+    });
+    // 入金消込は仕入明細(booking_costs)の内容だけを基に計算するため、仕入明細が
+    // 無変更なら消込結果も変わらずスキップしてよい。
+    await runSkippable('入金消込(syncAdvancePaymentsFromCosts)', costsDirty, () => {
+      const bForSync = findBookingById(bookingId);
+      return bForSync ? syncAdvancePaymentsFromCosts(bookingId, bForSync.ref_no) : Promise.resolve();
+    });
+    await runSkippable('仕入先マスタ登録(registerNewSupplier×'+costRows.filter(it=>it.item_name).length+'件)', costsDirty, async () => {
+      for(const it of costRows){
         if(it.item_name) await registerNewSupplier(it.item_name);
       }
     });
-    await __timed('現地費用(local_expenses)', () => saveLocalExpenses());
-    await __timed('ホテル(booking_hotels)', () => saveHotelItems());
-    await __timed('バス(booking_buses)', () => saveBusItems());
-    await __timed('レストラン(booking_restaurants)', () => saveRestaurantItems());
-    await __timed('観光施設(booking_facilities)', () => saveFacilityItems());
-    // ここから先の明細保存は、1つが失敗しても残りを止めない。
-    // 以前は逐次awaitだったため、途中で例外が出るとそれ以降のタブが丸ごと未保存になり、
-    // かつユーザーには「どこまで保存されたか」が分からない状態だった(部分保存の事故)。
-    // 各ステップを個別にtry/catchし、成功/失敗をタブ名付きで集計して最後に明示する。
-    // 保存対象テーブルもラベルに含め、障害調査時にどのテーブルで失敗したか分かるようにする。
-    const detailSaveSteps = [
-      { label: 'ミネラルウォーター', table: 'booking_water_items', run: () => saveWaterItems() },
-      { label: '新幹線手配', table: 'bullet_train_arrangements', run: () => saveBulletTrainItems() },
-      { label: 'ガイド', table: 'booking_guides', run: () => saveGuideItems() },
-      // 手配書は「FKの張り替え→ヘッダ/明細の保存」が1セットで、途中で分割すると
-      // 不整合な状態で残るため、この3つは1ステップとして扱う。
-      { label: '手配書', table: 'tour_arrangement_headers / tour_guides / tour_day_itinerary / tour_arrangement_notes',
-        run: async () => { await remapArrDayForeignKeys(bookingId); await saveArrDoc(); } },
-      { label: 'ガイド別手配書', table: 'arrangement_documents / arrangement_document_days / arrangement_document_notes',
-        run: () => syncArrangementDocumentsFromDraft(bookingId) },
-    ];
-    const detailSaveOk = [];
-    const detailSaveFailed = []; // {label, table, message}
-    for(const step of detailSaveSteps){
-      try{
-        await __timed(step.label, () => step.run());
-        detailSaveOk.push(step.label);
-      }catch(e){
-        logError(`予約詳細の保存(${step.label})`, e, {toast:false});
-        detailSaveFailed.push({ label: step.label, table: step.table, message: e.message });
-      }
-    }
+    await runSkippable('現地費用(local_expenses)', localExpensesDirty, () => saveLocalExpenses());
+    await runSkippable('ホテル(booking_hotels)', hotelsDirty, () => saveHotelItems());
+    await runSkippable('バス(booking_buses)', busesDirty, () => saveBusItems());
+    await runSkippable('レストラン(booking_restaurants)', restaurantsDirty, () => saveRestaurantItems());
+    await runSkippable('観光施設(booking_facilities)', facilitiesDirty, () => saveFacilityItems());
+    // ここから先の明細保存は、1つが失敗しても残りを止めない(既存のフォールトアイソレーション)。
+    await runSkippableIsolated('ミネラルウォーター', 'booking_water_items', waterDirty, () => saveWaterItems());
+    await runSkippableIsolated('新幹線手配', 'bullet_train_arrangements', bulletTrainDirty, () => saveBulletTrainItems());
+    await runSkippableIsolated('ガイド', 'booking_guides', guidesDirty, () => saveGuideItems());
+    // 手配書は「FKの張り替え→ヘッダ/明細の保存」が1セットで、途中で分割すると
+    // 不整合な状態で残るため、この3つは1ステップとして扱う。ID張り替え自体は
+    // ホテル/バス/レストランが変更された場合のみ必要(arrDocNeedsRemap)。
+    await runSkippableIsolated('手配書', 'tour_arrangement_headers / tour_guides / tour_day_itinerary / tour_arrangement_notes', arrDocDirty, async () => {
+      if(arrDocNeedsRemap) await remapArrDayForeignKeys(bookingId);
+      await saveArrDoc();
+    });
+    await runSkippableIsolated('ガイド別手配書', 'arrangement_documents / arrangement_document_days / arrangement_document_notes', guideDocsDirty, () => syncArrangementDocumentsFromDraft(bookingId));
+
     __savePerfLog.push({ 'ステップ': '─合計(全ステップ)', '所要時間(ms)': Math.round(performance.now()-__savePerfT0) });
-    console.log('【保存処理の所要時間 内訳】(window.__savePerfLogでも参照可)');
+    console.log('【保存処理の所要時間 内訳】(実行した項目は実測ms、無変更でスキップした項目は「変更なし(スキップ)」と表示。window.__savePerfLogでも参照可)');
     console.table(__savePerfLog);
     console.log('【/api/table-crud 呼び出し毎の内訳(往復合計/サーバー処理時間/コールドスタート)】(window.__tableCrudCallLogでも参照可)');
     console.table(window.__tableCrudCallLog);
     let newTableSaveWarning = '';
-    if(detailSaveFailed.length){
-      const failedList = detailSaveFailed.map(f=>`・「${f.label}」タブ（${f.table}）\n　　${f.message}`).join('\n');
-      const okList = detailSaveOk.length ? detailSaveOk.map(l=>`「${l}」`).join('・') : 'なし';
-      newTableSaveWarning = `\n\n⚠ 一部のタブを保存できませんでした。\n\n【保存できなかったタブ】\n${failedList}\n\n【保存できたタブ】\n予約情報・売上明細・仕入明細・現地費用・ホテル・バス・レストラン・観光施設、および ${okList}\n\n保存できなかったタブの内容は画面に残っています。原因を解消してから、もう一度保存してください。`;
+    if(failedSteps.length){
+      const failedList = failedSteps.map(f=>`・「${f.label}」タブ（${f.table}）\n　　${f.message}`).join('\n');
+      const okList = savedLabels.length ? savedLabels.map(l=>`「${l}」`).join('・') : 'なし';
+      const skipList = skippedLabels.length ? skippedLabels.map(l=>`「${l}」`).join('・') : 'なし';
+      newTableSaveWarning = `\n\n⚠ 一部のタブを保存できませんでした。\n\n【保存できなかったタブ】\n${failedList}\n\n【保存できたタブ】\n予約情報・${okList}\n\n【変更が無かったためスキップしたタブ】\n${skipList}\n\n保存できなかったタブの内容は画面に残っています。原因を解消してから、もう一度保存してください。`;
     }
     const b = findBookingById(bookingId);
     await logAction('予約編集', b ? b.ref_no : bookingId);
