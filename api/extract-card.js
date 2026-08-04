@@ -186,6 +186,17 @@ export default async function handler(req, res) {
   nullにすること（無理に推測して埋めないこと）。
 - 手書き文字が薄い・かすれている等で確信が持てない場合も、無理に埋めずnullにすること。
 
+【ツアーコード以外の手書きメモ（重要）】
+- 手書きの書き込みの中には、上記のツアーコード形式（数字＋区切り文字＋アルファベット）に
+  当てはまらないメモ（例:「交通費」「倉庫代」「立替」等の日本語の走り書き）が含まれることが
+  ある。これらはツアーコードとして無理にhint_tour_codeへ入れようとせず、その行に対応する
+  手書きメモとして"memo"にそのまま（判読できた通りの文字列で）入れること。
+- 1つの取引行に、ツアーコード形式の手書き（hint_tour_code）と、それ以外の日本語メモ
+  （memo）の両方が別々に書き込まれている場合は、両方をそれぞれ対応するフィールドに
+  入れて構わない（どちらか一方しか採用しないという意味ではない）。
+- その行に手書きの書き込みが一切ない、または判読できない場合は"memo"をnullにすること
+  （無理に推測して埋めないこと）。
+
 【出力ルール（JSON構文が壊れると読み取り自体が全件失敗するため厳守）】
 - 金額は数値のみ（カンマ・円記号なし）
 - 店舗名が読み取れない場合はnullにする
@@ -198,7 +209,7 @@ export default async function handler(req, res) {
 - 出力は有効なJSON配列そのものだけとし、説明文・注釈・コードブロック記号(\`\`\`)は一切含めないこと
 - 他のテキストは一切含めず、以下のJSON形式のみで返すこと
 
-[{"date":"2026-05-20","date_raw":null,"needs_review":false,"year_supplemented":false,"merchant":"〇〇株式会社","amount":15000,"hint_tour_code":"851_KK"},{"date":"2026-05-25","date_raw":"?/5 25","needs_review":false,"year_supplemented":true,"merchant":"□□商事","amount":8400,"hint_tour_code":null},{"date":null,"date_raw":"5/25","needs_review":true,"year_supplemented":false,"merchant":"△△商店","amount":3200,"hint_tour_code":null}]`}
+[{"date":"2026-05-20","date_raw":null,"needs_review":false,"year_supplemented":false,"merchant":"〇〇株式会社","amount":15000,"hint_tour_code":"851_KK","memo":null},{"date":"2026-05-25","date_raw":"?/5 25","needs_review":false,"year_supplemented":true,"merchant":"□□商事","amount":8400,"hint_tour_code":null,"memo":"交通費"},{"date":null,"date_raw":"5/25","needs_review":true,"year_supplemented":false,"merchant":"△△商店","amount":3200,"hint_tour_code":null,"memo":null}]`}
       ], 2000);
       const text = data.content?.[0]?.text || '';
       return res.status(200).json({ text });

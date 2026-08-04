@@ -223,6 +223,17 @@ const TABLE_CONFIG = {
     label: '名刺マージ保留候補',
     stampSentByField: 'scanned_by',
   },
+  // credit_card_statements(クレジットカード明細): 経理・原価計算に関わるデータのため
+  // 監査ログを有効化する(再設計時にscripts/redesign_credit_card_statements.sqlで
+  // created_by/updated_by/created_at列を追加済みであることが前提)。無停止移行のため、
+  // このAPI経由への切替後もDB側のanon直接書き込み権限は当面維持する(フェーズB相当の
+  // REVOKEは別途実施)。
+  credit_card_statements: {
+    actions: ['insert', 'updateById', 'deleteById'],
+    label: 'クレジットカード明細',
+    stampIdentity: true,
+    auditLog: true,
+  },
 };
 
 // learned_mappingsのcategoryはこの3種のみ許可する(bodyの値をそのまま保存しない)。
@@ -416,9 +427,13 @@ async function doInsert(table, label, rows, config, changedBy) {
     const e = await readJsonSafe(insRes);
     return { status: 500, body: { error: withGrantHint(e.message, table) || `${label}の保存に失敗しました` } };
   }
+  // needAudit時はどのみちreturn=representationで挿入後の行(採番id含む)を取得しているため、
+  // 監査ログ記録だけでなく呼び出し元にもそのまま返す(insertReturningを使わずに済むように)。
+  // 既存の呼び出し元は追加フィールド(rows)を無視するだけなので後方互換に影響しない。
   if (needAudit) {
     const inserted = await insRes.json();
     await writeAuditLogs(table, inserted.map((r) => ({ recordId: r.id, action: 'insert', before: null, after: r })), changedBy);
+    return { status: 200, body: { ok: true, rows: inserted } };
   }
   return { status: 200, body: { ok: true } };
 }

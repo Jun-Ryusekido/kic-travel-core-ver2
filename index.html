@@ -1481,6 +1481,7 @@ input[type=number]{-moz-appearance:textfield}
             <button class="btn" style="font-size:11px" data-cc-filter="未紐付け" onclick="setCcFilter('未紐付け')">未紐付け</button>
             <button class="btn" style="font-size:11px" data-cc-filter="候補あり" onclick="setCcFilter('候補あり')">候補あり</button>
             <button class="btn" style="font-size:11px" data-cc-filter="確定済み" onclick="setCcFilter('確定済み')">確定済み</button>
+            <button class="btn" style="font-size:11px" data-cc-filter="対象外" onclick="setCcFilter('対象外')">対象外</button>
           </div>
           <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:760px;width:100%">
             <colgroup>
@@ -4304,6 +4305,10 @@ async function arrangementDocumentNotesApiCall(action, payload){ return tableCru
 // partner_merge_pending(名刺スキャン自動マージ・確認バナー機能)。新設テーブルのため
 // 最初からservice_role専用API経由のみ(anonへのinsert/update/delete GRANTは無い)。
 async function partnerMergePendingApiCall(action, payload){ return tableCrudApiCall('partner_merge_pending', action, payload); }
+// credit_card_statements(クレジットカード明細機能の再設計、フェーズ1)。経理・原価計算に
+// 関わるデータのため監査ログ対象とし、書き込みはこのAPI経由に統一する(anon直接書き込みは
+// 段階的に廃止予定。DB側の権限自体はscripts/redesign_credit_card_statements.sql参照)。
+async function creditCardStatementsApiCall(action, payload){ return tableCrudApiCall('credit_card_statements', action, payload); }
 
 // 学習キーの正規化(全角/半角・大文字小文字・空白ゆれを吸収)。index.html/guide.htmlで
 // 同じロジックを使うこと(片方だけ変えるとキーが一致しなくなり学習が効かなくなる)。
@@ -16685,8 +16690,18 @@ async function processCcStatementFile(file, mode){
     ccExtracted = (Array.isArray(parsed) ? parsed : [parsed]).map(p=>({
       transaction_date: p.date||'', date_raw: p.date_raw||'', needs_review: !!p.needs_review || !p.date,
       year_supplemented: !!p.year_supplemented,
-      merchant_name: p.merchant||'', amount: Number(p.amount)||0, hint_tour_code: (p.hint_tour_code||'').trim(), raw_ocr_text: cleaned
+      merchant_name: p.merchant||'', amount: Number(p.amount)||0, hint_tour_code: (p.hint_tour_code||'').trim(),
+      memo: (p.memo||'').trim(), raw_ocr_text: cleaned
     }));
+    // 重複アップロード検知(同一名義人+同一利用日+同一店舗名+同一金額の明細が既に保存済みか)。
+    // 保存は止めず、OCR確認画面側で行ごとに⚠️バッジを出すための判定のみ行う。
+    const cardHolderNow = (document.getElementById('cc-card-holder')?.value||'').trim();
+    ccExtracted.forEach(p=>{
+      p.possibleDuplicate = ccStatementsCache.some(s=>
+        (s.card_holder||'')===cardHolderNow && s.transaction_date===p.transaction_date &&
+        (s.merchant_name||'')===p.merchant_name && Number(s.amount||0)===p.amount
+      );
+    });
     renderCcExtractedResults();
     const reviewCount = ccExtracted.filter(p=>p.needs_review).length;
     statusEl.textContent = `✓ ${ccExtracted.length}件を読み取りました。内容を確認してください。` + (reviewCount>0 ? ` ⚠ ${reviewCount}件は日付を確認できず「要確認」です。手動で入力してください。` : '');
@@ -16707,20 +16722,29 @@ function renderCcExtractedResults(){
   if(!el || ccExtracted.length===0){ if(el) el.innerHTML=''; return; }
   const rows = ccExtracted.map((p,i)=>`<tr${p.needs_review?' style="background:var(--amber-lt,#FAEEDA)"':''}>
     <td data-label=""><input type="checkbox" id="cc-ext-chk-${i}" checked></td>
-    <td data-label="利用日"><input type="date" min="1900-01-01" max="9999-12-31" id="cc-ext-date-${i}" value="${_safeDate(p.transaction_date)}" style="width:100%;box-sizing:border-box${p.needs_review?';border-color:var(--amber,#854F0B)':''}" onchange="this.blur()">${p.needs_review?`<div style="font-size:9px;color:var(--amber,#854F0B);margin-top:2px">⚠ 要確認${p.date_raw?`（読取: ${escHtml(p.date_raw)}）`:''}</div>`:''}${(!p.needs_review && p.year_supplemented)?`<div style="font-size:9px;color:var(--text3);margin-top:2px" title="他の行から判明した年で自動補完しました${p.date_raw?`（読取: ${escHtml(p.date_raw)}）`:''}">ℹ 年を補完</div>`:''}</td>
+    <td data-label="利用日"><input type="date" min="1900-01-01" max="9999-12-31" id="cc-ext-date-${i}" value="${_safeDate(p.transaction_date)}" style="width:100%;box-sizing:border-box${p.needs_review?';border-color:var(--amber,#854F0B)':''}" onchange="this.blur()">${p.needs_review?`<div style="font-size:9px;color:var(--amber,#854F0B);margin-top:2px">⚠ 要確認${p.date_raw?`（読取: ${escHtml(p.date_raw)}）`:''}</div>`:''}${(!p.needs_review && p.year_supplemented)?`<div style="font-size:9px;color:var(--text3);margin-top:2px" title="他の行から判明した年で自動補完しました${p.date_raw?`（読取: ${escHtml(p.date_raw)}）`:''}">ℹ 年を補完</div>`:''}${p.possibleDuplicate?`<div style="font-size:9px;color:var(--amber,#854F0B);margin-top:2px">⚠ 重複の疑い（同一内容が登録済み）</div>`:''}</td>
     <td data-label="店舗名"><input type="text" id="cc-ext-merchant-${i}" value="${escAttr(p.merchant_name)}" style="width:100%;box-sizing:border-box" onchange="this.blur()"></td>
     <td data-label="金額" style="text-align:right"><input type="number" id="cc-ext-amount-${i}" value="${p.amount}" style="width:100%;text-align:right;box-sizing:border-box" onchange="this.blur()"></td>
     <td data-label="手書きコード"><input type="text" id="cc-ext-hint-${i}" value="${escAttr(p.hint_tour_code)}" placeholder="例: 851_KK" style="width:100%;box-sizing:border-box" onchange="this.blur()"></td>
+    <td data-label="手書きメモ"><input type="text" id="cc-ext-memo-${i}" value="${escAttr(p.memo||'')}" placeholder="例: 交通費" style="width:100%;box-sizing:border-box" onchange="this.blur()"></td>
   </tr>`).join('');
   el.innerHTML = `
+    <div style="margin-bottom:6px"><label style="font-size:11px;display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="cc-ext-chk-all" checked onchange="toggleAllCcExtractedRows(this.checked)">全選択/全解除</label></div>
     <div class="tbl-wrap"><table class="confirm-table" id="cc-ext-table" style="width:100%;border-collapse:collapse;font-size:11px">
-      <thead><tr><th></th><th>利用日</th><th>店舗名</th><th style="text-align:right">金額</th><th>手書きツアーコード</th></tr></thead>
+      <thead><tr><th></th><th>利用日</th><th>店舗名</th><th style="text-align:right">金額</th><th>手書きツアーコード</th><th>手書きメモ</th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
     <div id="cc-ocr-save-bar" style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <button class="btn btn-p" onclick="saveCcExtractedRows()">💾 保存して自動マッチング</button>
       <span id="cc-save-status" style="font-size:11px;color:var(--text3)"></span>
     </div>`;
+}
+
+function toggleAllCcExtractedRows(checked){
+  ccExtracted.forEach((_,i)=>{
+    const chk = document.getElementById(`cc-ext-chk-${i}`);
+    if(chk) chk.checked = checked;
+  });
 }
 
 async function saveCcExtractedRows(){
@@ -16734,13 +16758,19 @@ async function saveCcExtractedRows(){
     const merchant_name = (document.getElementById(`cc-ext-merchant-${i}`)?.value||'').trim();
     const amount = Number(document.getElementById(`cc-ext-amount-${i}`)?.value)||0;
     const hint_tour_code = (document.getElementById(`cc-ext-hint-${i}`)?.value||'').trim() || null;
+    const memo = (document.getElementById(`cc-ext-memo-${i}`)?.value||'').trim() || null;
     if(!merchant_name && !amount) return;
-    rows.push({ card_holder: cardHolder, transaction_date, merchant_name, amount, hint_tour_code, raw_ocr_text: p.raw_ocr_text||'', match_status: '未紐付け' });
+    rows.push({ card_holder: cardHolder, transaction_date, merchant_name, amount, hint_tour_code, memo, raw_ocr_text: p.raw_ocr_text||'', match_status: '未紐付け' });
   });
   if(!rows.length){ alert('保存する行がありません'); return; }
   statusEl.textContent = '保存中...'; statusEl.style.color = 'var(--text3)';
-  const {data, error} = await sb.from('credit_card_statements').insert(rows).select();
-  if(error){ statusEl.textContent = '保存エラー: '+error.message; statusEl.style.color = 'var(--red)'; return; }
+  let data;
+  try{
+    const result = await creditCardStatementsApiCall('insert', {rows});
+    data = result.rows;
+  }catch(e){
+    statusEl.textContent = '保存エラー: '+e.message; statusEl.style.color = 'var(--red)'; return;
+  }
   for(const row of (data||[])){ await autoMatchCcStatement(row); }
   statusEl.textContent = `✓ ${rows.length}件を保存し、自動マッチングを行いました`;
   statusEl.style.color = 'var(--green)';
@@ -16798,8 +16828,25 @@ async function findCcMatchCandidates(statement){
   // 学習なしの従来動作にフォールバックする。
   const learnedRows = (await fetchLearnedMappings('cc_merchant', statement.merchant_name)).slice(0,3);
   const learnedRefs = new Set(learnedRows.map(r=>_ccNormTourCode(r.confirmed_value)));
-  // 金額不一致でも追加候補に含めるのは、confirmed_countが3以上の学習に限る(誤確定防止)。
-  const strongRefs = learnedRows.filter(r=>Number(r.confirmed_count)>=3).map(r=>_ccNormTourCode(r.confirmed_value));
+
+  // 店名+金額帯の複合学習(再設計フェーズ1)。同一店舗名で過去に確定済みの明細の金額群を見て、
+  // 今回の金額がその実績レンジ(±15%)に収まっていれば、confirmed_countが3未満の学習でも
+  // 追加候補に含める(1〜2回の実績でも、金額という別の裏付けがあれば信頼度を補える、という
+  // 考え方。手書きコード最優先・金額完全一致優先の既存の優先順位は変更しない)。
+  let amountBandOk = false;
+  if(statement.merchant_name && statement.amount){
+    try{
+      const {data: pastConfirmed} = await sb.from('credit_card_statements').select('amount')
+        .eq('merchant_name', statement.merchant_name).eq('match_status','確定済み').limit(50);
+      const pastAmounts = (pastConfirmed||[]).map(r=>Number(r.amount)).filter(n=>n>0);
+      amountBandOk = pastAmounts.some(a=>Math.abs(a-statement.amount) <= a*0.15);
+    }catch(e){ amountBandOk = false; }
+  }
+  // 金額不一致でも追加候補に含めるのは、confirmed_countが3以上の学習、または
+  // (count1以上 かつ 上記の金額帯一致)のいずれかに限る(誤確定防止)。
+  const strongRefs = [...new Set(learnedRows
+    .filter(r=>Number(r.confirmed_count)>=3 || (Number(r.confirmed_count)>=1 && amountBandOk))
+    .map(r=>_ccNormTourCode(r.confirmed_value)))];
 
   // 追加候補: 学習3回以上の確定先ref_noに対応する予約の法人カード決済コスト
   // (金額不一致でもリストに含めるが、モーダル上で明確に区別して表示する)。
@@ -16842,10 +16889,14 @@ async function findCcMatchCandidates(statement){
       _ccTourCodeMatches(booking.ref_no, hint) || _ccTourCodeMatches(booking.tour_code, hint)
     ));
     const learnedMatch = isLearnedBooking(booking);
+    // 金額不一致候補のうち、店名+金額帯の複合学習で裏付けが取れているものは区別する
+    // (confirmed_count3回以上の「純粋な店名学習のみ」の裏付けより弱いとは限らないが、
+    // 金額完全一致より確度は落ちるため、③と④の間の順位にする)。
+    const amountBandMatch = amountMismatch && learnedMatch && amountBandOk;
     // 優先順位: ①手書きコード一致 > ②金額一致+店名学習一致 > ③金額一致のみ
-    // > ④金額不一致だが店名学習3回以上一致(金額不一致候補は常に最下位グループ)
-    const rank = amountMismatch ? 3 : hintMatch ? 0 : learnedMatch ? 1 : 2;
-    return { cost: c, booking, diffDays, hintMatch, learnedMatch, amountMismatch, rank };
+    // > ④金額不一致だが店名+金額帯の複合学習で裏付けあり > ⑤金額不一致だが店名学習3回以上一致
+    const rank = amountBandMatch ? 2.5 : amountMismatch ? 3 : hintMatch ? 0 : learnedMatch ? 1 : 2;
+    return { cost: c, booking, diffDays, hintMatch, learnedMatch, amountMismatch, amountBandMatch, rank };
   };
   const withDiff = [
     ...amountMatched.map(c=>buildEntry(c, false)),
@@ -16855,22 +16906,22 @@ async function findCcMatchCandidates(statement){
     if(a.rank !== b.rank) return a.rank - b.rank;
     return a.diffDays - b.diffDays;
   });
-  return withDiff.map(({cost, booking, hintMatch, learnedMatch, amountMismatch})=>({cost, booking, hintMatch, learnedMatch, amountMismatch}));
+  return withDiff.map(({cost, booking, hintMatch, learnedMatch, amountMismatch, amountBandMatch})=>({cost, booking, hintMatch, learnedMatch, amountMismatch, amountBandMatch}));
 }
 
 async function autoMatchCcStatement(statement){
   const candidates = await findCcMatchCandidates(statement);
   const match_status = candidates.length>0 ? '候補あり' : '未紐付け';
-  await sb.from('credit_card_statements').update({match_status}).eq('id', statement.id);
+  await creditCardStatementsApiCall('updateById', {id: statement.id, fields: {match_status}});
 }
 
 async function loadCreditCardStatements(){
   const tbody = document.getElementById('cc-tbody');
   if(!tbody) return;
   enablePasteUpload(document.getElementById('cc-paste-zone'), file=>processCcStatementFile(file));
-  tbody.innerHTML = '<tr><td colspan="4" class="empty">読み込み中...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="6" class="empty">読み込み中...</td></tr>';
   const {data, error} = await sb.from('credit_card_statements').select('*').order('transaction_date',{ascending:false});
-  if(error){ logError('クレジットカード明細の読み込み', error); tbody.innerHTML = '<tr><td colspan="5" class="empty">読み込みに失敗しました</td></tr>'; return; }
+  if(error){ logError('クレジットカード明細の読み込み', error); tbody.innerHTML = '<tr><td colspan="6" class="empty">読み込みに失敗しました</td></tr>'; return; }
   ccStatementsCache = data||[];
   renderCcTable();
 }
@@ -16888,15 +16939,20 @@ function renderCcTable(){
   if(!tbody) return;
   const list = ccFilter==='all' ? ccStatementsCache : ccStatementsCache.filter(s=>s.match_status===ccFilter);
   if(list.length===0){ tbody.innerHTML = '<tr><td colspan="6" class="empty">明細がありません</td></tr>'; return; }
+  const now = Date.now();
   tbody.innerHTML = list.map(s=>{
-    const statusColor = s.match_status==='確定済み' ? 'var(--green)' : s.match_status==='候補あり' ? 'var(--blue)' : 'var(--text3)';
-    return `<tr style="cursor:pointer" onclick="openCcMatchModal('${s.id}')">
+    const statusColor = s.match_status==='確定済み' ? 'var(--green)' : s.match_status==='候補あり' ? 'var(--blue)' : s.match_status==='対象外' ? 'var(--text3)' : 'var(--amber,#854F0B)';
+    // 「未紐付け」のまま一定日数(3日)以上放置されている行を視覚的に強調する(再設計フェーズ1)。
+    // created_atが無い過去データ(移行前に保存された行)は判定できないため強調しない。
+    const ageDays = s.created_at ? (now - new Date(s.created_at).getTime()) / 86400000 : null;
+    const isStale = s.match_status==='未紐付け' && ageDays!==null && ageDays>=3;
+    return `<tr style="cursor:pointer${isStale?';background:var(--amber-lt,#FAEEDA)':''}" onclick="openCcMatchModal('${s.id}')">
       <td data-label="利用日">${escHtml(_fmtSlashDate ? _fmtSlashDate(s.transaction_date) : (s.transaction_date||''))}</td>
       <td data-label="名義人">${escHtml(s.card_holder||'')}</td>
       <td data-label="店舗名">${escHtml(s.merchant_name||'')}</td>
       <td data-label="金額" style="text-align:right">${yen(s.amount||0)}</td>
       <td data-label="手書きコード">${escHtml(s.hint_tour_code||'')}</td>
-      <td data-label="紐付け状態"><span style="font-size:10px;font-weight:600;color:${statusColor}">${escHtml(s.match_status||'未紐付け')}</span></td>
+      <td data-label="紐付け状態"><span style="font-size:10px;font-weight:600;color:${statusColor}">${isStale?'⏰ ':''}${escHtml(s.match_status||'未紐付け')}</span></td>
     </tr>`;
   }).join('');
 }
@@ -16904,7 +16960,8 @@ function renderCcTable(){
 async function openCcMatchModal(id){
   const s = ccStatementsCache.find(x=>String(x.id)===String(id));
   if(!s) return;
-  const candidates = await findCcMatchCandidates(s);
+  const isExcluded = s.match_status==='対象外';
+  const candidates = isExcluded ? [] : await findCcMatchCandidates(s);
   // 確定済みの明細は、現在の紐付け先(予約・仕入明細)を表示するために別途取得する。
   let currentMatch = null;
   if(s.match_status==='確定済み' && s.matched_booking_id){
@@ -16925,12 +16982,19 @@ async function openCcMatchModal(id){
         <div style="font-size:11px;color:var(--text3)">仕入先: ${escHtml(currentMatch.cost?.item_name||'')} / 金額: ${yen(currentMatch.cost?.amount||0)}</div>
         <div style="margin-top:6px"><button class="btn" style="font-size:11px" onclick="unlinkCcMatch('${s.id}')">紐付けを解除</button></div>
       </div>` : '';
+  const excludedHtml = isExcluded ? `
+      <div style="border:1px solid var(--border);background:var(--bg2,#EEF1F4);border-radius:8px;padding:8px;margin-bottom:10px">
+        <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:4px">この明細は「紐付け対象外」に設定されています</div>
+        ${s.excluded_reason?`<div style="font-size:11px;color:var(--text3)">理由: ${escHtml(s.excluded_reason)}</div>`:''}
+        <div style="margin-top:6px"><button class="btn" style="font-size:11px" onclick="unmarkCcStatementExcluded('${s.id}')">対象外を解除する</button></div>
+      </div>` : '';
   const candRows = candidates.map(c=>{
-    const borderColor = c.amountMismatch ? 'var(--amber,#854F0B)' : c.hintMatch ? 'var(--blue)' : c.learnedMatch ? 'var(--green)' : 'var(--border)';
-    const bg = c.amountMismatch ? 'var(--amber-lt,#FAEEDA)' : c.hintMatch ? 'var(--blue-lt,#F0F6FF)' : c.learnedMatch ? 'var(--green-lt,#EFFAF1)' : '';
+    const borderColor = c.amountBandMatch ? 'var(--blue)' : c.amountMismatch ? 'var(--amber,#854F0B)' : c.hintMatch ? 'var(--blue)' : c.learnedMatch ? 'var(--green)' : 'var(--border)';
+    const bg = c.amountBandMatch ? 'var(--blue-lt,#F0F6FF)' : c.amountMismatch ? 'var(--amber-lt,#FAEEDA)' : c.hintMatch ? 'var(--blue-lt,#F0F6FF)' : c.learnedMatch ? 'var(--green-lt,#EFFAF1)' : '';
     const badges = [
       c.hintMatch ? `<span style="font-size:9px;font-weight:700;color:var(--blue);background:#fff;border:1px solid var(--blue);border-radius:8px;padding:1px 6px;margin-right:4px">✓ 手書きコード一致</span>` : '',
       c.learnedMatch ? `<span style="font-size:9px;font-weight:700;color:var(--green);background:#fff;border:1px solid var(--green);border-radius:8px;padding:1px 6px;margin-right:4px">★ 店名学習一致</span>` : '',
+      c.amountBandMatch ? `<span style="font-size:9px;font-weight:700;color:var(--blue);background:#fff;border:1px solid var(--blue);border-radius:8px;padding:1px 6px;margin-right:4px">📊 金額帯が過去実績と近い</span>` : '',
       c.amountMismatch ? `<span style="font-size:9px;font-weight:700;color:var(--amber,#854F0B);background:#fff;border:1px solid var(--amber,#854F0B);border-radius:8px;padding:1px 6px;margin-right:4px">⚠ 金額不一致（明細: ${yen(s.amount||0)} / 候補: ${yen(c.cost.amount||0)}）</span>` : '',
     ].join('');
     return `
@@ -16942,24 +17006,29 @@ async function openCcMatchModal(id){
       <button class="btn btn-p" style="font-size:11px" onclick="confirmCcMatch('${s.id}','${c.cost.id}','${c.cost.booking_id}','${escAttr(c.booking?.ref_no||'')}')">この予約に確定</button>
     </div>`;
   }).join('') || '<div class="empty" style="font-size:11px">候補が見つかりませんでした</div>';
+  // 紐付け操作ブロックは「対象外」設定中は表示しない(対象外を解除してから操作する導線に統一)。
+  const matchingBlockHtml = isExcluded ? '' : `
+      <div style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px">
+        <div style="font-size:11px;font-weight:600;margin-bottom:6px">紐付け候補</div>
+        ${candRows}
+        <div style="margin-top:10px;font-size:11px;font-weight:600;margin-bottom:6px">別の予約を検索して紐付け（REF# / ツアー名）</div>
+        <div style="display:flex;gap:6px;margin-bottom:6px">
+          <input id="cc-manual-search" placeholder="例: #1374, Kesari" style="flex:1;font-size:11px;border:1px solid var(--border);border-radius:6px;padding:4px 6px">
+          <button class="btn" style="font-size:11px" onclick="searchCcManualMatch('${s.id}')">検索</button>
+        </div>
+        <div id="cc-manual-results"></div>
+        <div style="margin-top:8px"><button class="btn" style="font-size:11px" onclick="markCcStatementExcluded('${s.id}')">この明細は紐付け対象外にする</button></div>
+      </div>`;
   modal.innerHTML = `
     <div style="background:var(--card,#fff);border-radius:12px;padding:20px;width:100%;max-width:640px;margin-top:10px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <div style="font-size:13px;font-weight:700">クレジットカード明細の紐付け確認</div>
         <button class="btn" onclick="document.getElementById('cc-match-modal').remove()">✕</button>
       </div>
-      <div style="font-size:11px;color:var(--text3);margin-bottom:10px">${escHtml(s.transaction_date||'')} / ${escHtml(s.merchant_name||'')} / ${yen(s.amount||0)}${s.hint_tour_code?` / 手書きコード: <strong style="color:var(--blue)">${escHtml(s.hint_tour_code)}</strong>`:''}</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:10px">${escHtml(s.transaction_date||'')} / ${escHtml(s.card_holder||'')} / ${escHtml(s.merchant_name||'')} / ${yen(s.amount||0)}${s.hint_tour_code?` / 手書きコード: <strong style="color:var(--blue)">${escHtml(s.hint_tour_code)}</strong>`:''}${s.memo?` / 手書きメモ: <strong>${escHtml(s.memo)}</strong>`:''}</div>
       ${currentMatchHtml}
-      <div style="font-size:11px;font-weight:600;margin-bottom:6px">候補</div>
-      ${candRows}
-      <div style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px">
-        <div style="font-size:11px;font-weight:600;margin-bottom:6px">別の予約を検索して紐付け（REF# / ツアー名）</div>
-        <div style="display:flex;gap:6px;margin-bottom:6px">
-          <input id="cc-manual-search" placeholder="例: #1374, Kesari" style="flex:1;font-size:11px;border:1px solid var(--border);border-radius:6px;padding:4px 6px">
-          <button class="btn" style="font-size:11px" onclick="searchCcManualMatch('${s.id}')">検索</button>
-        </div>
-        <div id="cc-manual-results"></div>
-      </div>
+      ${excludedHtml}
+      ${matchingBlockHtml}
       <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
         <div style="font-size:11px;font-weight:600;margin-bottom:6px">明細内容を編集</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
@@ -16967,9 +17036,13 @@ async function openCcMatchModal(id){
           <div class="form-field"><label style="font-size:10px">金額</label><input type="number" id="cc-edit-amount" value="${s.amount||0}" style="width:100%;box-sizing:border-box;font-size:11px;padding:5px 7px;text-align:right"></div>
           <div class="form-field"><label style="font-size:10px">店舗名</label><input type="text" id="cc-edit-merchant" value="${escAttr(s.merchant_name||'')}" style="width:100%;box-sizing:border-box;font-size:11px;padding:5px 7px"></div>
           <div class="form-field"><label style="font-size:10px">手書きコード</label><input type="text" id="cc-edit-hint" value="${escAttr(s.hint_tour_code||'')}" placeholder="例: 851_KK" style="width:100%;box-sizing:border-box;font-size:11px;padding:5px 7px"></div>
+          <div class="form-field" style="grid-column:1/3"><label style="font-size:10px">手書きメモ</label><input type="text" id="cc-edit-memo" value="${escAttr(s.memo||'')}" placeholder="例: 交通費" style="width:100%;box-sizing:border-box;font-size:11px;padding:5px 7px"></div>
         </div>
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
-          <button class="btn" style="font-size:11px;color:var(--red);border-color:var(--red)" onclick="deleteCcStatement('${s.id}')">🗑 この明細を削除</button>
+          <span style="display:flex;gap:8px;align-items:center">
+            <button class="btn" style="font-size:11px;color:var(--red);border-color:var(--red)" onclick="deleteCcStatement('${s.id}')">🗑 この明細を削除</button>
+            <button class="btn" style="font-size:11px" onclick="openAuditHistory('credit_card_statements','${s.id}','${escAttr(s.merchant_name||'')}')">変更履歴を見る</button>
+          </span>
           <span style="display:flex;gap:8px;align-items:center">
             <span id="cc-edit-status" style="font-size:11px;color:var(--text3)"></span>
             <button class="btn btn-p" style="font-size:11px" onclick="saveCcStatementEdit('${s.id}')">💾 編集内容を保存</button>
@@ -16989,12 +17062,14 @@ async function saveCcStatementEdit(id){
   const merchant_name = (document.getElementById('cc-edit-merchant')?.value||'').trim();
   const amount = Number(document.getElementById('cc-edit-amount')?.value)||0;
   const hint_tour_code = (document.getElementById('cc-edit-hint')?.value||'').trim() || null;
+  const memo = (document.getElementById('cc-edit-memo')?.value||'').trim() || null;
   if(statusEl){ statusEl.textContent = '保存中...'; statusEl.style.color = 'var(--text3)'; }
-  const {error} = await sb.from('credit_card_statements').update({
-    transaction_date, merchant_name, amount, hint_tour_code
-  }).eq('id', id);
-  if(error){
-    if(statusEl){ statusEl.textContent = '保存エラー: '+error.message; statusEl.style.color = 'var(--red)'; }
+  try{
+    await creditCardStatementsApiCall('updateById', {id, fields: {
+      transaction_date, merchant_name, amount, hint_tour_code, memo
+    }});
+  }catch(e){
+    if(statusEl){ statusEl.textContent = '保存エラー: '+e.message; statusEl.style.color = 'var(--red)'; }
     return;
   }
   document.getElementById('cc-match-modal')?.remove();
@@ -17006,22 +17081,52 @@ async function deleteCcStatement(id){
   if(!s) return;
   const label = `${s.transaction_date||'(日付不明)'} / ${s.merchant_name||'(店舗名不明)'} / ${yen(s.amount||0)}`;
   if(!confirm(`この明細を削除します。よろしいですか?\n\n${label}`)) return;
-  const {error} = await sb.from('credit_card_statements').delete().eq('id', id);
-  if(error){ alert('削除に失敗しました: '+error.message); return; }
+  try{
+    await creditCardStatementsApiCall('deleteById', {id});
+  }catch(e){ alert('削除に失敗しました: '+e.message); return; }
   document.getElementById('cc-match-modal')?.remove();
   await loadCreditCardStatements();
 }
 
 async function unlinkCcMatch(id){
   if(!confirm('この明細の紐付けを解除します。よろしいですか?')) return;
-  const {error} = await sb.from('credit_card_statements').update({
-    matched_booking_cost_id: null,
-    matched_booking_id: null,
-    confirmed_by: null,
-    confirmed_at: null,
-    match_status: '未紐付け'
-  }).eq('id', id);
-  if(error){ alert('解除に失敗しました: '+error.message); return; }
+  try{
+    await creditCardStatementsApiCall('updateById', {id, fields: {
+      matched_booking_cost_id: null,
+      matched_booking_id: null,
+      confirmed_by: null,
+      confirmed_at: null,
+      match_status: '未紐付け'
+    }});
+  }catch(e){ alert('解除に失敗しました: '+e.message); return; }
+  document.getElementById('cc-match-modal')?.remove();
+  await loadCreditCardStatements();
+  await openCcMatchModal(id);
+}
+
+// この明細は自動候補・手動検索のいずれでも対応するツアーが無い(私的利用の混入等)と
+// 判断した場合に、「未紐付け」のまま放置されるのと区別するための明示的な除外操作
+// (再設計フェーズ1、③紐付けの網羅性)。
+async function markCcStatementExcluded(id){
+  const reason = prompt('対象外にする理由があれば入力してください（空欄でも可）', '');
+  if(reason===null) return; // キャンセル
+  try{
+    await creditCardStatementsApiCall('updateById', {id, fields: {
+      match_status: '対象外',
+      excluded_reason: reason.trim() || null,
+    }});
+  }catch(e){ alert('対象外への設定に失敗しました: '+e.message); return; }
+  document.getElementById('cc-match-modal')?.remove();
+  await loadCreditCardStatements();
+}
+
+async function unmarkCcStatementExcluded(id){
+  try{
+    await creditCardStatementsApiCall('updateById', {id, fields: {
+      match_status: '未紐付け',
+      excluded_reason: null,
+    }});
+  }catch(e){ alert('対象外の解除に失敗しました: '+e.message); return; }
   document.getElementById('cc-match-modal')?.remove();
   await loadCreditCardStatements();
   await openCcMatchModal(id);
@@ -17047,14 +17152,15 @@ async function searchCcManualMatch(ccId){
 }
 
 async function confirmCcMatch(ccId, bookingCostId, bookingId, refNo){
-  const {error} = await sb.from('credit_card_statements').update({
-    matched_booking_cost_id: bookingCostId,
-    matched_booking_id: bookingId,
-    confirmed_by: currentUser?.email || '',
-    confirmed_at: new Date().toISOString(),
-    match_status: '確定済み'
-  }).eq('id', ccId);
-  if(error){ alert('確定に失敗しました: '+error.message); return; }
+  try{
+    await creditCardStatementsApiCall('updateById', {id: ccId, fields: {
+      matched_booking_cost_id: bookingCostId,
+      matched_booking_id: bookingId,
+      confirmed_by: currentUser?.email || '',
+      confirmed_at: new Date().toISOString(),
+      match_status: '確定済み'
+    }});
+  }catch(e){ alert('確定に失敗しました: '+e.message); return; }
   // 店名→ref_noの学習を記録(ベストエフォート。次回同じ店名の候補表示時の優先順位付けに
   // のみ使用し、自動確定には使わない)。
   const stmt = ccStatementsCache.find(x=>String(x.id)===String(ccId));
