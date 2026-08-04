@@ -1511,6 +1511,7 @@ input[type=number]{-moz-appearance:textfield}
             <label class="btn" style="font-size:11px;cursor:pointer">📷 カメラで撮影<input type="file" accept="image/*" capture="environment" style="display:none" onchange="extractInvoiceFromFile(event,'image')"></label>
             <span id="inv-file-status" style="font-size:11px;color:var(--text3)"></span>
           </div>
+          <div id="inv-paste-zone" class="paste-drop-zone" tabindex="-1" style="margin-top:8px">📋 ここをクリックしてCtrl+Vで画像・PDF・Excel・Wordファイルを貼り付け（ドラッグ&ドロップも可）</div>
           <div id="inv-ocr-area" style="display:none;margin-top:8px">
             <textarea id="inv-ocr-text" rows="6" style="width:100%;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:11px;font-family:inherit;resize:vertical" placeholder="請求書の内容をここに貼り付け..."></textarea>
             <div style="margin-top:6px;display:flex;gap:6px;align-items:center">
@@ -12137,7 +12138,13 @@ async function fetchExtractCardWithPasswordSupport(buildBody, statusEl){
     }
     const errCode = data && data.error;
     if(errCode === 'password_required' || errCode === 'invalid_password'){
+      // 「AIが読み取り中です...」の読み取り中オーバーレイ(#global-ocr-overlay、z-index:99998)を
+      // 出したままだと、この直後に表示するパスワード入力欄(通常のページ内要素、z-indexが
+      // ずっと低い)がオーバーレイの下に隠れてクリック・入力を一切受け付けなくなり、
+      // 「AIが読み取り中のまま固まる」不具合になっていた。入力を待つ間は必ず隠す。
+      hideGlobalOcrBanner();
       password = await showOcrPasswordPrompt(statusEl, errCode === 'invalid_password');
+      showGlobalOcrBanner();
       continue;
     }
     clearOcrPasswordPrompt(statusEl);
@@ -17693,7 +17700,69 @@ async function confirmCcMatch(ccId, bookingCostId, bookingId, refNo){
 // ===== 請求書読み取り（仕入明細 / local_expenses）=====
 
 function initInvoiceImportPage(){
-  // ページ初期化（現状は特に何もしない）
+  enablePasteUpload(document.getElementById('inv-paste-zone'), file=>processInvoiceImportFile(file));
+}
+
+// 請求書読み取り画面(Invoice Import)の貼り付け枠(Ctrl+V/ドラッグ&ドロップ)用ハンドラ。
+// 画像・PDFはextractInvoiceFromFileと同じだが、Excel/Wordはこの画面のボタンからは
+// まだ読み取れないため、extractCostFromFileと同じ判定・パスワード対応フローを流用する。
+async function processInvoiceImportFile(file){
+  if(!file) return;
+  const statusEl = document.getElementById('inv-file-status');
+  statusEl.textContent = '⏳ 読み取り中...'; statusEl.classList.add('ocr-loading'); statusEl.style.color = '';
+  showGlobalOcrBanner();
+  try{
+    const name = (file.name||'').toLowerCase();
+    const isPdf = name.endsWith('.pdf');
+    const isExcel = name.match(/\.(xlsx|xls)$/);
+    const isWord = name.endsWith('.docx');
+    const isImage = !isPdf && !isExcel && !isWord;
+    let bodyBase;
+    if(isImage){
+      const base64 = await compressImageToBase64(file);
+      bodyBase = { invoiceImageBase64: base64, invoiceImageMediaType: file.type||'image/jpeg' };
+    } else if(isPdf){
+      const base64 = await readFileAsBase64(file);
+      bodyBase = { invoicePdfBase64: base64 };
+    } else if(isExcel){
+      try{
+        const sheets = await parseExcelToSheetsText(file);
+        bodyBase = { invoiceText: sheets };
+      }catch(e){
+        if(!e.isPasswordProtected) throw e;
+        const base64 = await readFileAsBase64(file);
+        bodyBase = { invoiceExcelBase64: base64 };
+      }
+    } else {
+      const docText = await extractDocxText(file);
+      bodyBase = { invoiceText: docText };
+    }
+
+    const data = await fetchExtractCardWithPasswordSupport(pw => pw ? {...bodyBase, password: pw} : bodyBase, statusEl);
+    const textBlock = data.content.find(b=>b.type==='text');
+    const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
+    const parsed = JSON.parse(cleaned);
+    let expenses, invoiceTotal = 0;
+    if(Array.isArray(parsed)){
+      expenses = parsed;
+    } else {
+      expenses = Array.isArray(parsed.items) ? parsed.items : [parsed];
+      invoiceTotal = Number(parsed.invoice_total_amount)||0;
+    }
+    statusEl.textContent = '✓ '+expenses.length+'件を読み取りました。内容を確認してください。';
+    statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
+    statusEl.style.color = 'var(--green)';
+    statusEl.textContent += checkInvoiceTotalMismatch(expenses, invoiceTotal);
+    if(checkInvoiceTotalMismatch(expenses, invoiceTotal)) statusEl.style.color = 'var(--orange, #d97706)';
+    showInvoiceConfirmDialog(expenses, null, invoiceTotal);
+  }catch(e){
+    logError('AI読み取り(OCR)', e, {toast:false});
+    statusEl.textContent = '読み取り失敗: '+e.message;
+    statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
+    statusEl.style.color = 'var(--red)';
+  }
 }
 
 function toggleInvOcrArea(){
@@ -17719,7 +17788,7 @@ async function extractInvoiceFromText(){
   showGlobalOcrBanner();
   statusEl.style.color = '';
   try{
-    const response = await fetch('/api/extract-card', {
+    const response = await fetchWithTimeout('/api/extract-card', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ invoiceText: text })
@@ -17773,7 +17842,7 @@ async function extractInvoiceFromFile(event, mode){
     } else {
       bodyData = { invoiceImageBase64: base64, invoiceImageMediaType: file.type||'image/jpeg' };
     }
-    const response = await fetch('/api/extract-card', {
+    const response = await fetchWithTimeout('/api/extract-card', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(bodyData)
@@ -17839,7 +17908,7 @@ function openInvoiceImportForBooking(){
 }
 
 async function _callInvoiceApi(bodyData){
-  const response = await fetch('/api/extract-card', {
+  const response = await fetchWithTimeout('/api/extract-card', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(bodyData)
@@ -18143,10 +18212,15 @@ async function saveCostFromOcr(count){
 async function showInvoiceConfirmDialog(expenses, presetBookingId, invoiceTotal){
   window._pendingInvoiceExpenses = expenses;
   window._invPresetBookingId = presetBookingId || null;
-  const mismatchMsg = checkInvoiceTotalMismatch(expenses, invoiceTotal);
-  const mismatchBanner = mismatchMsg
-    ? `<div style="background:#fef2f2;border:2px solid var(--red,#c0392b);color:var(--red,#c0392b);border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:12px;font-weight:700">${escHtml(mismatchMsg.trim())}</div>`
-    : '';
+  window._invConfirmInvoiceTotal = Number(invoiceTotal)||0;
+  // 金額確認(請求書記載の合計金額 vs 読み取った明細の合計)を、REF#選択・行編集より先に
+  // 必ず目に入る確認画面の最上部に固定表示する(優先順位1〜3)。行を編集すると
+  // updateInvConfirmAmountSummary()でこのボックスの内容もリアルタイムに更新する。
+  const amountSummaryBox = `<div id="inv-confirm-amount-summary" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:12px">
+    ${window._invConfirmInvoiceTotal ? `<div style="font-size:13px;color:var(--text2)">請求書記載の合計金額: <span style="font-size:20px;font-weight:800;color:var(--text1,#111)">¥${window._invConfirmInvoiceTotal.toLocaleString()}</span></div>` : ''}
+    <div style="font-size:12px;color:var(--text3);margin-top:4px">読み取った明細の合計: <span id="inv-confirm-sum-display" style="font-size:15px;font-weight:700;color:var(--text2)"></span></div>
+    <div id="inv-confirm-match-display" style="margin-top:6px;font-size:13px"></div>
+  </div>`;
 
   allBookingsCache = await fetchAllBookings();
   const _numOf = ref => { const n=parseInt((ref||'').replace(/^#/,''),10); return isNaN(n)?Infinity:n; };
@@ -18212,7 +18286,7 @@ async function showInvoiceConfirmDialog(expenses, presetBookingId, invoiceTotal)
       <td data-col="ref" style="padding:4px 3px;overflow:hidden">${comboHtml}</td>
       <td data-col="uprice" style="padding:4px 3px;text-align:right"><input type="number" id="inv-confirm-uprice-${i}" value="${e.unit_price||0}" style="font-size:10px;padding:4px 6px;border-radius:6px;border:1px solid var(--border);width:100%;min-width:0;text-align:right;box-sizing:border-box"></td>
       <td data-col="qty" style="padding:4px 3px;text-align:center"><input type="number" id="inv-confirm-qty-${i}" value="${e.qty||1}" style="font-size:10px;padding:4px 6px;border-radius:6px;border:1px solid var(--border);width:100%;min-width:0;text-align:center;box-sizing:border-box"></td>
-      <td data-col="amount" style="padding:4px 3px;text-align:right;font-weight:600"><input type="number" id="inv-confirm-amount-${i}" value="${e.amount||0}" style="font-size:10px;padding:4px 6px;border-radius:6px;border:1px solid var(--border);width:100%;min-width:0;text-align:right;font-weight:600;box-sizing:border-box"></td>
+      <td data-col="amount" style="padding:4px 3px;text-align:right;font-weight:600"><input type="number" id="inv-confirm-amount-${i}" value="${e.amount||0}" oninput="updateInvConfirmAmountSummary()" style="font-size:10px;padding:4px 6px;border-radius:6px;border:1px solid var(--border);width:100%;min-width:0;text-align:right;font-weight:600;box-sizing:border-box"></td>
       <td data-col="supplier" style="padding:4px 3px"><div style="position:relative"><input type="text" id="inv-confirm-supplier-${i}" value="${escAttr(e.supplier_name||'')}" placeholder="支払先" autocomplete="off" oninput="filterInvSupplierDD(${i})" onfocus="filterInvSupplierDD(${i})" onblur="setTimeout(()=>hideInvSupplierDD(${i}),200)" style="font-size:10px;width:100%;min-width:0;box-sizing:border-box">${supplierDd}</div></td>
       <td data-col="content" style="padding:4px 3px"><input type="text" id="inv-confirm-content-${i}" value="${escAttr(e.content||'')}" style="font-size:10px;width:100%;min-width:0;box-sizing:border-box"></td>
       <td data-col="hidden" style="display:none"><input type="hidden" id="inv-confirm-category-${i}" value="${escAttr(e.category||'ゲスト')}"><input type="hidden" id="inv-confirm-date-${i}" value=""></td>
@@ -18229,8 +18303,8 @@ async function showInvoiceConfirmDialog(expenses, presetBookingId, invoiceTotal)
         <div style="font-size:14px;font-weight:700">読み取り結果の確認（仕入明細）</div>
         <button class="btn" onclick="document.getElementById('invoice-confirm-modal').remove()">✕ 閉じる</button>
       </div>
-      ${mismatchBanner}
-      <div style="font-size:11px;color:var(--text3);margin-bottom:8px">ツアーREF#を選択してから「保存」してください。REF#未選択の行は保存されません。</div>
+      ${amountSummaryBox}
+      <div style="font-size:11px;color:var(--text3);margin-bottom:8px">金額を確認したら、ツアーREF#を選択してから「保存」してください。REF#未選択の行は保存されません。</div>
       <div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table style="width:100%;border-collapse:collapse;font-size:11px;table-layout:fixed;min-width:540px">
         <colgroup><col><col style="width:70px"><col style="width:50px"><col style="width:72px"><col style="width:110px"><col style="width:130px"></colgroup>
         <thead><tr style="background:var(--bg)">
@@ -18254,6 +18328,31 @@ async function showInvoiceConfirmDialog(expenses, presetBookingId, invoiceTotal)
       </div>
     </div>`;
   document.body.appendChild(modal);
+  updateInvConfirmAmountSummary();
+}
+
+// 確認画面最上部の金額サマリー(請求書記載の合計金額/読み取った明細の合計/一致・不一致)を
+// 現在の入力内容(金額欄の編集を含む)から再計算して更新する。amount入力のoninputから呼ばれる。
+function updateInvConfirmAmountSummary(){
+  const expenses = window._pendingInvoiceExpenses||[];
+  const invoiceTotal = window._invConfirmInvoiceTotal||0;
+  let sum = 0;
+  expenses.forEach((e,i)=>{ sum += Number(document.getElementById(`inv-confirm-amount-${i}`)?.value)||0; });
+  const sumEl = document.getElementById('inv-confirm-sum-display');
+  if(sumEl) sumEl.textContent = '¥'+sum.toLocaleString();
+  const matchEl = document.getElementById('inv-confirm-match-display');
+  if(!matchEl) return;
+  if(!invoiceTotal){
+    matchEl.innerHTML = '';
+    return;
+  }
+  if(Math.abs(sum-invoiceTotal)<=1){
+    matchEl.innerHTML = '<span style="color:var(--green)">✓ 一致しています</span>';
+  } else {
+    const diff = sum-invoiceTotal;
+    const diffStr = (diff>0?'+':'-')+'¥'+Math.abs(diff).toLocaleString();
+    matchEl.innerHTML = `<span style="color:var(--red,#c0392b);font-weight:700">⚠ 不一致（差額: ${diffStr}）</span>`;
+  }
 }
 
 function filterInvConfirmDD(i){
