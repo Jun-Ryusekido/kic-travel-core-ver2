@@ -7069,12 +7069,100 @@ async function exportFiscalYearArchive(){
   await logAction('決算年度一括アーカイブ出力', `${fiscalYearLabel(selectedFy)} / ${inFy.length}件`);
 }
 
+// F3(予約削除で孤立参照が残る不具合)対応。
+// 削除前に対象予約の全関連テーブルの内容をJSONバックアップとしてブラウザにダウンロードさせ、
+// 実際にJSONの生成(全テーブルのSELECTが1件もエラーにならなかったこと)を確認できてから
+// 削除確認に進める。以前は「アーカイブ（JSON）は取得済みですか？」という自己申告のみの
+// 確認だったため、今回はこの関数自身がバックアップを取得・検証する形に置き換える。
+async function backupBookingDataBeforeDelete(b, refNo){
+  const queries = {
+    bookings: sb.from('bookings').select('*').eq('id', b.id),
+    booking_sales: sb.from('booking_sales').select('*').eq('booking_id', b.id),
+    booking_costs: sb.from('booking_costs').select('*').eq('booking_id', b.id),
+    invoices: sb.from('invoices').select('*').eq('booking_id', b.id),
+    booking_hotels: sb.from('booking_hotels').select('*').eq('booking_id', b.id),
+    booking_buses: sb.from('booking_buses').select('*').eq('booking_id', b.id),
+    booking_restaurants: sb.from('booking_restaurants').select('*').eq('booking_id', b.id),
+    booking_facilities: sb.from('booking_facilities').select('*').eq('booking_id', b.id),
+    bullet_train_arrangements: sb.from('bullet_train_arrangements').select('*').eq('booking_ref', refNo),
+    booking_guides: sb.from('booking_guides').select('*').eq('booking_id', b.id),
+    tour_arrangement_headers: sb.from('tour_arrangement_headers').select('*').eq('booking_id', b.id),
+    tour_guides: sb.from('tour_guides').select('*').eq('booking_id', b.id),
+    tour_day_itinerary: sb.from('tour_day_itinerary').select('*').eq('booking_id', b.id),
+    tour_arrangement_notes: sb.from('tour_arrangement_notes').select('*').eq('booking_id', b.id),
+    arrangement_documents: sb.from('arrangement_documents').select('*').eq('booking_id', b.id),
+    guide_settlements: sb.from('guide_settlements').select('*').eq('booking_ref', refNo),
+    tour_arrangements: sb.from('tour_arrangements').select('*').eq('booking_ref', refNo),
+  };
+  const keys = Object.keys(queries);
+  const results = await Promise.all(keys.map(k=>queries[k]));
+  const backup = { generated_at: new Date().toISOString(), booking_id: b.id, ref_no: refNo, tables: {} };
+  const counts = {};
+  for(let i=0;i<keys.length;i++){
+    const key = keys[i];
+    const {data, error} = results[i];
+    if(error) throw new Error(`バックアップ取得に失敗しました（${key}）: ${error.message}`);
+    backup.tables[key] = data || [];
+    counts[key] = (data||[]).length;
+  }
+  // arrangement_documentsの子テーブル(日毎明細・注意文言)も参考情報としてバックアップに含める
+  const docIds = (backup.tables.arrangement_documents||[]).map(d=>d.id);
+  if(docIds.length>0){
+    const [daysRes, notesRes] = await Promise.all([
+      sb.from('arrangement_document_days').select('*').in('arrangement_document_id', docIds),
+      sb.from('arrangement_document_notes').select('*').in('arrangement_document_id', docIds),
+    ]);
+    if(daysRes.error) throw new Error('バックアップ取得に失敗しました（arrangement_document_days）: '+daysRes.error.message);
+    if(notesRes.error) throw new Error('バックアップ取得に失敗しました（arrangement_document_notes）: '+notesRes.error.message);
+    backup.tables.arrangement_document_days = daysRes.data||[];
+    backup.tables.arrangement_document_notes = notesRes.data||[];
+    counts.arrangement_document_days = (daysRes.data||[]).length;
+    counts.arrangement_document_notes = (notesRes.data||[]).length;
+  }
+  // guide_settlementsの明細(guide_settlement_items)も同様に参考情報として含める
+  const settlementIds = (backup.tables.guide_settlements||[]).map(s=>s.id);
+  if(settlementIds.length>0){
+    const {data: items, error} = await sb.from('guide_settlement_items').select('*').in('settlement_id', settlementIds);
+    if(error) throw new Error('バックアップ取得に失敗しました（guide_settlement_items）: '+error.message);
+    backup.tables.guide_settlement_items = items||[];
+    counts.guide_settlement_items = (items||[]).length;
+  }
+
+  // ブラウザへJSONファイルとしてダウンロードさせる（実際にダウンロードが成功したかは
+  // ブラウザ側の制約でスクリプトから検証できないため、直前の全SELECTが1件もエラーに
+  // ならなかったこと＝バックアップ内容自体の取得に成功したことをもって「バックアップ完了」とみなす）。
+  const ts = new Date();
+  const tsStr = `${ts.getFullYear()}${String(ts.getMonth()+1).padStart(2,'0')}${String(ts.getDate()).padStart(2,'0')}_${String(ts.getHours()).padStart(2,'0')}${String(ts.getMinutes()).padStart(2,'0')}${String(ts.getSeconds()).padStart(2,'0')}`;
+  const filename = `booking_delete_backup_${refNo.replace(/[^A-Za-z0-9_-]/g,'')}_${tsStr}.json`;
+  const blob = new Blob([JSON.stringify(backup, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+
+  return { filename, counts };
+}
+
 async function deleteBookingData(){
   const b = findBookingById(currentDetailId);
   if(!b) return;
   const refNo = b.ref_no;
 
-  if(!confirm(`「${refNo}」の予約データ（売上仕入明細・Invoice・手配書・ガイド精算・予約本体）をSupabaseから完全に削除します。\n\nアーカイブ（JSON）は取得済みですか？\nこの操作は取り消せません。`)) return;
+  if(!confirm(`「${refNo}」の予約データ（売上仕入明細・Invoice・手配書・ガイド精算・実手配（ホテル/バス/レストラン/観光施設/新幹線）・予約本体）をSupabaseから完全に削除します。\n\n次に進むと、削除前の全関連データのバックアップJSONをダウンロードします。\nこの操作は取り消せません。`)) return;
+
+  let backupResult;
+  try{
+    backupResult = await backupBookingDataBeforeDelete(b, refNo);
+  }catch(e){
+    alert('バックアップの取得に失敗したため、削除を中止しました。\n\n'+(e.message||e));
+    return;
+  }
+  const countsSummary = Object.entries(backupResult.counts).map(([k,v])=>`${k}: ${v}件`).join('\n');
+  if(!confirm(`バックアップファイル「${backupResult.filename}」をダウンロードしました。\nダウンロードフォルダに保存されたことを確認してください。\n\n【バックアップした件数】\n${countsSummary}\n\nこの内容で削除を続行しますか？`)){
+    alert('削除を中止しました。');
+    return;
+  }
 
   const typed = prompt(`削除を実行するには、確認のため予約番号「${refNo}」を入力してください。`);
   if(typed !== refNo){
@@ -7083,6 +7171,8 @@ async function deleteBookingData(){
   }
 
   try{
+    // ── 子 → 親の順に削除する ──
+
     // ガイド精算（レシート画像を含む）
     const {data: settlements} = await sb.from('guide_settlements').select('id, access_token').eq('booking_ref', refNo);
     if(settlements && settlements.length>0){
@@ -7096,12 +7186,33 @@ async function deleteBookingData(){
       await guideSettlementsApiCall('deleteByField', { field: 'booking_ref', value: refNo });
     }
 
-    // 手配書
+    // ガイド別手配書（arrangement_document_days/arrangement_document_notesは
+    // arrangement_documents.idへのon delete cascadeのため、親を削除すれば自動的に消える）
+    await sb.from('arrangement_documents').delete().eq('booking_id', b.id);
+
+    // 現行手配書系（tour_arrangement_headers/tour_guides/tour_day_itinerary/tour_arrangement_notes）
+    // ※いずれもbookings(id)へon delete cascadeのFKを持つため、末尾のbookings削除だけでも
+    // 本来は自動的に消えるが、上部の確認文言（「完全に削除」）との整合性のため明示的に削除する。
+    await tourArrangementHeadersApiCall('deleteByBooking', { bookingId: b.id });
+    await tourGuidesApiCall('deleteByBooking', { bookingId: b.id });
+    await tourDayItineraryApiCall('deleteByBooking', { bookingId: b.id });
+    await tourArrangementNotesApiCall('deleteByBooking', { bookingId: b.id });
+    await bookingGuidesApiCall('deleteByBooking', { bookingId: b.id });
+
+    // 旧手配書（tour_arrangements/tour_arrangement_days、現在は使われていない旧テーブル）
     const {data: arrangements} = await sb.from('tour_arrangements').select('id').eq('booking_ref', refNo);
     if(arrangements && arrangements.length>0){
       await sb.from('tour_arrangement_days').delete().in('arrangement_id', arrangements.map(a=>a.id));
       await sb.from('tour_arrangements').delete().eq('booking_ref', refNo);
     }
+
+    // 実手配（ホテル/バス/レストラン/観光施設は書き込みがservice_role経由に限定されているため
+    // table-crud.js経由、新幹線手配はanon削除がまだ許可されているため直接削除）
+    await bookingHotelsApiCall('deleteByBooking', { bookingId: b.id });
+    await bookingBusesApiCall('deleteByBooking', { bookingId: b.id });
+    await bookingRestaurantsApiCall('deleteByBooking', { bookingId: b.id });
+    await bookingFacilitiesApiCall('deleteByBooking', { bookingId: b.id });
+    await sb.from('bullet_train_arrangements').delete().eq('booking_ref', refNo);
 
     // 見積もりの変換リンクのみ解除（見積もり自体は残す）
     await sb.from('estimations').update({converted_booking_id:null}).eq('converted_booking_id', b.id);

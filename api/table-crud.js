@@ -96,7 +96,7 @@ const TABLE_CONFIG = {
   // updated_atは無い。今回はcreated_by/updated_byのみ追加し、汎用updated_at列の新設は
   // スコープ外とする(stampUpdatedAtは付けない)。
   booking_facilities: {
-    actions: ['updateById', 'insert', 'replace'],
+    actions: ['updateById', 'insert', 'replace', 'deleteByBooking'],
     label: '観光施設・バス駐車場等',
     stampIdentity: true,
     auditLog: true,
@@ -112,7 +112,7 @@ const TABLE_CONFIG = {
   // booking_hotelsは既にstatus_updated_at列を持つため、汎用updated_at列は追加しない
   // (stampUpdatedAtは付けない。created_by/updated_byのみ追加・スタンプする)。
   booking_hotels: {
-    actions: ['replace', 'insert', 'updateById'],
+    actions: ['replace', 'insert', 'updateById', 'deleteByBooking'],
     label: 'ホテル明細',
     stampIdentity: true,
     auditLog: true,
@@ -120,14 +120,14 @@ const TABLE_CONFIG = {
   // booking_buses/booking_restaurantsはupdated_at相当の列が無かったため、created_by/
   // updated_byに加えて汎用updated_at列も新設し、insert/replace時にスタンプする。
   booking_buses: {
-    actions: ['replace'],
+    actions: ['replace', 'deleteByBooking'],
     label: 'バス明細',
     stampIdentity: true,
     stampUpdatedAt: true,
     auditLog: true,
   },
   booking_restaurants: {
-    actions: ['replace'],
+    actions: ['replace', 'deleteByBooking'],
     label: 'レストラン明細',
     stampIdentity: true,
     stampUpdatedAt: true,
@@ -189,16 +189,20 @@ const TABLE_CONFIG = {
   // まだ剥奪しない。剥奪は別途フェーズBで実施)。
   // booking_guides/tour_guides/tour_day_itinerary/tour_arrangement_notes/booking_water_itemsは
   // booking_hotels等と同じbooking_idキーのdoReplace(action:'replace')にそのまま統一する。
-  booking_guides: { actions: ['replace'], label: 'ガイド明細' },
-  tour_guides: { actions: ['replace'], label: '手配書ガイド' },
-  tour_day_itinerary: { actions: ['replace'], label: '手配書日毎明細' },
-  tour_arrangement_notes: { actions: ['replace'], label: '手配書注意文言' },
+  // F3(予約削除で孤立参照が残る不具合)対応で、booking_guides/tour_guides/
+  // tour_day_itinerary/tour_arrangement_notesにdeleteByBookingを追加(deleteBookingData
+  // 参照)。bookings(id)へのFK自体はon delete cascadeのため予約本体の削除で自動的にも
+  // 消えるが、deleteBookingData側の確認文言(「完全に削除」)との整合性のため明示的に削除する。
+  booking_guides: { actions: ['replace', 'deleteByBooking'], label: 'ガイド明細' },
+  tour_guides: { actions: ['replace', 'deleteByBooking'], label: '手配書ガイド' },
+  tour_day_itinerary: { actions: ['replace', 'deleteByBooking'], label: '手配書日毎明細' },
+  tour_arrangement_notes: { actions: ['replace', 'deleteByBooking'], label: '手配書注意文言' },
   booking_water_items: { actions: ['replace'], label: 'ミネラルウォーター明細' },
   // tour_arrangement_headers: booking_idに1:1のヘッダー行。既存クライアントコードは
   // replaceではなくupdate(存在時)/insert(新規時)の直接呼び出しのため、汎用の
   // updateById/insertReturningをそのまま使う(insertReturningは新規作成時に採番id を
-  // クライアントへ返す必要があるため)。
-  tour_arrangement_headers: { actions: ['updateById', 'insertReturning'], label: '手配書ヘッダー' },
+  // クライアントへ返す必要があるため)。deleteByBookingはF3対応で追加(上記と同じ理由)。
+  tour_arrangement_headers: { actions: ['updateById', 'insertReturning', 'deleteByBooking'], label: '手配書ヘッダー' },
   // arrangement_document_days/arrangement_document_notes: キー列がbooking_idではなく
   // arrangement_document_idのため、doReplaceをそのまま使えない。allowedDeleteFieldsと
   // 同じ考え方でキー列をホワイトリスト化した新規action『replaceByKey』を使う
