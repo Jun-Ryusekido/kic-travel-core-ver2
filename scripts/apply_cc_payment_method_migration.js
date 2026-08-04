@@ -32,6 +32,13 @@
 //   5. 実行後、実際にSupabaseから対象を再取得し、payment_method等が正しく反映されたか
 //      件数ベースで自己検証する。
 //   6. status以外の列(amount, item_name等)は一切変更しない。
+//   7. PATCHのid=in.(...)にUUIDを一度に大量(637件)並べたところURL長が上限を超えて
+//      400 Bad Requestになったため、PATCH_CHUNK_SIZE(100件)ずつに分割してPATCHする
+//      (検証用の再取得GETも同様に分割する)。
+//   8. 途中のチャンクで失敗して中断した場合に備え、対象行はA/Bともに毎回
+//      「payment_methodが未設定(null)」の行だけを実行時に再取得して抽出する。
+//      そのため、再実行時は既に変換済みの行(payment_methodが設定済み)は
+//      自動的に対象から外れ、二重変換や重複UPDATEにはならない。
 //
 // 実行方法:
 //   SUPABASE_SERVICE_ROLE_KEY=xxxx node scripts/apply_cc_payment_method_migration.js [--yes]
@@ -73,20 +80,33 @@ async function sbGet(pathAndQuery) {
   return r.json();
 }
 
+// id=in.(...)にUUIDを大量に並べるとURL長が上限(プロキシ/サーバー側の制限、実際に
+// 637件でid句だけ約2.5万文字になり400 Bad Requestが発生した)を超えるため、
+// PATCH_CHUNK_SIZE件ずつに分割して複数回に分けてPATCHする。
+const PATCH_CHUNK_SIZE = 100;
 async function sbPatchByIds(table, ids, fields) {
   if (!ids.length) return;
-  const inList = ids.map((id) => `"${id}"`).join(',');
-  const r = await fetch(`${SB_URL}/rest/v1/${table}?id=in.(${inList})`, {
-    method: 'PATCH',
-    headers: {
-      apikey: SERVICE_KEY,
-      Authorization: `Bearer ${SERVICE_KEY}`,
-      'Content-Type': 'application/json',
-      Prefer: 'return=minimal',
-    },
-    body: JSON.stringify(fields),
-  });
-  if (!r.ok) throw new Error(`UPDATE ${table} id in (${ids.length}件) failed: ${r.status} ${await r.text()}`);
+  for (let i = 0; i < ids.length; i += PATCH_CHUNK_SIZE) {
+    const chunk = ids.slice(i, i + PATCH_CHUNK_SIZE);
+    const inList = chunk.map((id) => `"${id}"`).join(',');
+    const r = await fetch(`${SB_URL}/rest/v1/${table}?id=in.(${inList})`, {
+      method: 'PATCH',
+      headers: {
+        apikey: SERVICE_KEY,
+        Authorization: `Bearer ${SERVICE_KEY}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal',
+      },
+      body: JSON.stringify(fields),
+    });
+    if (!r.ok) {
+      throw new Error(
+        `UPDATE ${table} id in (${chunk.length}件、全${ids.length}件中${i}件目〜) failed: ${r.status} ${await r.text()}\n` +
+          `このチャンクの手前(${i}件)までは反映済みの可能性があります。再実行時はpayment_method未設定の行のみを` +
+          `再取得するため、既に反映済みの行は自動的に対象から外れます。`
+      );
+    }
+  }
 }
 
 // ref_noの末尾の数字部分だけを比較する(「#62」「62」等、表記ゆれを吸収するため)。
@@ -239,8 +259,8 @@ async function main() {
   console.log('\n再取得による検証中...');
   const allIds = [...corporateRows.map((r) => r.id), ...personalRows.map((r) => r.id)];
   const verifyRows = [];
-  for (let i = 0; i < allIds.length; i += 200) {
-    const chunk = allIds.slice(i, i + 200);
+  for (let i = 0; i < allIds.length; i += PATCH_CHUNK_SIZE) {
+    const chunk = allIds.slice(i, i + PATCH_CHUNK_SIZE);
     const inList = chunk.map((id) => `"${id}"`).join(',');
     const data = await sbGet(`booking_costs?select=id,payment_method,card_holder,personal_reimbursement_status,amount&id=in.(${inList})`);
     verifyRows.push(...data);
