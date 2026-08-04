@@ -17247,6 +17247,29 @@ function _ccTourCodeMatches(a, b){
 // マッチング条件: payment_method=事前決済 かつ memo(備考)に「法人カード決済」を含み、金額が完全一致。
 // クレジットカードの利用日（決済日）とツアーの手配日（実施日）は本来大きくズレるのが通常のため
 // （カードは数ヶ月前に決済され、ツアーは後日実施される）、日付の近さは絞り込み条件には使わない。
+// 名義人表記の対応表(案B)。credit_card_statements.card_holderは物理カードに印字された
+// 通りの表記(現状はローマ字)をアップロード担当者が手入力する一方、booking_costs.card_holder
+// はapp_usersのプルダウン表記、または今回のクレカ払い方法バッチ変換で入れた
+// 「法人カード(◯◯)」形式の文字列で、双方の表記が一致しないため、そのままでは
+// cardHolderMatch(名義人一致)判定が機能しない。ここに実在の対応が判明した分だけを
+// 追記していく(1グループ=同一人物を指す表記の配列。グループ内なら順不同・何個でも追加可)。
+// 今後、今中さん・KUMARさん等のクレジットカード明細が実際に取り込まれ、card_holderの
+// 実際のローマ字表記が判明した時点で、同様に配列を追加すること。
+const CARD_HOLDER_ALIAS_GROUPS = [
+  ['法人カード(竜石堂)', 'JUN RYUSEKIDO'], // JUNさん: app_users表記は元々「JUN RYUSEKIDO」のため
+  // 今後判明したら追記する例:
+  // ['法人カード(今中)', '(今中さんの実際のカード表記)'],
+  // ['法人カード(KUMAR)', '(KUMARさんの実際のカード表記)'],
+];
+// 値がいずれかのグループに属していれば、そのグループの代表値(先頭要素)に正規化する。
+// 対応表に無い値はそのまま返す(従来通りの完全一致判定に影響しない)。
+function normalizeCardHolderForMatch(value){
+  const v = String(value||'').trim();
+  if(!v) return v;
+  const group = CARD_HOLDER_ALIAS_GROUPS.find(g=>g.includes(v));
+  return group ? group[0] : v;
+}
+
 // 明細から手書きツアーコード(hint_tour_code)が読み取れている場合は、それがbookingsの
 // ref_no/tour_codeと一致する候補を最優先(hintMatch:true)としてリストの先頭に並べる。
 // それ以外の候補も全件表示し、次点として取引日に近い手配日順に並べる。
@@ -17335,10 +17358,11 @@ async function findCcMatchCandidates(statement){
     ));
     const learnedMatch = isLearnedBooking(booking);
     // 名義人一致(支払方法再設計、フェーズ1): 明細のcard_holderと仕入明細のcard_holderが
-    // 完全一致(前後空白除去のみ)する場合。構造化された一次情報のため、店名学習・
-    // 金額帯学習より確度が高いとみなし、手書きコード一致の次に優先する。
+    // 完全一致(前後空白除去のみ)、または対応表(CARD_HOLDER_ALIAS_GROUPS、案B)で同一人物と
+    // 分かっている場合。構造化された一次情報のため、店名学習・金額帯学習より確度が高いと
+    // みなし、手書きコード一致の次に優先する。
     const cardHolderMatch = !!(statement.card_holder && c.card_holder &&
-      String(statement.card_holder).trim() === String(c.card_holder).trim());
+      normalizeCardHolderForMatch(statement.card_holder) === normalizeCardHolderForMatch(c.card_holder));
     // 金額不一致候補のうち、店名+金額帯の複合学習で裏付けが取れているものは区別する
     // (confirmed_count3回以上の「純粋な店名学習のみ」の裏付けより弱いとは限らないが、
     // 金額完全一致より確度は落ちるため、③と④の間の順位にする)。
