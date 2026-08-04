@@ -193,8 +193,13 @@ const TABLE_CONFIG = {
   // tour_day_itinerary/tour_arrangement_notesにdeleteByBookingを追加(deleteBookingData
   // 参照)。bookings(id)へのFK自体はon delete cascadeのため予約本体の削除で自動的にも
   // 消えるが、deleteBookingData側の確認文言(「完全に削除」)との整合性のため明示的に削除する。
-  booking_guides: { actions: ['replace', 'deleteByBooking'], label: 'ガイド明細' },
-  tour_guides: { actions: ['replace', 'deleteByBooking'], label: '手配書ガイド' },
+  // booking_guidesとtour_guidesは名前が似ているが役割が異なる別テーブル(F6調査結果、
+  // 意図的な分離。統合はしない): booking_guidesはガイドのアサイン状況管理
+  // (status/payment_method/amountを持つ)、tour_guidesは手配書印字用メタデータのみ
+  // (phone/display_orderのみ、status/amountは持たない)。詳細はindex.htmlの
+  // bookingGuidesApiCall宣言部のコメント参照。
+  booking_guides: { actions: ['replace', 'deleteByBooking'], label: 'ガイド明細(アサイン状況管理)' },
+  tour_guides: { actions: ['replace', 'deleteByBooking'], label: '手配書ガイド(印字用メタデータ)' },
   tour_day_itinerary: { actions: ['replace', 'deleteByBooking'], label: '手配書日毎明細' },
   tour_arrangement_notes: { actions: ['replace', 'deleteByBooking'], label: '手配書注意文言' },
   booking_water_items: { actions: ['replace'], label: 'ミネラルウォーター明細' },
@@ -240,8 +245,10 @@ const TABLE_CONFIG = {
   },
 };
 
-// learned_mappingsのcategoryはこの3種のみ許可する(bodyの値をそのまま保存しない)。
-const LEARNED_MAPPING_CATEGORIES = ['email_sender', 'cc_merchant', 'receipt_merchant'];
+// learned_mappingsのcategoryはこの4種のみ許可する(bodyの値をそのまま保存しない)。
+// bankbook_payer(F16): 通帳OCRの入金消込マッチングで、振込人名等(input_key)と
+// 確定したREF#(confirmed_value)の組を学習する。cc_merchantと同じ仕組みを流用。
+const LEARNED_MAPPING_CATEGORIES = ['email_sender', 'cc_merchant', 'receipt_merchant', 'bankbook_payer'];
 
 // learned_mappingsへの確定upsert。(category, input_key, confirmed_value)が既に存在すれば
 // confirmed_count+1とlast_confirmed_atのみ更新し、無ければ新規行を挿入する。

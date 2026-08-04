@@ -4299,6 +4299,16 @@ async function learnedMappingsApiCall(action, payload){ return tableCrudApiCall(
 // セキュリティ移行フェーズ グループ1・フェーズA(コード変更のみ、DB権限はまだ触らない)。
 // booking_guides/tour_guides/tour_day_itinerary/tour_arrangement_notes/booking_water_itemsは
 // booking_hotels等と同じbooking_idキーのreplaceアクション。
+//
+// booking_guidesとtour_guidesは、名前が似ているが役割が異なる別テーブルであり、
+// 統合はしない(F6調査結果、意図的な分離)。
+//   - booking_guides: 「ガイド」タブが持つ、予約に対するガイドの割り当て状況管理
+//     (status=回答待ち/手配OK等、payment_method、amount=ガイド費用)。誰をアサインし、
+//     その手配・支払がどうなっているかを管理する側。buildGuideRows/saveGuideItems参照。
+//   - tour_guides: 「手配書」タブが持つ、印刷される手配書に載せるメタデータのみ
+//     (phone、display_order。status/amountは持たない)。手配書ドラフト
+//     (bdArrGuideItems)からのコピーで、印字用の見た目を管理する側。
+//     buildArrGuideRows/saveArrDoc参照。
 async function bookingGuidesApiCall(action, payload){ return tableCrudApiCall('booking_guides', action, payload); }
 async function tourGuidesApiCall(action, payload){ return tableCrudApiCall('tour_guides', action, payload); }
 async function tourDayItineraryApiCall(action, payload){ return tableCrudApiCall('tour_day_itinerary', action, payload); }
@@ -5634,6 +5644,12 @@ async function processDashboardBankbookFile(file){
     const parsed = JSON.parse(cleaned);
     dbBankbookExtracted = Array.isArray(parsed) ? parsed : [parsed];
     allBookingsCache = await fetchAllBookings();
+    // F16: 振込人名等(bank欄のテキスト)とREF#の学習(bankbook_payer)を、行ごとに都度
+    // 問い合わせるのではなく一括取得してマップ化する(cc_merchantの学習参照と同じ考え方)。
+    window._bbLearnedMap = {};
+    (await fetchLearnedMappings('bankbook_payer')).forEach(r=>{
+      if(!window._bbLearnedMap[r.input_key]) window._bbLearnedMap[r.input_key] = r; // confirmed_count降順のため先勝ち
+    });
     renderDashboardBankbookResults();
     statusEl.textContent = `✓ ${dbBankbookExtracted.length}件を読み取りました`;
     statusEl.classList.remove('ocr-loading');
@@ -5685,6 +5701,19 @@ function renderDashboardBankbookResults(){
         });
       }
     }
+    // Stage3(F16): 正規表現マッチが失敗した場合のみ、bankbook_payer学習(過去に人手で
+    // 確定した「振込人名等のテキスト→REF#」)を参照する。confirmed_countが多いものを
+    // 優先し、1件以上の実績があれば採用する(cc_merchantと異なり複数候補モーダルは
+    // 出さない画面のため、最有力の1件のみを自動マッチとして提示する)。
+    let matchedByLearning = false;
+    if(!matchedBooking){
+      const learned = (window._bbLearnedMap||{})[normalizeLearnKey(p.bank)];
+      if(learned && learned.confirmed_value){
+        const learnedRefNorm = norm(learned.confirmed_value);
+        matchedBooking = sortedBookings.find(b=>norm(b.ref_no)===learnedRefNorm);
+        if(matchedBooking) matchedByLearning = true;
+      }
+    }
     dbBankbookExtracted[k]._bookingId = matchedBooking ? matchedBooking.id : null;
     const inputVal = matchedBooking ? escAttr(matchedBooking.ref_no||'(REF#なし)') : '';
     const hiddenVal = matchedBooking ? String(matchedBooking.id) : '';
@@ -5698,7 +5727,7 @@ function renderDashboardBankbookResults(){
              style="font-size:11px;padding:5px 6px;border-radius:6px;border:1px solid var(--border);width:100%;min-width:180px;box-sizing:border-box">
       <input type="hidden" id="db-bb-booking-${k}" value="${hiddenVal}">
       <div id="db-bb-dd-${k}" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--card,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:999;max-height:180px;overflow-y:auto;margin-top:2px"></div>
-    </div>${matchedBooking?`<div style="font-size:10px;color:var(--green);margin-top:2px">✓ 自動マッチ: ${escHtml(matchedBooking.ref_no||'')}</div>`:''}`;
+    </div>${matchedBooking?`<div style="font-size:10px;color:var(--green);margin-top:2px">✓ ${matchedByLearning?'学習による自動マッチ':'自動マッチ'}: ${escHtml(matchedBooking.ref_no||'')}</div>`:''}`;
     return `
     <tr id="db-bankbook-entry-${k}" style="border-bottom:1px solid var(--border)">
       <td style="padding:6px 8px;white-space:nowrap">${p.date||'—'}</td>
@@ -5766,6 +5795,11 @@ function selectDbBbItem(k, bookingId, ref){
   if(input) input.value=ref;
   if(hidden) hidden.value=bookingId;
   if(dd) dd.style.display='none';
+  dbBankbookExtracted[k]._bookingId = bookingId;
+  // F16: 振込人名等のテキスト(bank欄)とREF#の対応をユーザーが手動確定した操作として学習する
+  // (ベストエフォート。失敗しても選択自体には影響しない)。
+  const p = dbBankbookExtracted[k];
+  if(p && ref && ref!=='(REF#なし)') recordLearnedMapping('bankbook_payer', p.bank, ref);
 }
 
 async function applyDashboardBankbookEntry(k){
@@ -13785,6 +13819,8 @@ function addGuideRow(){
   renderGuideTable();
 }
 
+// booking_guides = ガイドのアサイン状況管理(役割の詳細はbookingGuidesApiCall宣言部の
+// コメント参照)。手配書印字用のtour_guidesとは別テーブルなので混同しないこと。
 function buildGuideRows(bookingId){
   return bdGuideItems.filter(it=>it.guide_id||it.guide_name_freetext||it.start_date||it.end_date||it.memo||it.amount).map(it=>({
     booking_id: bookingId,
@@ -14270,6 +14306,8 @@ function buildArrHeaderCompareFields(h){
     revision_note: h.revision_note||null,
   };
 }
+// tour_guides = 手配書印字用メタデータ(役割の詳細はbookingGuidesApiCall宣言部の
+// コメント参照)。アサイン状況管理のbooking_guidesとは別テーブルなので混同しないこと。
 function buildArrGuideRows(bookingId){
   return bdArrGuideItems.filter(it=>it.guide_id||it.guide_name_freetext||it.phone||it.start_date).map((it,i)=>({
     booking_id: bookingId,
@@ -14513,6 +14551,16 @@ function renderGuideDocsList(){
       </div>`;
     }
     const revisedLabel = doc.last_revised_at ? ('最終改訂: '+new Date(doc.last_revised_at).toLocaleString('ja-JP')) : '';
+    // F10: 共通ドラフト(tour_arrangement_headers)がこの手配書の最終更新より後に更新されて
+    // いる場合、draft状態の手配書に限り「更新あり」を通知する。自動反映はせず、手動の
+    // 「取り込む」ボタンでのみ反映する(finalは対象外。目安の判定であり、手配書自体を
+    // 手動編集しただけでもupdated_atは進むため、必ずしも「ドラフト由来の差分」とは限らない)。
+    const docSyncedAt = doc.updated_at || doc.created_at;
+    const draftUpdatedAt = bdArrHeader && bdArrHeader.updated_at;
+    const draftIsNewer = doc.status!=='final' && docSyncedAt && draftUpdatedAt && new Date(draftUpdatedAt) > new Date(docSyncedAt);
+    const draftUpdatedBanner = draftIsNewer
+      ? `<div style="font-size:10px;color:var(--amber,#854F0B);margin-top:4px">⚠ 共通ドラフトが更新されました(自動反映はされません)。必要であれば「取り込む」で最新内容を反映してください。</div>`
+      : '';
     return `<div class="gs-card" style="padding:8px 10px">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
         <div><b>${escHtml(name)}</b>
@@ -14520,10 +14568,12 @@ function renderGuideDocsList(){
           <span style="font-size:10px;color:var(--text3);margin-left:6px">改訂${doc.revision_no||0} ${escHtml(revisedLabel)}</span>
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${draftIsNewer ? `<button class="btn" style="font-size:10px;color:var(--amber,#854F0B);border-color:var(--amber,#854F0B)" onclick="pullGuideDocFromDraft('${doc.id}')">📥 共通ドラフトを取り込む</button>` : ''}
           <button class="btn" style="font-size:10px" onclick="openGuideDocEditor('${doc.id}')">✏️ 編集</button>
           <button class="btn" style="font-size:10px" onclick="exportGuideDocExcel('${doc.id}')">📥 Excel出力</button>
         </div>
       </div>
+      ${draftUpdatedBanner}
     </div>`;
   }).join('');
 }
@@ -14600,6 +14650,62 @@ async function syncArrangementDocumentsFromDraft(bookingId){
     ]);
   }));
   await loadGuideDocsList(bookingId);
+}
+
+// F10: 共通ドラフトの最新内容を、既存のガイド別手配書(draft状態のみ)に手動で取り込む。
+// syncArrangementDocumentsFromDraft(新規作成時)と同じスナップショット構築ロジックを、
+// 既存ドキュメントへのUPDATE/replaceByKeyに置き換えたもの。自動実行はされず、
+// renderGuideDocsList()の「取り込む」ボタンからのみ呼ばれる。finalの手配書は対象外
+// (呼び出し元でボタン自体を出さないため、ここでも念のため二重にガードする)。
+async function pullGuideDocFromDraft(docId){
+  const doc = bdGuideDocs.find(d=>d.id===docId);
+  if(!doc) return;
+  if(doc.status==='final'){ alert('確定済みの手配書は取り込めません。'); return; }
+  if(!confirm('共通ドラフトの最新内容をこの手配書に取り込みます。これまでの個別編集内容(ヘッダー・日毎明細・注意文言)は上書きされます。よろしいですか？')) return;
+
+  const h = bdArrHeader || {};
+  const daySnapshots = bdArrDayItems.map((it,i)=>({
+    day_no: i+1,
+    date: sanitizeDateField(it.date),
+    bus_company_text: arrDocResolveDayBusText(it),
+    itinerary_text: it.itinerary_text||'',
+    others_text: it.others_text||'',
+    hotel_name: arrDocResolveHotelName(it),
+    hotel_phone: '',
+    hotel_note: it.hotel_note||'',
+    breakfast_text: it.breakfast_text||'', breakfast_time: it.breakfast_time||'', breakfast_phone: it.breakfast_phone||'',
+    lunch_text: it.lunch_restaurant_booking_id ? arrDocResolveRestaurantName(it.lunch_restaurant_booking_id) : (it.lunch_text||''),
+    lunch_time: it.lunch_time||'', lunch_phone: it.lunch_phone||'',
+    dinner_text: it.dinner_restaurant_booking_id ? arrDocResolveRestaurantName(it.dinner_restaurant_booking_id) : (it.dinner_text||''),
+    dinner_time: it.dinner_time||'', dinner_phone: it.dinner_phone||'',
+    departure_time: it.departure_time||null,
+  }));
+  const noteRows = [
+    {arrangement_document_id: docId, note_type:'fixed_template', content: bdArrNotes.fixed_template||'', display_order:0},
+    {arrangement_document_id: docId, note_type:'mineral_water', content: bdArrNotes.mineral_water||'', display_order:1},
+    {arrangement_document_id: docId, note_type:'driver_info', content: bdArrNotes.driver_info||'', display_order:2},
+    {arrangement_document_id: docId, note_type:'tour_specific', content: bdArrNotes.tour_specific||'', display_order:3},
+  ];
+  const headerPayload = {
+    bus_signage_name: h.bus_signage_name||'', nationality: h.nationality||'',
+    pax_adult: Number(h.pax_adult)||0, pax_child: Number(h.pax_child)||0, pax_note: h.pax_note||'',
+    arr_date: sanitizeDateField(h.arr_date), arr_airport: h.arr_airport||'', arr_flight: h.arr_flight||'', arr_time: h.arr_time||'',
+    dep_date: sanitizeDateField(h.dep_date), dep_airport: h.dep_airport||'', dep_flight: h.dep_flight||'', dep_time: h.dep_time||'',
+    updated_at: new Date().toISOString(),
+  };
+  try{
+    const {error: updErr} = await sb.from('arrangement_documents').update(headerPayload).eq('id', docId);
+    if(updErr) throw new Error('手配書ヘッダーの取り込みに失敗: '+updErr.message);
+    await Promise.all([
+      arrangementDocumentDaysApiCall('replaceByKey', { keyField: 'arrangement_document_id', keyValue: docId, rows: daySnapshots.map(d=>Object.assign({arrangement_document_id: docId}, d)) }),
+      arrangementDocumentNotesApiCall('replaceByKey', { keyField: 'arrangement_document_id', keyValue: docId, rows: noteRows }),
+    ]);
+  }catch(e){
+    alert('共通ドラフトの取り込みに失敗しました: '+e.message);
+    return;
+  }
+  await loadGuideDocsList(currentDetailId);
+  alert('共通ドラフトの最新内容を取り込みました。');
 }
 
 // ガイド別手配書1件を編集モーダルで開く。ヘッダー+日毎明細+注意文言をまとめて取得する。
