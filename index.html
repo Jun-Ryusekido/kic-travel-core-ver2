@@ -17264,14 +17264,74 @@ async function searchCcManualMatch(ccId){
   if(!bks || bks.length===0){ resultsEl.innerHTML = '<div class="empty" style="font-size:11px">該当する予約が見つかりませんでした</div>'; return; }
   const bookingIds = bks.map(b=>b.id);
   const {data: costs} = await sb.from('booking_costs').select('*').in('booking_id', bookingIds);
-  const bById = {}; bks.forEach(b=>bById[b.id]=b);
-  resultsEl.innerHTML = (costs||[]).map(c=>{
-    const b = bById[c.booking_id]||{};
-    return `<div style="border:1px solid var(--border);border-radius:8px;padding:6px 8px;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
-      <div style="font-size:11px"><strong>${escHtml(b.tour_name||'')}</strong> / REF# ${escHtml(b.ref_no||'')} / 仕入先: ${escHtml(c.item_name||'')} / ${yen(c.amount||0)}</div>
-      <button class="btn btn-p" style="font-size:10px" onclick="confirmCcMatch('${ccId}','${c.id}','${c.booking_id}','${escAttr(b.ref_no||'')}')">この予約に確定</button>
+  const costsByBooking = {};
+  (costs||[]).forEach(c=>{ (costsByBooking[c.booking_id] = costsByBooking[c.booking_id]||[]).push(c); });
+  // 予約ごとに「既存の仕入明細から選ぶ」候補と、「新しい仕入明細をその場で作成して紐付ける」
+  // 導線をまとめて表示する(自動候補・既存仕入明細のいずれにも該当しないケース対応)。
+  resultsEl.innerHTML = bks.map(b=>{
+    const existingRows = (costsByBooking[b.id]||[]).map(c=>`
+      <div style="border:1px solid var(--border);border-radius:8px;padding:6px 8px;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+        <div style="font-size:11px">仕入先: ${escHtml(c.item_name||'')} / ${yen(c.amount||0)}</div>
+        <button class="btn btn-p" style="font-size:10px" onclick="confirmCcMatch('${ccId}','${c.id}','${c.booking_id}','${escAttr(b.ref_no||'')}')">この予約に確定</button>
+      </div>`).join('') || '<div class="empty" style="font-size:11px">この予約には仕入明細がありません</div>';
+    return `<div style="border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:8px">
+      <div style="font-size:11px;font-weight:600;margin-bottom:6px"><strong>${escHtml(b.tour_name||'')}</strong> / REF# ${escHtml(b.ref_no||'')}</div>
+      ${existingRows}
+      <div style="margin-top:6px">
+        <button class="btn" style="font-size:10px" onclick="toggleCcNewCostForm('${ccId}','${b.id}','${escAttr(b.ref_no||'')}')">＋ この予約に新しい仕入明細を追加して紐付ける</button>
+        <div id="cc-newcost-form-${b.id}"></div>
+      </div>
     </div>`;
-  }).join('') || '<div class="empty" style="font-size:11px">この予約には仕入明細がありません</div>';
+  }).join('');
+}
+
+// 「候補が無い/既存の仕入明細に該当が無い」ケース向けの新規仕入明細フォームを開閉する。
+// 店舗名→仕入先名、金額→金額に自動で初期値を入れる(入力の手間を減らすため)。
+function toggleCcNewCostForm(ccId, bookingId, refNo){
+  const container = document.getElementById(`cc-newcost-form-${bookingId}`);
+  if(!container) return;
+  if(container.innerHTML){ container.innerHTML = ''; return; }
+  const s = ccStatementsCache.find(x=>String(x.id)===String(ccId));
+  container.innerHTML = `
+    <div style="border-top:1px dashed var(--border);margin-top:6px;padding-top:6px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:6px">
+        <div class="form-field"><label style="font-size:10px">仕入先名</label><input type="text" id="cc-newcost-item-${bookingId}" value="${escAttr(s?.merchant_name||'')}" style="width:100%;box-sizing:border-box;font-size:11px;padding:5px 7px"></div>
+        <div class="form-field"><label style="font-size:10px">金額</label><input type="number" id="cc-newcost-amount-${bookingId}" value="${s?.amount||0}" style="width:100%;box-sizing:border-box;font-size:11px;padding:5px 7px;text-align:right"></div>
+        <div class="form-field"><label style="font-size:10px">出金日</label><input type="date" id="cc-newcost-date-${bookingId}" value="${_safeDate(s?.transaction_date)}" style="width:100%;box-sizing:border-box;font-size:11px;padding:5px 7px"></div>
+        <div class="form-field"><label style="font-size:10px">支払方法</label><select id="cc-newcost-method-${bookingId}" style="width:100%;box-sizing:border-box;font-size:11px;padding:5px 7px"><option value="">選択してください</option>${LOCAL_EXPENSE_PAYMENT_METHODS.map(m=>`<option value="${m}" ${m==='事前決済'?'selected':''}>${m}</option>`).join('')}</select></div>
+        <div class="form-field" style="grid-column:1/3"><label style="font-size:10px">内容・備考</label><input type="text" id="cc-newcost-memo-${bookingId}" placeholder="例: 入場チケット代" value="法人カード決済" style="width:100%;box-sizing:border-box;font-size:11px;padding:5px 7px"></div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;align-items:center;gap:8px">
+        <span id="cc-newcost-status-${bookingId}" style="font-size:11px;color:var(--text3)"></span>
+        <button class="btn btn-p" style="font-size:11px" onclick="saveCcNewCostAndMatch('${ccId}','${bookingId}','${refNo}')">💾 作成して紐付け</button>
+      </div>
+    </div>`;
+}
+
+// 新規仕入明細をbooking_costsに作成し、作成したその行に既存のconfirmCcMatchで確定する
+// (紐付け確定のロジック自体は変更せず、新規行のidを渡して既存の導線に合流させるだけ)。
+async function saveCcNewCostAndMatch(ccId, bookingId, refNo){
+  const statusEl = document.getElementById(`cc-newcost-status-${bookingId}`);
+  const item_name = (document.getElementById(`cc-newcost-item-${bookingId}`)?.value||'').trim();
+  const amount = Number(document.getElementById(`cc-newcost-amount-${bookingId}`)?.value)||0;
+  const payment_date = document.getElementById(`cc-newcost-date-${bookingId}`)?.value || null;
+  const payment_method = document.getElementById(`cc-newcost-method-${bookingId}`)?.value || '';
+  const memo = (document.getElementById(`cc-newcost-memo-${bookingId}`)?.value||'').trim();
+  if(!item_name){ alert('仕入先名を入力してください'); return; }
+  if(statusEl){ statusEl.textContent = '作成中...'; statusEl.style.color = 'var(--text3)'; }
+  let newCostId;
+  try{
+    const result = await bookingCostsApiCall('insert', { rows: [{
+      booking_id: bookingId, item_name, amount, payment_date, payment_method, memo, status:'pending'
+    }] });
+    newCostId = result?.rows?.[0]?.id;
+    if(!newCostId) throw new Error('作成した仕入明細のidを取得できませんでした');
+  }catch(e){
+    if(statusEl){ statusEl.textContent = '作成エラー: '+e.message; statusEl.style.color = 'var(--red)'; }
+    return;
+  }
+  // 紐付け確定は既存のconfirmCcMatch(候補から選ぶ場合と全く同じ関数)にそのまま委譲する。
+  await confirmCcMatch(ccId, newCostId, bookingId, refNo);
 }
 
 async function confirmCcMatch(ccId, bookingCostId, bookingId, refNo){
