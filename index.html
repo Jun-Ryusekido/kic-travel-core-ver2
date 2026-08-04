@@ -750,6 +750,25 @@ input[type=number]{-moz-appearance:textfield}
 
   /* 6行目: 備考(placeholderのみでラベル無し、フル幅) */
   #bd-hotels-tbody td:nth-child(13){grid-row:6;grid-column:1/13}
+
+  /* クレジットカード明細OCR確認画面(#cc-ocr-results)専用のモバイル調整。
+     他のOCR確認画面(請求書・ホテル等)のconfirm-tableには一切影響させない。
+     1) カードの余白・行間を詰めてコンパクトにする(タップ領域はinputの高さで確保)。 */
+  #cc-ext-table tr{padding:6px 8px;margin-bottom:6px}
+  #cc-ext-table td{padding:3px 0!important;min-height:30px}
+  #cc-ext-table td input{min-height:28px;box-sizing:border-box}
+  /* 2) 「保存して自動マッチング」ボタンを画面下部にfixedで固定する。
+     このカードの祖先(.content)はoverflow-y:autoではなく通常のドキュメントスクロールだが、
+     過去の実機検証で「入れ子のoverflow-y:auto構造ではposition:stickyが効かない」問題が
+     報告されているため、確実性を優先してposition:fixedを採用する(#db-mobile-bottombar等
+     既存の下部固定バーと同じ方式)。 */
+  #cc-ocr-save-bar{
+    position:fixed;left:0;right:0;bottom:0;z-index:60;
+    margin:0!important;padding:8px 12px;background:var(--card);
+    border-top:1px solid var(--border);box-shadow:0 -2px 8px rgba(0,0,0,.08)
+  }
+  /* 固定バーの高さ分、結果カードの下に余白を確保して最終行が隠れないようにする */
+  #cc-ocr-results{padding-bottom:56px}
 }
 
 /* ===== エラートースト（画面右下、スマホは下部中央） ===== */
@@ -16683,17 +16702,17 @@ function renderCcExtractedResults(){
   if(!el || ccExtracted.length===0){ if(el) el.innerHTML=''; return; }
   const rows = ccExtracted.map((p,i)=>`<tr${p.needs_review?' style="background:var(--amber-lt,#FAEEDA)"':''}>
     <td data-label=""><input type="checkbox" id="cc-ext-chk-${i}" checked></td>
-    <td data-label="利用日"><input type="date" min="1900-01-01" max="9999-12-31" id="cc-ext-date-${i}" value="${_safeDate(p.transaction_date)}" style="width:100%;box-sizing:border-box${p.needs_review?';border-color:var(--amber,#854F0B)':''}">${p.needs_review?`<div style="font-size:9px;color:var(--amber,#854F0B);margin-top:2px">⚠ 要確認${p.date_raw?`（読取: ${escHtml(p.date_raw)}）`:''}</div>`:''}</td>
-    <td data-label="店舗名"><input type="text" id="cc-ext-merchant-${i}" value="${escAttr(p.merchant_name)}" style="width:100%;box-sizing:border-box"></td>
-    <td data-label="金額" style="text-align:right"><input type="number" id="cc-ext-amount-${i}" value="${p.amount}" style="width:100%;text-align:right;box-sizing:border-box"></td>
-    <td data-label="手書きコード"><input type="text" id="cc-ext-hint-${i}" value="${escAttr(p.hint_tour_code)}" placeholder="例: 851_KK" style="width:100%;box-sizing:border-box"></td>
+    <td data-label="利用日"><input type="date" min="1900-01-01" max="9999-12-31" id="cc-ext-date-${i}" value="${_safeDate(p.transaction_date)}" style="width:100%;box-sizing:border-box${p.needs_review?';border-color:var(--amber,#854F0B)':''}" onchange="this.blur()">${p.needs_review?`<div style="font-size:9px;color:var(--amber,#854F0B);margin-top:2px">⚠ 要確認${p.date_raw?`（読取: ${escHtml(p.date_raw)}）`:''}</div>`:''}</td>
+    <td data-label="店舗名"><input type="text" id="cc-ext-merchant-${i}" value="${escAttr(p.merchant_name)}" style="width:100%;box-sizing:border-box" onchange="this.blur()"></td>
+    <td data-label="金額" style="text-align:right"><input type="number" id="cc-ext-amount-${i}" value="${p.amount}" style="width:100%;text-align:right;box-sizing:border-box" onchange="this.blur()"></td>
+    <td data-label="手書きコード"><input type="text" id="cc-ext-hint-${i}" value="${escAttr(p.hint_tour_code)}" placeholder="例: 851_KK" style="width:100%;box-sizing:border-box" onchange="this.blur()"></td>
   </tr>`).join('');
   el.innerHTML = `
-    <div class="tbl-wrap"><table class="confirm-table" style="width:100%;border-collapse:collapse;font-size:11px">
+    <div class="tbl-wrap"><table class="confirm-table" id="cc-ext-table" style="width:100%;border-collapse:collapse;font-size:11px">
       <thead><tr><th></th><th>利用日</th><th>店舗名</th><th style="text-align:right">金額</th><th>手書きツアーコード</th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
-    <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <div id="cc-ocr-save-bar" style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <button class="btn btn-p" onclick="saveCcExtractedRows()">💾 保存して自動マッチング</button>
       <span id="cc-save-status" style="font-size:11px;color:var(--text3)"></span>
     </div>`;
