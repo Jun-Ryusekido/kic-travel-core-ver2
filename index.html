@@ -17631,7 +17631,7 @@ async function extractInvoiceFromText(){
     statusEl.style.color = 'var(--green)';
     statusEl.textContent += checkInvoiceTotalMismatch(expenses, invoiceTotal);
     if(checkInvoiceTotalMismatch(expenses, invoiceTotal)) statusEl.style.color = 'var(--orange, #d97706)';
-    showInvoiceConfirmDialog(expenses);
+    showInvoiceConfirmDialog(expenses, null, invoiceTotal);
   }catch(e){
     logError('AI読み取り(OCR)', e, {toast:false});
     statusEl.textContent = '読み取り失敗: '+e.message;
@@ -17685,7 +17685,7 @@ async function extractInvoiceFromFile(event, mode){
     statusEl.style.color = 'var(--green)';
     statusEl.textContent += checkInvoiceTotalMismatch(expenses, invoiceTotal);
     if(checkInvoiceTotalMismatch(expenses, invoiceTotal)) statusEl.style.color = 'var(--orange, #d97706)';
-    showInvoiceConfirmDialog(expenses);
+    showInvoiceConfirmDialog(expenses, null, invoiceTotal);
   }catch(e){
     logError('AI読み取り(OCR)', e, {toast:false});
     statusEl.textContent = '読み取り失敗: '+e.message;
@@ -17763,7 +17763,7 @@ async function extractInvoiceTextForBooking(){
     statusEl.textContent += checkInvoiceTotalMismatch(expenses, invoiceTotal);
     if(checkInvoiceTotalMismatch(expenses, invoiceTotal)) statusEl.style.color = 'var(--orange, #d97706)';
     document.getElementById('inv-booking-modal')?.remove();
-    showInvoiceConfirmDialog(expenses, currentDetailId);
+    showInvoiceConfirmDialog(expenses, currentDetailId, invoiceTotal);
   }catch(e){
     logError('AI読み取り(OCR)', e, {toast:false});
     statusEl.textContent = '読み取り失敗: '+e.message; statusEl.classList.remove('ocr-loading'); statusEl.style.color = 'var(--red)';
@@ -17790,7 +17790,7 @@ async function extractInvoiceForBooking(event, mode){
     statusEl.textContent += checkInvoiceTotalMismatch(expenses, invoiceTotal);
     if(checkInvoiceTotalMismatch(expenses, invoiceTotal)) statusEl.style.color = 'var(--orange, #d97706)';
     document.getElementById('inv-booking-modal')?.remove();
-    showInvoiceConfirmDialog(expenses, currentDetailId);
+    showInvoiceConfirmDialog(expenses, currentDetailId, invoiceTotal);
   }catch(e){
     logError('AI読み取り(OCR)', e, {toast:false});
     statusEl.textContent = '読み取り失敗: '+e.message; statusEl.classList.remove('ocr-loading'); statusEl.style.color = 'var(--red)';
@@ -17850,7 +17850,7 @@ async function extractCostFromText(){
     statusEl.textContent += checkInvoiceTotalMismatch(expenses, invoiceTotal);
     if(checkInvoiceTotalMismatch(expenses, invoiceTotal)) statusEl.style.color = 'var(--orange, #d97706)';
     document.getElementById('cost-ocr-modal')?.remove();
-    showCostConfirmDialog(expenses);
+    showCostConfirmDialog(expenses, invoiceTotal);
   }catch(e){
     logError('AI読み取り(OCR)', e, {toast:false});
     statusEl.textContent = '読み取り失敗: '+e.message; statusEl.classList.remove('ocr-loading'); statusEl.style.color = 'var(--red)';
@@ -17909,7 +17909,7 @@ async function extractCostFromFile(event, mode){
     statusEl.textContent += checkInvoiceTotalMismatch(expenses, invoiceTotal);
     if(checkInvoiceTotalMismatch(expenses, invoiceTotal)) statusEl.style.color = 'var(--orange, #d97706)';
     document.getElementById('cost-ocr-modal')?.remove();
-    showCostConfirmDialog(expenses);
+    showCostConfirmDialog(expenses, invoiceTotal);
   }catch(e){
     logError('AI読み取り(OCR)', e, {toast:false});
     statusEl.textContent = '読み取り失敗: '+e.message; statusEl.classList.remove('ocr-loading'); statusEl.style.color = 'var(--red)';
@@ -17918,8 +17918,12 @@ async function extractCostFromFile(event, mode){
   event.target.value = '';
 }
 
-function showCostConfirmDialog(expenses){
+function showCostConfirmDialog(expenses, invoiceTotal){
   const b = findBookingById(currentDetailId)||{};
+  const mismatchMsg = checkInvoiceTotalMismatch(expenses, invoiceTotal);
+  const mismatchBanner = mismatchMsg
+    ? `<div style="background:#fef2f2;border:2px solid var(--red,#c0392b);color:var(--red,#c0392b);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:12px;font-weight:700">${escHtml(mismatchMsg.trim())}</div>`
+    : '';
   document.getElementById('cost-confirm-modal')?.remove();
   const modal = document.createElement('div');
   modal.id = 'cost-confirm-modal';
@@ -17945,6 +17949,7 @@ function showCostConfirmDialog(expenses){
         <div style="font-size:13px;font-weight:700">仕入明細確認（${escHtml(b.ref_no||b.tour_name||'')}）</div>
         <button class="btn" onclick="document.getElementById('cost-confirm-modal').remove()">✕</button>
       </div>
+      ${mismatchBanner}
       <label style="display:flex;align-items:center;gap:6px;font-size:11px;margin-bottom:8px;cursor:pointer">
         <input type="checkbox" id="cost-confirm-merge-same-supplier">
         同じ仕入先の行をまとめて1件にする
@@ -18024,9 +18029,13 @@ async function saveCostFromOcr(count){
   setTimeout(()=>{ document.getElementById('cost-confirm-modal')?.remove(); }, 2000);
 }
 
-async function showInvoiceConfirmDialog(expenses, presetBookingId){
+async function showInvoiceConfirmDialog(expenses, presetBookingId, invoiceTotal){
   window._pendingInvoiceExpenses = expenses;
   window._invPresetBookingId = presetBookingId || null;
+  const mismatchMsg = checkInvoiceTotalMismatch(expenses, invoiceTotal);
+  const mismatchBanner = mismatchMsg
+    ? `<div style="background:#fef2f2;border:2px solid var(--red,#c0392b);color:var(--red,#c0392b);border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:12px;font-weight:700">${escHtml(mismatchMsg.trim())}</div>`
+    : '';
 
   allBookingsCache = await fetchAllBookings();
   const _numOf = ref => { const n=parseInt((ref||'').replace(/^#/,''),10); return isNaN(n)?Infinity:n; };
@@ -18109,6 +18118,7 @@ async function showInvoiceConfirmDialog(expenses, presetBookingId){
         <div style="font-size:14px;font-weight:700">読み取り結果の確認（仕入明細）</div>
         <button class="btn" onclick="document.getElementById('invoice-confirm-modal').remove()">✕ 閉じる</button>
       </div>
+      ${mismatchBanner}
       <div style="font-size:11px;color:var(--text3);margin-bottom:8px">ツアーREF#を選択してから「保存」してください。REF#未選択の行は保存されません。</div>
       <div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table style="width:100%;border-collapse:collapse;font-size:11px;table-layout:fixed;min-width:540px">
         <colgroup><col><col style="width:70px"><col style="width:50px"><col style="width:72px"><col style="width:110px"><col style="width:130px"></colgroup>
