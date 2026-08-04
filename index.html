@@ -1482,9 +1482,13 @@ input[type=number]{-moz-appearance:textfield}
             <button class="btn" style="font-size:11px" data-cc-filter="候補あり" onclick="setCcFilter('候補あり')">候補あり</button>
             <button class="btn" style="font-size:11px" data-cc-filter="確定済み" onclick="setCcFilter('確定済み')">確定済み</button>
           </div>
-          <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:640px">
-            <thead><tr><th>利用日</th><th>店舗名</th><th style="text-align:right">金額</th><th>手書きコード</th><th>紐付け状態</th></tr></thead>
-            <tbody id="cc-tbody"><tr><td colspan="5" class="empty">読み込み中...</td></tr></tbody>
+          <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:760px;width:100%">
+            <colgroup>
+              <col style="width:11%"><col style="width:11%"><col style="width:32%">
+              <col style="width:14%"><col style="width:14%"><col style="width:18%">
+            </colgroup>
+            <thead><tr><th>利用日</th><th>名義人</th><th>店舗名</th><th style="text-align:right">金額</th><th>手書きコード</th><th>紐付け状態</th></tr></thead>
+            <tbody id="cc-tbody"><tr><td colspan="6" class="empty">読み込み中...</td></tr></tbody>
           </table></div>
         </div>
       </div>
@@ -16883,11 +16887,12 @@ function renderCcTable(){
   const tbody = document.getElementById('cc-tbody');
   if(!tbody) return;
   const list = ccFilter==='all' ? ccStatementsCache : ccStatementsCache.filter(s=>s.match_status===ccFilter);
-  if(list.length===0){ tbody.innerHTML = '<tr><td colspan="5" class="empty">明細がありません</td></tr>'; return; }
+  if(list.length===0){ tbody.innerHTML = '<tr><td colspan="6" class="empty">明細がありません</td></tr>'; return; }
   tbody.innerHTML = list.map(s=>{
     const statusColor = s.match_status==='確定済み' ? 'var(--green)' : s.match_status==='候補あり' ? 'var(--blue)' : 'var(--text3)';
     return `<tr style="cursor:pointer" onclick="openCcMatchModal('${s.id}')">
       <td data-label="利用日">${escHtml(_fmtSlashDate ? _fmtSlashDate(s.transaction_date) : (s.transaction_date||''))}</td>
+      <td data-label="名義人">${escHtml(s.card_holder||'')}</td>
       <td data-label="店舗名">${escHtml(s.merchant_name||'')}</td>
       <td data-label="金額" style="text-align:right">${yen(s.amount||0)}</td>
       <td data-label="手書きコード">${escHtml(s.hint_tour_code||'')}</td>
