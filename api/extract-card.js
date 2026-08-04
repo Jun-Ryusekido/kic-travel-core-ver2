@@ -142,6 +142,23 @@ export default async function handler(req, res) {
   で分かる形にして、例:"8/5 21"のように）そのまま入れ、"needs_review" を true にすること。
 - 全ての行に同一の日付を返すことは、明細の実態と一致しない限り誤りである可能性が非常に高い。行ごとに異なる日付が印字されている場合は、それぞれ正確に区別して抽出すること。
 
+【印字かすれ等で年だけ読み取りづらい行の補完（重要）】
+- 同一の明細書内であれば、対象期間の年は通常すべての行で共通である。まず明細内の全取引行を
+  読み取り、年が明確に確定できた行（ヘッダーの発行年月・請求年月、または鮮明に印字された年数字
+  から確信を持って判断できた行）が1件以上あれば、その年をこの明細書全体の「基準年」として扱う。
+- 個別の行だけコピー機の印字かすれ・文字欠け等で年の数字（西暦4桁、または和暦の元号年数）が
+  薄い・一部欠けている等により確信が持てない場合、その行の月・日は印字されている通りにそのまま
+  読み取り、年についてのみ上記の基準年で補完してよい。
+- ただし、その行の月が基準年の他の行の月から半年以上離れている場合（年をまたいでいる可能性が
+  あるため）は、機械的な年の補完をせず、従来通り "date" を null、"needs_review" を true にすること。
+- 基準年で補完した行は、"date" に補完後の年を含む日付をYYYY-MM-DD形式で入れ、"date_raw" には
+  実際に印字されていた通りの文字列（欠けていた年の部分も含め、見えたままの形）を残し、
+  "needs_review" は false にしてよいが、必ず "year_supplemented" を true にして、年を基準年から
+  補完したことが分かるようにすること。年の補完を行っていない行は "year_supplemented" を false
+  にすること。
+- 基準年となる行が1件も明確に判断できない場合（明細内の全行で年が読み取りづらい等）は、
+  無理に補完せず、従来通り該当行を個別に "needs_review" true・"date" null として扱うこと。
+
 【手書きツアーコードの抽出（重要）】
 - 明細の各取引行、またはその行の左右・上下の余白に、担当者が手書きで書き込んだツアーコードが
   存在する場合がある。ツアーコードの形式は「数字＋区切り文字＋アルファベット」で、区切り文字は
@@ -156,13 +173,15 @@ export default async function handler(req, res) {
 - 金額は数値のみ（カンマ・円記号なし）
 - 店舗名が読み取れない場合はnullにする
 - 日付が確実に分かる場合は"date"をYYYY-MM-DD形式にし、"date_raw"はnull、"needs_review"はfalseにする
+- "year_supplemented"は、上記【印字かすれ等で年だけ読み取りづらい行の補完】のルールに従い年を
+  基準年から補完した行のみtrue、それ以外（年が最初から明確・needs_review=true等）は必ずfalseにする
 - "date_raw"や"merchant"の値に、二重引用符(")・バックスラッシュ(\\)・改行がそのまま含まれる場合は、
   必ずJSON文字列として正しくエスケープすること（例: 引用符は\\"、改行は\\nにする）。生の改行文字を
   そのまま値の中に含めてはならない
 - 出力は有効なJSON配列そのものだけとし、説明文・注釈・コードブロック記号(\`\`\`)は一切含めないこと
 - 他のテキストは一切含めず、以下のJSON形式のみで返すこと
 
-[{"date":"2026-05-20","date_raw":null,"needs_review":false,"merchant":"〇〇株式会社","amount":15000,"hint_tour_code":"851_KK"},{"date":null,"date_raw":"5/25","needs_review":true,"merchant":"△△商店","amount":3200,"hint_tour_code":null}]`}
+[{"date":"2026-05-20","date_raw":null,"needs_review":false,"year_supplemented":false,"merchant":"〇〇株式会社","amount":15000,"hint_tour_code":"851_KK"},{"date":"2026-05-25","date_raw":"?/5 25","needs_review":false,"year_supplemented":true,"merchant":"□□商事","amount":8400,"hint_tour_code":null},{"date":null,"date_raw":"5/25","needs_review":true,"year_supplemented":false,"merchant":"△△商店","amount":3200,"hint_tour_code":null}]`}
       ], 2000);
       const text = data.content?.[0]?.text || '';
       return res.status(200).json({ text });

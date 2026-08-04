@@ -16680,6 +16680,7 @@ async function processCcStatementFile(file, mode){
     const cleaned = (data.text||'').replace(/```json|```/g,'').trim();
     ccExtracted = (Array.isArray(parsed) ? parsed : [parsed]).map(p=>({
       transaction_date: p.date||'', date_raw: p.date_raw||'', needs_review: !!p.needs_review || !p.date,
+      year_supplemented: !!p.year_supplemented,
       merchant_name: p.merchant||'', amount: Number(p.amount)||0, hint_tour_code: (p.hint_tour_code||'').trim(), raw_ocr_text: cleaned
     }));
     renderCcExtractedResults();
@@ -16702,7 +16703,7 @@ function renderCcExtractedResults(){
   if(!el || ccExtracted.length===0){ if(el) el.innerHTML=''; return; }
   const rows = ccExtracted.map((p,i)=>`<tr${p.needs_review?' style="background:var(--amber-lt,#FAEEDA)"':''}>
     <td data-label=""><input type="checkbox" id="cc-ext-chk-${i}" checked></td>
-    <td data-label="利用日"><input type="date" min="1900-01-01" max="9999-12-31" id="cc-ext-date-${i}" value="${_safeDate(p.transaction_date)}" style="width:100%;box-sizing:border-box${p.needs_review?';border-color:var(--amber,#854F0B)':''}" onchange="this.blur()">${p.needs_review?`<div style="font-size:9px;color:var(--amber,#854F0B);margin-top:2px">⚠ 要確認${p.date_raw?`（読取: ${escHtml(p.date_raw)}）`:''}</div>`:''}</td>
+    <td data-label="利用日"><input type="date" min="1900-01-01" max="9999-12-31" id="cc-ext-date-${i}" value="${_safeDate(p.transaction_date)}" style="width:100%;box-sizing:border-box${p.needs_review?';border-color:var(--amber,#854F0B)':''}" onchange="this.blur()">${p.needs_review?`<div style="font-size:9px;color:var(--amber,#854F0B);margin-top:2px">⚠ 要確認${p.date_raw?`（読取: ${escHtml(p.date_raw)}）`:''}</div>`:''}${(!p.needs_review && p.year_supplemented)?`<div style="font-size:9px;color:var(--text3);margin-top:2px" title="他の行から判明した年で自動補完しました${p.date_raw?`（読取: ${escHtml(p.date_raw)}）`:''}">ℹ 年を補完</div>`:''}</td>
     <td data-label="店舗名"><input type="text" id="cc-ext-merchant-${i}" value="${escAttr(p.merchant_name)}" style="width:100%;box-sizing:border-box" onchange="this.blur()"></td>
     <td data-label="金額" style="text-align:right"><input type="number" id="cc-ext-amount-${i}" value="${p.amount}" style="width:100%;text-align:right;box-sizing:border-box" onchange="this.blur()"></td>
     <td data-label="手書きコード"><input type="text" id="cc-ext-hint-${i}" value="${escAttr(p.hint_tour_code)}" placeholder="例: 851_KK" style="width:100%;box-sizing:border-box" onchange="this.blur()"></td>
