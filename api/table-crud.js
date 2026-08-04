@@ -229,7 +229,7 @@ const TABLE_CONFIG = {
   // このAPI経由への切替後もDB側のanon直接書き込み権限は当面維持する(フェーズB相当の
   // REVOKEは別途実施)。
   credit_card_statements: {
-    actions: ['insert', 'updateById', 'deleteById'],
+    actions: ['insert', 'updateById', 'deleteById', 'deleteByIds'],
     label: 'クレジットカード明細',
     stampIdentity: true,
     auditLog: true,

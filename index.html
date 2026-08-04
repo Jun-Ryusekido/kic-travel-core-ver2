@@ -1483,13 +1483,17 @@ input[type=number]{-moz-appearance:textfield}
             <button class="btn" style="font-size:11px" data-cc-filter="確定済み" onclick="setCcFilter('確定済み')">確定済み</button>
             <button class="btn" style="font-size:11px" data-cc-filter="対象外" onclick="setCcFilter('対象外')">対象外</button>
           </div>
-          <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:760px;width:100%">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+            <label style="font-size:11px;display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="cc-select-all-visible" onclick="event.stopPropagation()" onchange="toggleCcSelectAllVisible(this.checked)">このフィルターの全選択/全解除</label>
+            <button class="btn" style="font-size:11px;color:var(--red);border-color:var(--red)" id="cc-bulk-delete-btn" disabled onclick="bulkDeleteCcStatements()">選択した0件を削除</button>
+          </div>
+          <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:800px;width:100%">
             <colgroup>
-              <col style="width:11%"><col style="width:11%"><col style="width:32%">
-              <col style="width:14%"><col style="width:14%"><col style="width:18%">
+              <col style="width:5%"><col style="width:11%"><col style="width:10%"><col style="width:29%">
+              <col style="width:13%"><col style="width:13%"><col style="width:19%">
             </colgroup>
-            <thead><tr><th>利用日</th><th>名義人</th><th>店舗名</th><th style="text-align:right">金額</th><th>手書きコード</th><th>紐付け状態</th></tr></thead>
-            <tbody id="cc-tbody"><tr><td colspan="6" class="empty">読み込み中...</td></tr></tbody>
+            <thead><tr><th></th><th>利用日</th><th>名義人</th><th>店舗名</th><th style="text-align:right">金額</th><th>手書きコード</th><th>紐付け状態</th></tr></thead>
+            <tbody id="cc-tbody"><tr><td colspan="7" class="empty">読み込み中...</td></tr></tbody>
           </table></div>
         </div>
       </div>
@@ -16640,6 +16644,10 @@ async function processHotelFileHm(file, mode){
 let ccStatementsCache = [];
 let ccFilter = 'all';
 let ccExtracted = [];
+// 一覧の一括削除用チェック選択(idを文字列化して保持)。フィルターを跨いで選択を保持する
+// ため、renderCcTable()の再描画では消えない(setCcFilter/loadCreditCardStatementsからも
+// クリアしない。明示的にクリアするのはbulkDeleteCcStatements成功時のみ)。
+let ccSelectedIds = new Set();
 
 async function extractCcStatementFromFile(event, mode){
   const file = event.target.files[0];
@@ -16948,9 +16956,9 @@ async function loadCreditCardStatements(){
   const tbody = document.getElementById('cc-tbody');
   if(!tbody) return;
   enablePasteUpload(document.getElementById('cc-paste-zone'), file=>processCcStatementFile(file));
-  tbody.innerHTML = '<tr><td colspan="6" class="empty">読み込み中...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="7" class="empty">読み込み中...</td></tr>';
   const {data, error} = await sb.from('credit_card_statements').select('*').order('transaction_date',{ascending:false});
-  if(error){ logError('クレジットカード明細の読み込み', error); tbody.innerHTML = '<tr><td colspan="6" class="empty">読み込みに失敗しました</td></tr>'; return; }
+  if(error){ logError('クレジットカード明細の読み込み', error); tbody.innerHTML = '<tr><td colspan="7" class="empty">読み込みに失敗しました</td></tr>'; return; }
   ccStatementsCache = data||[];
   renderCcTable();
 }
@@ -16967,7 +16975,11 @@ function renderCcTable(){
   const tbody = document.getElementById('cc-tbody');
   if(!tbody) return;
   const list = ccFilter==='all' ? ccStatementsCache : ccStatementsCache.filter(s=>s.match_status===ccFilter);
-  if(list.length===0){ tbody.innerHTML = '<tr><td colspan="6" class="empty">明細がありません</td></tr>'; return; }
+  // 表示から消えた行(フィルター切替・削除・再読み込み)の選択は残さない(存在しないidを
+  // 一括削除対象に含めてしまうのを防ぐ)。
+  const visibleIds = new Set(ccStatementsCache.map(s=>String(s.id)));
+  [...ccSelectedIds].forEach(id=>{ if(!visibleIds.has(id)) ccSelectedIds.delete(id); });
+  if(list.length===0){ tbody.innerHTML = '<tr><td colspan="7" class="empty">明細がありません</td></tr>'; updateCcBulkDeleteBar(); return; }
   const now = Date.now();
   tbody.innerHTML = list.map(s=>{
     const statusColor = s.match_status==='確定済み' ? 'var(--green)' : s.match_status==='候補あり' ? 'var(--blue)' : s.match_status==='対象外' ? 'var(--text3)' : 'var(--amber,#854F0B)';
@@ -16975,7 +16987,9 @@ function renderCcTable(){
     // created_atが無い過去データ(移行前に保存された行)は判定できないため強調しない。
     const ageDays = s.created_at ? (now - new Date(s.created_at).getTime()) / 86400000 : null;
     const isStale = s.match_status==='未紐付け' && ageDays!==null && ageDays>=3;
+    const checked = ccSelectedIds.has(String(s.id));
     return `<tr style="cursor:pointer${isStale?';background:var(--amber-lt,#FAEEDA)':''}" onclick="openCcMatchModal('${s.id}')">
+      <td data-label="" onclick="event.stopPropagation()"><input type="checkbox" ${checked?'checked':''} onchange="toggleCcRowSelect('${s.id}', this.checked)"></td>
       <td data-label="利用日">${escHtml(_fmtSlashDate ? _fmtSlashDate(s.transaction_date) : (s.transaction_date||''))}</td>
       <td data-label="名義人">${escHtml(s.card_holder||'')}</td>
       <td data-label="店舗名">${escHtml(s.merchant_name||'')}</td>
@@ -16984,6 +16998,55 @@ function renderCcTable(){
       <td data-label="紐付け状態"><span style="font-size:10px;font-weight:600;color:${statusColor}">${isStale?'⏰ ':''}${escHtml(s.match_status||'未紐付け')}</span></td>
     </tr>`;
   }).join('');
+  updateCcBulkDeleteBar();
+}
+
+function toggleCcRowSelect(id, checked){
+  if(checked) ccSelectedIds.add(String(id)); else ccSelectedIds.delete(String(id));
+  updateCcBulkDeleteBar();
+}
+
+// 現在のフィルターで表示中の行のみを対象に全選択/全解除する(他フィルターで
+// 既に選択済みの行はそのまま維持する)。
+function toggleCcSelectAllVisible(checked){
+  const list = ccFilter==='all' ? ccStatementsCache : ccStatementsCache.filter(s=>s.match_status===ccFilter);
+  list.forEach(s=>{ if(checked) ccSelectedIds.add(String(s.id)); else ccSelectedIds.delete(String(s.id)); });
+  renderCcTable();
+}
+
+// 一括削除ボタンの活性/非活性・件数表示・「全選択」チェックボックスの状態を、
+// 現在の選択状況(フィルター横断で保持しているccSelectedIds)に合わせて更新する。
+function updateCcBulkDeleteBar(){
+  const btn = document.getElementById('cc-bulk-delete-btn');
+  if(btn){
+    btn.textContent = `選択した${ccSelectedIds.size}件を削除`;
+    btn.disabled = ccSelectedIds.size===0;
+  }
+  const selectAllChk = document.getElementById('cc-select-all-visible');
+  if(selectAllChk){
+    const list = ccFilter==='all' ? ccStatementsCache : ccStatementsCache.filter(s=>s.match_status===ccFilter);
+    selectAllChk.checked = list.length>0 && list.every(s=>ccSelectedIds.has(String(s.id)));
+  }
+}
+
+async function bulkDeleteCcStatements(){
+  const ids = [...ccSelectedIds];
+  if(!ids.length) return;
+  const targets = ccStatementsCache.filter(s=>ccSelectedIds.has(String(s.id)));
+  const preview = targets.slice(0,5).map(s=>`・${s.transaction_date||'(日付不明)'} / ${s.merchant_name||'(店舗名不明)'} / ${yen(s.amount||0)}`).join('\n');
+  const more = targets.length>5 ? `\n…他${targets.length-5}件` : '';
+  if(!confirm(`以下の${targets.length}件を削除します。よろしいですか?\n\n${preview}${more}`)) return;
+  const btn = document.getElementById('cc-bulk-delete-btn');
+  if(btn){ btn.disabled = true; btn.textContent = '削除中...'; }
+  try{
+    await creditCardStatementsApiCall('deleteByIds', {ids});
+  }catch(e){
+    alert('一括削除に失敗しました: '+e.message);
+    updateCcBulkDeleteBar();
+    return;
+  }
+  ccSelectedIds.clear();
+  await loadCreditCardStatements();
 }
 
 async function openCcMatchModal(id){
