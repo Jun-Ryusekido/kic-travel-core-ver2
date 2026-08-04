@@ -16687,12 +16687,26 @@ async function processCcStatementFile(file, mode){
     const data = await response.json();
     const parsed = parseAiJsonArrayLenient(data.text);
     const cleaned = (data.text||'').replace(/```json|```/g,'').trim();
-    ccExtracted = (Array.isArray(parsed) ? parsed : [parsed]).map(p=>({
-      transaction_date: p.date||'', date_raw: p.date_raw||'', needs_review: !!p.needs_review || !p.date,
-      year_supplemented: !!p.year_supplemented,
-      merchant_name: p.merchant||'', amount: Number(p.amount)||0, hint_tour_code: (p.hint_tour_code||'').trim(),
-      memo: (p.memo||'').trim(), raw_ocr_text: cleaned
-    }));
+    ccExtracted = (Array.isArray(parsed) ? parsed : [parsed]).map(p=>{
+      // AIが日本語の手書きメモ(「食事代」等)を誤ってhint_tour_codeに入れてしまうケースの
+      // 保険(クライアント側の防御)。「数字＋区切り文字＋英字」の形式に一致せず、または
+      // 日本語文字(ひらがな・カタカナ・漢字)を含む場合は、hint_tour_codeとしては採用せず
+      // memo側へ回す(プロンプト側の指示と合わせた二重の防御)。
+      let hint = (p.hint_tour_code||'').trim();
+      let memo = (p.memo||'').trim();
+      const containsJapanese = /[぀-ヿ㐀-鿿]/.test(hint);
+      const looksLikeTourCode = /^[0-9]+[-_ ]?[A-Za-z]*$/.test(hint);
+      if(hint && (containsJapanese || !looksLikeTourCode)){
+        memo = memo ? `${memo} ${hint}` : hint;
+        hint = '';
+      }
+      return {
+        transaction_date: p.date||'', date_raw: p.date_raw||'', needs_review: !!p.needs_review || !p.date,
+        year_supplemented: !!p.year_supplemented,
+        merchant_name: p.merchant||'', amount: Number(p.amount)||0, hint_tour_code: hint,
+        memo, raw_ocr_text: cleaned
+      };
+    });
     // 重複アップロード検知(同一名義人+同一利用日+同一店舗名+同一金額の明細が既に保存済みか)。
     // 保存は止めず、OCR確認画面側で行ごとに⚠️バッジを出すための判定のみ行う。
     const cardHolderNow = (document.getElementById('cc-card-holder')?.value||'').trim();
@@ -16771,7 +16785,22 @@ async function saveCcExtractedRows(){
   }catch(e){
     statusEl.textContent = '保存エラー: '+e.message; statusEl.style.color = 'var(--red)'; return;
   }
-  for(const row of (data||[])){ await autoMatchCcStatement(row); }
+  // 自動マッチング(findCcMatchCandidates)は1件あたり複数回のDB問い合わせを伴うため、
+  // 保存件数が多いと1件ずつ直列実行(for...await)では非常に時間がかかる(31件で
+  // 体感かなり遅いという報告あり)。並列数を絞って(6件ずつ)まとめて実行することで、
+  // サーバー・DBへの同時負荷を抑えつつ待ち時間を大幅に短縮する。
+  statusEl.textContent = `保存しました。自動マッチング中...(0/${(data||[]).length}件)`;
+  const targetRows = data||[];
+  const CONCURRENCY = 6;
+  let doneCount = 0;
+  for(let i=0; i<targetRows.length; i+=CONCURRENCY){
+    const batch = targetRows.slice(i, i+CONCURRENCY);
+    await Promise.all(batch.map(row=>autoMatchCcStatement(row).catch(e=>{
+      logError('クレジットカード明細の自動マッチング', e, {toast:false});
+    })));
+    doneCount += batch.length;
+    statusEl.textContent = `保存しました。自動マッチング中...(${doneCount}/${targetRows.length}件)`;
+  }
   statusEl.textContent = `✓ ${rows.length}件を保存し、自動マッチングを行いました`;
   statusEl.style.color = 'var(--green)';
   ccExtracted = [];
