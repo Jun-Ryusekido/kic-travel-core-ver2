@@ -16885,9 +16885,8 @@ function renderCcTable(){
   const list = ccFilter==='all' ? ccStatementsCache : ccStatementsCache.filter(s=>s.match_status===ccFilter);
   if(list.length===0){ tbody.innerHTML = '<tr><td colspan="5" class="empty">明細がありません</td></tr>'; return; }
   tbody.innerHTML = list.map(s=>{
-    const clickable = s.match_status==='候補あり';
     const statusColor = s.match_status==='確定済み' ? 'var(--green)' : s.match_status==='候補あり' ? 'var(--blue)' : 'var(--text3)';
-    return `<tr${clickable?` style="cursor:pointer" onclick="openCcMatchModal('${s.id}')"`:''}>
+    return `<tr style="cursor:pointer" onclick="openCcMatchModal('${s.id}')">
       <td data-label="利用日">${escHtml(_fmtSlashDate ? _fmtSlashDate(s.transaction_date) : (s.transaction_date||''))}</td>
       <td data-label="店舗名">${escHtml(s.merchant_name||'')}</td>
       <td data-label="金額" style="text-align:right">${yen(s.amount||0)}</td>
@@ -16901,10 +16900,26 @@ async function openCcMatchModal(id){
   const s = ccStatementsCache.find(x=>String(x.id)===String(id));
   if(!s) return;
   const candidates = await findCcMatchCandidates(s);
+  // 確定済みの明細は、現在の紐付け先(予約・仕入明細)を表示するために別途取得する。
+  let currentMatch = null;
+  if(s.match_status==='確定済み' && s.matched_booking_id){
+    const [{data: bk}, {data: cost}] = await Promise.all([
+      sb.from('bookings').select('id,ref_no,tour_name').eq('id', s.matched_booking_id).maybeSingle(),
+      s.matched_booking_cost_id ? sb.from('booking_costs').select('*').eq('id', s.matched_booking_cost_id).maybeSingle() : Promise.resolve({data:null}),
+    ]);
+    currentMatch = { booking: bk||null, cost: cost||null };
+  }
   document.getElementById('cc-match-modal')?.remove();
   const modal = document.createElement('div');
   modal.id = 'cc-match-modal';
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:300;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto';
+  const currentMatchHtml = currentMatch ? `
+      <div style="border:1px solid var(--green);background:var(--green-lt,#EFFAF1);border-radius:8px;padding:8px;margin-bottom:10px">
+        <div style="font-size:11px;font-weight:600;color:var(--green);margin-bottom:4px">現在の紐付け先</div>
+        <div style="font-size:11px"><strong>${escHtml(currentMatch.booking?.tour_name||'(ツアー名不明)')}</strong> / REF# ${escHtml(currentMatch.booking?.ref_no||'')}</div>
+        <div style="font-size:11px;color:var(--text3)">仕入先: ${escHtml(currentMatch.cost?.item_name||'')} / 金額: ${yen(currentMatch.cost?.amount||0)}</div>
+        <div style="margin-top:6px"><button class="btn" style="font-size:11px" onclick="unlinkCcMatch('${s.id}')">紐付けを解除</button></div>
+      </div>` : '';
   const candRows = candidates.map(c=>{
     const borderColor = c.amountMismatch ? 'var(--amber,#854F0B)' : c.hintMatch ? 'var(--blue)' : c.learnedMatch ? 'var(--green)' : 'var(--border)';
     const bg = c.amountMismatch ? 'var(--amber-lt,#FAEEDA)' : c.hintMatch ? 'var(--blue-lt,#F0F6FF)' : c.learnedMatch ? 'var(--green-lt,#EFFAF1)' : '';
@@ -16929,6 +16944,7 @@ async function openCcMatchModal(id){
         <button class="btn" onclick="document.getElementById('cc-match-modal').remove()">✕</button>
       </div>
       <div style="font-size:11px;color:var(--text3);margin-bottom:10px">${escHtml(s.transaction_date||'')} / ${escHtml(s.merchant_name||'')} / ${yen(s.amount||0)}${s.hint_tour_code?` / 手書きコード: <strong style="color:var(--blue)">${escHtml(s.hint_tour_code)}</strong>`:''}</div>
+      ${currentMatchHtml}
       <div style="font-size:11px;font-weight:600;margin-bottom:6px">候補</div>
       ${candRows}
       <div style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px">
@@ -16939,11 +16955,71 @@ async function openCcMatchModal(id){
         </div>
         <div id="cc-manual-results"></div>
       </div>
+      <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
+        <div style="font-size:11px;font-weight:600;margin-bottom:6px">明細内容を編集</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+          <div class="form-field"><label style="font-size:10px">利用日</label><input type="date" id="cc-edit-date" value="${_safeDate(s.transaction_date)}" style="width:100%;box-sizing:border-box;font-size:11px;padding:5px 7px"></div>
+          <div class="form-field"><label style="font-size:10px">金額</label><input type="number" id="cc-edit-amount" value="${s.amount||0}" style="width:100%;box-sizing:border-box;font-size:11px;padding:5px 7px;text-align:right"></div>
+          <div class="form-field"><label style="font-size:10px">店舗名</label><input type="text" id="cc-edit-merchant" value="${escAttr(s.merchant_name||'')}" style="width:100%;box-sizing:border-box;font-size:11px;padding:5px 7px"></div>
+          <div class="form-field"><label style="font-size:10px">手書きコード</label><input type="text" id="cc-edit-hint" value="${escAttr(s.hint_tour_code||'')}" placeholder="例: 851_KK" style="width:100%;box-sizing:border-box;font-size:11px;padding:5px 7px"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+          <button class="btn" style="font-size:11px;color:var(--red);border-color:var(--red)" onclick="deleteCcStatement('${s.id}')">🗑 この明細を削除</button>
+          <span style="display:flex;gap:8px;align-items:center">
+            <span id="cc-edit-status" style="font-size:11px;color:var(--text3)"></span>
+            <button class="btn btn-p" style="font-size:11px" onclick="saveCcStatementEdit('${s.id}')">💾 編集内容を保存</button>
+          </span>
+        </div>
+      </div>
       <div style="margin-top:12px;text-align:right">
         <button class="btn" onclick="document.getElementById('cc-match-modal').remove()">保留のまま閉じる</button>
       </div>
     </div>`;
   document.body.appendChild(modal);
+}
+
+async function saveCcStatementEdit(id){
+  const statusEl = document.getElementById('cc-edit-status');
+  const transaction_date = document.getElementById('cc-edit-date')?.value || null;
+  const merchant_name = (document.getElementById('cc-edit-merchant')?.value||'').trim();
+  const amount = Number(document.getElementById('cc-edit-amount')?.value)||0;
+  const hint_tour_code = (document.getElementById('cc-edit-hint')?.value||'').trim() || null;
+  if(statusEl){ statusEl.textContent = '保存中...'; statusEl.style.color = 'var(--text3)'; }
+  const {error} = await sb.from('credit_card_statements').update({
+    transaction_date, merchant_name, amount, hint_tour_code
+  }).eq('id', id);
+  if(error){
+    if(statusEl){ statusEl.textContent = '保存エラー: '+error.message; statusEl.style.color = 'var(--red)'; }
+    return;
+  }
+  document.getElementById('cc-match-modal')?.remove();
+  await loadCreditCardStatements();
+}
+
+async function deleteCcStatement(id){
+  const s = ccStatementsCache.find(x=>String(x.id)===String(id));
+  if(!s) return;
+  const label = `${s.transaction_date||'(日付不明)'} / ${s.merchant_name||'(店舗名不明)'} / ${yen(s.amount||0)}`;
+  if(!confirm(`この明細を削除します。よろしいですか?\n\n${label}`)) return;
+  const {error} = await sb.from('credit_card_statements').delete().eq('id', id);
+  if(error){ alert('削除に失敗しました: '+error.message); return; }
+  document.getElementById('cc-match-modal')?.remove();
+  await loadCreditCardStatements();
+}
+
+async function unlinkCcMatch(id){
+  if(!confirm('この明細の紐付けを解除します。よろしいですか?')) return;
+  const {error} = await sb.from('credit_card_statements').update({
+    matched_booking_cost_id: null,
+    matched_booking_id: null,
+    confirmed_by: null,
+    confirmed_at: null,
+    match_status: '未紐付け'
+  }).eq('id', id);
+  if(error){ alert('解除に失敗しました: '+error.message); return; }
+  document.getElementById('cc-match-modal')?.remove();
+  await loadCreditCardStatements();
+  await openCcMatchModal(id);
 }
 
 async function searchCcManualMatch(ccId){
@@ -16976,7 +17052,7 @@ async function confirmCcMatch(ccId, bookingCostId, bookingId, refNo){
   if(error){ alert('確定に失敗しました: '+error.message); return; }
   // 店名→ref_noの学習を記録(ベストエフォート。次回同じ店名の候補表示時の優先順位付けに
   // のみ使用し、自動確定には使わない)。
-  const stmt = ccStatementsCache.find(x=>x.id===ccId);
+  const stmt = ccStatementsCache.find(x=>String(x.id)===String(ccId));
   if(stmt && stmt.merchant_name && refNo){
     await recordLearnedMapping('cc_merchant', stmt.merchant_name, refNo);
   }
