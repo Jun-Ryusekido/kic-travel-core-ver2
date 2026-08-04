@@ -1476,6 +1476,8 @@ input[type=number]{-moz-appearance:textfield}
 
         <div class="card">
           <div class="card-title">クレジットカード明細一覧</div>
+          <div id="cc-unreimbursed-banner"></div>
+          <div style="margin-bottom:8px"><button class="btn" style="font-size:11px" onclick="openCcPaymentMigrationPreview()">🔍 支払方法の移行プレビューを見る(法人/個人カード判定)</button></div>
           <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px" id="cc-filter-bar">
             <button class="btn" style="font-size:11px" data-cc-filter="all" onclick="setCcFilter('all')">全て</button>
             <button class="btn" style="font-size:11px" data-cc-filter="未紐付け" onclick="setCcFilter('未紐付け')">未紐付け</button>
@@ -2502,6 +2504,7 @@ input[type=number]{-moz-appearance:textfield}
       </div>
       <div>
         <h4 class="red">仕入明細</h4>
+        <div id="bd-cost-unreimbursed-banner"></div>
         <div style="margin-bottom:6px">
           <button class="btn" id="bd-cost-ocr-btn" style="font-size:10px;background:#F0F6FF;border-color:#7CB3E8;color:#004A9F" onclick="openCostOcrModal()">🤖 AI読み取り</button>
         </div>
@@ -4314,6 +4317,24 @@ async function partnerMergePendingApiCall(action, payload){ return tableCrudApiC
 // 段階的に廃止予定。DB側の権限自体はscripts/redesign_credit_card_statements.sql参照)。
 async function creditCardStatementsApiCall(action, payload){ return tableCrudApiCall('credit_card_statements', action, payload); }
 
+// クレジットカード払いの「名義人」選択肢は、表記ゆれの再発防止のため自由入力にせず、
+// 既存のapp_users(スタッフ一覧)から選ぶ固定リストにする(名義人専用マスタは新設しない)。
+// passwordハッシュ等は不要なためnameのみ取得する。1度取得したら使い回す(頻繁に変わる
+// データではないため)。
+let ccCardHolderStaffCache = null;
+async function fetchCcCardHolderStaff(){
+  if(ccCardHolderStaffCache) return ccCardHolderStaffCache;
+  try{
+    const {data, error} = await sb.from('app_users').select('name').order('name');
+    if(error) throw error;
+    ccCardHolderStaffCache = [...new Set((data||[]).map(u=>u.name).filter(Boolean))];
+  }catch(e){
+    logError('スタッフ一覧(名義人選択肢)の読み込み', e, {toast:false});
+    ccCardHolderStaffCache = [];
+  }
+  return ccCardHolderStaffCache;
+}
+
 // 学習キーの正規化(全角/半角・大文字小文字・空白ゆれを吸収)。index.html/guide.htmlで
 // 同じロジックを使うこと(片方だけ変えるとキーが一致しなくなり学習が効かなくなる)。
 function normalizeLearnKey(s){
@@ -4665,7 +4686,10 @@ function renderAuditHistory(rows){
 
 let bdLocalExpenses = [];
 const LOCAL_EXPENSE_CATEGORIES = ['D（ドライバー）','ゲスト','ゲスト・TG','その他'];
-const LOCAL_EXPENSE_PAYMENT_METHODS = ['現地払い','事前決済','請求書払い','全旅クーポン','無料(FREE)'];
+const LOCAL_EXPENSE_PAYMENT_METHODS = ['現地払い','事前決済','請求書払い','全旅クーポン','無料(FREE)','クレジットカード(法人)','クレジットカード(個人・要精算)'];
+// クレジットカード払い(法人・個人)を選んだ場合にのみ、名義人・個人立替の精算状況の
+// 入力欄を追加表示する対象の支払方法。
+const CC_PAYMENT_METHODS = ['クレジットカード(法人)','クレジットカード(個人・要精算)'];
 // 手配管理タブ(ホテル・バス・ミネラルウォーター・新幹線・ガイド)共通の支払方法選択肢。
 // 「現地払い」のものだけが実際に現金の仮払いが必要な対象、それ以外(事前決済/請求書払い/
 // 全旅クーポン/無料(FREE))は今回のツアー中の現金仮払いは不要、という仮払い一覧表側の
@@ -5137,8 +5161,13 @@ let bdCostSortField = null, bdCostSortDir = 1, bdCostSearch = '';
 function renderCostTable(){
   if(_dateInputFocusedIn('bd-cost-tbody')) return;
   const tbody = document.getElementById('bd-cost-tbody');
+  if(!tbody) return;
   const dis = bdLocked ? 'disabled' : '';
   const disPayDate = (bdLocked || !isAccountingUser()) ? 'disabled' : '';
+  // 名義人プルダウン(app_usersのスタッフ一覧)は初回のみ非同期取得し、取得完了後に
+  // 再描画する(取得完了までは名義人欄が空の状態で表示される)。
+  if(ccCardHolderStaffCache===null){ fetchCcCardHolderStaff().then(()=>renderCostTable()); }
+  const staffOptions = ccCardHolderStaffCache || [];
 
   const searchEl = document.getElementById('bd-cost-search');
   if(searchEl && searchEl.value !== bdCostSearch) searchEl.value = bdCostSearch;
@@ -5185,7 +5214,18 @@ function renderCostTable(){
         <td data-label="仕入先"><input ${dis} value="${(it.item_name||'').replace(/"/g,'&quot;')}" title="${(it.item_name||'').replace(/"/g,'&quot;')}" oninput="bdCostItems[${i}].item_name=this.value;showSupplierSuggestions(this,${i})" onblur="setTimeout(hideSupplierSuggestions,150)" onfocus="showSupplierSuggestions(this,${i})"></td>
         <td data-label="仕入額" style="text-align:right"><input ${dis} type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="bdCostRowCalc(${i},this)" style="text-align:right"></td>
         <td data-label="出金日" style="text-align:center"><input ${disPayDate} type="date" min="1900-01-01" max="9999-12-31" value="${_safeDate(it.payment_date)}" onchange="bdCostItems[${i}].payment_date=this.value" style="text-align:center"></td>
-        <td data-label="支払方法"><select ${dis} onchange="bdCostItems[${i}].payment_method=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px"><option value="" ${!it.payment_method?'selected':''}></option>${LOCAL_EXPENSE_PAYMENT_METHODS.map(m=>`<option value="${m}" ${it.payment_method===m?'selected':''}>${m}</option>`).join('')}</select></td>
+        <td data-label="支払方法">
+          <select ${dis} onchange="bdCostItems[${i}].payment_method=this.value;renderCostTable()" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px"><option value="" ${!it.payment_method?'selected':''}></option>${LOCAL_EXPENSE_PAYMENT_METHODS.map(m=>`<option value="${m}" ${it.payment_method===m?'selected':''}>${m}</option>`).join('')}</select>
+          ${CC_PAYMENT_METHODS.includes(it.payment_method) ? `
+          <select ${dis} onchange="bdCostItems[${i}].card_holder=this.value" style="width:100%;font-size:10px;border:1px solid var(--border);border-radius:5px;padding:2px 4px;margin-top:3px;color:var(--text2)">
+            <option value="" ${!it.card_holder?'selected':''}>名義人を選択</option>
+            ${staffOptions.map(name=>`<option value="${escAttr(name)}" ${it.card_holder===name?'selected':''}>${escHtml(name)}</option>`).join('')}
+          </select>` : ''}
+          ${it.payment_method==='クレジットカード(個人・要精算)' ? `
+          <div style="margin-top:3px">
+            <button ${dis} class="btn" style="font-size:9px;padding:1px 6px;white-space:nowrap;${it.personal_reimbursement_status==='精算済み'?'background:var(--green-lt);color:var(--green);border-color:var(--green)':'background:var(--amber-lt,#FAEEDA);color:var(--amber,#854F0B);border-color:var(--amber,#854F0B)'}" onclick="toggleBdCostReimbursement(${i})">${it.personal_reimbursement_status==='精算済み'?'✓ 精算済み':'⚠ 未精算'}</button>
+          </div>` : ''}
+        </td>
         <td data-label="備考"><input ${dis} value="${(it.memo||'').replace(/"/g,'&quot;')}" title="${(it.memo||'').replace(/"/g,'&quot;')}" onchange="bdCostItems[${i}].memo=this.value"></td>
         <td class="li-del">${approveBtn}${delBtn}</td>
       </tr>`;
@@ -5193,6 +5233,21 @@ function renderCostTable(){
 
   tbody.innerHTML = searchHtml + rows;
   updateDetailGrossPreview();
+
+  // 未精算の個人立替(この予約分)を仕入明細タブ上部にバナー表示する(返金漏れ防止)。
+  // 既にメモリ上に読み込まれているbdCostItemsから集計するため、追加のDB問い合わせは不要。
+  const bannerEl = document.getElementById('bd-cost-unreimbursed-banner');
+  if(bannerEl){
+    const unreimbursed = bdCostItems.filter(it=>it.payment_method==='クレジットカード(個人・要精算)' && it.personal_reimbursement_status!=='精算済み');
+    if(unreimbursed.length===0){
+      bannerEl.innerHTML = '';
+    }else{
+      const total = unreimbursed.reduce((s,it)=>s+Number(it.amount||0),0);
+      bannerEl.innerHTML = `<div style="border:1px solid var(--amber,#854F0B);background:var(--amber-lt,#FAEEDA);border-radius:8px;padding:6px 8px;margin-bottom:6px;font-size:11px;color:var(--amber,#854F0B)">
+        ⚠ この予約に未精算の個人立替が${unreimbursed.length}件(合計${yen(total)})あります
+      </div>`;
+    }
+  }
 }
 
 // 仕入明細の行ごとの承認ボタン。クリックした瞬間に画面表示上はその場でstatusを
@@ -5207,6 +5262,19 @@ function approveCostRow(i){
     if(!confirm('金額が0円のままですが承認しますか？')) return;
   }
   it.status = 'approved';
+  renderCostTable();
+}
+
+// 個人立替(クレジットカード(個人・要精算))の返金状況を未精算⇔精算済みで切り替える。
+// 承認ボタン(approveCostRow)と同じくメモリ上の状態変更のみで、実際のDB反映は
+// 通常の「保存」ボタン(saveBookingDetail→buildCostRows)時に行われる。
+function toggleBdCostReimbursement(i){
+  if(bdLocked) return;
+  const it = bdCostItems[i];
+  if(!it || it.payment_method!=='クレジットカード(個人・要精算)') return;
+  const wasReimbursed = it.personal_reimbursement_status==='精算済み';
+  it.personal_reimbursement_status = wasReimbursed ? '未精算' : '精算済み';
+  it.personal_reimbursed_at = wasReimbursed ? null : new Date().toISOString();
   renderCostTable();
 }
 
@@ -5417,7 +5485,12 @@ function buildSalesRows(bookingId){
 function buildCostRows(bookingId){
   return bdCostItems.filter(it=>it.item_name||Number(it.amount)||it.memo||it.payment_date).map(it=>({
     booking_id: bookingId, item_name: it.item_name||'', amount: Number(it.amount)||0,
-    payment_date: sanitizeDateField(it.payment_date), payment_method: it.payment_method||null, memo: it.memo||'', status: it.status||'pending'
+    payment_date: sanitizeDateField(it.payment_date), payment_method: it.payment_method||null, memo: it.memo||'', status: it.status||'pending',
+    // クレジットカード払い以外の行では、支払方法を変更した際に前回入力した名義人・精算状況が
+    // 誤って残らないよう、CC_PAYMENT_METHODSに含まれる場合のみ保存する。
+    card_holder: CC_PAYMENT_METHODS.includes(it.payment_method) ? (it.card_holder||null) : null,
+    personal_reimbursement_status: it.payment_method==='クレジットカード(個人・要精算)' ? (it.personal_reimbursement_status||'未精算') : null,
+    personal_reimbursed_at: it.payment_method==='クレジットカード(個人・要精算)' ? (it.personal_reimbursed_at||null) : null,
   }));
 }
 
@@ -6199,7 +6272,7 @@ async function openBookingDetail(id){
   if(_stale()) return;
 
   bdSalesItems = (salesRows||[]).map(r=>({item_name:r.item_name, memo:r.memo||'', unit_price:r.unit_price, pax:r.pax||1, qty:r.qty, amount:r.amount, payment_date:r.payment_date, agent_name:r.agent_name||'', payments:r.payments||[]}));
-  bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, payment_method:r.payment_method||'', memo:r.memo, status:r.status||'pending'}));
+  bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, payment_method:r.payment_method||'', memo:r.memo, status:r.status||'pending', card_holder:r.card_holder||'', personal_reimbursement_status:r.personal_reimbursement_status||'', personal_reimbursed_at:r.personal_reimbursed_at||null}));
   originalSalesCount = bdSalesItems.length;
   originalCostsCount = bdCostItems.length;
   bdLoadSnapshot.sales = JSON.stringify(buildSalesRows(id));
@@ -7915,7 +7988,7 @@ async function reflectVoucherToCost(settlementId, guideIndex){
   b.gross_cost = newGrossCost;
   await logAction('伝票内容を仕入明細に反映', b.ref_no);
   const {data: costRows} = await sb.from('booking_costs').select('*').eq('booking_id', b.id).order('created_at');
-  bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, payment_method:r.payment_method||'', memo:r.memo, status:r.status||'pending'}));
+  bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, payment_method:r.payment_method||'', memo:r.memo, status:r.status||'pending', card_holder:r.card_holder||'', personal_reimbursement_status:r.personal_reimbursement_status||'', personal_reimbursed_at:r.personal_reimbursed_at||null}));
   renderCostTable();
   renderGuideSettlements();
   alert('仕入明細に反映しました。');
@@ -7950,7 +8023,7 @@ async function reflectCheckedGuideItems(settlementId){
   b.gross_cost = newGrossCost;
   await logAction('ガイド精算→仕入明細反映（選択）', b.ref_no+' / '+targets.length+'件');
   const {data: costRows} = await sb.from('booking_costs').select('*').eq('booking_id', b.id).order('created_at');
-  bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, payment_method:r.payment_method||'', memo:r.memo, status:r.status||'pending'}));
+  bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, payment_method:r.payment_method||'', memo:r.memo, status:r.status||'pending', card_holder:r.card_holder||'', personal_reimbursement_status:r.personal_reimbursement_status||'', personal_reimbursed_at:r.personal_reimbursed_at||null}));
   renderCostTable();
   await loadGuideSettlements();
 }
@@ -8027,7 +8100,7 @@ async function reflectGuideItems(settlementId){
 
   // 仕入明細・KPIを再読み込み
   const {data: costRows} = await sb.from('booking_costs').select('*').eq('booking_id', b.id).order('created_at');
-  bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, payment_method:r.payment_method||'', memo:r.memo, status:r.status||'pending'}));
+  bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, payment_method:r.payment_method||'', memo:r.memo, status:r.status||'pending', card_holder:r.card_holder||'', personal_reimbursement_status:r.personal_reimbursement_status||'', personal_reimbursed_at:r.personal_reimbursed_at||null}));
   renderCostTable();
   await loadGuideSettlements();
 }
@@ -16885,11 +16958,18 @@ function _ccTourCodeMatches(a, b){
 // ref_no/tour_codeと一致する候補を最優先(hintMatch:true)としてリストの先頭に並べる。
 // それ以外の候補も全件表示し、次点として取引日に近い手配日順に並べる。
 async function findCcMatchCandidates(statement){
-  // 主候補: 従来通り「事前決済 + 金額完全一致 + 法人カード決済メモ」で抽出する
-  // (この条件は店名学習の導入後も変更しない)。
-  const {data: costs, error} = await sb.from('booking_costs').select('*')
-    .eq('payment_method','事前決済').eq('amount', statement.amount).ilike('memo','%法人カード決済%');
-  const amountMatched = (!error && costs) ? costs : [];
+  // 主候補: 金額完全一致の仕入明細を、(a)構造化された支払方法(クレジットカード(法人)/
+  // (個人・要精算)、支払方法再設計後の新規データ)と、(b)従来のmemo文字列一致
+  // (「事前決済」+「法人カード決済」を含むmemo、移行前の既存データ)の両方から集める。
+  // 新旧データが本番に混在する移行期間中は両方見る必要があるため、単純にORせず
+  // 2つのクエリに分けて結果をidで重複排除する。
+  const [{data: costsNew, error: errNew}, {data: costsLegacy, error: errLegacy}] = await Promise.all([
+    sb.from('booking_costs').select('*').in('payment_method', CC_PAYMENT_METHODS).eq('amount', statement.amount),
+    sb.from('booking_costs').select('*').eq('payment_method','事前決済').eq('amount', statement.amount).ilike('memo','%法人カード決済%'),
+  ]);
+  const amountMatchedMap = new Map();
+  [...(!errNew && costsNew ? costsNew : []), ...(!errLegacy && costsLegacy ? costsLegacy : [])].forEach(c=>amountMatchedMap.set(c.id, c));
+  const amountMatched = [...amountMatchedMap.values()];
 
   // 店名学習(learned_mappings category='cc_merchant')の参照。同じ店舗名に複数の確定値が
   // ある場合はconfirmed_countの多い順に上位3件まで使う。参照失敗時は空配列となり、
@@ -16927,10 +17007,14 @@ async function findCcMatchCandidates(statement){
       mismatchBookings = (bks||[]).filter(b=>strongRefs.includes(_ccNormTourCode(b.ref_no)) || strongRefs.includes(_ccNormTourCode(b.tour_code)));
       const mmIds = mismatchBookings.map(b=>b.id);
       if(mmIds.length){
-        const {data: mmCosts} = await sb.from('booking_costs').select('*')
-          .in('booking_id', mmIds).eq('payment_method','事前決済').ilike('memo','%法人カード決済%');
+        const [{data: mmCostsNew}, {data: mmCostsLegacy}] = await Promise.all([
+          sb.from('booking_costs').select('*').in('booking_id', mmIds).in('payment_method', CC_PAYMENT_METHODS),
+          sb.from('booking_costs').select('*').in('booking_id', mmIds).eq('payment_method','事前決済').ilike('memo','%法人カード決済%'),
+        ]);
+        const mmMap = new Map();
+        [...(mmCostsNew||[]), ...(mmCostsLegacy||[])].forEach(c=>mmMap.set(c.id, c));
         const amountMatchedIds = new Set(amountMatched.map(c=>c.id));
-        mismatchCosts = (mmCosts||[]).filter(c=>Number(c.amount)!==Number(statement.amount) && !amountMatchedIds.has(c.id));
+        mismatchCosts = [...mmMap.values()].filter(c=>Number(c.amount)!==Number(statement.amount) && !amountMatchedIds.has(c.id));
       }
     }catch(e){ mismatchCosts = []; }
   }
@@ -16957,14 +17041,20 @@ async function findCcMatchCandidates(statement){
       _ccTourCodeMatches(booking.ref_no, hint) || _ccTourCodeMatches(booking.tour_code, hint)
     ));
     const learnedMatch = isLearnedBooking(booking);
+    // 名義人一致(支払方法再設計、フェーズ1): 明細のcard_holderと仕入明細のcard_holderが
+    // 完全一致(前後空白除去のみ)する場合。構造化された一次情報のため、店名学習・
+    // 金額帯学習より確度が高いとみなし、手書きコード一致の次に優先する。
+    const cardHolderMatch = !!(statement.card_holder && c.card_holder &&
+      String(statement.card_holder).trim() === String(c.card_holder).trim());
     // 金額不一致候補のうち、店名+金額帯の複合学習で裏付けが取れているものは区別する
     // (confirmed_count3回以上の「純粋な店名学習のみ」の裏付けより弱いとは限らないが、
     // 金額完全一致より確度は落ちるため、③と④の間の順位にする)。
     const amountBandMatch = amountMismatch && learnedMatch && amountBandOk;
-    // 優先順位: ①手書きコード一致 > ②金額一致+店名学習一致 > ③金額一致のみ
-    // > ④金額不一致だが店名+金額帯の複合学習で裏付けあり > ⑤金額不一致だが店名学習3回以上一致
-    const rank = amountBandMatch ? 2.5 : amountMismatch ? 3 : hintMatch ? 0 : learnedMatch ? 1 : 2;
-    return { cost: c, booking, diffDays, hintMatch, learnedMatch, amountMismatch, amountBandMatch, rank };
+    // 優先順位: ①手書きコード一致 > ②金額一致+名義人一致 > ③金額一致+店名学習一致
+    // > ④金額一致のみ > ⑤金額不一致だが店名+金額帯の複合学習で裏付けあり
+    // > ⑥金額不一致だが店名学習3回以上一致
+    const rank = amountBandMatch ? 2.5 : amountMismatch ? 3 : hintMatch ? 0 : cardHolderMatch ? 0.5 : learnedMatch ? 1 : 2;
+    return { cost: c, booking, diffDays, hintMatch, cardHolderMatch, learnedMatch, amountMismatch, amountBandMatch, rank };
   };
   const withDiff = [
     ...amountMatched.map(c=>buildEntry(c, false)),
@@ -16974,7 +17064,7 @@ async function findCcMatchCandidates(statement){
     if(a.rank !== b.rank) return a.rank - b.rank;
     return a.diffDays - b.diffDays;
   });
-  return withDiff.map(({cost, booking, hintMatch, learnedMatch, amountMismatch, amountBandMatch})=>({cost, booking, hintMatch, learnedMatch, amountMismatch, amountBandMatch}));
+  return withDiff.map(({cost, booking, hintMatch, cardHolderMatch, learnedMatch, amountMismatch, amountBandMatch})=>({cost, booking, hintMatch, cardHolderMatch, learnedMatch, amountMismatch, amountBandMatch}));
 }
 
 async function autoMatchCcStatement(statement){
@@ -16992,6 +17082,91 @@ async function loadCreditCardStatements(){
   if(error){ logError('クレジットカード明細の読み込み', error); tbody.innerHTML = '<tr><td colspan="7" class="empty">読み込みに失敗しました</td></tr>'; return; }
   ccStatementsCache = data||[];
   renderCcTable();
+  renderUnreimbursedPersonalAdvanceBanner();
+}
+
+// 個人立替(クレジットカード(個人・要精算))の未精算分を、クレジットカード明細一覧の
+// 上部にバナー表示する(支払方法再設計、返金漏れ防止の可視化)。全予約横断で集計する。
+async function renderUnreimbursedPersonalAdvanceBanner(){
+  const el = document.getElementById('cc-unreimbursed-banner');
+  if(!el) return;
+  try{
+    const {data, error} = await sb.from('booking_costs').select('id,amount,card_holder,booking_id')
+      .eq('payment_method','クレジットカード(個人・要精算)').eq('personal_reimbursement_status','未精算');
+    if(error) throw error;
+    const rows = data||[];
+    if(rows.length===0){ el.innerHTML=''; return; }
+    const total = rows.reduce((s,r)=>s+Number(r.amount||0),0);
+    const byHolder = {};
+    rows.forEach(r=>{ const h=r.card_holder||'(名義人未設定)'; byHolder[h]=(byHolder[h]||0)+Number(r.amount||0); });
+    const holderText = Object.entries(byHolder).map(([h,amt])=>`${escHtml(h)}: ${yen(amt)}`).join(' / ');
+    el.innerHTML = `<div style="border:1px solid var(--amber,#854F0B);background:var(--amber-lt,#FAEEDA);border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:11px;color:var(--amber,#854F0B)">
+      ⚠ 未精算の個人立替が${rows.length}件(合計${yen(total)})あります。${holderText}
+    </div>`;
+  }catch(e){
+    logError('未精算の個人立替バナー', e, {toast:false});
+    el.innerHTML = '';
+  }
+}
+
+// 既存データ(memoへの手打ち「法人カード」「個人カード」)を、新しい構造化された
+// 支払方法へ変換する場合の対象件数・内訳を確認するための読み取り専用プレビュー。
+// このプレビューは分類結果を表示するだけで、実際のDB変換は一切行わない
+// (変換の実行は別途指示を受けてから対応する)。
+async function openCcPaymentMigrationPreview(){
+  document.getElementById('cc-migration-preview-modal')?.remove();
+  const modal = document.createElement('div');
+  modal.id = 'cc-migration-preview-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:300;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto';
+  modal.innerHTML = `<div style="background:var(--card,#fff);border-radius:12px;padding:20px;width:100%;max-width:680px;margin-top:10px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div style="font-size:13px;font-weight:700">支払方法の移行プレビュー(読み取り専用)</div>
+      <button class="btn" onclick="document.getElementById('cc-migration-preview-modal').remove()">✕</button>
+    </div>
+    <div id="cc-migration-preview-body" style="font-size:11px">読み込み中...</div>
+  </div>`;
+  document.body.appendChild(modal);
+  const body = document.getElementById('cc-migration-preview-body');
+  try{
+    // payment_methodが未設定(移行前)の行のうち、memoに「カード」を含むものだけを対象に
+    // 判定する(既に新しい支払方法へ移行済みの行、カードと無関係な行は対象外)。
+    const {count: totalCount} = await sb.from('booking_costs').select('id',{count:'exact',head:true})
+      .is('payment_method', null).ilike('memo','%カード%');
+    // PostgRESTのdb-max-rows既定値(1000)により.limit()だけでは全件取得できないため、
+    // rangeで1000件ずつページングして取得する(上限5000件=5ページまで、それ以上は
+    // 想定外の異常増加とみなし打ち切ってtruncated扱いにする)。
+    const rows = [];
+    const PAGE_SIZE = 1000;
+    for(let page=0; page<5; page++){
+      const {data, error} = await sb.from('booking_costs').select('id,booking_id,item_name,amount,memo,payment_method')
+        .is('payment_method', null).ilike('memo','%カード%').range(page*PAGE_SIZE, page*PAGE_SIZE+PAGE_SIZE-1);
+      if(error) throw error;
+      rows.push(...(data||[]));
+      if(!data || data.length<PAGE_SIZE) break;
+    }
+    const truncated = typeof totalCount==='number' && totalCount>rows.length;
+    const corporate = rows.filter(r=>(r.memo||'').includes('法人カード') && !(r.memo||'').includes('個人カード'));
+    const personal = rows.filter(r=>(r.memo||'').includes('個人カード'));
+    const classifiedIds = new Set([...corporate, ...personal].map(r=>r.id));
+    const unclassified = rows.filter(r=>!classifiedIds.has(r.id));
+    const sampleHtml = (list, label, color)=>{
+      const sample = list.slice(0,10).map(r=>`<div style="padding:3px 0;border-bottom:1px solid var(--border)">${escHtml(r.item_name||'')} / ${yen(r.amount||0)} / <span style="color:var(--text3)">${escHtml(r.memo||'')}</span></div>`).join('');
+      return `<div style="margin-bottom:10px">
+        <div style="font-weight:600;color:${color};margin-bottom:4px">${label}: ${list.length}件</div>
+        ${sample}
+        ${list.length>10?`<div style="color:var(--text3);margin-top:2px">…他${list.length-10}件</div>`:''}
+      </div>`;
+    };
+    body.innerHTML = `
+      <div style="margin-bottom:10px;color:var(--text3)">対象: payment_method未設定 かつ memoに「カード」を含む行(${rows.length}件${truncated?`、全体では${totalCount}件`:''})を、文字列判定のみで分類したプレビューです。実際の変換はまだ実行していません。</div>
+      ${truncated?`<div style="color:var(--red);margin-bottom:10px">⚠ 表示上限を超えているため、${totalCount-rows.length}件が未表示です。</div>`:''}
+      ${sampleHtml(corporate, '「クレジットカード(法人)」に変換候補', 'var(--blue)')}
+      ${sampleHtml(personal, '「クレジットカード(個人・要精算)」に変換候補', 'var(--amber,#854F0B)')}
+      ${sampleHtml(unclassified, '判定できず対象外(現状のまま残す)', 'var(--text3)')}
+    `;
+  }catch(e){
+    body.innerHTML = `<div style="color:var(--red)">読み込みに失敗しました: ${escHtml(e.message)}</div>`;
+  }
 }
 
 function setCcFilter(f){
@@ -17116,6 +17291,7 @@ async function openCcMatchModal(id){
     const bg = c.amountBandMatch ? 'var(--blue-lt,#F0F6FF)' : c.amountMismatch ? 'var(--amber-lt,#FAEEDA)' : c.hintMatch ? 'var(--blue-lt,#F0F6FF)' : c.learnedMatch ? 'var(--green-lt,#EFFAF1)' : '';
     const badges = [
       c.hintMatch ? `<span style="font-size:9px;font-weight:700;color:var(--blue);background:#fff;border:1px solid var(--blue);border-radius:8px;padding:1px 6px;margin-right:4px">✓ 手書きコード一致</span>` : '',
+      c.cardHolderMatch ? `<span style="font-size:9px;font-weight:700;color:var(--blue);background:#fff;border:1px solid var(--blue);border-radius:8px;padding:1px 6px;margin-right:4px">🪪 名義人一致</span>` : '',
       c.learnedMatch ? `<span style="font-size:9px;font-weight:700;color:var(--green);background:#fff;border:1px solid var(--green);border-radius:8px;padding:1px 6px;margin-right:4px">★ 店名学習一致</span>` : '',
       c.amountBandMatch ? `<span style="font-size:9px;font-weight:700;color:var(--blue);background:#fff;border:1px solid var(--blue);border-radius:8px;padding:1px 6px;margin-right:4px">📊 金額帯が過去実績と近い</span>` : '',
       c.amountMismatch ? `<span style="font-size:9px;font-weight:700;color:var(--amber,#854F0B);background:#fff;border:1px solid var(--amber,#854F0B);border-radius:8px;padding:1px 6px;margin-right:4px">⚠ 金額不一致（明細: ${yen(s.amount||0)} / 候補: ${yen(c.cost.amount||0)}）</span>` : '',
@@ -17287,25 +17463,47 @@ async function searchCcManualMatch(ccId){
 
 // 「候補が無い/既存の仕入明細に該当が無い」ケース向けの新規仕入明細フォームを開閉する。
 // 店舗名→仕入先名、金額→金額に自動で初期値を入れる(入力の手間を減らすため)。
-function toggleCcNewCostForm(ccId, bookingId, refNo){
+async function toggleCcNewCostForm(ccId, bookingId, refNo){
   const container = document.getElementById(`cc-newcost-form-${bookingId}`);
   if(!container) return;
   if(container.innerHTML){ container.innerHTML = ''; return; }
   const s = ccStatementsCache.find(x=>String(x.id)===String(ccId));
+  const staffOptions = await fetchCcCardHolderStaff();
+  // 紐付け元のクレジットカード明細に名義人(card_holder)が入力済みなら、それを
+  // そのまま初期値にする(入力の手間を減らす)。
+  const defaultHolder = s?.card_holder || '';
   container.innerHTML = `
     <div style="border-top:1px dashed var(--border);margin-top:6px;padding-top:6px">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:6px">
         <div class="form-field"><label style="font-size:10px">仕入先名</label><input type="text" id="cc-newcost-item-${bookingId}" value="${escAttr(s?.merchant_name||'')}" style="width:100%;box-sizing:border-box;font-size:11px;padding:5px 7px"></div>
         <div class="form-field"><label style="font-size:10px">金額</label><input type="number" id="cc-newcost-amount-${bookingId}" value="${s?.amount||0}" style="width:100%;box-sizing:border-box;font-size:11px;padding:5px 7px;text-align:right"></div>
         <div class="form-field"><label style="font-size:10px">出金日</label><input type="date" id="cc-newcost-date-${bookingId}" value="${_safeDate(s?.transaction_date)}" style="width:100%;box-sizing:border-box;font-size:11px;padding:5px 7px"></div>
-        <div class="form-field"><label style="font-size:10px">支払方法</label><select id="cc-newcost-method-${bookingId}" style="width:100%;box-sizing:border-box;font-size:11px;padding:5px 7px"><option value="">選択してください</option>${LOCAL_EXPENSE_PAYMENT_METHODS.map(m=>`<option value="${m}" ${m==='事前決済'?'selected':''}>${m}</option>`).join('')}</select></div>
-        <div class="form-field" style="grid-column:1/3"><label style="font-size:10px">内容・備考</label><input type="text" id="cc-newcost-memo-${bookingId}" placeholder="例: 入場チケット代" value="法人カード決済" style="width:100%;box-sizing:border-box;font-size:11px;padding:5px 7px"></div>
+        <div class="form-field"><label style="font-size:10px">支払方法</label><select id="cc-newcost-method-${bookingId}" onchange="renderCcNewCostCardHolderField('${bookingId}')" style="width:100%;box-sizing:border-box;font-size:11px;padding:5px 7px">${LOCAL_EXPENSE_PAYMENT_METHODS.map(m=>`<option value="${m}" ${m==='クレジットカード(法人)'?'selected':''}>${m}</option>`).join('')}</select></div>
+        <div class="form-field" id="cc-newcost-holder-field-${bookingId}" style="grid-column:1/3"></div>
+        <div class="form-field" style="grid-column:1/3"><label style="font-size:10px">内容・備考</label><input type="text" id="cc-newcost-memo-${bookingId}" placeholder="例: 入場チケット代" value="" style="width:100%;box-sizing:border-box;font-size:11px;padding:5px 7px"></div>
       </div>
       <div style="display:flex;justify-content:flex-end;align-items:center;gap:8px">
         <span id="cc-newcost-status-${bookingId}" style="font-size:11px;color:var(--text3)"></span>
         <button class="btn btn-p" style="font-size:11px" onclick="saveCcNewCostAndMatch('${ccId}','${bookingId}','${refNo}')">💾 作成して紐付け</button>
       </div>
     </div>`;
+  window[`__ccNewCostStaffOptions_${bookingId}`] = staffOptions;
+  window[`__ccNewCostDefaultHolder_${bookingId}`] = defaultHolder;
+  renderCcNewCostCardHolderField(bookingId);
+}
+
+// 支払方法がクレジットカード(法人/個人・要精算)の場合のみ、名義人の選択欄を表示する。
+function renderCcNewCostCardHolderField(bookingId){
+  const field = document.getElementById(`cc-newcost-holder-field-${bookingId}`);
+  const method = document.getElementById(`cc-newcost-method-${bookingId}`)?.value;
+  if(!field) return;
+  if(!CC_PAYMENT_METHODS.includes(method)){ field.innerHTML = ''; return; }
+  const staffOptions = window[`__ccNewCostStaffOptions_${bookingId}`] || [];
+  const defaultHolder = window[`__ccNewCostDefaultHolder_${bookingId}`] || '';
+  field.innerHTML = `<label style="font-size:10px">名義人</label><select id="cc-newcost-holder-${bookingId}" style="width:100%;box-sizing:border-box;font-size:11px;padding:5px 7px">
+    <option value="">名義人を選択</option>
+    ${staffOptions.map(name=>`<option value="${escAttr(name)}" ${name===defaultHolder?'selected':''}>${escHtml(name)}</option>`).join('')}
+  </select>`;
 }
 
 // 新規仕入明細をbooking_costsに作成し、作成したその行に既存のconfirmCcMatchで確定する
@@ -17317,12 +17515,16 @@ async function saveCcNewCostAndMatch(ccId, bookingId, refNo){
   const payment_date = document.getElementById(`cc-newcost-date-${bookingId}`)?.value || null;
   const payment_method = document.getElementById(`cc-newcost-method-${bookingId}`)?.value || '';
   const memo = (document.getElementById(`cc-newcost-memo-${bookingId}`)?.value||'').trim();
+  const card_holder = CC_PAYMENT_METHODS.includes(payment_method)
+    ? (document.getElementById(`cc-newcost-holder-${bookingId}`)?.value || null) : null;
+  const personal_reimbursement_status = payment_method==='クレジットカード(個人・要精算)' ? '未精算' : null;
   if(!item_name){ alert('仕入先名を入力してください'); return; }
   if(statusEl){ statusEl.textContent = '作成中...'; statusEl.style.color = 'var(--text3)'; }
   let newCostId;
   try{
     const result = await bookingCostsApiCall('insert', { rows: [{
-      booking_id: bookingId, item_name, amount, payment_date, payment_method, memo, status:'pending'
+      booking_id: bookingId, item_name, amount, payment_date, payment_method, memo, status:'pending',
+      card_holder, personal_reimbursement_status
     }] });
     newCostId = result?.rows?.[0]?.id;
     if(!newCostId) throw new Error('作成した仕入明細のidを取得できませんでした');
@@ -18076,7 +18278,7 @@ async function saveInvoiceConfirm(){
     }
     if(currentDetailId && savedIds.has(currentDetailId)){
       const {data: costData} = await sb.from('booking_costs').select('*').eq('booking_id',currentDetailId).order('created_at');
-      bdCostItems = (costData||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, payment_method:r.payment_method||'', memo:r.memo, status:r.status||'pending'}));
+      bdCostItems = (costData||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, payment_method:r.payment_method||'', memo:r.memo, status:r.status||'pending', card_holder:r.card_holder||'', personal_reimbursement_status:r.personal_reimbursement_status||'', personal_reimbursed_at:r.personal_reimbursed_at||null}));
       renderCostTable();
       updateDetailGrossPreview();
       const newGross = bdCostItems.reduce((s,it)=>s+Number(it.amount||0),0);
