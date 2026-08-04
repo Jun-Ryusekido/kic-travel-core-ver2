@@ -65,25 +65,25 @@ const TABLE_CONFIG = {
   },
   // agents(取引先マスタ・Agent): business_partnersと完全に同じ論理削除/復元/完全削除の
   // 構造を持つ、送客元エージェント専用の別テーブル。
-  // F4/F15対応: auditLogを追加(audit_logsは汎用テーブルのためagents側のスキーマ変更は
-  // 不要)。stampIdentity(created_by/updated_by列へのスタンプ)は、agentsに該当列が
-  // 存在するかを確認できてから別途有効化する(該当SQL未実行の間はstampIdentityを
-  // 付けるとINSERT/UPDATEが列不明エラーで失敗するため、ここでは意図的にauditLogのみ)。
+  // F4/F15対応: created_by/updated_by列追加SQL実行済みのため、auditLogに加えて
+  // stampIdentityも有効化(business_partnersと同じ構成)。
   agents: {
     actions: ['insert', 'updateById', 'deleteById'],
     label: '取引先マスタ(Agent)',
+    stampIdentity: true,
     auditLog: true,
   },
-  // guides(ガイドマスタ): business_partners/agentsと異なりis_deleted等の論理削除列を
-  // 持たず、ハードデリートのみ。予約詳細のガイド検索から「＋新規ガイド登録」する際
+  // guides(ガイドマスタ): F4/F15対応で、business_partners/agentsと同じ論理削除
+  // (is_deleted/deleted_at/deleted_by)・監査ログ(stampIdentity/auditLog)の構造に
+  // 移行済み(該当列追加SQL実行済み)。予約詳細のガイド検索から「＋新規ガイド登録」する際
   // (submitNewGuide)、挿入直後の採番id(guide_id)をその場でbooking_guides側に紐付ける
-  // 必要があるため、insertReturningで挿入結果を返す。
-  // F4/F15対応: auditLogを追加(audit_logsは汎用テーブルのためguides側のスキーマ変更は
-  // 不要)。論理削除(is_deleted等)への移行は該当列を追加するSQL実行後に別途対応する
-  // (deleteByIdによるハードデリートは、SQL実行までは現状のまま残す)。
+  // 必要があるため、insertReturningで挿入結果を返す。deleteByIdは「削除済み一覧」からの
+  // 完全削除(permanentlyDeleteGuide)専用で、通常の削除(deleteGuide)はupdateById経由の
+  // 論理削除に変更した。
   guides: {
     actions: ['insert', 'insertReturning', 'updateById', 'deleteById'],
     label: 'ガイドマスタ',
+    stampIdentity: true,
     auditLog: true,
   },
   // bookings(予約本体): フェーズ3。他の全テーブルから参照される中核テーブルのため、

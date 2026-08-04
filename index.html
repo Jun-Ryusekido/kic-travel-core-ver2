@@ -1162,6 +1162,7 @@ input[type=number]{-moz-appearance:textfield}
           <div class="card-title">ガイド登録一覧
             <span>
               <button class="btn btn-p" onclick="openGuideEditor(null)">＋ 新規ガイド登録</button>
+              <button class="btn admin-only" style="display:none" onclick="openDeletedGuidesModal()">🗑 削除済み一覧</button>
             </span>
           </div>
           <div class="form-field" style="margin-bottom:10px"><label>検索（氏名・カタカナ・携帯番号・言語/メモ・銀行口座）</label><input id="gr-search" placeholder="例: 英語, 090, 三井住友" oninput="filterGuideRegistry()"></div>
@@ -15917,7 +15918,7 @@ function filterGuideSelect(inputEl, selectEl){
 // 登録一覧プルダウンに反映（select要素のリスト）
 async function populateGuideRegistrySelects(selectEls){
   if(guideRegistryCache.length===0){
-    const {data} = await sb.from('guides').select('*').order('name_kana',{ascending:true});
+    const {data} = await sb.from('guides').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('name_kana',{ascending:true});
     guideRegistryCache = data || [];
   }
   const optionsHtml = '<option value="">登録一覧</option>' + guideRegistryCache.map(g=>
@@ -15938,7 +15939,7 @@ function applyGuideFromRegistry(selectEl, nameFieldId, phoneFieldId){
 }
 
 async function loadGuideRegistry(){
-const {data, error} = await sb.from('guides').select('*').order('name_kana',{ascending:true});
+const {data, error} = await sb.from('guides').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('name_kana',{ascending:true});
   if(error){ document.getElementById('gr-tbody').innerHTML = `<tr><td colspan="8" class="empty">読み込みエラー: ${error.message}</td></tr>`; return; }
   guideRegistryCache = data || [];
   filterGuideRegistry();
@@ -16042,11 +16043,56 @@ async function saveGuide(){
   setTimeout(()=>{ closeGuideEditor(); }, 600);
 }
 
+// F4/F15対応: guidesもbusiness_partners/agentsと同じ論理削除に変更(ハードデリートから移行)。
+// 一覧からは非表示になるが、DB上は残り「削除済み一覧」から復元・完全削除できる。
 async function deleteGuide(id){
   const g = guideRegistryCache.find(x=>x.id===id);
-  if(!confirm(`「${g ? g.name : 'このガイド'}」を削除しますか？`)) return;
+  if(!confirm(`「${g ? g.name : 'このガイド'}」を削除しますか？\n（一覧から非表示になります。管理者は後で復元できます）`)) return;
+  try{ await guidesApiCall('updateById', { id, fields: {is_deleted:true, deleted_at:new Date().toISOString(), deleted_by: currentUser?currentUser.email:null} }); }
+  catch(e){ alert('削除に失敗しました: '+e.message); return; }
+  await logAction('ガイド削除', g?g.name:id);
+  guideRegistryCache = guideRegistryCache.filter(x=>x.id!==id);
+  await loadGuideRegistry();
+}
+
+function openDeletedGuidesModal(){
+  document.getElementById('deleted-guides-modal').classList.add('open');
+  loadDeletedGuides();
+}
+function closeDeletedGuidesModal(){
+  document.getElementById('deleted-guides-modal').classList.remove('open');
+}
+async function loadDeletedGuides(){
+  const tbody = document.getElementById('deleted-gr-tbody');
+  tbody.innerHTML = '<tr><td colspan="4" class="empty">読み込み中...</td></tr>';
+  const {data, error} = await sb.from('guides').select('*').eq('is_deleted', true).order('deleted_at', {ascending:false});
+  if(error){ tbody.innerHTML = `<tr><td colspan="4" class="empty">読み込みエラー: ${error.message}</td></tr>`; return; }
+  if(!data || data.length===0){ tbody.innerHTML = '<tr><td colspan="4" class="empty">削除済みのガイドはありません</td></tr>'; return; }
+  tbody.innerHTML = data.map(g=>`
+    <tr>
+      <td>${escHtml(g.name||'')}</td>
+      <td>${g.deleted_at ? new Date(g.deleted_at).toLocaleString('ja-JP') : ''}</td>
+      <td>${escHtml(g.deleted_by||'')}</td>
+      <td style="white-space:nowrap;display:flex;flex-direction:column;gap:4px">
+        <button class="btn btn-p" style="font-size:11px" onclick="restoreGuide('${g.id}')">復元</button>
+        <button class="btn" style="font-size:11px;color:var(--red)" onclick="permanentlyDeleteGuide('${g.id}','${escAttr(g.name||'')}')">完全削除</button>
+      </td>
+    </tr>`).join('');
+}
+async function permanentlyDeleteGuide(id, name){
+  if(!confirm(`「${name}」を完全に削除します。この操作は取り消せません。よろしいですか？`)) return;
   try{ await guidesApiCall('deleteById', { id }); }
   catch(e){ alert('削除に失敗しました: '+e.message); return; }
+  await logAction('ガイド完全削除', name);
+  await loadDeletedGuides();
+}
+async function restoreGuide(id){
+  if(!confirm('このガイドを復元しますか？')) return;
+  try{ await guidesApiCall('updateById', { id, fields: {is_deleted:false, deleted_at:null, deleted_by:null} }); }
+  catch(e){ alert('復元に失敗しました: '+e.message); return; }
+  await logAction('ガイド復元', id);
+  guideRegistryCache = []; // 再取得させて復元分を反映(populateGuideRegistrySelectsのキャッシュ条件と合わせる)
+  await loadDeletedGuides();
   await loadGuideRegistry();
 }
 
@@ -22225,6 +22271,20 @@ function setDateInputValue(el, d){
     <div class="tbl-wrap"><table class="bl-table">
       <thead><tr><th>会社名</th><th>削除日時</th><th>削除者</th><th style="width:100px"></th></tr></thead>
       <tbody id="deleted-ag-tbody"><tr><td colspan="4" class="empty">読み込み中...</td></tr></tbody>
+    </table></div>
+  </div>
+</div>
+
+<!-- 削除済みガイド一覧モーダル(F4/F15、agentsと同じ論理削除パターン) -->
+<div class="modal-overlay" id="deleted-guides-modal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div class="modal-title">削除済みガイド一覧</div>
+      <div class="modal-close" onclick="closeDeletedGuidesModal()">✕</div>
+    </div>
+    <div class="tbl-wrap"><table class="bl-table">
+      <thead><tr><th>氏名</th><th>削除日時</th><th>削除者</th><th style="width:100px"></th></tr></thead>
+      <tbody id="deleted-gr-tbody"><tr><td colspan="4" class="empty">読み込み中...</td></tr></tbody>
     </table></div>
   </div>
 </div>
