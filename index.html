@@ -15248,9 +15248,32 @@ async function saveBookingDetail(){
     });
 
     // 入金合計が売上合計以上になったらInvoiceをpaidに自動更新
-    const totalPaidNow = bdSalesItems.reduce((s,it)=>s+(it.payments||[]).reduce((ps,p)=>ps+(Number(p.amount)||0),0),0);
-    if(totalPaidNow>0 && totalPaidNow>=totalSales){
-      await sb.from('invoices').update({status:'paid'}).eq('booking_id', bookingId).eq('status','pending');
+    // (F12: 複数エージェントが混在する予約で、予約全体の入金合計を予約全体の売上合計と
+    //  比較していたため、一方のエージェント分の入金だけで他方のエージェントのInvoiceまで
+    //  誤ってpaidになる不具合があった。booking_sales.agent_name/invoices.agent_nameで
+    //  エージェント単位に集計し、そのエージェント自身の入金がそのエージェント自身の
+    //  売上に達した場合のみ、そのエージェントのInvoiceをpaidにする。
+    //  agent_nameが無いInvoiceはエージェントを一意に特定できないため自動判定をスキップし、
+    //  手動確認に回す)
+    const bookingAgentForPaidCheck = (b && b.agent_name) ? b.agent_name.trim() : '';
+    const salesTotalsByAgent = {};
+    bdSalesItems.forEach(it=>{
+      const agent = (it.agent_name && it.agent_name.trim()) ? it.agent_name.trim() : bookingAgentForPaidCheck;
+      if(!agent) return; // エージェント不明の売上明細は集計対象外
+      const paid = (it.payments||[]).reduce((ps,p)=>ps+(Number(p.amount)||0),0);
+      const cur = salesTotalsByAgent[agent] || {sales:0, paid:0};
+      cur.sales += Number(it.amount||0);
+      cur.paid += paid;
+      salesTotalsByAgent[agent] = cur;
+    });
+    const {data: pendingInvoicesForPaidCheck} = await sb.from('invoices').select('id, agent_name').eq('booking_id', bookingId).eq('status','pending');
+    for(const inv of (pendingInvoicesForPaidCheck||[])){
+      const invAgent = (inv.agent_name||'').trim();
+      if(!invAgent) continue; // agent_name未設定のInvoiceは自動判定をスキップ(要手動確認)
+      const agg = salesTotalsByAgent[invAgent];
+      if(agg && agg.paid>0 && agg.paid>=agg.sales){
+        await sb.from('invoices').update({status:'paid'}).eq('id', inv.id);
+      }
     }
   } catch(e) {
     __savePerfLog.push({ 'ステップ': '─合計(エラー発生まで)', '所要時間(ms)': Math.round(performance.now()-__savePerfT0) });
@@ -21211,7 +21234,8 @@ function filterInvoiceUnified(){
     const salesStr = row.currency==='USD' ? '$'+Number(row.amount||row.gross_sales||0).toLocaleString() : yen(row.gross_sales);
     let statusCell, actionCell;
     if(row.invoice_no){
-      statusCell = invoiceStatusPill(row.invStatus);
+      const invNeedsManualCheck = row._inv && !(row._inv.agent_name && row._inv.agent_name.trim());
+      statusCell = invoiceStatusPill(row.invStatus, invNeedsManualCheck);
       const invJson = JSON.stringify(row._inv||{}).replace(/'/g,"&apos;");
       const bJson = JSON.stringify(row._booking||{}).replace(/'/g,"&apos;");
       actionCell = `<button class="btn" style="font-size:11px" onclick='event.stopPropagation();showInvoicePreview(${invJson}, ${bJson})'>表示</button>`;
@@ -21270,11 +21294,15 @@ async function loadInvoicePage(){
 }
 
 
-function invoiceStatusPill(status){
+function invoiceStatusPill(status, needsManualCheck){
   const map={pending:['s-pending','Pending'],paid:['s-paid','Paid'],overdue:['s-over','Overdue']};
   const [cls,label]=map[status]||['s-pending',status];
   const bg = cls==='s-over' ? 'background:var(--red-lt);color:var(--red)' : '';
-  return `<span class="pill ${cls}" style="${bg}">${label}</span>`;
+  const pill = `<span class="pill ${cls}" style="${bg}">${label}</span>`;
+  // F12対応: agent_name未設定のInvoiceは入金消込の自動paid判定をスキップしているため、
+  // 一覧上でも「要手動確認」であることが分かるようにする。
+  if(!needsManualCheck) return pill;
+  return `${pill} <span class="pill" style="background:var(--yellow-lt,#fff3cd);color:var(--yellow-dk,#8a6d00)" title="agent_name未設定のため入金消込の自動判定をスキップしています。手動で確認してください。">要手動確認</span>`;
 }
 
 // 予約詳細モーダル「関連Invoice」：件数が多いと縦に長くなり他セクションを圧迫するため、
@@ -21304,7 +21332,7 @@ function renderBdInvoicesAccordion(invoices){
       <div onclick="toggleBdInvoiceRow(${i})" style="display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;background:var(--bg)">
         <span id="bd-inv-caret-${i}" style="font-size:10px;color:var(--text3);transition:transform .15s">▶</span>
         <span style="font-weight:600;font-size:12px">${escHtml(inv.invoice_no||'')}</span>
-        ${invoiceStatusPill(inv.status)}
+        ${invoiceStatusPill(inv.status, !(inv.agent_name && inv.agent_name.trim()))}
       </div>
       <div id="bd-inv-detail-${i}" style="display:none;padding:8px 10px;font-size:12px;border-top:1px solid var(--border)">
         <div>通貨: ${escHtml(inv.currency||'')}</div>
