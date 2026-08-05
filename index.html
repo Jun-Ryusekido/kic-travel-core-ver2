@@ -4969,6 +4969,38 @@ function arrCostCheckboxHtml(arrName, i, it, kind){
   const json = JSON.stringify(payload).replace(/'/g,'&apos;');
   return `<td data-label="仕入明細へ" style="text-align:center"><button class="btn" style="${btnStyleBase};background:var(--blue,#2563eb);color:#fff;border-color:var(--blue,#2563eb)" onclick='addArrRowToCostNow(${json}, this, ()=>{ ${arrName}[${i}].cost_added=true; })'>追加</button></td>`;
 }
+// 業務フロー点検対応②: 仕入明細行(booking_costs)が「仕入明細へ追加」経由で作られたもの
+// (source_table/source_idを持つ)である場合、追加元の手配データが削除・変更されていないかを
+// 判定する。追加元は予約詳細を開いた時点で既にメモリ上に読み込まれている各タブの配列
+// (bdHotelItems等)と照合するだけで済むため、追加のDB問い合わせは不要。
+// 過去(この機能追加前)に作成済みでsource_table/source_idを持たない行は対象外(null扱い)。
+const SOURCE_TABLE_ARRAYS = {
+  booking_hotels: ()=>bdHotelItems,
+  booking_buses: ()=>bdBusItems,
+  booking_restaurants: ()=>bdRestaurantItems,
+  booking_facilities: ()=>bdFacilityItems,
+  booking_water_items: ()=>bdWaterItems,
+};
+const SOURCE_TABLE_SECTION = {};
+Object.values(ARR_COST_SECTION_MAP).forEach(sec=>{ SOURCE_TABLE_SECTION[sec.table] = sec; });
+
+function costSourceWarning(it){
+  if(!it.source_table || !it.source_id) return null;
+  const getArr = SOURCE_TABLE_ARRAYS[it.source_table];
+  const sec = SOURCE_TABLE_SECTION[it.source_table];
+  if(!getArr || !sec) return null;
+  const src = (getArr()||[]).find(r=>r.id===it.source_id);
+  if(!src) return {type:'deleted'};
+  const d1 = sanitizeDateField(src[sec.dateField]) || '';
+  const d2raw = sec.dateField2 ? (sanitizeDateField(src[sec.dateField2]) || '') : '';
+  const d2 = (d2raw && d2raw!==d1) ? d2raw : '';
+  const dateDisplay = d2 ? `${d1}〜${d2}` : d1;
+  const curName = src[sec.nameField] || '';
+  const snap = it.source_snapshot || {};
+  if((snap.item_name||'') !== curName || (snap.date_display||'') !== dateDisplay) return {type:'changed'};
+  return null;
+}
+
 async function addArrRowToCostNow(payload, btnEl, onSuccess){
   if(!currentDetailId){ alert('予約詳細を開いてください'); return; }
   const bookingId = currentDetailId;
@@ -4976,6 +5008,11 @@ async function addArrRowToCostNow(payload, btnEl, onSuccess){
   btnEl.disabled = true;
   btnEl.textContent = '...';
   try{
+    // 業務フロー点検対応②: 追加元(ホテル/バス/レストラン/観光施設/水)のテーブル名・行id・
+    // 追加時点の内容(仕入先名・日付)をsource_table/source_id/source_snapshotとして
+    // 保持しておく。以後、追加元が編集・削除された場合に仕入明細一覧側で検知して
+    // 警告表示するために使う(自動反映はしない、あくまで警告のみ)。
+    const sourceSnapshot = payload.rowId ? { item_name: payload.itemName, date_display: payload.dateDisplay } : null;
     const newCostRow = {
       booking_id: bookingId,
       item_name: payload.itemName,
@@ -4983,7 +5020,10 @@ async function addArrRowToCostNow(payload, btnEl, onSuccess){
       payment_date: null,
       payment_method: payload.paymentMethod || '',
       memo: `${payload.dateDisplay ? payload.dateDisplay+'、' : ''}${payload.label}手配から自動反映`,
-      status: 'pending'
+      status: 'pending',
+      source_table: payload.rowId ? payload.table : null,
+      source_id: payload.rowId || null,
+      source_snapshot: sourceSnapshot,
     };
     const insResult = await bookingCostsApiCall('insert', { rows: [newCostRow] });
     // bookingCostsApiCallは通信エラー・サーバーエラー時は例外を投げる設計だが、万一
@@ -5016,7 +5056,10 @@ async function addArrRowToCostNow(payload, btnEl, onSuccess){
       payment_date: newCostRow.payment_date,
       payment_method: newCostRow.payment_method,
       memo: newCostRow.memo,
-      status: newCostRow.status
+      status: newCostRow.status,
+      source_table: newCostRow.source_table,
+      source_id: newCostRow.source_id,
+      source_snapshot: newCostRow.source_snapshot,
     });
     renderCostTable();
     onSuccess();
@@ -5433,8 +5476,12 @@ function renderCostTable(){
         ? `<button class="btn" disabled style="font-size:9px;padding:1px 6px;margin-right:4px;white-space:nowrap;background:var(--green-lt);color:var(--green);border-color:var(--green)">承認済</button>`
         : `<button class="btn" style="font-size:9px;padding:1px 6px;margin-right:4px;white-space:nowrap;color:var(--text3)" onclick="approveCostRow(${i})">未承認</button>`);
       const delBtn = bdLocked ? '' : `<button class="btn" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="removeCostRow(${i})">✕</button>`;
+      const srcWarn = costSourceWarning(it);
+      const srcWarnHtml = !srcWarn ? '' : (srcWarn.type==='deleted'
+        ? `<div style="font-size:9px;color:var(--red);margin-top:3px" title="この仕入明細の元になった手配データ(ホテル/バス等)が削除されています。金額・要否を確認してください">⚠ ソースが削除されました</div>`
+        : `<div style="font-size:9px;color:var(--amber,#854F0B);margin-top:3px" title="この仕入明細の元になった手配データの仕入先名・日付が変更されています。金額等の確認を推奨します">⚠ ソースの手配内容が変更されました</div>`);
       return `<tr${rowBg}>
-        <td data-label="仕入先"><input ${dis} value="${(it.item_name||'').replace(/"/g,'&quot;')}" title="${(it.item_name||'').replace(/"/g,'&quot;')}" oninput="bdCostItems[${i}].item_name=this.value;showSupplierSuggestions(this,${i})" onblur="setTimeout(hideSupplierSuggestions,150)" onfocus="showSupplierSuggestions(this,${i})"></td>
+        <td data-label="仕入先"><input ${dis} value="${(it.item_name||'').replace(/"/g,'&quot;')}" title="${(it.item_name||'').replace(/"/g,'&quot;')}" oninput="bdCostItems[${i}].item_name=this.value;showSupplierSuggestions(this,${i})" onblur="setTimeout(hideSupplierSuggestions,150)" onfocus="showSupplierSuggestions(this,${i})">${srcWarnHtml}</td>
         <td data-label="仕入額" style="text-align:right"><input ${dis} type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="bdCostRowCalc(${i},this)" style="text-align:right"></td>
         <td data-label="出金日" style="text-align:center"><input ${disPayDate} type="date" min="1900-01-01" max="9999-12-31" value="${_safeDate(it.payment_date)}" onchange="bdCostItems[${i}].payment_date=this.value" style="text-align:center"></td>
         <td data-label="支払方法">
@@ -5714,6 +5761,13 @@ function buildCostRows(bookingId){
     card_holder: CC_PAYMENT_METHODS.includes(it.payment_method) ? (it.card_holder||null) : null,
     personal_reimbursement_status: it.payment_method==='クレジットカード(個人・要精算)' ? (it.personal_reimbursement_status||'未精算') : null,
     personal_reimbursed_at: it.payment_method==='クレジットカード(個人・要精算)' ? (it.personal_reimbursed_at||null) : null,
+    // 業務フロー点検対応②: 「仕入明細へ追加」で作成された行が、追加元の手配行(ホテル/バス/
+    // レストラン/観光施設/水)と紐付いていることを保持する(source_table/source_id)。
+    // replace保存のたびに行が作り直される(id変わる)ため、このsource_*もbdCostItems側の
+    // 値を都度そのまま引き継いで再保存する必要がある(ここで欠落させない)。
+    source_table: it.source_table || null,
+    source_id: it.source_id || null,
+    source_snapshot: it.source_snapshot || null,
   }));
 }
 
@@ -6519,7 +6573,7 @@ async function openBookingDetail(id){
   if(_stale()) return;
 
   bdSalesItems = (salesRows||[]).map(r=>({item_name:r.item_name, memo:r.memo||'', unit_price:r.unit_price, pax:r.pax||1, qty:r.qty, amount:r.amount, payment_date:r.payment_date, agent_name:r.agent_name||'', payments:r.payments||[]}));
-  bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, payment_method:r.payment_method||'', memo:r.memo, status:r.status||'pending', card_holder:r.card_holder||'', personal_reimbursement_status:r.personal_reimbursement_status||'', personal_reimbursed_at:r.personal_reimbursed_at||null}));
+  bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, payment_method:r.payment_method||'', memo:r.memo, status:r.status||'pending', card_holder:r.card_holder||'', personal_reimbursement_status:r.personal_reimbursement_status||'', personal_reimbursed_at:r.personal_reimbursed_at||null, source_table:r.source_table||null, source_id:r.source_id||null, source_snapshot:r.source_snapshot||null}));
   originalSalesCount = bdSalesItems.length;
   originalCostsCount = bdCostItems.length;
   bdLoadSnapshot.sales = JSON.stringify(buildSalesRows(id));
@@ -8348,7 +8402,7 @@ async function reflectVoucherToCost(settlementId, guideIndex){
   b.gross_cost = newGrossCost;
   await logAction('伝票内容を仕入明細に反映', b.ref_no);
   const {data: costRows} = await sb.from('booking_costs').select('*').eq('booking_id', b.id).order('created_at');
-  bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, payment_method:r.payment_method||'', memo:r.memo, status:r.status||'pending', card_holder:r.card_holder||'', personal_reimbursement_status:r.personal_reimbursement_status||'', personal_reimbursed_at:r.personal_reimbursed_at||null}));
+  bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, payment_method:r.payment_method||'', memo:r.memo, status:r.status||'pending', card_holder:r.card_holder||'', personal_reimbursement_status:r.personal_reimbursement_status||'', personal_reimbursed_at:r.personal_reimbursed_at||null, source_table:r.source_table||null, source_id:r.source_id||null, source_snapshot:r.source_snapshot||null}));
   renderCostTable();
   renderGuideSettlements();
   alert('仕入明細に反映しました。');
@@ -8383,7 +8437,7 @@ async function reflectCheckedGuideItems(settlementId){
   b.gross_cost = newGrossCost;
   await logAction('ガイド精算→仕入明細反映（選択）', b.ref_no+' / '+targets.length+'件');
   const {data: costRows} = await sb.from('booking_costs').select('*').eq('booking_id', b.id).order('created_at');
-  bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, payment_method:r.payment_method||'', memo:r.memo, status:r.status||'pending', card_holder:r.card_holder||'', personal_reimbursement_status:r.personal_reimbursement_status||'', personal_reimbursed_at:r.personal_reimbursed_at||null}));
+  bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, payment_method:r.payment_method||'', memo:r.memo, status:r.status||'pending', card_holder:r.card_holder||'', personal_reimbursement_status:r.personal_reimbursement_status||'', personal_reimbursed_at:r.personal_reimbursed_at||null, source_table:r.source_table||null, source_id:r.source_id||null, source_snapshot:r.source_snapshot||null}));
   renderCostTable();
   await loadGuideSettlements();
 }
@@ -8460,7 +8514,7 @@ async function reflectGuideItems(settlementId){
 
   // 仕入明細・KPIを再読み込み
   const {data: costRows} = await sb.from('booking_costs').select('*').eq('booking_id', b.id).order('created_at');
-  bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, payment_method:r.payment_method||'', memo:r.memo, status:r.status||'pending', card_holder:r.card_holder||'', personal_reimbursement_status:r.personal_reimbursement_status||'', personal_reimbursed_at:r.personal_reimbursed_at||null}));
+  bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, payment_method:r.payment_method||'', memo:r.memo, status:r.status||'pending', card_holder:r.card_holder||'', personal_reimbursement_status:r.personal_reimbursement_status||'', personal_reimbursed_at:r.personal_reimbursed_at||null, source_table:r.source_table||null, source_id:r.source_id||null, source_snapshot:r.source_snapshot||null}));
   renderCostTable();
   await loadGuideSettlements();
 }
@@ -18906,7 +18960,7 @@ async function saveInvoiceConfirm(){
     }
     if(currentDetailId && savedIds.has(currentDetailId)){
       const {data: costData} = await sb.from('booking_costs').select('*').eq('booking_id',currentDetailId).order('created_at');
-      bdCostItems = (costData||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, payment_method:r.payment_method||'', memo:r.memo, status:r.status||'pending', card_holder:r.card_holder||'', personal_reimbursement_status:r.personal_reimbursement_status||'', personal_reimbursed_at:r.personal_reimbursed_at||null}));
+      bdCostItems = (costData||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, payment_method:r.payment_method||'', memo:r.memo, status:r.status||'pending', card_holder:r.card_holder||'', personal_reimbursement_status:r.personal_reimbursement_status||'', personal_reimbursed_at:r.personal_reimbursed_at||null, source_table:r.source_table||null, source_id:r.source_id||null, source_snapshot:r.source_snapshot||null}));
       renderCostTable();
       updateDetailGrossPreview();
       const newGross = bdCostItems.reduce((s,it)=>s+Number(it.amount||0),0);
