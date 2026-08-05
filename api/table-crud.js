@@ -128,12 +128,16 @@ const TABLE_CONFIG = {
   },
   // booking_buses/booking_restaurantsはupdated_at相当の列が無かったため、created_by/
   // updated_byに加えて汎用updated_at列も新設し、insert/replace時にスタンプする。
+  // updateByIdは「手配確定状況」画面(旧・仕入先確認メール)のステータスクイック切替のために
+  // 追加(2026-08)。任意列の書き換えを許さないよう、updatableFieldsでstatusのみに限定する
+  // (email_import_queueと同じ方式)。
   booking_buses: {
-    actions: ['replace', 'deleteByBooking'],
+    actions: ['replace', 'deleteByBooking', 'updateById'],
     label: 'バス明細',
     stampIdentity: true,
     stampUpdatedAt: true,
     auditLog: true,
+    updatableFields: ['status'],
   },
   booking_restaurants: {
     actions: ['replace', 'deleteByBooking'],
