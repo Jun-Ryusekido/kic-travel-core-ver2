@@ -8030,10 +8030,6 @@ function printGuideVouchers(settlementId, guideIndex){
   const advanceTotal = Number(g.advance_payment||0) + Number(g.additional_advance_payment||0);
   const grandTotal = localTotal + guideFee;
   const transferAmount = grandTotal - advanceTotal;
-  // 出金伝票の合計は、実際の支払額に加えて「万単位切り上げ」の金額も併記する
-  // (現金を万単位で準備する際の目安用。0円・ちょうど1万円の倍数の場合はそのまま同額になる)。
-  const paymentTotal = Math.max(0,transferAmount);
-  const paymentTotalRoundedUp = Math.ceil(paymentTotal/10000)*10000;
   const tourCode = b.tour_name || b.ref_no || '';
   const today = new Date();
   const yyyy = today.getFullYear();
@@ -8065,10 +8061,7 @@ function printGuideVouchers(settlementId, guideIndex){
         </tbody>
         <tfoot><tr style="font-weight:700;background:#EEF3FA">
           <td colspan="2" style="border:1px solid #999;padding:6px;text-align:right">合　　計</td>
-          <td style="border:1px solid #999;padding:6px;text-align:right">
-            ${yen(paymentTotal)}
-            <div style="font-weight:400;font-size:10px;color:#555;margin-top:2px">（切り上げ: ${yen(paymentTotalRoundedUp)}）</div>
-          </td>
+          <td style="border:1px solid #999;padding:6px;text-align:right">${yen(Math.max(0,transferAmount))}</td>
         </tfoot>
       </table>
     </div>`;
@@ -8182,7 +8175,10 @@ win.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><style>@pag
         ${rows}
         <tr style="font-weight:700;background:#dce4f0">
           <td colspan="4" style="border:1px solid #999;padding:3px 4px;text-align:right">合計</td>
-          <td style="border:1px solid #999;padding:3px 4px;text-align:right">${totalAmount.toLocaleString('ja-JP')}</td>
+          <td style="border:1px solid #999;padding:3px 4px;text-align:right">
+            ${totalAmount.toLocaleString('ja-JP')}
+            <div style="font-weight:400;font-size:8px;color:#555;margin-top:1px">（切り上げ: ${(Math.ceil(totalAmount/10000)*10000).toLocaleString('ja-JP')}）</div>
+          </td>
           <td style="border:1px solid #999;padding:3px 4px"></td>
         </tr>
       </tbody>
