@@ -151,10 +151,13 @@ const TABLE_CONFIG = {
   // (batch A のような後追い移行が不要)。created_by/updated_by/updated_atは
   // すべてサーバー側でスタンプする。
   guide_bank_accounts: {
-    actions: ['insert', 'updateById', 'deleteById'],
+    actions: ['insert', 'updateById', 'deleteById', 'listByField'],
     label: 'ガイド口座情報',
     stampIdentity: true,
     stampUpdatedAt: true,
+    // 出金伝票(printGuideVouchers/仮払い一覧表用出金伝票)への自動反映用。guide_idでの
+    // 検索のみ許可する(anonへのSELECT解放はせず、この専用actionのみで読み取れるようにする)。
+    allowedListFields: ['guide_id'],
   },
   // vendor_email_logs(仕入先確認メール送信ログ): created_by/updated_byではなく専用の
   // sent_by列を持つため、通常のstampIdentityは使わずstampSentByFieldで個別に指定する
@@ -714,6 +717,25 @@ async function doDeleteByIds(table, label, ids, config, changedBy) {
   return { status: 200, body: { ok: true } };
 }
 
+// field/valueによる読み取りは、TABLE_CONFIG.allowedListFieldsに明示されている列に限定する
+// (bodyから任意の列名を受け取ってそのままクエリに埋め込むことを避けるため)。銀行口座情報
+// (guide_bank_accounts)等、anonへのSELECT解放をしたくない機密性の高いテーブルを
+// service_role経由で安全に読み取るために追加した(F: ガイド銀行口座情報の出金伝票反映)。
+async function doListByField(table, label, config, field, value) {
+  if (!config.allowedListFields || !config.allowedListFields.includes(field)) {
+    return { status: 400, body: { error: `${table}に対して許可されていない検索条件です: ${field}` } };
+  }
+  if (value === undefined || value === null || value === '') return { status: 400, body: { error: '検索条件の値が指定されていません' } };
+  const filter = Array.isArray(value) ? `in.(${value.map(encodeURIComponent).join(',')})` : `eq.${encodeURIComponent(value)}`;
+  const r = await sbFetch(table, `?${field}=${filter}&select=*`, { method: 'GET' });
+  if (!r.ok) {
+    const e = await readJsonSafe(r);
+    return { status: 500, body: { error: withGrantHint(e.message, table) || `${label}の取得に失敗しました` } };
+  }
+  const rows = await r.json();
+  return { status: 200, body: { ok: true, rows } };
+}
+
 // field/valueによる削除は、TABLE_CONFIG.allowedDeleteFieldsに明示されている列に限定する
 // (bodyから任意の列名を受け取ってそのままクエリに埋め込むことを避けるため)。
 async function doDeleteByField(table, label, config, field, value) {
@@ -986,6 +1008,11 @@ export default async function handler(req, res) {
     if (action === 'deleteByField') {
       const { field, value } = req.body;
       const result = await doDeleteByField(table, config.label, config, field, value);
+      return res.status(result.status).json(result.body);
+    }
+    if (action === 'listByField') {
+      const { field, value } = req.body;
+      const result = await doListByField(table, config.label, config, field, value);
       return res.status(result.status).json(result.body);
     }
     if (action === 'upsertConfirm') {
