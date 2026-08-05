@@ -256,6 +256,42 @@ const TABLE_CONFIG = {
     stampIdentity: true,
     auditLog: true,
   },
+  // F1(見積もりのservice_role移行)。created_by/updated_by列追加・service_roleへの
+  // GRANTを実施済み(SQL実行済み)。無停止移行のため、anon直接書き込み権限は当面維持する
+  // (フェーズB相当のREVOKEは別途実施)。estimation_fit_itemsは実データ0件・書き込み経路が
+  // コード上存在しないことを確認済みのため対象外(移行しない)。
+  // copyWithChildren: 見積もりコピー機能(copyEstimation)専用。ヘッダinsert→
+  // copyChildTablesに列挙した子テーブルへのinsertを行い、途中で失敗した場合は
+  // それまでにinsertした子テーブル行・ヘッダを削除してロールバックする
+  // (doCopyWithChildren参照)。
+  estimations: {
+    actions: ['insert', 'updateById', 'updateByIds', 'deleteById', 'copyWithChildren'],
+    label: '見積もり',
+    stampIdentity: true,
+    auditLog: true,
+    copyChildTables: ['estimation_days', 'estimation_fixed_rows'],
+  },
+  // estimation_id列をキーにした「全削除→全insert」の置き換え(doReplaceByKey)。
+  // 既存のarrangement_document_days等と同じ方式。
+  estimation_days: {
+    actions: ['replaceByKey'],
+    label: '見積もり日程明細',
+    allowedReplaceKeyFields: ['estimation_id'],
+  },
+  estimation_fixed_rows: {
+    actions: ['replaceByKey'],
+    label: '見積もり固定費・入場料明細',
+    allowedReplaceKeyFields: ['estimation_id'],
+  },
+  // stampIdentity(created_by+updated_by両方が必須)ではなく、vendor_email_logs等と同じ
+  // stampSentByFieldを使う。この表はinsertのみで更新されない履歴テーブルのため、
+  // 事前調査時のSQL案でもcreated_by列のみを追加対象としており、updated_by列が
+  // 存在しない前提(stampIdentityを使うと存在しない列で失敗するため使わない)。
+  estimation_booking_reflections: {
+    actions: ['insert', 'updateById'],
+    label: '見積もり予約反映履歴',
+    stampSentByField: 'created_by',
+  },
 };
 
 // learned_mappingsのcategoryはこの4種のみ許可する(bodyの値をそのまま保存しない)。
@@ -428,6 +464,54 @@ async function doReplaceByKey(table, label, keyField, keyValue, rows, config) {
     }
   }
   return { status: 200, body: { ok: true } };
+}
+
+// F1(見積もりコピー機能、copyEstimation)専用。ヘッダ1件をinsertし、続けて
+// config.copyChildTablesに列挙された子テーブルへ、新しいヘッダのidを紐付けてinsertする。
+// 子テーブルのいずれかが失敗した場合、それまでにinsertした子テーブル行(子テーブル単位で
+// 一括DELETE)とヘッダ自身を削除してロールバックする(中途半端な見積もりが残らないように
+// する。クライアント側の従来の手動ロールバックをサーバー側に移した)。
+// children: { [childTable]: rows[] }。childTable名はcopyChildTablesのホワイトリストに
+// 無いものは拒否する。各行のキー列(estimation_id)は呼び出し側で新IDをまだ知らないため
+// ここで補完する(childRow.estimation_id = 新ヘッダid)。
+async function doCopyWithChildren(table, config, headerRow, children) {
+  if (!headerRow) return { status: 400, body: { error: 'コピー元のヘッダデータがありません' } };
+  const allowedChildTables = config.copyChildTables || [];
+  const childEntries = Object.entries(children || {});
+  for (const [childTable] of childEntries) {
+    if (!allowedChildTables.includes(childTable)) {
+      return { status: 400, body: { error: `コピーが許可されていない子テーブルです: ${childTable}` } };
+    }
+  }
+
+  const insRes = await sbFetch(table, '', { method: 'POST', prefer: 'return=representation', body: JSON.stringify([headerRow]) });
+  if (!insRes.ok) {
+    const e = await readJsonSafe(insRes);
+    return { status: 500, body: { error: withGrantHint(e.message, table) || `${config.label}のコピーに失敗しました` } };
+  }
+  const [created] = await insRes.json();
+  const newId = created.id;
+
+  const insertedChildTables = [];
+  for (const [childTable, rows] of childEntries) {
+    if (!Array.isArray(rows) || !rows.length) continue;
+    const childRows = rows.map((r) => ({ ...r, estimation_id: newId }));
+    const cRes = await sbFetch(childTable, '', { method: 'POST', prefer: 'return=minimal', body: JSON.stringify(childRows) });
+    if (!cRes.ok) {
+      const e = await readJsonSafe(cRes);
+      // ロールバック: これまでinsertできた子テーブルとヘッダ自身を削除する
+      for (const t of insertedChildTables) {
+        await sbFetch(t, `?estimation_id=eq.${encodeURIComponent(newId)}`, { method: 'DELETE', prefer: 'return=minimal' });
+      }
+      await sbFetch(table, `?id=eq.${encodeURIComponent(newId)}`, { method: 'DELETE', prefer: 'return=minimal' });
+      return {
+        status: 500,
+        body: { error: (withGrantHint(e.message, childTable) || `${childTable}のコピーに失敗しました`) + '(作成しかけた見積もりはロールバックしました)' },
+      };
+    }
+    insertedChildTables.push(childTable);
+  }
+  return { status: 200, body: { ok: true, row: created } };
 }
 
 // insertと同じだが、挿入直後にDBが採番したid等をクライアントに返す必要がある場合
@@ -838,6 +922,12 @@ export default async function handler(req, res) {
     if (action === 'insertReturning') {
       const { rows } = req.body;
       const result = await doInsertReturning(table, config.label, rows);
+      return res.status(result.status).json(result.body);
+    }
+    if (action === 'copyWithChildren') {
+      const { headerFields, children } = req.body;
+      const stampedHeader = stampNewRows([headerFields])[0];
+      const result = await doCopyWithChildren(table, config, stampedHeader, children);
       return res.status(result.status).json(result.body);
     }
     if (action === 'deleteByBooking') {

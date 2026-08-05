@@ -4383,6 +4383,12 @@ async function partnerMergePendingApiCall(action, payload){ return tableCrudApiC
 // 関わるデータのため監査ログ対象とし、書き込みはこのAPI経由に統一する(anon直接書き込みは
 // 段階的に廃止予定。DB側の権限自体はscripts/redesign_credit_card_statements.sql参照)。
 async function creditCardStatementsApiCall(action, payload){ return tableCrudApiCall('credit_card_statements', action, payload); }
+// F1(見積もりのservice_role移行)。読み取り(select)は従来通りanonキー直接。
+// insert/update/delete/コピーのみこのAPI経由にする。
+async function estimationsApiCall(action, payload){ return tableCrudApiCall('estimations', action, payload); }
+async function estimationDaysApiCall(action, payload){ return tableCrudApiCall('estimation_days', action, payload); }
+async function estimationFixedRowsApiCall(action, payload){ return tableCrudApiCall('estimation_fixed_rows', action, payload); }
+async function estimationBookingReflectionsApiCall(action, payload){ return tableCrudApiCall('estimation_booking_reflections', action, payload); }
 
 // クレジットカード払いの「名義人」選択肢は、表記ゆれの再発防止のため自由入力にせず、
 // 既存のapp_users(スタッフ一覧)から選ぶ固定リストにする(名義人専用マスタは新設しない)。
@@ -6809,10 +6815,8 @@ function updateReflectionDecidedPrice(reflId, tierIdx, val){
   const r = _bdReflections.find(x=>x.id===reflId);
   if(!r || !r.tiers_snapshot) return;
   r.tiers_snapshot[tierIdx].decided_unit_price = val===''?null:(Number(val)||0);
-  sb.from('estimation_booking_reflections')
-    .update({tiers_snapshot: r.tiers_snapshot})
-    .eq('id', reflId)
-    .then(({error})=>{ if(error) logError('見積もり決定単価の保存', error); });
+  estimationBookingReflectionsApiCall('updateById', { id: reflId, fields: {tiers_snapshot: r.tiers_snapshot} })
+    .catch(error=>logError('見積もり決定単価の保存', error));
 }
 
 // ===================================================
@@ -7454,8 +7458,12 @@ async function deleteBookingData(){
     await bookingFacilitiesApiCall('deleteByBooking', { bookingId: b.id });
     await sb.from('bullet_train_arrangements').delete().eq('booking_ref', refNo);
 
-    // 見積もりの変換リンクのみ解除（見積もり自体は残す）
-    await sb.from('estimations').update({converted_booking_id:null}).eq('converted_booking_id', b.id);
+    // 見積もりの変換リンクのみ解除（見積もり自体は残す）。F1対応でupdateはAPI経由に
+    // なったため、対象idを読み取り(select、anon許可のまま)で特定してからupdateByIdsする。
+    const {data: linkedEstimations} = await sb.from('estimations').select('id').eq('converted_booking_id', b.id);
+    if(linkedEstimations && linkedEstimations.length){
+      await estimationsApiCall('updateByIds', { ids: linkedEstimations.map(e=>e.id), fields: {converted_booking_id:null} });
+    }
 
     // Invoice・売上明細・仕入明細
     await sb.from('invoices').delete().eq('booking_id', b.id);
@@ -8551,8 +8559,8 @@ async function toggleEstimationTemplate(id){
     ? `「${e.title||'(無題)'}」をテンプレートに指定しますか?\n\n通常の一覧から外れ、上部の「テンプレート」セクションに表示されるようになります。`
     : `「${e.title||'(無題)'}」のテンプレート指定を解除しますか?\n\n通常の見積もり一覧に戻ります。`;
   if(!confirm(msg)) return;
-  const {error} = await sb.from('estimations').update({is_template:next}).eq('id', id);
-  if(error){ alert('テンプレート設定の変更に失敗しました:\n'+error.message); return; }
+  try{ await estimationsApiCall('updateById', { id, fields: {is_template:next} }); }
+  catch(err){ alert('テンプレート設定の変更に失敗しました:\n'+err.message); return; }
   e.is_template = next;
   renderEstimationsList();
 }
@@ -8571,12 +8579,13 @@ function renderEstimationsList(){
 }
 
 // 既存の見積もりを丸ごと複製して新しい下書きを作る。
-// 明細(estimation_days / estimation_fixed_rows / estimation_fit_items)は毎回DBから
-// 取り直し、id・estimation_id・タイムスタンプを落としてから新しいIDで挿入するため、
-// 連続してコピーしても各見積もりは完全に独立する(元を削除しても複製には影響しない)。
-// converted_booking_id(予約への変換済みリンク)と予約反映履歴
-// (estimation_booking_reflections)は、複製先では「まだ何もしていない下書き」に
-// なるべきなので引き継がない。
+// 明細(estimation_days / estimation_fixed_rows)は毎回DBから取り直し、id・estimation_id・
+// タイムスタンプを落としてからサーバー側(copyWithChildren、doCopyWithChildren参照)へ渡し、
+// 新しいIDでの挿入・失敗時のロールバックをまとめて任せる(連続してコピーしても各見積もりは
+// 完全に独立する。元を削除しても複製には影響しない)。converted_booking_id(予約への
+// 変換済みリンク)と予約反映履歴(estimation_booking_reflections)は、複製先では
+// 「まだ何もしていない下書き」になるべきなので引き継がない。estimation_fit_itemsは
+// F1事前調査で実データ0件・書き込み経路なしと確認済みのため、コピー対象から除外した。
 async function copyEstimation(id){
   const src = estimationsCache.find(e=>e.id===id);
   if(!confirm(`「${src ? (src.title||'(無題)') : ''}」をコピーして新しい見積もりを作成しますか?\n\n・タイトルの末尾に「(コピー)」が付きます\n・ステータスは下書きに戻ります\n・作成日は本日になります`)) return;
@@ -8584,7 +8593,7 @@ async function copyEstimation(id){
     const {data: est, error: estErr} = await sb.from('estimations').select('*').eq('id', id).maybeSingle();
     if(estErr || !est){ alert('コピー元の見積もりを読み込めませんでした:\n'+(estErr ? estErr.message : '見つかりません')); return; }
 
-    const payload = {
+    const headerFields = {
       title: (est.title||'(無題)') + ' (コピー)',
       tour_code: est.tour_code||null,   // ツアーコードは引き継ぐ(編集画面で書き換える運用)
       created_date: new Date().toISOString().slice(0,10),
@@ -8597,36 +8606,27 @@ async function copyEstimation(id){
       type: est.type||'group',
       customer_name: est.customer_name,
       selected_tier_index: est.selected_tier_index,
-      created_by: currentUser ? currentUser.email : null,
-      updated_at: new Date().toISOString()
     };
-    const {data: created, error: insErr} = await sb.from('estimations').insert(payload).select().single();
-    if(insErr || !created){ alert('見積もりのコピーに失敗しました:\n'+(insErr ? insErr.message : '不明なエラー')); return; }
-    const newId = created.id;
 
-    // 明細行のコピー。id等の自動採番列を落とし、新しいestimation_idを付け直す。
+    // 明細行の取得。id・estimation_id・タイムスタンプは新規採番/サーバー側付与のため落とす。
     const stripKeys = ({id, estimation_id, created_at, updated_at, ...rest})=>rest;
-    const copyChild = async (table)=>{
+    const fetchChildRows = async (table)=>{
       const {data: rows} = await sb.from(table).select('*').eq('estimation_id', id);
-      if(!rows || !rows.length) return null;   // 0件の明細もそのまま0件でコピーする
-      const newRows = rows.map(r=>({...stripKeys(r), estimation_id: newId}));
-      const {error} = await sb.from(table).insert(newRows);
-      return error;
+      return (rows||[]).map(stripKeys);
     };
-    for(const table of ['estimation_days','estimation_fixed_rows','estimation_fit_items']){
-      const error = await copyChild(table);
-      if(error){
-        // ヘッダだけ残ると中途半端な見積もりになるため、作成した分を取り消してから通知する
-        await sb.from('estimation_fit_items').delete().eq('estimation_id', newId);
-        await sb.from('estimation_fixed_rows').delete().eq('estimation_id', newId);
-        await sb.from('estimation_days').delete().eq('estimation_id', newId);
-        await sb.from('estimations').delete().eq('id', newId);
-        alert('明細のコピーに失敗したため、作成しかけた見積もりを取り消しました。\n\n原因: '+error.message);
-        return;
-      }
+    const children = {
+      estimation_days: await fetchChildRows('estimation_days'),
+      estimation_fixed_rows: await fetchChildRows('estimation_fixed_rows'),
+    };
+
+    try{
+      await estimationsApiCall('copyWithChildren', { headerFields, children });
+    }catch(e){
+      alert('見積もりのコピーに失敗しました:\n'+e.message);
+      return;
     }
 
-    await logAction('見積もりコピー', payload.title);
+    await logAction('見積もりコピー', headerFields.title);
     await loadEstimations();
   }catch(e){
     alert('コピー中に予期しないエラーが発生しました。\n'+e.message);
@@ -8635,10 +8635,14 @@ async function copyEstimation(id){
 
 async function deleteEstimation(id){
   if(!confirm('この見積もりを削除しますか?')) return;
+  // estimation_fit_itemsはF1事前調査で実データ0件・書き込み経路なしと確認済みのため
+  // 移行対象外(引き続きanon直接delete。将来的にデータが入る可能性に備え、念のため残す)。
   await sb.from('estimation_fit_items').delete().eq('estimation_id', id);
-  await sb.from('estimation_fixed_rows').delete().eq('estimation_id', id);
-  await sb.from('estimation_days').delete().eq('estimation_id', id);
-  await sb.from('estimations').delete().eq('id', id);
+  // 子テーブルはreplaceByKeyにrows:[]を渡すことで「全削除」として使う(挿入は行わず、
+  // 既存のestimation_id一致行を全て削除するだけになる)。
+  await estimationFixedRowsApiCall('replaceByKey', { keyField:'estimation_id', keyValue:id, rows:[] });
+  await estimationDaysApiCall('replaceByKey', { keyField:'estimation_id', keyValue:id, rows:[] });
+  await estimationsApiCall('deleteById', { id });
   await loadEstimations();
 }
 
@@ -9103,61 +9107,42 @@ async function saveEstimation(){
 
     let estId = currentEstimationId;
     if(estId){
-      const {error} = await sb.from('estimations').update(payload).eq('id', estId);
-      if(error){ alert('見積もりヘッダの保存に失敗しました:\n'+error.message); return; }
+      try{ await estimationsApiCall('updateById', { id: estId, fields: payload }); }
+      catch(err){ alert('見積もりヘッダの保存に失敗しました:\n'+err.message); return; }
     }else{
-      payload.created_by = currentUser ? currentUser.email : null;
-      const {data, error} = await sb.from('estimations').insert(payload).select().single();
-      if(error){ alert('見積もりの新規保存に失敗しました:\n'+error.message); return; }
-      estId = data.id;
+      let created;
+      try{ created = await estimationsApiCall('insert', { rows: [payload] }); }
+      catch(err){ alert('見積もりの新規保存に失敗しました:\n'+err.message); return; }
+      estId = created.rows ? created.rows[0].id : created.id;
       currentEstimationId = estId;
     }
 
-    // 既存行をバックアップ（DELETE後にINSERTが失敗してもデータを復元できるようにする）
-    const {data: dayBackup} = await sb.from('estimation_days').select('*').eq('estimation_id', estId);
-    const {data: frBackup}  = await sb.from('estimation_fixed_rows').select('*').eq('estimation_id', estId);
-
-    // バックアップ復元ヘルパー
-    const restoreTable = async (tableName, backup) => {
-      if(!backup || !backup.length) return;
-      // id・created_at は自動生成なので除外して再挿入
-      const rows = backup.map(({id, created_at, ...r})=>r);
-      await sb.from(tableName).insert(rows);
-    };
-
-    // 全削除（エラーチェック付き）
-    const {error: delFrErr} = await sb.from('estimation_fixed_rows').delete().eq('estimation_id', estId);
-    if(delFrErr){ alert('固定費行の削除に失敗しました:\n'+delFrErr.message); return; }
-    const {error: delDayErr} = await sb.from('estimation_days').delete().eq('estimation_id', estId);
-    if(delDayErr){ alert('日程行の削除に失敗しました:\n'+delDayErr.message); return; }
-
-    // 日程行の挿入
+    // 日程行の置き換え(estimationDaysApiCall('replaceByKey',...))。サーバー側(doReplaceByKey)は
+    // 「新データをinsertしてから旧データをdelete」の順で行うため、insert失敗時は旧データが
+    // そのまま残る(F1移行前は削除→挿入の順でクライアント側が手動バックアップ・復元して
+    // いたが、サーバー側の順序自体が安全になったため、この手動バックアップ・復元は廃止した)。
     // day_date が空の場合はキー自体を省略（NOT NULL制約を回避し、DBデフォルト値を使用）
-    if(estDays.length>0){
-      const dayRows = estDays.map((d,i)=>({
-        estimation_id: estId, day_number: i+1,
-        ...(d.day_date ? {day_date: d.day_date} : {}),
-        hotel_name: d.hotel_name||'',
-        twin_rate: Number(d.twin_rate)||0, breakfast: d.breakfast||'', breakfast_fee: Number(d.breakfast_fee)||0,
-        lunch_rate: Number(d.lunch_rate)||0, dinner_rate: Number(d.dinner_rate)||0,
-        bus_rate: Number(d.bus_rate)||0, bus_tip: Number(d.bus_tip)||0, bus_driver_meal: Number(d.bus_driver_meal)||0, parking_tolls: Number(d.parking_tolls)||0,
-        guide_fee: Number(d.guide_fee)||0, guide_tip: Number(d.guide_tip)||0, guide_meal: Number(d.guide_meal)||0,
-        admission_fee: Number(d.admission_fee)||0, admission_remark: d.admission_remark||'',
-        bullet_train: Number(d.bullet_train)||0, bullet_train_remark: d.bullet_train_remark||'',
-        treat: Number(d.treat)||0, treat_remark: d.treat_remark||'',
-        sort_order: i
-      }));
-      const {error: dayErr} = await sb.from('estimation_days').insert(dayRows);
-      if(dayErr){
-        // 失敗：両テーブルを前回データに復元してユーザーに通知
-        await restoreTable('estimation_days', dayBackup);
-        await restoreTable('estimation_fixed_rows', frBackup);
-        alert('日程データの保存に失敗しました。前回の保存データに戻しました。\n\n原因: '+dayErr.message+'\n\n画面の入力内容はそのまま残っています。内容を確認の上、再度保存してください。');
-        return;
-      }
+    const dayRows = estDays.map((d,i)=>({
+      estimation_id: estId, day_number: i+1,
+      ...(d.day_date ? {day_date: d.day_date} : {}),
+      hotel_name: d.hotel_name||'',
+      twin_rate: Number(d.twin_rate)||0, breakfast: d.breakfast||'', breakfast_fee: Number(d.breakfast_fee)||0,
+      lunch_rate: Number(d.lunch_rate)||0, dinner_rate: Number(d.dinner_rate)||0,
+      bus_rate: Number(d.bus_rate)||0, bus_tip: Number(d.bus_tip)||0, bus_driver_meal: Number(d.bus_driver_meal)||0, parking_tolls: Number(d.parking_tolls)||0,
+      guide_fee: Number(d.guide_fee)||0, guide_tip: Number(d.guide_tip)||0, guide_meal: Number(d.guide_meal)||0,
+      admission_fee: Number(d.admission_fee)||0, admission_remark: d.admission_remark||'',
+      bullet_train: Number(d.bullet_train)||0, bullet_train_remark: d.bullet_train_remark||'',
+      treat: Number(d.treat)||0, treat_remark: d.treat_remark||'',
+      sort_order: i
+    }));
+    try{
+      await estimationDaysApiCall('replaceByKey', { keyField:'estimation_id', keyValue: estId, rows: dayRows });
+    }catch(err){
+      alert('日程データの保存に失敗しました。旧データは維持されています。\n\n原因: '+err.message+'\n\n画面の入力内容はそのまま残っています。内容を確認の上、再度保存してください。');
+      return;
     }
 
-    // 固定費・入場料行の挿入
+    // 固定費・入場料行の置き換え
     const allFrRows = [
       ...estFixedRows.map((r,k)=>({
         estimation_id: estId, label: r.label||'',
@@ -9170,14 +9155,11 @@ async function saveEstimation(){
         return {estimation_id: estId, label, amounts: (r.amounts||[]).map(a=>Number(a)||0), sort_order: 1000+k};
       })
     ];
-    if(allFrRows.length>0){
-      const {error: frErr} = await sb.from('estimation_fixed_rows').insert(allFrRows);
-      if(frErr){
-        // 日程は保存済み。固定費のみ前回データに復元
-        await restoreTable('estimation_fixed_rows', frBackup);
-        alert('固定費行の保存に失敗しました。固定費データを前回の状態に戻しました。\n\n原因: '+frErr.message+'\n\n画面の入力内容はそのまま残っています。再度保存してください。');
-        return;
-      }
+    try{
+      await estimationFixedRowsApiCall('replaceByKey', { keyField:'estimation_id', keyValue: estId, rows: allFrRows });
+    }catch(err){
+      alert('固定費行の保存に失敗しました。旧データは維持されています。\n\n原因: '+err.message+'\n\n画面の入力内容はそのまま残っています。再度保存してください。');
+      return;
     }
 
     await logAction('見積もり保存', payload.title || estId);
@@ -9451,7 +9433,6 @@ async function reflectEstimationToBookings(){
 
   const now = new Date().toISOString();
   const nowLabel = new Date(now).toLocaleString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}).replace(/-/g,'/');
-  const userEmail = currentUser?.email||null;
 
   const results = calcEstimation();
   const snap = results.map(r=>({tier_label:r.label, pax:r.pax, subtotal:Math.round(r.subtotal), handling:Math.round(r.handling), insurance:Math.round(r.insurance), total:Math.round(r.total), per_pax:Math.round(r.perPax)}));
@@ -9459,16 +9440,25 @@ async function reflectEstimationToBookings(){
 
   for(const bookingId of ids){
     const s = _reflectSelected[bookingId];
-    const {error:ie} = await sb.from('estimation_booking_reflections').insert({
-      estimation_id: currentEstimationId, booking_id: bookingId,
-      tiers_snapshot: snap, reflected_at: now, created_by: userEmail
-    });
-    if(ie) errors.push(s.ref_no+': '+ie.message);
+    // created_byはサーバー側(stampSentByField)が検証済みセッションのemailで自動スタンプする
+    // ため、クライアントからは送らない。
+    try{
+      await estimationBookingReflectionsApiCall('insert', { rows: [{
+        estimation_id: currentEstimationId, booking_id: bookingId,
+        tiers_snapshot: snap, reflected_at: now
+      }] });
+    }catch(err){
+      errors.push(s.ref_no+': '+err.message);
+    }
   }
 
   if(errors.length) alert('一部エラーが発生しました:\n'+errors.join('\n'));
 
-  await sb.from('estimations').update({status:'approved', calculated_tiers_snapshot:snap, updated_at:now}).eq('id', currentEstimationId);
+  try{
+    await estimationsApiCall('updateById', { id: currentEstimationId, fields: {status:'approved', calculated_tiers_snapshot:snap, updated_at:now} });
+  }catch(err){
+    alert('見積もりステータスの更新に失敗しました:\n'+err.message);
+  }
   document.getElementById('est-status').value='approved';
   updateEstStatusColor(document.getElementById('est-status'));
 
