@@ -4495,7 +4495,7 @@ async function loadVendorEmailPage(){
     const sentMap = await fetchVendorEmailSentMap();
     vendorEmailCandidatesCache = candidates.map(c=>({...c, sent: sentMap[c.sourceTable+':'+c.id]||null}));
   }catch(e){
-    logError('仕入先確認メール対象の読み込み', e);
+    logError('手配確定状況の対象読み込み', e);
     el.innerHTML = '<div style="color:var(--red);font-size:12px">読み込みエラー: '+escHtml(e.message)+'</div>';
     return;
   }
