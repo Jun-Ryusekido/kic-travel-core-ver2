@@ -2571,11 +2571,11 @@ input[type=number]{-moz-appearance:textfield}
       </div>
     </div>
 
-    <div class="modal-section-title" style="display:flex;justify-content:space-between;align-items:center">
-      <span>仮払い一覧表</span>
-      <button class="btn" style="font-size:10px" onclick="printLocalExpenses()">🖨 印刷</button>
+    <div class="modal-section-title" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="toggleBdCollapseSection('local-expenses-print-area', this)">
+      <span><span class="bd-section-caret" style="display:inline-block;margin-right:4px;transition:transform .15s">▸</span>仮払い一覧表</span>
+      <button class="btn" style="font-size:10px" onclick="event.stopPropagation();printLocalExpenses()">🖨 印刷</button>
     </div>
-    <div id="local-expenses-print-area">
+    <div id="local-expenses-print-area" style="display:none">
     <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:830px">
       <thead><tr>
         <th style="width:100px">日付</th>
@@ -2599,7 +2599,8 @@ input[type=number]{-moz-appearance:textfield}
     <div class="li-total">仮払い合計: <span id="bd-local-total">¥0</span></div>
     </div>
 
-    <div class="modal-section-title">ガイド精算</div>
+    <div class="modal-section-title" style="cursor:pointer" onclick="toggleBdCollapseSection('bd-guide-section-body', this)"><span class="bd-section-caret" style="display:inline-block;margin-right:4px;transition:transform .15s">▸</span>ガイド精算</div>
+    <div id="bd-guide-section-body" style="display:none">
     <div id="bd-guide-settlements" style="margin-bottom:4px"></div>
     <div style="border:1px solid var(--border);border-radius:8px;padding:6px;margin-bottom:4px">
       <div style="font-size:10px;color:var(--text3);font-weight:600;margin-bottom:4px">新しく精算リンクを発行（このツアーを担当するガイドを1名以上登録）</div>
@@ -2625,6 +2626,7 @@ input[type=number]{-moz-appearance:textfield}
         </span>
       </div>
       <div id="gs-print-body"></div>
+    </div>
     </div>
 
     <div class="modal-section-title">データ管理</div>
@@ -5783,6 +5785,18 @@ function toggleBankbookOcr(){
   const el = document.getElementById('bankbook-ocr-area');
   if(!el) return;
   el.style.display = el.style.display === 'none' ? '' : 'none';
+}
+
+// 予約詳細モーダルの「仮払い一覧表」「ガイド精算」セクションの折りたたみ用。
+// デフォルト非表示(collapsed)にし、見出しクリックで開閉する(データ自体はhidden状態でも
+// 裏で通常通りロード・保持されるため、開いた瞬間に表示崩れ等は起きない)。
+function toggleBdCollapseSection(bodyId, titleEl){
+  const el = document.getElementById(bodyId);
+  if(!el) return;
+  const collapsed = el.style.display === 'none';
+  el.style.display = collapsed ? '' : 'none';
+  const caret = titleEl && titleEl.querySelector('.bd-section-caret');
+  if(caret) caret.style.transform = collapsed ? 'rotate(90deg)' : 'rotate(0deg)';
 }
 
 async function extractBankbookFromFile(event){
