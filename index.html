@@ -1226,6 +1226,7 @@ input[type=number]{-moz-appearance:textfield}
                 <option value="pending">Pending</option>
                 <option value="paid">Paid</option>
                 <option value="overdue">Overdue</option>
+                <option value="void">失効</option>
               </select>
             </div>
           </div>
@@ -21843,6 +21844,14 @@ function filterInvoiceUnified(){
       const invJson = JSON.stringify(row._inv||{}).replace(/'/g,"&apos;");
       const bJson = JSON.stringify(row._booking||{}).replace(/'/g,"&apos;");
       actionCell = `<button class="btn" style="font-size:11px" onclick='event.stopPropagation();showInvoicePreview(${invJson}, ${bJson})'>表示</button>`;
+      // 最新の請求書が失効(void)の場合、そのまま「表示」しか出せないと再発行できなくなるため
+      // 新規発行ボタンも併せて出す(直近の有効な請求書という概念ではなく、単に最新1件しか
+      // ここには載せていないため)。
+      if(row.invStatus==='void'){
+        actionCell += `
+        <button class="btn btn-p" style="font-size:11px" onclick="event.stopPropagation();generateInvoice('${row.id}','JPY')">JPY再発行</button>
+        <button class="btn" style="font-size:11px" onclick="event.stopPropagation();generateInvoice('${row.id}','USD')">USD再発行</button>`;
+      }
     }else{
       statusCell = '<span class="pill" style="background:var(--bg);color:var(--text3)">未発行</span>';
       actionCell = `
@@ -21899,10 +21908,13 @@ async function loadInvoicePage(){
 
 
 function invoiceStatusPill(status, needsManualCheck){
-  const map={pending:['s-pending','Pending'],paid:['s-paid','Paid'],overdue:['s-over','Overdue']};
+  const map={pending:['s-pending','Pending'],paid:['s-paid','Paid'],overdue:['s-over','Overdue'],void:['s-void','失効']};
   const [cls,label]=map[status]||['s-pending',status];
-  const bg = cls==='s-over' ? 'background:var(--red-lt);color:var(--red)' : '';
+  let bg = cls==='s-over' ? 'background:var(--red-lt);color:var(--red)' : '';
+  if(cls==='s-void') bg = 'background:var(--bg);color:var(--text3);text-decoration:line-through';
   const pill = `<span class="pill ${cls}" style="${bg}">${label}</span>`;
+  // 失効した請求書は入金消込対象外であり「要手動確認」バッジを出す意味がないため対象外にする。
+  if(status==='void') return pill;
   // F12対応: agent_name未設定のInvoiceは入金消込の自動paid判定をスキップしているため、
   // 一覧上でも「要手動確認」であることが分かるようにする。
   if(!needsManualCheck) return pill;
@@ -21963,10 +21975,75 @@ function salesItemBelongsToAgent(row, agentFilter, bookingAgent){
   return a === agentFilter;
 }
 
+// 業務フロー点検 対応①: 請求書を再発行する際、同じ予約に紐づくPending(未入金)の請求書が
+// 残ったままだと、古い金額のままの請求書と新しい請求書が両方一覧・入金消込対象に残り、
+// 誤って古い方を消込対象に選んでしまう恐れがあった。再発行前にPending請求書の有無を確認し、
+// 必要なら失効(void)させてから新規発行する。Paid(入金済み)の請求書は対象外(失効不可)。
+function renderInvVoidList(pendingInvoices){
+  const el = document.getElementById('inv-void-list');
+  el.innerHTML = pendingInvoices.map(inv=>{
+    const amountStr = inv.currency==='USD' ? '$'+Number(inv.amount||0).toLocaleString() : yen(inv.amount);
+    return `
+    <label style="display:flex;align-items:center;gap:8px;padding:6px 4px;border-bottom:1px solid var(--border);font-size:12px;cursor:pointer">
+      <input type="checkbox" class="inv-void-chk" value="${inv.id}" checked>
+      <span style="flex:1;min-width:0">
+        <div style="font-weight:600">${escHtml(inv.invoice_no||'')}</div>
+        <div style="color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(inv.agent_name||'(請求先未設定)')} ／ ${amountStr} ／ 発行日: ${escHtml(inv.issue_date||'')}</div>
+      </span>
+    </label>`;
+  }).join('');
+}
+
+let _invVoidResolve = null;
+function askInvVoidChoice(pendingInvoices){
+  return new Promise(resolve=>{
+    _invVoidResolve = resolve;
+    renderInvVoidList(pendingInvoices);
+    document.getElementById('inv-void-memo').value = '';
+    document.getElementById('inv-void-modal').classList.add('open');
+  });
+}
+function closeInvVoidModal(action){
+  let selectedIds = [], memo = '';
+  if(action==='void'){
+    selectedIds = Array.from(document.querySelectorAll('.inv-void-chk:checked')).map(el=>el.value);
+    memo = document.getElementById('inv-void-memo').value.trim();
+  }
+  document.getElementById('inv-void-modal').classList.remove('open');
+  const resolve = _invVoidResolve;
+  _invVoidResolve = null;
+  if(resolve) resolve({action, selectedIds, memo});
+}
+
 async function generateInvoice(bookingId, currency, agentFilter){
   const bookings = await fetchAllBookings();
   const booking = bookings.find(b=>b.id===bookingId);
   if(!booking){ alert('予約データが見つかりません'); return; }
+
+  // 既存のPending請求書の確認(Paidは対象外なので取得しない)
+  const {data: existingPending, error: pendingErr} = await sb.from('invoices').select('*').eq('booking_id', bookingId).eq('status','pending').order('created_at',{ascending:false});
+  if(pendingErr){ alert('既存の請求書確認に失敗しました: '+pendingErr.message); return; }
+
+  let voidIds = [], voidMemo = '';
+  if(existingPending && existingPending.length>0){
+    const choice = await askInvVoidChoice(existingPending);
+    if(!choice || !choice.action) return; // キャンセル: 何もせず終了
+    if(choice.action==='void'){
+      if(!choice.selectedIds.length){ alert('失効させる請求書が選択されていません。'); return; }
+      voidIds = choice.selectedIds;
+      voidMemo = choice.memo;
+    }
+    // choice.action==='keep' の場合は失効させず、そのまま新規発行のみ進む
+  }
+
+  if(voidIds.length){
+    const {error: voidErr} = await sb.from('invoices').update({status:'void'}).in('id', voidIds);
+    if(voidErr){ alert('請求書の失効処理に失敗したため、新規発行を中止しました: '+voidErr.message); return; }
+    for(const id of voidIds){
+      const target = existingPending.find(i=>i.id===id);
+      await logAction('請求書を失効', (target?target.invoice_no:id) + (voidMemo?(' / 理由: '+voidMemo):''));
+    }
+  }
 
   const today = new Date();
   const issue = today.toISOString().slice(0,10);
@@ -22000,7 +22077,17 @@ async function generateInvoice(bookingId, currency, agentFilter){
     agent_name: agentFilter || booking.agent_name || null
   }).select().single();
 
-  if(error){ alert('Invoice発行に失敗しました: '+error.message); return; }
+  if(error){
+    // 新規発行に失敗した場合、直前に失効させた分は元に戻す(両方成功して初めて完了とする)。
+    if(voidIds.length){
+      const {error: rollbackErr} = await sb.from('invoices').update({status:'pending'}).in('id', voidIds);
+      if(rollbackErr) alert('Invoice発行に失敗し、さらに失効の取り消しにも失敗しました。手動で確認してください。\n発行エラー: '+error.message+'\n取り消しエラー: '+rollbackErr.message);
+      else alert('Invoice発行に失敗したため、失効させた請求書は元(Pending)に戻しました: '+error.message);
+    }else{
+      alert('Invoice発行に失敗しました: '+error.message);
+    }
+    return;
+  }
 
   // 予約ステータスを invoiced に更新
   await bookingsApiCall('updateById', { id: bookingId, fields: {status:'invoiced', updated_at: new Date().toISOString()} });
@@ -22290,6 +22377,29 @@ function setDateInputValue(el, d){
       <thead><tr><th>会社名</th><th>削除日時</th><th>削除者</th><th style="width:100px"></th></tr></thead>
       <tbody id="deleted-pt-tbody"><tr><td colspan="4" class="empty">読み込み中...</td></tr></tbody>
     </table></div>
+  </div>
+</div>
+
+<!-- 請求書再発行時: 既存pending請求書の失効確認モーダル -->
+<div class="modal-overlay" id="inv-void-modal">
+  <div class="modal-box" style="max-width:520px">
+    <div class="modal-header">
+      <div class="modal-title">未入金の請求書があります</div>
+      <div class="modal-close" onclick="closeInvVoidModal(null)">✕</div>
+    </div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:10px">
+      この予約には未入金(Pending)の請求書が既にあります。失効させてから新規発行するか、そのまま新規発行するか選択してください。
+    </div>
+    <div id="inv-void-list" style="max-height:260px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:6px"></div>
+    <div style="margin-top:10px">
+      <label style="font-size:12px;color:var(--text3);display:block;margin-bottom:4px">失効理由（任意メモ）</label>
+      <input id="inv-void-memo" type="text" placeholder="例: 金額訂正のため再発行" style="width:100%;box-sizing:border-box;padding:6px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px">
+    </div>
+    <div style="margin-top:14px;display:flex;flex-direction:column;gap:8px">
+      <button class="btn btn-p" style="width:100%" onclick="closeInvVoidModal('void')">選択した請求書を失効させて新規発行する</button>
+      <button class="btn" style="width:100%" onclick="closeInvVoidModal('keep')">失効させず、そのまま新規発行のみ行う</button>
+      <button class="btn" style="width:100%" onclick="closeInvVoidModal(null)">キャンセル</button>
+    </div>
   </div>
 </div>
 
