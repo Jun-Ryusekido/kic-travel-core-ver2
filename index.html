@@ -8120,8 +8120,14 @@ win.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><style>@pag
   });
   const guideStr = [...new Set(guideNames)].join(' / ');
 
-  const tdB = 'style="border:1px solid #bbb;padding:3px 5px;vertical-align:top"';
-  const tdR = 'style="border:1px solid #bbb;padding:3px 5px;text-align:right;vertical-align:top"';
+  // 各行を必ず1行に収めるため、折り返しさせたくない列はnowrap、店舗名等が長くなりがちな
+  // 「内容」列だけは1行のまま省略表示(...)にする(1行表示を優先する)。
+  const tdB = 'style="border:1px solid #bbb;padding:2px 4px;vertical-align:top;white-space:nowrap"';
+  const tdR = 'style="border:1px solid #bbb;padding:2px 4px;text-align:right;vertical-align:top;white-space:nowrap"';
+  const tdContent = 'style="border:1px solid #bbb;padding:2px 4px;vertical-align:top;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:0"';
+  // 日付は年を省略し「MM-DD」形式にして列幅を詰める(年をまたぐツアーはほぼ無い前提。
+  // 表示上どうしても年が必要なケースはヘッダー側の「日にち」欄で確認できる)。
+  const shortDate = d => d ? String(d).replace(/^\d{4}-/,'') : '';
 
   // 「この内容を一括複製」で付与された「(N班)」ラベルに基づき、班ごとにグループ化する
   // (ラベルなしは1班扱い)。1班のみの場合はグループ化・見出し追加とも行わず、
@@ -8150,8 +8156,8 @@ win.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><style>@pag
       // 「(N班)」ラベル部分を省いて表示する(1班のみの場合はラベル自体存在しないため無関係)。
       const displayContent = multiBand ? (it.content||'').replace(LOCAL_EXPENSE_BAND_LABEL_RE,'').trim() : (it.content||'');
       return `<tr>
-        <td ${tdB}>${showDate?(it.expense_date||''):''}</td>
-        <td ${tdB}>${escHtml(displayContent)}</td>
+        <td ${tdB}>${showDate?shortDate(it.expense_date):''}</td>
+        <td ${tdContent} title="${escAttr(displayContent)}">${escHtml(displayContent)}</td>
         <td ${tdR}>${Number(it.unit_price||0).toLocaleString('ja-JP')}</td>
         <td ${tdR}>${it.qty||1}</td>
         <td ${tdR}>${Number(it.amount||0).toLocaleString('ja-JP')}</td>
@@ -8160,24 +8166,24 @@ win.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><style>@pag
     }).join('');
 
     return `${multiBand?`<div style="font-size:13pt;font-weight:700;margin-bottom:4px">${band}班</div>`:''}
-    <table style="width:100%;border-collapse:collapse;font-size:9pt;table-layout:fixed">
+    <table style="width:100%;border-collapse:collapse;font-size:8pt;table-layout:fixed">
       <colgroup>
-        <col style="width:10%"><col style="width:40%"><col style="width:12%"><col style="width:8%"><col style="width:12%"><col style="width:18%">
+        <col style="width:7%"><col style="width:43%"><col style="width:12%"><col style="width:7%"><col style="width:13%"><col style="width:18%">
       </colgroup>
       <thead><tr>
-        <th ${thStyle} style="border:1px solid #999;padding:4px 5px;background:#dce4f0;font-weight:700">日付</th>
-        <th ${thStyle} style="border:1px solid #999;padding:4px 5px;background:#dce4f0;font-weight:700">内容</th>
-        <th ${thStyle} style="border:1px solid #999;padding:4px 5px;background:#dce4f0;font-weight:700;text-align:right">単価</th>
-        <th ${thStyle} style="border:1px solid #999;padding:4px 5px;background:#dce4f0;font-weight:700;text-align:right">数量</th>
-        <th ${thStyle} style="border:1px solid #999;padding:4px 5px;background:#dce4f0;font-weight:700;text-align:right">金額</th>
-        <th ${thStyle} style="border:1px solid #999;padding:4px 5px;background:#dce4f0;font-weight:700">支払方法</th>
+        <th ${thStyle} style="border:1px solid #999;padding:3px 4px;background:#dce4f0;font-weight:700">日付</th>
+        <th ${thStyle} style="border:1px solid #999;padding:3px 4px;background:#dce4f0;font-weight:700">内容</th>
+        <th ${thStyle} style="border:1px solid #999;padding:3px 4px;background:#dce4f0;font-weight:700;text-align:right">単価</th>
+        <th ${thStyle} style="border:1px solid #999;padding:3px 4px;background:#dce4f0;font-weight:700;text-align:right">数量</th>
+        <th ${thStyle} style="border:1px solid #999;padding:3px 4px;background:#dce4f0;font-weight:700;text-align:right">金額</th>
+        <th ${thStyle} style="border:1px solid #999;padding:3px 4px;background:#dce4f0;font-weight:700">支払方法</th>
       </tr></thead>
       <tbody>
         ${rows}
         <tr style="font-weight:700;background:#dce4f0">
-          <td colspan="4" style="border:1px solid #999;padding:4px 5px;text-align:right">合計</td>
-          <td style="border:1px solid #999;padding:4px 5px;text-align:right">${totalAmount.toLocaleString('ja-JP')}</td>
-          <td style="border:1px solid #999;padding:4px 5px"></td>
+          <td colspan="4" style="border:1px solid #999;padding:3px 4px;text-align:right">合計</td>
+          <td style="border:1px solid #999;padding:3px 4px;text-align:right">${totalAmount.toLocaleString('ja-JP')}</td>
+          <td style="border:1px solid #999;padding:3px 4px"></td>
         </tr>
       </tbody>
     </table>`;
