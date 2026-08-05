@@ -8133,17 +8133,31 @@ function _voucherPaymentFieldIds(){
 
 async function askVoucherPaymentInfo(guideId){
   let accounts = [];
+  let bankInfoFree = '';
   if(guideId){
     try{
       const res = await guideBankAccountsApiCall('listByField', { field:'guide_id', value: guideId });
       accounts = (res && res.rows) || [];
     }catch(e){ logError('ガイド口座情報の取得', e, {toast:false}); }
+    // guide_bank_accounts(構造化テーブル)にデータが無い場合は、実運用で口座情報が
+    // 入力されているguides.bank_info(フリーテキスト)にフォールバックする。フリー
+    // テキストのため銀行名/支店名等に機械分割はせず、そのままテキストエリアに出す。
+    if(accounts.length===0){
+      try{
+        const {data: guideRow} = await sb.from('guides').select('bank_info').eq('id', guideId).maybeSingle();
+        bankInfoFree = (guideRow && guideRow.bank_info) ? String(guideRow.bank_info) : '';
+      }catch(e){ logError('ガイドマスタの口座情報(bank_info)の取得', e, {toast:false}); }
+    }
   }
   _voucherAccountsCache = accounts;
   return new Promise(resolve=>{
     _voucherPaymentResolve = resolve;
     document.getElementById('voucher-pay-cash').checked = true;
     _voucherPaymentFieldIds().forEach(id=>{ document.getElementById(id).value=''; });
+    const freeWrap = document.getElementById('voucher-bank-info-wrap');
+    const freeEl = document.getElementById('voucher-bank-info-free');
+    freeEl.value = bankInfoFree;
+    freeWrap.style.display = bankInfoFree ? '' : 'none';
     renderVoucherAccountSelect();
     if(accounts.length===1) applyVoucherAccountSelection(0);
     renderVoucherPaymentFields();
@@ -8183,6 +8197,8 @@ function closeVoucherPaymentModal(action){
       result.accountType = document.getElementById('voucher-account-type').value.trim();
       result.accountNumber = document.getElementById('voucher-account-number').value.trim();
       result.accountHolderName = document.getElementById('voucher-account-holder').value.trim();
+      const freeWrap = document.getElementById('voucher-bank-info-wrap');
+      result.bankInfoFree = (freeWrap && freeWrap.style.display!=='none') ? document.getElementById('voucher-bank-info-free').value.trim() : '';
     }
   }
   document.getElementById('voucher-payment-modal').classList.remove('open');
@@ -8198,15 +8214,23 @@ function buildVoucherPaymentInfoHtml(paymentInfo){
   if(paymentInfo.method!=='振込'){
     return `<div style="margin-top:8px;font-size:11px">支払方法：<strong>現金</strong></div>`;
   }
-  return `<div style="margin-top:8px;font-size:11px">
-    <div>支払方法：<strong>振込</strong></div>
+  // 構造化欄(guide_bank_accounts由来または手入力)に1つでも値があれば表形式で、
+  // 無ければguides.bank_infoフリーテキスト(bankInfoFree)を改行そのままで表示する。
+  const hasStructured = [paymentInfo.bankName, paymentInfo.branchName, paymentInfo.accountType, paymentInfo.accountNumber, paymentInfo.accountHolderName].some(v=>v);
+  const structuredHtml = hasStructured ? `
     <table style="margin-top:4px;font-size:11px;border-collapse:collapse">
       <tr><td style="color:#666;padding:1px 8px 1px 0">銀行名</td><td>${escHtml(paymentInfo.bankName||'')}</td></tr>
       <tr><td style="color:#666;padding:1px 8px 1px 0">支店名</td><td>${escHtml(paymentInfo.branchName||'')}</td></tr>
       <tr><td style="color:#666;padding:1px 8px 1px 0">口座種別</td><td>${escHtml(paymentInfo.accountType||'')}</td></tr>
       <tr><td style="color:#666;padding:1px 8px 1px 0">口座番号</td><td>${escHtml(paymentInfo.accountNumber||'')}</td></tr>
       <tr><td style="color:#666;padding:1px 8px 1px 0">口座名義</td><td>${escHtml(paymentInfo.accountHolderName||'')}</td></tr>
-    </table>
+    </table>` : '';
+  const freeHtml = paymentInfo.bankInfoFree ? `
+    <div style="margin-top:4px;white-space:pre-line;border:1px solid #ddd;border-radius:4px;padding:5px 8px">${escHtml(paymentInfo.bankInfoFree)}</div>` : '';
+  return `<div style="margin-top:8px;font-size:11px">
+    <div>支払方法：<strong>振込</strong></div>
+    ${structuredHtml}
+    ${freeHtml}
   </div>`;
 }
 
@@ -22683,6 +22707,10 @@ function setDateInputValue(el, d){
     </div>
     <div id="voucher-account-section" style="display:none">
       <div id="voucher-account-select-wrap"></div>
+      <div id="voucher-bank-info-wrap" style="display:none;margin-bottom:6px">
+        <label style="font-size:11px;color:var(--text3);display:block;margin-bottom:2px">ガイドマスタ登録の口座情報（guides.bank_info、フリーテキスト）</label>
+        <textarea id="voucher-bank-info-free" rows="3" style="width:100%;box-sizing:border-box;padding:6px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px;resize:vertical"></textarea>
+      </div>
       <div style="display:flex;flex-direction:column;gap:6px">
         <input id="voucher-bank-name" placeholder="銀行名" style="width:100%;box-sizing:border-box;padding:6px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px">
         <input id="voucher-branch-name" placeholder="支店名" style="width:100%;box-sizing:border-box;padding:6px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px">
