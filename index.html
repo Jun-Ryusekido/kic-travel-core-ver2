@@ -8165,12 +8165,14 @@ win.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><style>@pag
         <th ${thStyle} style="border:1px solid #999;padding:4px 5px;background:#dce4f0;font-weight:700;text-align:right">金額</th>
         <th ${thStyle} style="border:1px solid #999;padding:4px 5px;background:#dce4f0;font-weight:700">支払方法</th>
       </tr></thead>
-      <tbody>${rows}</tbody>
-      <tfoot><tr style="font-weight:700;background:#dce4f0">
-        <td colspan="4" style="border:1px solid #999;padding:4px 5px;text-align:right">合計</td>
-        <td style="border:1px solid #999;padding:4px 5px;text-align:right">${totalAmount.toLocaleString('ja-JP')}</td>
-        <td style="border:1px solid #999;padding:4px 5px"></td>
-      </tr></tfoot>
+      <tbody>
+        ${rows}
+        <tr style="font-weight:700;background:#dce4f0">
+          <td colspan="4" style="border:1px solid #999;padding:4px 5px;text-align:right">合計</td>
+          <td style="border:1px solid #999;padding:4px 5px;text-align:right">${totalAmount.toLocaleString('ja-JP')}</td>
+          <td style="border:1px solid #999;padding:4px 5px"></td>
+        </tr>
+      </tbody>
     </table>`;
   };
 
