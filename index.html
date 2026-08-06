@@ -8165,6 +8165,17 @@ async function askVoucherPaymentInfo(guideId, guideName){
     try{
       const res = await guideBankAccountsApiCall('listByField', { field:'guide_id', value: guideId });
       accounts = (res && res.rows) || [];
+      // 過去の一括取込の二重実行等でguide_bank_accountsに同一内容の行が複数あると、
+      // プルダウンに同じ口座が重複して並んでしまうため、5項目(銀行名/支店名/種別/
+      // 番号/名義)がすべて一致する行は1件に集約する。
+      const seenKeys = new Set();
+      accounts = accounts.filter(a=>{
+        const key = ['bank_name','branch_name','account_type','account_number','account_holder_name']
+          .map(f=>String(a[f]||'').normalize('NFKC').trim()).join('|');
+        if(seenKeys.has(key)) return false;
+        seenKeys.add(key);
+        return true;
+      });
     }catch(e){ logError('ガイド口座情報の取得', e, {toast:false}); }
     // guide_bank_accounts(構造化テーブル)にデータが無い場合は、実運用で口座情報が
     // 入力されているguides.bank_info(フリーテキスト)にフォールバックする。フリー
