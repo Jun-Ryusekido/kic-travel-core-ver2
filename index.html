@@ -20542,14 +20542,16 @@ function _buildVoucherHtml(restaurants, tourName, guideName, guidePhone){
     // 位置がずれ、印刷範囲外にはみ出す不具合があった。hlineと同じ右端(10.410mm+
     // 115.815mm=126.225mm)に合わせ、left+width+text-align:rightで右寄せすることで
     // right基準を使わずに同じ見た目を実現する。
-    const spareLabel  = isSpare ? `<div style="position:absolute; top:2.200mm; left:10.410mm; width:115.815mm; text-align:right; font-size:3.200mm; color:#888; font-weight:700; letter-spacing:0.5mm;">予備</div>` : '';
+    // 「予備」の文字表示は行わない(以前は右上にラベル表示していたが、印刷時に見切れる
+    // 問題があり削除した)。
 
-    // datebox/timeboxは利用日・予約時刻を表示する意味のある枠だが、値が空の場合、枠線
-    // (border)だけが残り正体不明な小さな空欄ボックスに見えてしまう(予備バウチャーで日付・
-    // 時刻を意図的に空にした場合だけでなく、reservation_timeが未入力の実データ行でも同様に
-    // 発生する)。値が無いときは枠自体を出力しないようにする(データ列自体は削除しない。
-    // 値が入っていれば従来通り表示される)。
-    const dateboxHtml = dateDisp ? `<div class="datebox">${eh(dateDisp)}</div>` : '';
+    // datebox: 通常バウチャー(実データあり)はこれまで通りラベルなしで値のみを表示する。
+    // 予備バウチャー(isSpare=true、値が空)のときだけ「日にち：」ラベル+空欄を表示し、
+    // 現地で手書きする場所が分かるようにする(枠線だけの正体不明な空欄にはしない)。
+    // timeboxは今回の対応対象外(値が空の場合は従来通り欄自体を出力しない)。
+    const dateboxHtml = isSpare
+      ? `<div class="datebox">日にち：${eh(dateDisp)}</div>`
+      : (dateDisp ? `<div class="datebox">${eh(dateDisp)}</div>` : '');
     const timeboxHtml = timeDisp ? `<div class="timebox">${eh(timeDisp)}</div>` : '';
     // refbox(ツアーコード)は予備バウチャーでは印字しない。予備は特定のツアーに紐付かず
     // 現地で自由に手書き対応するための汎用フォームであるべきため(印字されると
@@ -20557,7 +20559,6 @@ function _buildVoucherHtml(restaurants, tourName, guideName, guidePhone){
     const refboxHtml = isSpare ? '' : `<div class="refbox">${eh(tourName)}</div>`;
 
     return `<div class="block">
-      ${spareLabel}
       <img class="logo" src="${logoUrl}" style="left:10.410mm;">
       <div class="title">MEAL VOUCHER</div>
       ${refboxHtml}
