@@ -20201,19 +20201,10 @@ async function generateMealVoucher(){
       restaurant_name_en: sup ? (sup.company_name_en||'') : '',
     };
   });
-  // 印刷物一式の最後のページに余白が残る場合のみ、現地での手書き対応用の予備バウチャーで
-  // そのページを埋める(店名・日付・ガイド名等の明細は空欄、レイアウトは他と同じ)。
-  // MEAL_VOUCHER_PAGE_SIZEは_buildVoucherHtml側のページ割り付け(1ページに何組入るか)と
-  // 揃える必要がある(値が食い違うと、最後のページの余白計算がずれる)。
-  const spareCountToFillLastPage = restaurants.length % MEAL_VOUCHER_PAGE_SIZE === 0
-    ? 0
-    : MEAL_VOUCHER_PAGE_SIZE - (restaurants.length % MEAL_VOUCHER_PAGE_SIZE);
-  for(let i=0;i<spareCountToFillLastPage;i++){
-    restaurants.push({
-      restaurant_name:'', restaurant_name_en:'', meal_type:'', date:'', reservation_time:'',
-      guide_id:null, guide_name_freetext:'', payment_method:'', memo:'', _isSpare:true,
-    });
-  }
+  // 印刷物一式の最後のページに余白が残る場合、現地での手書き対応用の予備バウチャーで
+  // そのページを1枚単位で埋める(店名・日付・ガイド名等の明細は空欄、レイアウトは他と同じ)。
+  // 枚数の計算・追加自体は_buildVoucherHtml側で行う(KIC控え/レストラン控えの2枚1組単位
+  // ではなく、1枚単位で過不足なく埋める必要があるため)。
   const html = _buildVoucherHtml(restaurants, tourLabel, guideName, guidePhone);
   const win = window.open('','_blank');
   if(!win){ alert('ポップアップがブロックされました。ブラウザの設定を確認してください。'); return; }
@@ -20533,18 +20524,36 @@ function _buildVoucherHtml(restaurants, tourName, guideName, guidePhone){
     </div>`;
   }
 
-  // MEAL_VOUCHER_PAGE_SIZE件ずつページに分割（テンプレートは1ページに4ブロック=2件×控え2種）
+  // 実データ1件につきKIC控え・レストラン控えの2ブロックを、常に同じ行の左右に並べて生成する
+  // (この2枚1組はページをまたいだり分離したりしない)。
+  const realBlocks = [];
+  restaurants.forEach(r=>{ realBlocks.push({r, isKic:true}); realBlocks.push({r, isKic:false}); });
+
+  // 最後のページに余白が残る場合、現地での手書き対応用の予備バウチャーを1枚単位で
+  // 過不足なく敷き詰める(2枚1組にこだわらない。残り1枚なら1枚だけ追加する)。
+  // ページがちょうど実データで埋まっている(余白0)場合でも、必ず最低1枚は追加する。
+  const BLOCKS_PER_PAGE = MEAL_VOUCHER_PAGE_SIZE * 2; // 1ページ4ブロック
+  const remainder = realBlocks.length % BLOCKS_PER_PAGE;
+  let spareBlocksNeeded = (BLOCKS_PER_PAGE - remainder) % BLOCKS_PER_PAGE;
+  if(spareBlocksNeeded === 0) spareBlocksNeeded = 1;
+  for(let i=0;i<spareBlocksNeeded;i++){
+    realBlocks.push({
+      r: { restaurant_name:'', restaurant_name_en:'', meal_type:'', date:'', reservation_time:'',
+           guide_id:null, guide_name_freetext:'', payment_method:'', memo:'', _isSpare:true },
+      isKic: realBlocks.length % 2 === 0,
+    });
+  }
+
   const pages = [];
-  for(let i=0; i<restaurants.length; i+=MEAL_VOUCHER_PAGE_SIZE) pages.push(restaurants.slice(i,i+MEAL_VOUCHER_PAGE_SIZE));
+  for(let i=0; i<realBlocks.length; i+=BLOCKS_PER_PAGE) pages.push(realBlocks.slice(i,i+BLOCKS_PER_PAGE));
 
   const pageHtml = pages.map((pg, pi)=>{
-    const r1 = pg[0];
-    const r2 = pg[1]||null;
+    const slots = [pg[0]||null, pg[1]||null, pg[2]||null, pg[3]||null];
     return `${pi>0?'<div style="page-break-before:always"></div>':''}<div class="page">
-  <div style="position:absolute; top:0; left:0;">${buildBlock(r1,true)}</div>
-  <div style="position:absolute; top:0; left:136.635mm;">${buildBlock(r1,false)}</div>
-  <div style="position:absolute; top:193.242mm; left:0;">${r2?buildBlock(r2,true):''}</div>
-  <div style="position:absolute; top:193.242mm; left:136.635mm;">${r2?buildBlock(r2,false):''}</div>
+  <div style="position:absolute; top:0; left:0;">${slots[0]?buildBlock(slots[0].r, slots[0].isKic):''}</div>
+  <div style="position:absolute; top:0; left:136.635mm;">${slots[1]?buildBlock(slots[1].r, slots[1].isKic):''}</div>
+  <div style="position:absolute; top:193.242mm; left:0;">${slots[2]?buildBlock(slots[2].r, slots[2].isKic):''}</div>
+  <div style="position:absolute; top:193.242mm; left:136.635mm;">${slots[3]?buildBlock(slots[3].r, slots[3].isKic):''}</div>
   <div class="divider-v"></div>
   <div class="divider-h"></div>
 </div>`;
