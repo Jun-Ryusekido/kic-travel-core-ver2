@@ -6539,6 +6539,11 @@ async function openBookingDetail(id){
     if(_stale()) return;
     if(!data) return;
     b = data;
+    // allBookingsCacheに未反映(新規保存直後にリストを再読み込みせず開いた場合等)だと、
+    // この画面自体は直接取得したbで表示できても、findBookingById(currentDetailId)を
+    // 使う他機能(ミールバウチャーのツアー名差し込み等)がbookingを見つけられず、
+    // 空データ扱いになってしまう不具合があった。ここで反映しておく。
+    allBookingsCache.push(b);
   }
   currentDetailId = id;
   bdCurrentRefNo = b.ref_no;
