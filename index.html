@@ -20487,6 +20487,25 @@ function _buildVoucherHtml(restaurants, tourName, guideName, guidePhone){
   // そもそもバウチャー発行対象から除外済みのため、混在の心配はない。
   const commonPaymentMethod = (restaurants.find(r=>!r._isSpare)||{}).payment_method || '請求書払い';
 
+  // 予備バウチャーの「ガイド」欄に印字する値。ガイド名は行(レストラン明細)ごとに
+  // その日付の担当ガイド(guide_id/guide_name_freetext、matchGuidesForDateで確定済み)
+  // から実際に決まっており、これがガイド名の本当のデータソース。関数引数の
+  // guideName/guidePhone(バウチャー発行モーダルの「ガイド名」欄の入力値)は、この
+  // モーダルを経由しない/未入力のまま生成した場合は空のことが多く、それだけを
+  // 参照すると予備バウチャーのガイド欄が空欄のままになってしまっていた。実データの
+  // 各行を順に見て、最初にガイドが解決できた行と同じ表示(guideText相当)を使う。
+  let commonGuideName = '', commonGuidePhone = '';
+  for(const r of restaurants){
+    if(r._isSpare) continue;
+    if(r.guide_id){
+      const g = guideRegistryCache.find(x=>String(x.id)===String(r.guide_id));
+      if(g && g.name){ commonGuideName = g.name||''; commonGuidePhone = g.phone||''; break; }
+    } else if(r.guide_name_freetext){
+      commonGuideName = r.guide_name_freetext; break;
+    }
+  }
+  if(!commonGuideName){ commonGuideName = guideName||''; commonGuidePhone = guidePhone||''; }
+
   function buildBlock(r, isKic){
     const isSpare     = !!r._isSpare;
     const mealChar    = isSpare ? '' : ({'朝食':'B','昼食':'L','夕食':'D'}[r.meal_type]||'');
@@ -20502,7 +20521,7 @@ function _buildVoucherHtml(restaurants, tourName, guideName, guidePhone){
     // をそのまま印字する(店名・日付等のレストラン固有項目のみ空欄のままにする)。
     let rowGuideName = '', rowGuidePhone = '';
     if(isSpare){
-      rowGuideName = guideName||''; rowGuidePhone = guidePhone||'';
+      rowGuideName = commonGuideName; rowGuidePhone = commonGuidePhone;
     } else if(r.guide_id){
       const g = guideRegistryCache.find(x=>String(x.id)===String(r.guide_id));
       if(g){ rowGuideName = g.name||''; rowGuidePhone = g.phone||''; }
