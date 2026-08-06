@@ -20043,6 +20043,10 @@ function addHotelBookingRow(){
 }
 
 // ===== ミールバウチャー発行 =====
+// 1ページに収まるレストラン明細の件数(テンプレートは1ページ4ブロック=2件×控え2種のレイアウト)。
+// generateMealVoucher()の予備バウチャー枚数計算と_buildVoucherHtml()のページ割り付けの
+// 両方で参照し、値がずれないようにする。
+const MEAL_VOUCHER_PAGE_SIZE = 2;
 // レストラン行ごとの「ガイド」欄は廃止し、ミールバウチャー発行時にその行の日付が
 // ガイドタブ(bdGuideItems=booking_guides)の担当日(From〜To)の範囲に含まれるガイドを
 // 自動的に引用する。該当0人なら空欄、1人なら自動採用、複数人いる場合のみ
@@ -20197,12 +20201,19 @@ async function generateMealVoucher(){
       restaurant_name_en: sup ? (sup.company_name_en||'') : '',
     };
   });
-  // 印刷物一式の最後に、現地での手書き対応用の予備バウチャーを1枚追加する
-  // (店名・日付・ガイド名等の明細は空欄、レイアウトは他と同じ)。
-  restaurants.push({
-    restaurant_name:'', restaurant_name_en:'', meal_type:'', date:'', reservation_time:'',
-    guide_id:null, guide_name_freetext:'', payment_method:'', memo:'', _isSpare:true,
-  });
+  // 印刷物一式の最後のページに余白が残る場合のみ、現地での手書き対応用の予備バウチャーで
+  // そのページを埋める(店名・日付・ガイド名等の明細は空欄、レイアウトは他と同じ)。
+  // MEAL_VOUCHER_PAGE_SIZEは_buildVoucherHtml側のページ割り付け(1ページに何組入るか)と
+  // 揃える必要がある(値が食い違うと、最後のページの余白計算がずれる)。
+  const spareCountToFillLastPage = restaurants.length % MEAL_VOUCHER_PAGE_SIZE === 0
+    ? 0
+    : MEAL_VOUCHER_PAGE_SIZE - (restaurants.length % MEAL_VOUCHER_PAGE_SIZE);
+  for(let i=0;i<spareCountToFillLastPage;i++){
+    restaurants.push({
+      restaurant_name:'', restaurant_name_en:'', meal_type:'', date:'', reservation_time:'',
+      guide_id:null, guide_name_freetext:'', payment_method:'', memo:'', _isSpare:true,
+    });
+  }
   const html = _buildVoucherHtml(restaurants, tourLabel, guideName, guidePhone);
   const win = window.open('','_blank');
   if(!win){ alert('ポップアップがブロックされました。ブラウザの設定を確認してください。'); return; }
@@ -20514,9 +20525,9 @@ function _buildVoucherHtml(restaurants, tourName, guideName, guidePhone){
     </div>`;
   }
 
-  // 2件ずつページに分割（テンプレートは1ページに4ブロック=2件×控え2種）
+  // MEAL_VOUCHER_PAGE_SIZE件ずつページに分割（テンプレートは1ページに4ブロック=2件×控え2種）
   const pages = [];
-  for(let i=0; i<restaurants.length; i+=2) pages.push(restaurants.slice(i,i+2));
+  for(let i=0; i<restaurants.length; i+=MEAL_VOUCHER_PAGE_SIZE) pages.push(restaurants.slice(i,i+MEAL_VOUCHER_PAGE_SIZE));
 
   const pageHtml = pages.map((pg, pi)=>{
     const r1 = pg[0];
