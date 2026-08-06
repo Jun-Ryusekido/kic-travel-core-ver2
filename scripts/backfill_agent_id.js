@@ -149,10 +149,12 @@ async function processTable(table, agentNormMap, agentNormCollisions){
 async function main(){
   console.log(DRY_RUN ? '=== ドライランモード(--yesなし。UPDATEは行いません) ===' : '=== 本実行モード(--yes指定。実際にUPDATEします) ===');
 
-  const agents = await sbSelectAll('agents', 'id,company_name');
+  const agents = await sbSelectAll('agents', 'id,company_name,is_deleted');
   const agentNormMap = new Map();
   const agentNormCollisions = new Map();
-  agents.forEach(a => {
+  // is_deleted=trueの行(論理削除済み、重複統合の吸収先ではない方)は除外する。
+  // is_deletedが無い/NULLの旧データは「削除されていない」扱いにする。
+  agents.filter(a => !a.is_deleted).forEach(a => {
     const key = normalizeAgentName(a.company_name);
     if(!key) return;
     if(agentNormMap.has(key)){

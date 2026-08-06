@@ -75,7 +75,7 @@ function toCsvRow(fields){
 
 async function main(){
   const [agents, bookings, salesRows, invoiceRows] = await Promise.all([
-    sbSelectAll('agents', 'id,company_name'),
+    sbSelectAll('agents', 'id,company_name,is_deleted'),
     sbSelectAll('bookings', 'id,agent_name'),
     sbSelectAll('booking_sales', 'id,agent_name'),
     sbSelectAll('invoices', 'id,agent_name'),
@@ -87,7 +87,10 @@ async function main(){
   // 避けるため)。
   const agentNormMap = new Map(); // normKey -> {id, company_name}
   const agentNormCollisions = new Map(); // normKey -> [company_name...]
-  agents.forEach(a => {
+  // is_deleted=trueの行(論理削除済み、重複統合の吸収先ではない方)は除外する。
+  // is_deletedが無い/NULLの旧データは「削除されていない」扱いにする(業務系の
+  // 論理削除フラグ全般で使っている!is_deleted判定と同じ考え方、F4/F15と同様)。
+  agents.filter(a => !a.is_deleted).forEach(a => {
     const key = normalizeAgentName(a.company_name);
     if(!key) return;
     if(agentNormMap.has(key)){
