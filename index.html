@@ -20481,6 +20481,12 @@ function _buildVoucherHtml(restaurants, tourName, guideName, guidePhone){
     return `${box}${mark} <span style="position:relative; top:0.195mm;">${letter}</span>`;
   }
 
+  // 予備バウチャーの「支払方法」欄に印字する値。支払方法はレストランごとの明細ではなく
+  // このバウチャー一式(=このツアー)共通の情報として扱い、実データの最初の行と同じ値
+  // (未入力なら他の行と同じ既定値の請求書払い)を使う。現地払い(現金払い)の手配は
+  // そもそもバウチャー発行対象から除外済みのため、混在の心配はない。
+  const commonPaymentMethod = (restaurants.find(r=>!r._isSpare)||{}).payment_method || '請求書払い';
+
   function buildBlock(r, isKic){
     const isSpare     = !!r._isSpare;
     const mealChar    = isSpare ? '' : ({'朝食':'B','昼食':'L','夕食':'D'}[r.meal_type]||'');
@@ -20490,17 +20496,21 @@ function _buildVoucherHtml(restaurants, tourName, guideName, guidePhone){
     // 行(レストラン明細)のガイド名は、その日付にbooking_guidesで担当予定のガイドから
     // generateMealVoucher()側で既に確定済み(guide_id/guide_name_freetext)。該当ガイドが
     // いない行は空欄のままにする(予約全体のガイドへのフォールバックは行わない)。
+    // 予備バウチャーは特定の日付を持たないため行単位のガイド判定はできないが、ガイド名・
+    // 支払方法はレストランごとに変わる情報ではなく、このツアー全体で1つに決まっている
+    // 情報のため、空欄にはせず実データ(モーダルの「ガイド名」欄の入力値・共通の支払方法)
+    // をそのまま印字する(店名・日付等のレストラン固有項目のみ空欄のままにする)。
     let rowGuideName = '', rowGuidePhone = '';
-    if(!isSpare){
-      if(r.guide_id){
-        const g = guideRegistryCache.find(x=>String(x.id)===String(r.guide_id));
-        if(g){ rowGuideName = g.name||''; rowGuidePhone = g.phone||''; }
-      } else if(r.guide_name_freetext){
-        rowGuideName = r.guide_name_freetext;
-      }
+    if(isSpare){
+      rowGuideName = guideName||''; rowGuidePhone = guidePhone||'';
+    } else if(r.guide_id){
+      const g = guideRegistryCache.find(x=>String(x.id)===String(r.guide_id));
+      if(g){ rowGuideName = g.name||''; rowGuidePhone = g.phone||''; }
+    } else if(r.guide_name_freetext){
+      rowGuideName = r.guide_name_freetext;
     }
     const guideText   = [eh(rowGuideName), eh(rowGuidePhone)].filter(Boolean).join(' ');
-    const payText     = isSpare ? '' : eh(r.payment_method||'請求書払い');
+    const payText     = isSpare ? eh(commonPaymentMethod) : eh(r.payment_method||'請求書払い');
     const memoText    = isSpare ? '' : eh(r.memo||'');
     const nameJp      = isSpare ? '' : eh(r.restaurant_name||'');
     const nameEn      = isSpare ? '' : eh(r.restaurant_name_en||'');
