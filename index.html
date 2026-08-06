@@ -8042,11 +8042,11 @@ function buildGuideSettlementPrintHtml(s, b, guideIndex){
 
   return `
     <div style="background:#fff;border:1px solid #ddd;width:100%;margin:0 auto;padding:14px;font-size:11px;color:#222;box-sizing:border-box">
-      <div style="text-align:center;font-size:16px;font-weight:700;letter-spacing:2px;color:var(--blue);margin-bottom:10px">ガイド精算書</div>
+      <div style="text-align:center;font-size:16px;font-weight:700;letter-spacing:2px;color:var(--blue);margin-bottom:10px">ガイド精算書${b.tour_code?`<span style="font-size:14px;letter-spacing:1px;margin-left:14px">${escHtml(b.tour_code)}</span>`:''}</div>
       <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:10px">
         <tr>
           <td style="padding:3px 6px;width:90px;color:#666">TOUR CODE：</td>
-          <td style="padding:3px 6px" colspan="3">${escHtml(bkTourLabel(b))}</td>
+          <td style="padding:3px 6px" colspan="3">${escHtml(b.tour_name||'')}</td>
         </tr>
         <tr>
           <td style="padding:3px 6px;color:#666">日にち：</td>
@@ -8441,13 +8441,10 @@ win.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><style>@pag
     </table>`;
   };
 
-  const headerHtml = `<div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:6px">
-      <div>
-        <div style="font-size:15pt;font-weight:700;letter-spacing:0.05em">仮払い一覧表</div>
-        <div style="font-size:9pt;margin-top:2px">${escHtml(b.ref_no||'')}　${escHtml(b.tour_name||'')}</div>
-      </div>
+  const headerHtml = `<div style="text-align:center;font-size:15pt;font-weight:700;letter-spacing:0.05em;margin-bottom:4px">仮払い一覧表${b.tour_code?`<span style="font-size:13pt;letter-spacing:0.5px;margin-left:14px">${escHtml(b.tour_code)}</span>`:''}</div>
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:6px">
+      <div style="font-size:9pt">${escHtml(b.ref_no||'')}　${escHtml(b.tour_name||'')}</div>
       <div style="font-size:9pt;text-align:right;line-height:1.6">
-        ${b.tour_code?`<div style="font-size:13pt;font-weight:700;letter-spacing:0.5px">${escHtml(b.tour_code)}</div>`:''}
         ${guideStr?`<div>ガイド：${escHtml(guideStr)}</div>`:''}
         <div>${Number(b.pax||0)}名　${b.in_date||''}${b.out_date?' ～ '+b.out_date:''}</div>
         <div>出力：${dateStr}</div>
