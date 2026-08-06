@@ -23365,9 +23365,27 @@ function setDateInputValue(el, d){
         </div>
         <div class="pt-field-group" style="grid-column:1/-1">
           <div class="form-grid" style="grid-template-columns:repeat(2,1fr)">
-            <div class="form-field"><label>担当者直通・携帯番号</label><input id="pt-phone" placeholder="例: 090-1234-5678"><label style="font-weight:normal;font-size:11px;margin-top:4px"><input type="checkbox" id="pt-show-contact-phone"> 手配一覧表に表示</label></div>
-            <div class="form-field"><label>部署直通番号</label><input id="pt-department-phone" placeholder="例: 078-123-4500"><label style="font-weight:normal;font-size:11px;margin-top:4px"><input type="checkbox" id="pt-show-department-phone"> 手配一覧表に表示</label></div>
-            <div class="form-field"><label>会社代表番号</label><input id="pt-company-phone" placeholder="例: 078-123-4567"><label style="font-weight:normal;font-size:11px;margin-top:4px"><input type="checkbox" id="pt-show-company-phone"> 手配一覧表に表示</label></div>
+            <div class="form-field">
+              <label>担当者直通・携帯番号</label>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <input id="pt-phone" placeholder="例: 090-1234-5678" style="max-width:130px;flex:0 0 auto">
+                <label style="font-weight:normal;font-size:11px;display:flex;align-items:center;gap:4px;white-space:nowrap;color:var(--text2)"><input type="checkbox" id="pt-show-contact-phone">手配一覧表に表示</label>
+              </div>
+            </div>
+            <div class="form-field">
+              <label>部署直通番号</label>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <input id="pt-department-phone" placeholder="例: 078-123-4500" style="max-width:130px;flex:0 0 auto">
+                <label style="font-weight:normal;font-size:11px;display:flex;align-items:center;gap:4px;white-space:nowrap;color:var(--text2)"><input type="checkbox" id="pt-show-department-phone">手配一覧表に表示</label>
+              </div>
+            </div>
+            <div class="form-field">
+              <label>会社代表番号</label>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <input id="pt-company-phone" placeholder="例: 078-123-4567" style="max-width:130px;flex:0 0 auto">
+                <label style="font-weight:normal;font-size:11px;display:flex;align-items:center;gap:4px;white-space:nowrap;color:var(--text2)"><input type="checkbox" id="pt-show-company-phone">手配一覧表に表示</label>
+              </div>
+            </div>
             <div class="form-field"><label>FAX番号</label><input id="pt-fax" placeholder="例: 078-123-4568"></div>
             <div class="form-field"><label>メール</label><input id="pt-email" placeholder="例: tanaka@example.com"></div>
           </div>
