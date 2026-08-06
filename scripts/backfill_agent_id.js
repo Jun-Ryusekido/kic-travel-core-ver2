@@ -44,8 +44,19 @@ async function sbFetch(table, qs, opts={}){
       ...(opts.headers||{}),
     },
   });
-  if(!res.ok) throw new Error(`${table} ${opts.method||'GET'} failed: ${res.status} ${await res.text()}`);
-  return res.json();
+  const text = await res.text();
+  if(!res.ok) throw new Error(`${table} ${opts.method||'GET'} failed: ${res.status} ${text}`);
+  // Prefer: return=minimal(PATCH等)の場合、成功時はSupabase側がレスポンスボディを
+  // 空にする(204 No Content、またはcontent-length 0)。空ボディへres.json()を呼ぶと
+  // 「Unexpected end of JSON input」で例外になり、DB更新自体は成功しているのに
+  // スクリプトだけが異常終了してしまっていた(本番実行で1003件中12件のみ更新後に
+  // 停止した不具合の原因)。空ボディはnullを返し、それ以外だけJSON.parseする。
+  if(!text) return null;
+  try{
+    return JSON.parse(text);
+  }catch(e){
+    throw new Error(`${table} ${opts.method||'GET'} : レスポンスがJSONとして解析できません: ${text.slice(0,200)}`);
+  }
 }
 async function sbSelectAll(table, select){
   let all = [], from = 0; const PAGE = 1000;
@@ -117,17 +128,37 @@ async function processTable(table, agentNormMap, agentNormCollisions){
   const byAgent = new Map();
   targets.forEach(t => { if(!byAgent.has(t.agentId)) byAgent.set(t.agentId, []); byAgent.get(t.agentId).push(t.id); });
 
+  // 1チャンクの失敗で全体を止めない(1件のエラーで残り全部が未処理になっていた不具合の
+  // 修正)。失敗したチャンクのidは全てfailedIdsに集約し、最後にまとめて報告する。
   let updated = 0;
+  const failedChunks = []; // {agentId, ids, error}
+  const totalChunks = [...byAgent.values()].reduce((s,ids)=>s+Math.ceil(ids.length/200), 0);
+  let chunkNo = 0;
   for(const [agentId, ids] of byAgent){
     // URL長対策で200件ずつチャンク化(他スクリプトのPATCH URL長エラー対応と同じ方式)。
     for(let i=0; i<ids.length; i+=200){
       const chunk = ids.slice(i, i+200);
-      await sbFetch(table, `?id=in.(${chunk.join(',')})`, {
-        method: 'PATCH', prefer: 'return=minimal',
-        body: JSON.stringify({ agent_id: agentId }),
-      });
-      updated += chunk.length;
+      chunkNo++;
+      console.log(`  [${chunkNo}/${totalChunks}] agent_id=${agentId} の${chunk.length}件を更新中... (id先頭: ${chunk[0]})`);
+      try{
+        await sbFetch(table, `?id=in.(${chunk.join(',')})`, {
+          method: 'PATCH', prefer: 'return=minimal',
+          body: JSON.stringify({ agent_id: agentId }),
+        });
+        updated += chunk.length;
+      }catch(e){
+        console.error(`  [${chunkNo}/${totalChunks}] ✗ 失敗: ${e.message}`);
+        failedChunks.push({ agentId, ids: chunk, error: e.message });
+      }
     }
+  }
+
+  if(failedChunks.length){
+    console.warn(`\n  ⚠ ${failedChunks.length}チャンク(合計${failedChunks.reduce((s,c)=>s+c.ids.length,0)}件)の更新に失敗しました:`);
+    console.table(failedChunks.map(c=>({agent_id:c.agentId, 件数:c.ids.length, 先頭id:c.ids[0], エラー:c.error})));
+    const failLogPath = path.join(backupDir, `agent_id_backfill_failed_${table}_${ts}.json`);
+    fs.writeFileSync(failLogPath, JSON.stringify(failedChunks, null, 2));
+    console.warn(`  失敗チャンクの詳細を保存しました: ${failLogPath}`);
   }
 
   // 検証: 実際にagent_idが設定されたか再取得して突き合わせる。
@@ -136,14 +167,14 @@ async function processTable(table, agentNormMap, agentNormCollisions){
   for(let i=0; i<verifyIds.length; i+=200){
     const chunk = verifyIds.slice(i, i+200);
     const data = await sbFetch(table, `?id=in.(${chunk.join(',')})&select=id,agent_id`);
-    verifiedCount += data.filter(r=>r.agent_id).length;
+    verifiedCount += (data||[]).filter(r=>r.agent_id).length;
   }
   if(verifiedCount !== targets.length){
     console.warn(`  ⚠ 検証不一致: 更新対象${targets.length}件のうちagent_id設定確認できたのは${verifiedCount}件です。手動確認してください。`);
   }else{
     console.log(`  更新完了・検証OK: ${updated}件`);
   }
-  return { table, updated, target: targets.length };
+  return { table, updated, target: targets.length, failed: failedChunks.reduce((s,c)=>s+c.ids.length,0) };
 }
 
 async function main(){
