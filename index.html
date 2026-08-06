@@ -17736,6 +17736,16 @@ async function processCcStatementFile(file, mode){
         memo, raw_ocr_text: cleaned
       };
     });
+    // カード利用日は性質上、読み取り実行時点(本日)より未来になることは業務上あり得ない。
+    // AIプロンプト側にも未来日付の自己チェックを指示しているが、万一AIが和暦の年・月を
+    // 取り違えたまま自信を持って未来日付を返してしまった場合に備え、クライアント側でも
+    // 厳格に(1日でも未来なら)判定する。一意に確定できる自動修正手段が無いため、自動で
+    // 日付を書き換えることはせず、必ず運用者の目視確認に委ねる(赤字強調+専用の警告文)。
+    const todayJstStr = new Date().toLocaleDateString('sv-SE', {timeZone:'Asia/Tokyo'});
+    ccExtracted.forEach(p=>{
+      p.future_date_warning = !!(p.transaction_date && p.transaction_date > todayJstStr);
+      if(p.future_date_warning) p.needs_review = true;
+    });
     // 重複アップロード検知(同一名義人+同一利用日+同一店舗名+同一金額の明細が既に保存済みか)。
     // 保存は止めず、OCR確認画面側で行ごとに⚠️バッジを出すための判定のみ行う。
     const cardHolderNow = (document.getElementById('cc-card-holder')?.value||'').trim();
@@ -17763,9 +17773,9 @@ async function processCcStatementFile(file, mode){
 function renderCcExtractedResults(){
   const el = document.getElementById('cc-ocr-results');
   if(!el || ccExtracted.length===0){ if(el) el.innerHTML=''; return; }
-  const rows = ccExtracted.map((p,i)=>`<tr${p.needs_review?' style="background:var(--amber-lt,#FAEEDA)"':''}>
+  const rows = ccExtracted.map((p,i)=>`<tr${p.future_date_warning?' style="background:var(--red-lt,#FBE7E7)"':(p.needs_review?' style="background:var(--amber-lt,#FAEEDA)"':'')}>
     <td data-label=""><input type="checkbox" id="cc-ext-chk-${i}" checked></td>
-    <td data-label="利用日"><input type="date" min="1900-01-01" max="9999-12-31" id="cc-ext-date-${i}" value="${_safeDate(p.transaction_date)}" style="width:100%;box-sizing:border-box${p.needs_review?';border-color:var(--amber,#854F0B)':''}" onchange="this.blur()">${p.needs_review?`<div style="font-size:9px;color:var(--amber,#854F0B);margin-top:2px">⚠ 要確認${p.date_raw?`（読取: ${escHtml(p.date_raw)}）`:''}</div>`:''}${(!p.needs_review && p.year_supplemented)?`<div style="font-size:9px;color:var(--text3);margin-top:2px" title="他の行から判明した年で自動補完しました${p.date_raw?`（読取: ${escHtml(p.date_raw)}）`:''}">ℹ 年を補完</div>`:''}${p.possibleDuplicate?`<div style="font-size:9px;color:var(--amber,#854F0B);margin-top:2px">⚠ 重複の疑い（同一内容が登録済み）</div>`:''}</td>
+    <td data-label="利用日"><input type="date" min="1900-01-01" max="9999-12-31" id="cc-ext-date-${i}" value="${_safeDate(p.transaction_date)}" style="width:100%;box-sizing:border-box${p.future_date_warning?';border-color:var(--red,#B42318)':(p.needs_review?';border-color:var(--amber,#854F0B)':'')}" onchange="this.blur()">${p.future_date_warning?`<div style="font-size:9px;color:var(--red,#B42318);font-weight:700;margin-top:2px">⚠ 日付が未来のため要確認${p.date_raw?`（読取: ${escHtml(p.date_raw)}）`:''}</div>`:(p.needs_review?`<div style="font-size:9px;color:var(--amber,#854F0B);margin-top:2px">⚠ 要確認${p.date_raw?`（読取: ${escHtml(p.date_raw)}）`:''}</div>`:'')}${(!p.needs_review && p.year_supplemented)?`<div style="font-size:9px;color:var(--text3);margin-top:2px" title="他の行から判明した年で自動補完しました${p.date_raw?`（読取: ${escHtml(p.date_raw)}）`:''}">ℹ 年を補完</div>`:''}${p.possibleDuplicate?`<div style="font-size:9px;color:var(--amber,#854F0B);margin-top:2px">⚠ 重複の疑い（同一内容が登録済み）</div>`:''}</td>
     <td data-label="店舗名"><input type="text" id="cc-ext-merchant-${i}" value="${escAttr(p.merchant_name)}" style="width:100%;box-sizing:border-box" onchange="this.blur()"></td>
     <td data-label="金額" style="text-align:right"><input type="number" id="cc-ext-amount-${i}" value="${p.amount}" style="width:100%;text-align:right;box-sizing:border-box" onchange="this.blur()"></td>
     <td data-label="手書きコード"><input type="text" id="cc-ext-hint-${i}" value="${escAttr(p.hint_tour_code)}" placeholder="例: 851_KK" style="width:100%;box-sizing:border-box" onchange="this.blur()"></td>
