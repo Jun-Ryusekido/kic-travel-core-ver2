@@ -1114,7 +1114,10 @@ input[type=number]{-moz-appearance:textfield}
                 <button class="btn" type="button" onclick="autoGenRef()" style="white-space:nowrap">自動採番</button>
               </div>
             </div>
-            <div class="form-field"><label>Agent / Group</label><input id="nb-agent" placeholder="e.g. Kesari Tours Pvt. Ltd."></div>
+            <div class="form-field" style="position:relative"><label>Agent / Group</label><input id="nb-agent" placeholder="e.g. Kesari Tours Pvt. Ltd." autocomplete="off"
+                 oninput="filterAgentSuggest('nb')" onfocus="showAgentSuggest('nb')" onblur="setTimeout(()=>hideAgentSuggest('nb'),200)">
+              <div id="nb-agent-dd" style="display:none;position:fixed;background:var(--card,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:99999;max-height:220px;overflow-y:auto"></div>
+            </div>
             <div class="form-field"><label>Tour Code</label><input id="nb-tour-code" placeholder="e.g. KIC0967_TC"></div>
             <div class="form-field"><label>Tour Name</label><input id="nb-tour" placeholder="e.g. Kyoto Classic 5D"></div>
             <div class="form-field" style="grid-column:1/-1">
@@ -2169,7 +2172,10 @@ input[type=number]{-moz-appearance:textfield}
         <div class="bd-basicinfo-wrap" style="position:relative;min-height:188px">
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start">
             <div class="form-field" style="flex:0 0 70px"><label>REF#</label><input id="bd-ref-input" disabled style="width:100%;box-sizing:border-box"></div>
-            <div class="form-field" style="flex:0 0 220px"><label>Agent</label><input id="bd-agent" style="width:100%;box-sizing:border-box"></div>
+            <div class="form-field" style="flex:0 0 220px;position:relative"><label>Agent</label><input id="bd-agent" style="width:100%;box-sizing:border-box" autocomplete="off"
+                 oninput="filterAgentSuggest('bd')" onfocus="showAgentSuggest('bd')" onblur="setTimeout(()=>hideAgentSuggest('bd'),200)">
+              <div id="bd-agent-dd" style="display:none;position:fixed;background:var(--card,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:99999;max-height:220px;overflow-y:auto"></div>
+            </div>
             <div class="form-field" style="flex:0 0 130px"><label>Tour Code</label><input id="bd-tour-code" style="width:100%;box-sizing:border-box"></div>
             <div class="form-field" style="flex:0 0 205px"><label>Tour Name</label><input id="bd-tour" style="width:100%;box-sizing:border-box"></div>
           </div>
@@ -6553,6 +6559,12 @@ async function openBookingDetail(id){
   document.getElementById('bd-ref').textContent = b.ref_no;
   document.getElementById('bd-ref-input').value = b.ref_no;
   document.getElementById('bd-agent').value = b.agent_name||'';
+  // Agentオートコンプリート(F13フェーズ3): 読み込み直後は「候補から選択した状態」
+  // ではないため選択状態をリセットしつつ、保存時に「未編集ならagent_idを変更しない」
+  // 判定に使う元の値を記録しておく。
+  _agentAutocompleteSelectedId.bd = null;
+  _bdOriginalAgentName = b.agent_name||'';
+  _bdOriginalAgentId = b.agent_id||null;
   document.getElementById('bd-tour-code').value = b.tour_code||'';
   document.getElementById('bd-tour').value = b.tour_name||'';
   document.getElementById('bd-pax-adt').value = b.pax_adult||0;
@@ -15815,11 +15827,18 @@ async function saveBookingDetail(){
 
   const bookingCompareFields = buildBookingCompareFields();
   const bookingDirty = bdLoadSnapshot.booking !== JSON.stringify(bookingCompareFields);
+  // F13フェーズ3: Agent欄が読み込み時点から変更されていなければagent_idも元のまま
+  // 維持する。変更されていれば、候補選択済みならそのid、手入力(自由入力)ならnullにする
+  // (候補選択後に文字を書き換えた場合も、名前が選択時と一致しなくなるためnullになる)。
+  const agentIdForSave = (bookingCompareFields.agent_name === _bdOriginalAgentName)
+    ? _bdOriginalAgentId
+    : resolveAgentIdForSave('bd', bookingCompareFields.agent_name);
   const payload = Object.assign({}, bookingCompareFields, {
     pax: bookingCompareFields.pax_adult + bookingCompareFields.pax_child + bookingCompareFields.pax_infant,
     gross_sales: totalSales,
     gross_cost: totalCost,
     deposit_amount: bdSalesItems.reduce((s,it)=>s+(it.payments||[]).reduce((ps,p)=>ps+(Number(p.amount)||0),0),0),
+    agent_id: agentIdForSave,
     updated_at: new Date().toISOString()
   });
   // 保存ボタン押下から完了メッセージが出るまでの間、何も画面が変化せず処理中か
@@ -15854,6 +15873,10 @@ async function saveBookingDetail(){
     }
 
     if(bookingDirty) bdLoadSnapshot.booking = JSON.stringify(bookingCompareFields);
+    // 保存成功後、次回保存時の「未編集判定」の基準を今回保存した内容に合わせる。
+    _bdOriginalAgentName = bookingCompareFields.agent_name;
+    _bdOriginalAgentId = agentIdForSave;
+    _agentAutocompleteSelectedId.bd = null;
 
     // ── 差分検出 ──────────────────────────────────────────────────────────
     // 各タブについて、ロード直後に取ったスナップショット(bdLoadSnapshot.xxx)と
@@ -16068,9 +16091,13 @@ async function saveBooking(){
   const adt = Number(document.getElementById('nb-pax-adt').value)||0;
   const chd = Number(document.getElementById('nb-pax-chd').value)||0;
   const inf = Number(document.getElementById('nb-pax-inf').value)||0;
+  const agentName = document.getElementById('nb-agent').value.trim();
   const payload = {
     ref_no: ref,
-    agent_name: document.getElementById('nb-agent').value.trim(),
+    agent_name: agentName,
+    // F13フェーズ3: 候補から選択したまま(文字を書き換えずに)保存した場合のみagent_id
+    // を設定する。自由入力の場合はnullのまま(マスタへの新規登録は強制しない)。
+    agent_id: resolveAgentIdForSave('nb', agentName),
     tour_code: document.getElementById('nb-tour-code').value.trim() || null,
     tour_name: document.getElementById('nb-tour').value.trim(),
     pax: adt+chd+inf,
@@ -16093,6 +16120,7 @@ async function saveBooking(){
   // フォームクリア
   ['nb-ref','nb-agent','nb-tour-code','nb-tour','nb-pax-adt','nb-pax-chd','nb-pax-inf','nb-pax-total','nb-in','nb-out','nb-sales','nb-cost'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('nb-status').value='open';
+  _agentAutocompleteSelectedId.nb = null;
 }
 
 // ===== GROSS =====
@@ -21727,6 +21755,79 @@ async function loadAgents(){
   if(error){ document.getElementById('ag-tbody').innerHTML = `<tr><td colspan="6" class="empty">読み込みエラー: ${error.message}</td></tr>`; return; }
   agentsCache = data||[];
   filterAgents();
+}
+
+// ===== F13フェーズ3: 予約のAgent入力欄オートコンプリート(nb-agent/bd-agent共通) =====
+// 取引先マスタ管理画面を開いていなくてもagentsCacheが空のままにならないよう、
+// 初回フォーカス時に未ロードなら遅延ロードする(取引先マスタ画面のloadAgentsとは
+// 別に、ここでは一覧表示は不要なため件数取得のみの軽いクエリで済ませる)。
+let _agentSuggestLoading = null;
+async function _ensureAgentsCacheLoaded(){
+  if(agentsCache.length>0) return;
+  if(_agentSuggestLoading) return _agentSuggestLoading;
+  _agentSuggestLoading = (async()=>{
+    const {data, error} = await sb.from('agents').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('company_name');
+    if(!error) agentsCache = data||[];
+  })();
+  await _agentSuggestLoading;
+  _agentSuggestLoading = null;
+}
+
+// scope: 'nb'(New Booking作成フォーム) | 'bd'(予約詳細モーダル)。
+// selectedIdは「候補から選択した状態のまま(文字を書き換えずに)保存した場合のみ」
+// agent_idとして使う(ガイド検索サジェスト・仮払い一覧表出金伝票の宛先ガイド選択と
+// 同じ考え方=候補選択後に手入力で編集したら自由入力扱いに戻す)。
+const _agentAutocompleteSelectedId = { nb: null, bd: null };
+// bd-agentの「読み込み時点の値」。保存時にこの値と現在値が一致していれば、
+// agent_idは元のまま維持する(未編集ならagent_idも変更しない、という要件のため)。
+let _bdOriginalAgentName = '';
+let _bdOriginalAgentId = null;
+
+function _agentInputId(scope){ return scope==='nb' ? 'nb-agent' : 'bd-agent'; }
+function _agentDdId(scope){ return scope==='nb' ? 'nb-agent-dd' : 'bd-agent-dd'; }
+
+function _agentCandidates(q){
+  const query = toHalfWidth((q||'').trim().toLowerCase());
+  if(!query) return agentsCache.slice(0,50);
+  return agentsCache.filter(a=>toHalfWidth((a.company_name||'').toLowerCase()).includes(query)).slice(0,50);
+}
+
+async function showAgentSuggest(scope){
+  await _ensureAgentsCacheLoaded();
+  renderAgentDropdown(scope, document.getElementById(_agentInputId(scope)).value);
+}
+function filterAgentSuggest(scope){
+  _agentAutocompleteSelectedId[scope] = null;
+  renderAgentDropdown(scope, document.getElementById(_agentInputId(scope)).value);
+}
+function hideAgentSuggest(scope){
+  const dd = document.getElementById(_agentDdId(scope));
+  if(dd) dd.style.display = 'none';
+}
+function renderAgentDropdown(scope, q){
+  const dd = document.getElementById(_agentDdId(scope));
+  if(!dd) return;
+  const candidates = _agentCandidates(q);
+  dd.innerHTML = candidates.length
+    ? candidates.map(a=>`<div onmousedown="selectAgentCandidate('${scope}','${escAttr(String(a.id))}')" style="padding:8px 10px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''"><b>${escHtml(a.company_name)}</b></div>`).join('')
+    : `<div style="padding:8px 10px;font-size:11px;color:var(--text3)">候補なし（そのまま自由入力できます）</div>`;
+  _positionDropdownNearInput(document.getElementById(_agentInputId(scope)), dd);
+  dd.style.display = 'block';
+}
+function selectAgentCandidate(scope, id){
+  const a = agentsCache.find(x=>String(x.id)===String(id));
+  if(!a) return;
+  document.getElementById(_agentInputId(scope)).value = a.company_name;
+  _agentAutocompleteSelectedId[scope] = a.id;
+  hideAgentSuggest(scope);
+}
+// 保存直前に呼ぶ。選択済みidがあり、かつ入力欄の現在値が選択時の会社名から
+// 書き換えられていなければそのidを返す。手入力で編集していたらnull(自由入力扱い)。
+function resolveAgentIdForSave(scope, currentAgentName){
+  const selId = _agentAutocompleteSelectedId[scope];
+  if(!selId) return null;
+  const a = agentsCache.find(x=>String(x.id)===String(selId));
+  return (a && a.company_name === currentAgentName) ? selId : null;
 }
 
 function filterAgents(){
