@@ -7704,7 +7704,7 @@ async function printLocalExpenseVoucher(guideName, guideId){
   if(inputPayDate === null) return;
   const payDateStr = inputPayDate ? (()=>{ const d=new Date(inputPayDate); return {y:d.getFullYear()+'年',m:(d.getMonth()+1)+'月',d:d.getDate()+'日'}; })() : {y:'　　年',m:'　月',d:'　日'};
 
-  const paymentInfo = await askVoucherPaymentInfo(guideId || null);
+  const paymentInfo = await askVoucherPaymentInfo(guideId || null, guideName || '');
   if(!paymentInfo) return; // キャンセル
 
   const paymentVoucher = `
@@ -8131,9 +8131,35 @@ function _voucherPaymentFieldIds(){
   return ['voucher-bank-name','voucher-branch-name','voucher-account-type','voucher-account-number','voucher-account-holder'];
 }
 
-async function askVoucherPaymentInfo(guideId){
+// ガイド名でguidesマスタを検索する際の正規化(NFKC+trim)。あいまい一致による
+// 「別人の口座情報の誤紐付け」は絶対に避けたいため、正規化後の完全一致のみを許可し、
+// 同名が複数一致した場合も一意に特定できないとして不一致扱い(空欄フォールバック)にする。
+function _normVoucherGuideName(s){ return String(s||'').normalize('NFKC').trim(); }
+
+async function _resolveGuideIdByName(guideName){
+  const norm = _normVoucherGuideName(guideName);
+  if(!norm) return null;
+  try{
+    // is_deletedは後付け列のため旧データはNULLがあり得る。.eq('is_deleted',false)だと
+    // NULL行が除外されてしまうので、全件取得してクライアント側で削除済みだけ除く。
+    const {data: rows, error} = await sb.from('guides').select('id,name,is_deleted');
+    if(error || !rows) return null;
+    const matches = rows.filter(g=>!g.is_deleted && _normVoucherGuideName(g.name)===norm);
+    return matches.length===1 ? matches[0].id : null;
+  }catch(e){
+    logError('ガイドマスタの名前検索', e, {toast:false});
+    return null;
+  }
+}
+
+async function askVoucherPaymentInfo(guideId, guideName){
   let accounts = [];
   let bankInfoFree = '';
+  // 精算リンクが自由入力・旧形式等でguide_idを持っていない場合、ガイド名の
+  // 完全一致(NFKC正規化)でguidesマスタから補完する(不一致なら従来通り空欄)。
+  if(!guideId && guideName){
+    guideId = await _resolveGuideIdByName(guideName);
+  }
   if(guideId){
     try{
       const res = await guideBankAccountsApiCall('listByField', { field:'guide_id', value: guideId });
@@ -8240,7 +8266,9 @@ async function printGuideVouchers(settlementId, guideIndex){
   if(!s || !b) return;
   const guideList = (Array.isArray(s.guide_names) && s.guide_names.length>0)
     ? s.guide_names
-    : [{name: s.guide_name||'', phone: s.guide_phone||'', advance_payment: s.advance_payment||0, additional_advance_payment: s.additional_advance_payment||0, guide_fee: s.guide_fee||0}];
+    // 旧形式(guide_names未使用)の精算データ用フォールバック。guide_settlements.guide_id
+    // 列(代表ガイドのID)があれば口座自動反映に使えるよう、guide_idも引き継ぐ。
+    : [{name: s.guide_name||'', phone: s.guide_phone||'', guide_id: s.guide_id||null, advance_payment: s.advance_payment||0, additional_advance_payment: s.additional_advance_payment||0, guide_fee: s.guide_fee||0}];
   const g = guideList[guideIndex||0] || {};
   const allItems = (s.items||[]).filter(it=>it.status!=='rejected');
   const guideFeeItems = allItems.filter(it=>String(it.category||'').includes('ガイド費'));
@@ -8260,7 +8288,7 @@ async function printGuideVouchers(settlementId, guideIndex){
   if(inputPayDate === null) return;
   const payDateStr = inputPayDate ? (()=>{ const d=new Date(inputPayDate); return {y:d.getFullYear()+'年',m:(d.getMonth()+1)+'月',d:d.getDate()+'日'}; })() : {y:'　　年',m:'　月',d:'　日'};
 
-  const paymentInfo = await askVoucherPaymentInfo(g.guide_id);
+  const paymentInfo = await askVoucherPaymentInfo(g.guide_id, g.name);
   if(!paymentInfo) return; // キャンセル
 
   // 出金伝票（現地費用・ガイド費の支払い）
