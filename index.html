@@ -210,7 +210,7 @@ tr:hover td{background:var(--bg)}
 .s-paid{background:var(--green-lt);color:#3B6D11}
 .s-finalized{background:#ccf0f5;color:#0e7490}
 .green{color:var(--green)}.amber{color:var(--amber)}.red{color:var(--red)}.blue{color:var(--blue)}
-.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.form-grid{display:grid;grid-template-columns:var(--fg-cols,1fr 1fr);gap:10px}
 .fm-filter-grid{grid-template-columns:2fr 1fr 1fr 1fr}
 @media(max-width:768px){ .fm-filter-grid{grid-template-columns:1fr} }
 /* 基本情報セクション: 左(大人〜手配状況/担当者〜入金合計の2段)とMEMOを横並びにし、
@@ -1448,7 +1448,7 @@ input[type=number]{-moz-appearance:textfield}
       <div id="pg-payment" class="page" style="display:none">
         <div class="card">
           <div class="card-title">期間指定</div>
-          <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr 1fr">
+          <div class="form-grid" style="--fg-cols:1fr 1fr 1fr 1fr">
             <div class="form-field"><label>From</label><input id="pay-from" type="date" min="1900-01-01" max="9999-12-31" onblur="loadPayments()"></div>
             <div class="form-field"><label>To</label><input id="pay-to" type="date" min="1900-01-01" max="9999-12-31" onblur="loadPayments()"></div>
             <div class="form-field" style="align-self:end"><button class="btn" onclick="setPaymentRangeThisMonth()">今月</button></div>
@@ -1478,7 +1478,7 @@ input[type=number]{-moz-appearance:textfield}
 
         <div class="card">
           <div class="card-title">検索・絞り込み（入金リスト / 出金リスト 共通）</div>
-          <div class="form-grid" style="grid-template-columns:2fr 1fr">
+          <div class="form-grid" style="--fg-cols:2fr 1fr">
             <div class="form-field"><label>検索（REF# / Agent / 仕入先 / 項目）</label><input id="pay-search" placeholder="例: #1374, Kesari, 輝岩商事" oninput="filterPaymentLists()"></div>
           </div>
         </div>
