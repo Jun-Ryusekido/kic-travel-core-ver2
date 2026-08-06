@@ -6801,13 +6801,20 @@ async function openBookingDetail(id){
   bdLoadSnapshot.localExpenses = JSON.stringify(buildLocalExpenseRows(id));
   renderLocalExpenses();
 
-  // 見積もり参照ノートを表示
+  // 見積もり参照ノートを表示。あくまで参考表示のため、取得に失敗しても予約詳細本体の
+  // 表示・保存(仕入明細への反映ボタン等)を巻き込んで止めないよう、ここだけで完結させる
+  // (try/catchで隔離。取得できなければ単に非表示のままにする)。
   const refDiv = document.getElementById('bd-est-ref');
   refDiv.style.display = 'none';
-  const {data: estRef} = await sb.from('estimations')
-    .select('title,tour_code,final_pax,final_amount,calculated_tiers_snapshot')
-    .eq('converted_booking_id', id)
-    .maybeSingle();
+  let estRef = null;
+  try{
+    const res = await sb.from('estimations')
+      .select('title,tour_code,final_pax,final_amount,calculated_tiers_snapshot')
+      .eq('converted_booking_id', id)
+      .maybeSingle();
+    if(res.error) logError('見積もり参照ノートの読み込み(estimations)', res.error, {toast:false});
+    estRef = res.data;
+  }catch(e){ logError('見積もり参照ノートの読み込み(estimations)', e, {toast:false}); }
   if(_stale()) return;
   if(estRef){
     const estLabel = [estRef.title, estRef.tour_code].filter(Boolean).join(' / ') || '(無題)';
@@ -7702,44 +7709,30 @@ function renderLocalExpenseVoucherButtons(){
 }
 
 // 仮払い一覧表出金伝票の内容(合計の万単位切り上げ額)を仕入明細(booking_costs)へ
-// 反映済みかどうかは、既存のソース追跡機能(source_table/source_id)を流用して判定する。
-// 個々のlocal_expenses行に紐付くものではなく「この予約の仮払い一覧表合計」という
-// 1本のサマリーのため、source_table='local_expenses_voucher'・source_id=bookingIdの
-// booking_costs行が存在するかで判定する(新規のDB列・テーブルは追加していない)。
-function _findLocalExpenseVoucherReflectedCost(){
-  if(!currentDetailId) return null;
-  return bdCostItems.find(it=>it.source_table==='local_expenses_voucher' && it.source_id===currentDetailId) || null;
-}
+// 反映するボタン。反映済み判定・disabled制御は行わない単純な作り(押すたびに
+// その場でDBから最新の仮払い一覧表合計を取得し、新規1行として都度追加する。
+// 何度反映しても良く、重複が生じた場合は運用者が仕入明細一覧を見て目視で削除する)。
 function renderLocalExpenseReflectButtonHtml(){
-  const total = bdLocalExpenses.reduce((s,it)=>s+Number(it.amount||0),0);
-  const disabledAttr = total<=0 ? 'disabled title="仮払い一覧表の合計が0円のため反映できません"' : '';
-  const reflected = _findLocalExpenseVoucherReflectedCost();
-  const reflectedAt = reflected && reflected.source_snapshot && reflected.source_snapshot.reflected_at
-    ? new Date(reflected.source_snapshot.reflected_at).toLocaleDateString('ja-JP') : '';
-  const label = reflected
-    ? `📋 仕入明細へ反映（済み: ${yen(reflected.amount)}${reflectedAt?' / '+reflectedAt:''}）`
-    : '📋 仕入明細へ反映';
-  return `<button class="btn" style="font-size:10px" ${disabledAttr} onclick="reflectLocalExpensesToCost()">${label}</button>`;
+  return `<button class="btn" style="font-size:10px" onclick="reflectLocalExpensesToCost()">📋 仕入明細へ反映</button>`;
 }
 
-// ボタンを押した時のみ実行(自動反映はしない)。金額は仮払い一覧表の合計を万単位
-// 切り上げしたもの1本のみ(printLocalExpenseVoucherの表示金額と同じ)。既に反映済みの
-// 場合は上書き・自動更新せず、都度ボタンで追加するかどうかを確認する運用とする
-// (仮払い一覧表の内容が金額訂正等で変わった場合も、既存の反映済み行はそのまま残る)。
+// ボタンを押した時のみ実行(自動反映はしない)。押すたびにDBから最新の仮払い一覧表
+// (local_expenses)データを取得して合計を計算するため、モーダルを開いてからの経過や
+// 表示タイミングに依存しない。反映済みかどうかの判定は行わず、押すたびに新規1行として
+// 仕入明細に追加する(重複は運用者が目視で判断・削除する運用)。
 async function reflectLocalExpensesToCost(){
   if(bdLocked){ alert('この予約の仕入明細は確定済みです。'); return; }
   if(!currentDetailId) return;
   const bookingId = currentDetailId;
   const b = findBookingById(bookingId);
   if(!b) return;
-  const total = bdLocalExpenses.reduce((s,it)=>s+Number(it.amount||0),0);
+
+  const {data: localRows, error: localFetchErr} = await sb.from('local_expenses').select('amount').eq('booking_id', bookingId);
+  if(localFetchErr){ alert('仮払い一覧表の読み込みに失敗しました: '+localFetchErr.message); return; }
+  const total = (localRows||[]).reduce((s,it)=>s+Number(it.amount||0),0);
   if(total<=0){ alert('仮払い一覧表の合計が0円のため反映できません。'); return; }
   const roundedUp = Math.ceil(total/10000)*10000;
 
-  const existing = _findLocalExpenseVoucherReflectedCost();
-  if(existing){
-    if(!confirm(`既に反映済みです（${yen(existing.amount)}）。\n\nもう一度追加しますか？(二重計上になる可能性があります。仕入明細一覧で既存の行をご確認ください)`)) return;
-  }
   if(!confirm(`仮払い一覧表の合計を万単位切り上げした金額を仕入明細に追加します。\n\n金額: ${yen(roundedUp)}\n(実際の合計: ${yen(total)})\n\nよろしいですか？`)) return;
 
   // 仕入明細(booking_costs)には「費用種類」列自体が無い(この列を持つのは仮払い一覧表
@@ -7760,9 +7753,6 @@ async function reflectLocalExpensesToCost(){
     payment_date: null,
     memo: memoLabel,
     status: 'pending',
-    source_table: 'local_expenses_voucher',
-    source_id: bookingId,
-    source_snapshot: { total, roundedUp, reflected_at: nowIso },
   };
   let error;
   try{ await bookingCostsApiCall('insert', { rows: [newCostRow] }); }catch(e){ error = e; }
@@ -7777,7 +7767,6 @@ async function reflectLocalExpensesToCost(){
   const {data: costRows} = await sb.from('booking_costs').select('*').eq('booking_id', bookingId).order('created_at');
   bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, payment_method:r.payment_method||'', memo:r.memo, status:r.status||'pending', card_holder:r.card_holder||'', personal_reimbursement_status:r.personal_reimbursement_status||'', personal_reimbursed_at:r.personal_reimbursed_at||null, source_table:r.source_table||null, source_id:r.source_id||null, source_snapshot:r.source_snapshot||null}));
   renderCostTable();
-  renderLocalExpenseVoucherButtons();
   alert('仕入明細に反映しました。');
 }
 
