@@ -7690,13 +7690,85 @@ function renderLocalExpenseVoucherButtons(){
   const el = document.getElementById('bd-local-voucher-btns');
   if(!el) return;
   const guides = _bdLocalVoucherGuideList();
+  let printBtnsHtml;
   if(guides.length===0){
-    el.innerHTML = `<button class="btn" style="font-size:10px" onclick="printLocalExpenseVoucher('',null)">🧾 出金伝票を印刷</button>`;
+    printBtnsHtml = `<button class="btn" style="font-size:10px" onclick="printLocalExpenseVoucher('',null)">🧾 出金伝票を印刷</button>`;
   }else if(guides.length===1){
-    el.innerHTML = `<button class="btn" style="font-size:10px" onclick="printLocalExpenseVoucher('${escAttr(guides[0].name)}','${escAttr(guides[0].guideId||'')}')">🧾 出金伝票を印刷</button>`;
+    printBtnsHtml = `<button class="btn" style="font-size:10px" onclick="printLocalExpenseVoucher('${escAttr(guides[0].name)}','${escAttr(guides[0].guideId||'')}')">🧾 出金伝票を印刷</button>`;
   }else{
-    el.innerHTML = guides.map(g=>`<button class="btn" style="font-size:10px" onclick="printLocalExpenseVoucher('${escAttr(g.name)}','${escAttr(g.guideId||'')}')">🧾 ${escHtml(g.name)}宛の出金伝票を印刷</button>`).join('');
+    printBtnsHtml = guides.map(g=>`<button class="btn" style="font-size:10px" onclick="printLocalExpenseVoucher('${escAttr(g.name)}','${escAttr(g.guideId||'')}')">🧾 ${escHtml(g.name)}宛の出金伝票を印刷</button>`).join('');
   }
+  el.innerHTML = printBtnsHtml + renderLocalExpenseReflectButtonHtml();
+}
+
+// 仮払い一覧表出金伝票の内容(合計の万単位切り上げ額)を仕入明細(booking_costs)へ
+// 反映済みかどうかは、既存のソース追跡機能(source_table/source_id)を流用して判定する。
+// 個々のlocal_expenses行に紐付くものではなく「この予約の仮払い一覧表合計」という
+// 1本のサマリーのため、source_table='local_expenses_voucher'・source_id=bookingIdの
+// booking_costs行が存在するかで判定する(新規のDB列・テーブルは追加していない)。
+function _findLocalExpenseVoucherReflectedCost(){
+  if(!currentDetailId) return null;
+  return bdCostItems.find(it=>it.source_table==='local_expenses_voucher' && it.source_id===currentDetailId) || null;
+}
+function renderLocalExpenseReflectButtonHtml(){
+  const total = bdLocalExpenses.reduce((s,it)=>s+Number(it.amount||0),0);
+  const disabledAttr = total<=0 ? 'disabled title="仮払い一覧表の合計が0円のため反映できません"' : '';
+  const reflected = _findLocalExpenseVoucherReflectedCost();
+  const reflectedAt = reflected && reflected.source_snapshot && reflected.source_snapshot.reflected_at
+    ? new Date(reflected.source_snapshot.reflected_at).toLocaleDateString('ja-JP') : '';
+  const label = reflected
+    ? `📋 仕入明細へ反映（済み: ${yen(reflected.amount)}${reflectedAt?' / '+reflectedAt:''}）`
+    : '📋 仕入明細へ反映';
+  return `<button class="btn" style="font-size:10px" ${disabledAttr} onclick="reflectLocalExpensesToCost()">${label}</button>`;
+}
+
+// ボタンを押した時のみ実行(自動反映はしない)。金額は仮払い一覧表の合計を万単位
+// 切り上げしたもの1本のみ(printLocalExpenseVoucherの表示金額と同じ)。既に反映済みの
+// 場合は上書き・自動更新せず、都度ボタンで追加するかどうかを確認する運用とする
+// (仮払い一覧表の内容が金額訂正等で変わった場合も、既存の反映済み行はそのまま残る)。
+async function reflectLocalExpensesToCost(){
+  if(bdLocked){ alert('この予約の仕入明細は確定済みです。'); return; }
+  if(!currentDetailId) return;
+  const bookingId = currentDetailId;
+  const b = findBookingById(bookingId);
+  if(!b) return;
+  const total = bdLocalExpenses.reduce((s,it)=>s+Number(it.amount||0),0);
+  if(total<=0){ alert('仮払い一覧表の合計が0円のため反映できません。'); return; }
+  const roundedUp = Math.ceil(total/10000)*10000;
+
+  const existing = _findLocalExpenseVoucherReflectedCost();
+  if(existing){
+    if(!confirm(`既に反映済みです（${yen(existing.amount)}）。\n\nもう一度追加しますか？(二重計上になる可能性があります。仕入明細一覧で既存の行をご確認ください)`)) return;
+  }
+  if(!confirm(`仮払い一覧表の合計を万単位切り上げした金額を仕入明細に追加します。\n\n金額: ${yen(roundedUp)}\n(実際の合計: ${yen(total)})\n\nよろしいですか？`)) return;
+
+  const nowIso = new Date().toISOString();
+  const newCostRow = {
+    booking_id: bookingId,
+    item_name: `仮払い一覧表（${b.tour_code || b.ref_no || ''}）`,
+    amount: roundedUp,
+    payment_date: null,
+    memo: '仮払い一覧表出金伝票より反映',
+    status: 'pending',
+    source_table: 'local_expenses_voucher',
+    source_id: bookingId,
+    source_snapshot: { total, roundedUp, reflected_at: nowIso },
+  };
+  let error;
+  try{ await bookingCostsApiCall('insert', { rows: [newCostRow] }); }catch(e){ error = e; }
+  if(error){ alert('反映に失敗しました: '+error.message); return; }
+
+  const {data: allCosts} = await sb.from('booking_costs').select('amount').eq('booking_id', bookingId);
+  const newGrossCost = (allCosts||[]).reduce((sum,c)=>sum+Number(c.amount||0),0);
+  await bookingsApiCall('updateById', { id: bookingId, fields: {gross_cost:newGrossCost, updated_at: nowIso} });
+  b.gross_cost = newGrossCost;
+  await logAction('仮払い一覧表を仕入明細に反映', b.ref_no+' / '+yen(roundedUp));
+
+  const {data: costRows} = await sb.from('booking_costs').select('*').eq('booking_id', bookingId).order('created_at');
+  bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, payment_method:r.payment_method||'', memo:r.memo, status:r.status||'pending', card_holder:r.card_holder||'', personal_reimbursement_status:r.personal_reimbursement_status||'', personal_reimbursed_at:r.personal_reimbursed_at||null, source_table:r.source_table||null, source_id:r.source_id||null, source_snapshot:r.source_snapshot||null}));
+  renderCostTable();
+  renderLocalExpenseVoucherButtons();
+  alert('仕入明細に反映しました。');
 }
 
 // 仮払い一覧表(local_expenses、ツアー実施前の一覧)専用の出金伝票。ガイド精算の
