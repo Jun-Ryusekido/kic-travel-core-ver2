@@ -32,9 +32,9 @@ body.has-deadline-banner .app{margin-top:var(--deadline-banner-h,34px)}
 .sb-logo{padding:14px 14px 10px;border-bottom:1px solid var(--border)}
 .sb-logo-main{font-size:13px;font-weight:600;color:var(--blue)}
 .sb-logo-sub{font-size:9px;color:var(--text3);margin-top:1px}
-.sb-sec{padding:12px 10px 2px;font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;font-weight:600}
-.sb-item{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;cursor:pointer;font-size:12px;color:var(--text2);margin:1px 6px}
-.sb-en{font-size:9px;color:var(--text3);margin-left:2px;font-weight:400}
+.sb-sec{padding:16px 10px 5px;font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;font-weight:700}
+.sb-item{display:flex;flex-wrap:wrap;align-items:center;gap:2px 8px;padding:8px 10px;border-radius:8px;cursor:pointer;font-size:12px;color:var(--text2);margin:1px 6px;white-space:nowrap;line-height:1.35}
+.sb-en{flex-basis:100%;margin-left:24px;font-size:9px;color:var(--text3);font-weight:400;white-space:nowrap}
 /* 新幹線手配ページ */
 .bt-desktop-only{display:block}.bt-mobile-only{display:none}
 .bt-card{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px;cursor:pointer;margin-bottom:6px;transition:border-color .15s}
@@ -43,7 +43,7 @@ body.has-deadline-banner .app{margin-top:var(--deadline-banner-h,34px)}
 #bt-tbl-wrap thead th{position:sticky;top:0;z-index:2;background:var(--card)}
 @media(max-width:768px){.bt-desktop-only{display:none !important}.bt-mobile-only{display:block !important}}
 .sb-item:hover{background:var(--bg)}
-.sb-item.active{background:var(--blue-lt);color:var(--blue);font-weight:600}
+.sb-item.active{background:var(--blue-lt);color:var(--blue);font-weight:600;box-shadow:inset 3px 0 0 var(--blue)}
 .sb-badge{margin-left:auto;background:var(--blue-lt);color:var(--blue);font-size:9px;padding:1px 6px;border-radius:8px;font-weight:600}
 .sb-user{margin-top:auto;padding:10px;border-top:1px solid var(--border)}
 .sb-user-info{display:flex;align-items:center;gap:8px;margin-bottom:6px}
