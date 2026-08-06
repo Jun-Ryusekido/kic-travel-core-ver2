@@ -8318,6 +8318,7 @@ async function printGuideVouchers(settlementId, guideIndex){
         </tfoot>
       </table>
       ${buildVoucherPaymentInfoHtml(paymentInfo)}
+      ${b.tour_code ? `<div style="text-align:right;font-size:18px;font-weight:700;letter-spacing:1px;margin-top:10px">${escHtml(b.tour_code)}</div>` : ''}
     </div>`;
 
   // 入金伝票（仮払金戻しがある場合）
@@ -8343,6 +8344,7 @@ async function printGuideVouchers(settlementId, guideIndex){
           <td style="border:1px solid #999;padding:6px;text-align:right">${yen(Math.abs(transferAmount))}</td>
         </tfoot>
       </table>
+      ${b.tour_code ? `<div style="text-align:right;font-size:18px;font-weight:700;letter-spacing:1px;margin-top:10px">${escHtml(b.tour_code)}</div>` : ''}
     </div>` : '';
 
   const win = window.open('','_blank','width=800,height=600');
