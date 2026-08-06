@@ -20535,7 +20535,14 @@ function _buildVoucherHtml(restaurants, tourName, guideName, guidePhone){
     const nameEn      = isSpare ? '' : eh(r.restaurant_name_en||'');
     const nameJpSize  = fitFontSize(r.restaurant_name, 4.685, 97.597, 1.05).toFixed(3);
     const nameEnSize  = fitFontSize(r.restaurant_name_en, 3.644, 97.597, 0.62).toFixed(3);
-    const spareLabel  = isSpare ? `<div style="position:absolute; top:2.200mm; right:4.500mm; font-size:3.200mm; color:#888; font-weight:700; letter-spacing:0.5mm;">予備</div>` : '';
+    // 「予備」ラベルは、テンプレート内の他の全要素(badge/refbox/hline等)と同じく
+    // left基準の絶対配置にする。right基準(right:4.500mm)は、このテンプレート内で
+    // ここだけが使っていた特殊なケースで、画面プレビューでは正しく見えても、
+    // ブラウザの印刷レンダリングでは.blockの幅計算タイミングの違いにより右端の
+    // 位置がずれ、印刷範囲外にはみ出す不具合があった。hlineと同じ右端(10.410mm+
+    // 115.815mm=126.225mm)に合わせ、left+width+text-align:rightで右寄せすることで
+    // right基準を使わずに同じ見た目を実現する。
+    const spareLabel  = isSpare ? `<div style="position:absolute; top:2.200mm; left:10.410mm; width:115.815mm; text-align:right; font-size:3.200mm; color:#888; font-weight:700; letter-spacing:0.5mm;">予備</div>` : '';
 
     // datebox/timeboxは利用日・予約時刻を表示する意味のある枠だが、値が空の場合、枠線
     // (border)だけが残り正体不明な小さな空欄ボックスに見えてしまう(予備バウチャーで日付・
