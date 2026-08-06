@@ -20537,27 +20537,22 @@ function _buildVoucherHtml(restaurants, tourName, guideName, guidePhone){
     const nameEnSize  = fitFontSize(r.restaurant_name_en, 3.644, 97.597, 0.62).toFixed(3);
     // 「予備」ラベルは、テンプレート内の他の全要素(badge/refbox/hline等)と同じく
     // left基準の絶対配置にする。right基準(right:4.500mm)は、このテンプレート内で
-    // ここだけが使っていた特殊なケースで、画面プレビューでは正しく見えても、
-    // ブラウザの印刷レンダリングでは.blockの幅計算タイミングの違いにより右端の
-    // 位置がずれ、印刷範囲外にはみ出す不具合があった。hlineと同じ右端(10.410mm+
-    // 115.815mm=126.225mm)に合わせ、left+width+text-align:rightで右寄せすることで
-    // right基準を使わずに同じ見た目を実現する。
-    const spareLabel  = isSpare ? `<div style="position:absolute; top:2.200mm; left:10.410mm; width:115.815mm; text-align:right; font-size:3.200mm; color:#888; font-weight:700; letter-spacing:0.5mm;">予備</div>` : '';
-
-    // datebox/timeboxは利用日・予約時刻を表示する意味のある枠だが、値が空の場合、枠線
-    // (border)だけが残り正体不明な小さな空欄ボックスに見えてしまう(予備バウチャーで日付・
-    // 時刻を意図的に空にした場合だけでなく、reservation_timeが未入力の実データ行でも同様に
-    // 発生する)。値が無いときは枠自体を出力しないようにする(データ列自体は削除しない。
-    // 値が入っていれば従来通り表示される)。
-    const dateboxHtml = dateDisp ? `<div class="datebox">${eh(dateDisp)}</div>` : '';
-    const timeboxHtml = timeDisp ? `<div class="timebox">${eh(timeDisp)}</div>` : '';
-    // refbox(ツアーコード)は予備バウチャーでは印字しない。予備は特定のツアーに紐付かず
-    // 現地で自由に手書き対応するための汎用フォームであるべきため(印字されると
-    // そのツアー専用になってしまい「予備」の意味がなくなる)。
+    // datebox/timeboxは、従来「ラベルなし・値のみ」の表示だったため、値が空の場合
+    // (予備バウチャー、またはreservation_time未入力の実データ行)、何も表示されず
+    // ラベルすら見えなくなっていた。「ガイド：」「支払方法：」と同じくラベル付きの
+    // 表示にし、常に枠自体を出力するようにした(値が空でも「日にち：」「時刻：」の
+    // ラベルは残るため、予備バウチャーで現地手書きする場所が分かる)。ラベル追加で
+    // 文字数が増えるため、隣接するbadgeと重ならないようフォントサイズを調整している。
+    const dateboxHtml = `<div class="datebox" style="font-size:2.600mm;">日にち：${eh(dateDisp)}</div>`;
+    const timeboxHtml = `<div class="timebox" style="font-size:2.600mm;">時刻：${eh(timeDisp)}</div>`;
+    // refbox(ツアーコード)は、実データでは枠付きで独立して分かりやすく表示されており
+    // 「日にち」「時刻」のような値単独での紛らわしさは無い(枠=ツアーコード欄という
+    // 見た目が既に確立している)。また予備バウチャーでは意図的に完全非表示にしている
+    // ため(特定のツアーに紐付かない汎用フォームであるべきため)、ラベル追加は不要と
+    // 判断した。
     const refboxHtml = isSpare ? '' : `<div class="refbox">${eh(tourName)}</div>`;
 
     return `<div class="block">
-      ${spareLabel}
       <img class="logo" src="${logoUrl}" style="left:10.410mm;">
       <div class="title">MEAL VOUCHER</div>
       ${refboxHtml}
