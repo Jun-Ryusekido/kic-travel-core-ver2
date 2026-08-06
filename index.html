@@ -23339,6 +23339,7 @@ function setDateInputValue(el, d){
     </div>
     <div id="pt-form-area" style="margin-top:8px">
       <div class="form-grid">
+        <div class="modal-section-title" style="grid-column:1/-1;margin-top:4px">基本情報</div>
         <div class="pt-field-group" style="grid-column:1/-1">
           <div class="form-grid" style="grid-template-columns:1fr 1fr">
             <div class="form-field"><label>会社名</label><input id="pt-company" placeholder="例: 神戸交通バス"></div>
@@ -23351,6 +23352,8 @@ function setDateInputValue(el, d){
             <div class="form-field"><label>拠点名・支店名（英語）</label><input id="pt-branch-en" placeholder="e.g. Shinjuku Branch"></div>
           </div>
         </div>
+
+        <div class="modal-section-title" style="grid-column:1/-1">担当者情報</div>
         <div class="pt-field-group" style="grid-column:1/-1">
           <div class="form-grid" style="grid-template-columns:1fr 1fr">
             <div class="form-field"><label>担当者名</label><input id="pt-contact" placeholder="例: 田中太郎"></div>
@@ -23363,6 +23366,8 @@ function setDateInputValue(el, d){
             <div class="form-field"><label>役職（英語）</label><input id="pt-position-en" placeholder="e.g. Sales Manager"></div>
           </div>
         </div>
+
+        <div class="modal-section-title" style="grid-column:1/-1">連絡先</div>
         <div class="pt-field-group" style="grid-column:1/-1">
           <div class="form-grid" style="grid-template-columns:repeat(2,1fr)">
             <div class="form-field">
@@ -23390,9 +23395,10 @@ function setDateInputValue(el, d){
             <div class="form-field"><label>メール</label><input id="pt-email" placeholder="例: tanaka@example.com"></div>
           </div>
         </div>
+
         <!-- 住所・備考は入力頻度が低いため折りたたみ、初期状態は閉じる(既に値がある場合は
              openPartnerEditor()側でopen属性を付与し、隠れて見えなくなることを防ぐ) -->
-        <details id="pt-more-details" style="grid-column:1/-1">
+        <details id="pt-more-details" style="grid-column:1/-1;margin-top:4px;border-top:1px solid var(--border);padding-top:4px">
           <summary style="cursor:pointer;font-size:12px;font-weight:600;color:var(--text2);padding:8px 4px;min-height:28px">住所・備考（タップで開閉）</summary>
           <div class="form-grid" style="margin-top:6px">
             <div class="form-field"><label>住所</label><input id="pt-address" placeholder="例: 兵庫県神戸市..."></div>
