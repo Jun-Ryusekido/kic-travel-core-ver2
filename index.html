@@ -12092,8 +12092,9 @@ const PARTNER_DIFF_FIELDS = [
   { key:'contact_person_en', elId:'pt-contact-en', label:'担当者名（英語）' },
   { key:'position', elId:'pt-position', label:'役職' },
   { key:'position_en', elId:'pt-position-en', label:'役職（英語）' },
-  { key:'company_phone', elId:'pt-company-phone', label:'会社電話番号' },
-  { key:'phone', elId:'pt-phone', label:'担当者携帯番号' },
+  { key:'phone', elId:'pt-phone', label:'担当者直通・携帯番号' },
+  { key:'department_phone', elId:'pt-department-phone', label:'部署直通番号' },
+  { key:'company_phone', elId:'pt-company-phone', label:'会社代表番号' },
   { key:'fax', elId:'pt-fax', label:'FAX番号' },
   { key:'email', elId:'pt-email', label:'メール' },
   { key:'address', elId:'pt-address', label:'住所' },
@@ -12139,7 +12140,7 @@ function renderEmailPartnerMatchModal(){
       <tr>
         <td data-label="会社名">${escHtml(c.company_name||c.company_name_en||'')}</td>
         <td data-label="担当者">${escHtml(c.contact_person||'')}</td>
-        <td data-label="電話">${escHtml(c.phone||c.company_phone||'')}</td>
+        <td data-label="電話">${escHtml(c.phone||c.department_phone||c.company_phone||'')}</td>
         <td data-label="メール">${escHtml(c.email||'')}</td>
         <td data-label="種別">${escHtml(c.category||'')}</td>
         <td data-label=""><button class="btn btn-p" style="font-size:11px" onclick="selectEmailPartnerCandidate('${c.id}')">この候補を選ぶ</button></td>
@@ -20389,7 +20390,7 @@ async function printArrangementSummaryList(){
     let partnerRows = [], from = 0;
     const PAGE = 1000;
     while(true){
-      const {data: page, error: partnerErr} = await sb.from('business_partners').select('company_name,phone,company_phone').range(from, from+PAGE-1);
+      const {data: page, error: partnerErr} = await sb.from('business_partners').select('company_name,phone,department_phone,company_phone').range(from, from+PAGE-1);
       if(partnerErr){ logError('取引先マスタの読み込み(business_partners)', partnerErr); break; }
       partnerRows = partnerRows.concat(page||[]);
       if(!page || page.length < PAGE) break;
@@ -20399,7 +20400,7 @@ async function printArrangementSummaryList(){
   }
   const arrPartnerPhone = name => {
     const p = arrPartnerByName[normName(name)];
-    return p ? (p.phone || p.company_phone || '') : '';
+    return p ? (p.phone || p.department_phone || p.company_phone || '') : '';
   };
 
   let sections = '';
@@ -21121,7 +21122,7 @@ function renderPartnersRows(){
       <td>${escHtml(p.category||'')}</td>
       <td>${escHtml(p.company_name||'')}${p.branch_name?(' / '+escHtml(p.branch_name)):''}${(p.company_name_en||p.branch_name_en)?('<br><span style="color:var(--text3);font-size:10px">'+escHtml([p.company_name_en,p.branch_name_en].filter(Boolean).join(' / '))+'</span>'):''}</td>
       <td>${escHtml(p.contact_person||'')}${p.position?(' / '+escHtml(p.position)):''}${(p.contact_person_en||p.position_en)?('<br><span style="color:var(--text3);font-size:10px">'+escHtml([p.contact_person_en,p.position_en].filter(Boolean).join(' / '))+'</span>'):''}</td>
-      <td>${escHtml(p.phone||p.company_phone||'')}</td>
+      <td>${escHtml(p.phone||p.department_phone||p.company_phone||'')}</td>
       <td style="white-space:normal;font-size:10px;color:var(--text3)">${escHtml(p.notes||'')}</td>
       <td style="white-space:nowrap">
         <button class="btn" style="font-size:11px" onclick="showPartnerDetail('${p.id}')">照会</button>
@@ -21135,7 +21136,7 @@ function renderPartnersRows(){
     const companyLine = [p.company_name, p.branch_name].filter(Boolean).join(' / ');
     const enLine      = [p.company_name_en, p.branch_name_en].filter(Boolean).join(' / ');
     const personLine  = [p.contact_person, p.position].filter(Boolean).join(' / ');
-    const phone       = p.phone || p.company_phone || '';
+    const phone       = p.phone || p.department_phone || p.company_phone || '';
     return `<div class="pt-card">
       <div class="pt-card-main">
         <div class="pt-card-body">
@@ -21171,8 +21172,9 @@ function showPartnerDetail(id){
     ['担当者（英語）', p.contact_person_en],
     ['役職',         p.position],
     ['役職（英語）',  p.position_en],
-    ['会社電話',     p.company_phone],
     ['携帯',         p.phone],
+    ['部署直通',     p.department_phone],
+    ['会社電話',     p.company_phone],
     ['FAX',          p.fax],
     ['メール',       p.email],
     ['住所',         p.address],
@@ -21673,6 +21675,7 @@ function loadBatchItem(idx){
   document.getElementById('pt-position-en').value = '';
   document.getElementById('pt-company-phone').value = item.company_phone || '';
   document.getElementById('pt-phone').value = item.phone || '';
+  document.getElementById('pt-department-phone').value = item.department_phone || '';
   document.getElementById('pt-fax').value = item.fax || '';
   document.getElementById('pt-email').value = item.email || '';
   document.getElementById('pt-address').value = item.address || '';
@@ -21710,6 +21713,7 @@ async function batchSaveAndNext(){
   };
   document.getElementById('pt-company-phone').value = fmtPhone(document.getElementById('pt-company-phone').value);
   document.getElementById('pt-phone').value = fmtPhone(document.getElementById('pt-phone').value);
+  document.getElementById('pt-department-phone').value = fmtPhone(document.getElementById('pt-department-phone').value);
   document.getElementById('pt-fax').value = fmtPhone(document.getElementById('pt-fax').value);
 
   const company = document.getElementById('pt-company').value.trim();
@@ -21733,6 +21737,7 @@ async function batchSaveAndNext(){
     position_en: document.getElementById('pt-position-en').value.trim() || null,
     company_phone: document.getElementById('pt-company-phone').value.trim() || null,
     phone: document.getElementById('pt-phone').value.trim() || null,
+    department_phone: document.getElementById('pt-department-phone').value.trim() || null,
     fax: document.getElementById('pt-fax').value.trim() || null,
     email: document.getElementById('pt-email').value.trim() || null,
     address: document.getElementById('pt-address').value.trim() || null,
@@ -21834,6 +21839,7 @@ function openPartnerEditor(id){
   document.getElementById('pt-position-en').value = p ? (p.position_en||'') : '';
   document.getElementById('pt-company-phone').value = p ? (p.company_phone||'') : '';
   document.getElementById('pt-phone').value = p ? (p.phone||'') : '';
+  document.getElementById('pt-department-phone').value = p ? (p.department_phone||'') : '';
   document.getElementById('pt-fax').value = p ? (p.fax||'') : '';
   document.getElementById('pt-email').value = p ? (p.email||'') : '';
   document.getElementById('pt-address').value = p ? (p.address||'') : '';
@@ -21889,6 +21895,7 @@ const fmtPhone = s => {
   };
   document.getElementById('pt-company-phone').value = fmtPhone(document.getElementById('pt-company-phone').value);
   document.getElementById('pt-phone').value = fmtPhone(document.getElementById('pt-phone').value);
+  document.getElementById('pt-department-phone').value = fmtPhone(document.getElementById('pt-department-phone').value);
   document.getElementById('pt-fax').value = fmtPhone(document.getElementById('pt-fax').value);
   const company = document.getElementById('pt-company').value.trim();
   const companyEn = document.getElementById('pt-company-en').value.trim();
@@ -21905,6 +21912,7 @@ const fmtPhone = s => {
     position_en: document.getElementById('pt-position-en').value.trim() || null,
     company_phone: document.getElementById('pt-company-phone').value.trim() || null,
     phone: document.getElementById('pt-phone').value.trim() || null,
+    department_phone: document.getElementById('pt-department-phone').value.trim() || null,
     fax: document.getElementById('pt-fax').value.trim() || null,
     email: document.getElementById('pt-email').value.trim() || null,
     address: document.getElementById('pt-address').value.trim() || null,
@@ -23274,8 +23282,9 @@ function setDateInputValue(el, d){
         </div>
         <div class="pt-field-group" style="grid-column:1/-1">
           <div class="form-grid" style="grid-template-columns:repeat(2,1fr)">
-            <div class="form-field"><label>会社電話番号</label><input id="pt-company-phone" placeholder="例: 078-123-4567"></div>
-            <div class="form-field"><label>担当者携帯番号</label><input id="pt-phone" placeholder="例: 090-1234-5678"></div>
+            <div class="form-field"><label>担当者直通・携帯番号</label><input id="pt-phone" placeholder="例: 090-1234-5678"></div>
+            <div class="form-field"><label>部署直通番号</label><input id="pt-department-phone" placeholder="例: 078-123-4500"></div>
+            <div class="form-field"><label>会社代表番号</label><input id="pt-company-phone" placeholder="例: 078-123-4567"></div>
             <div class="form-field"><label>FAX番号</label><input id="pt-fax" placeholder="例: 078-123-4568"></div>
             <div class="form-field"><label>メール</label><input id="pt-email" placeholder="例: tanaka@example.com"></div>
           </div>
