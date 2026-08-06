@@ -8447,6 +8447,7 @@ win.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><style>@pag
         <div style="font-size:9pt;margin-top:2px">${escHtml(b.ref_no||'')}　${escHtml(b.tour_name||'')}</div>
       </div>
       <div style="font-size:9pt;text-align:right;line-height:1.6">
+        ${b.tour_code?`<div style="font-size:13pt;font-weight:700;letter-spacing:0.5px">${escHtml(b.tour_code)}</div>`:''}
         ${guideStr?`<div>ガイド：${escHtml(guideStr)}</div>`:''}
         <div>${Number(b.pax||0)}名　${b.in_date||''}${b.out_date?' ～ '+b.out_date:''}</div>
         <div>出力：${dateStr}</div>
