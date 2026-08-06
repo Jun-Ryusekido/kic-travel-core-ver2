@@ -20132,12 +20132,23 @@ async function generateMealVoucher(){
   const guideName  = document.getElementById('vc-guide-name').value.trim();
   const guidePhone = document.getElementById('vc-guide-phone').value.trim();
   const b = findBookingById(currentDetailId)||{};
-  const tourName = b.tour_name||b.ref_no||'';
+  // ツアーコード(tour_code)を優先表示する。万一空の場合のみ、従来通りtour_name→ref_noの順で
+  // フォールバックする(tour_codeが無い予約でも枠が完全に空欄にならないようにするため)。
+  const tourLabel = b.tour_code||b.tour_name||b.ref_no||'';
+
+  // 現地払い(現金払い)は現地精算で完結するため、ミールバウチャー自体が不要(KIC側の管理・
+  // レストラン側への提示いずれも意味がない)。generateMealVoucherDirect/voucher-modalの
+  // 支払方法欄(vc-r-payment-i)は毎回「請求書払い」がデフォルト初期値になり、この時点では
+  // 実際の支払方法を反映していないため、判定には予約データ本体(bdRestaurantItems側の
+  // 保存済みpayment_method)を使う。
+  const cashExcludedCount = bdRestaurantItems.filter(r=>r.payment_method==='現金払い').length;
+  const targetRestaurantItems = bdRestaurantItems.filter(r=>r.payment_method!=='現金払い');
+  if(targetRestaurantItems.length===0){ alert('バウチャー発行対象のレストランがありません(現地払い以外の手配がありません)'); return; }
 
   // business_partners.company_name_en を店名（NFKC正規化）で突合し、レストラン英語名として差し込む
   // (取引先マスタUIが実際に参照しているのは suppliers ではなく business_partners テーブルのため)
   const normName = s => String(s||'').normalize('NFKC').trim();
-  const restNames = [...new Set(bdRestaurantItems.map(r=>r.restaurant_name).filter(Boolean))];
+  const restNames = [...new Set(targetRestaurantItems.map(r=>r.restaurant_name).filter(Boolean))];
   let supplierByName = {};
   if(restNames.length){
     let supRows = [], from = 0;
@@ -20152,7 +20163,11 @@ async function generateMealVoucher(){
     supRows.forEach(s=>{ supplierByName[normName(s.company_name)] = s; });
   }
 
-  const restaurants = bdRestaurantItems.map((r,i)=>{
+  // DOM要素のid(vc-r-guide-i等)は_renderVoucherEntries()側でbdRestaurantItemsの元のindexを
+  // 使って生成されているため、現金払いを除外した後もそのindex(originalIndex)でDOM参照する。
+  const restaurants = bdRestaurantItems.map((r,i)=>({r, originalIndex:i}))
+    .filter(({r})=>r.payment_method!=='現金払い')
+    .map(({r, originalIndex:i})=>{
     const sup = supplierByName[normName(r.restaurant_name)];
     // ガイド欄は行ごとの手入力を廃止し、この時点で日付一致で自動決定する。
     // 複数候補がある行はモーダルの手動選択(vc-r-guide-i)の値を優先する。
@@ -20182,11 +20197,18 @@ async function generateMealVoucher(){
       restaurant_name_en: sup ? (sup.company_name_en||'') : '',
     };
   });
-  const html = _buildVoucherHtml(restaurants, tourName, guideName, guidePhone);
+  // 印刷物一式の最後に、現地での手書き対応用の予備バウチャーを1枚追加する
+  // (店名・日付・ガイド名等の明細は空欄、レイアウトは他と同じ)。
+  restaurants.push({
+    restaurant_name:'', restaurant_name_en:'', meal_type:'', date:'', reservation_time:'',
+    guide_id:null, guide_name_freetext:'', payment_method:'', memo:'', _isSpare:true,
+  });
+  const html = _buildVoucherHtml(restaurants, tourLabel, guideName, guidePhone);
   const win = window.open('','_blank');
   if(!win){ alert('ポップアップがブロックされました。ブラウザの設定を確認してください。'); return; }
   win.document.write(html);
   win.document.close();
+  if(cashExcludedCount>0){ alert(`${cashExcludedCount}件は現地払い(現金払い)のため、バウチャー発行の対象外としました。`); }
 }
 
 async function printRestaurantList(){
@@ -20435,29 +20457,34 @@ function _buildVoucherHtml(restaurants, tourName, guideName, guidePhone){
   }
 
   function buildBlock(r, isKic){
-    const mealChar   = {'朝食':'B','昼食':'L','夕食':'D'}[r.meal_type]||'';
+    const isSpare     = !!r._isSpare;
+    const mealChar    = isSpare ? '' : ({'朝食':'B','昼食':'L','夕食':'D'}[r.meal_type]||'');
     const ctrlLabel   = isKic ? 'KIC控え' : 'レストラン控え';
-    const dateDisp    = r.date||'';
-    const timeDisp    = (r.reservation_time||'').slice(0,5);
+    const dateDisp    = isSpare ? '' : (r.date||'');
+    const timeDisp    = isSpare ? '' : (r.reservation_time||'').slice(0,5);
     // 行(レストラン明細)のガイド名は、その日付にbooking_guidesで担当予定のガイドから
     // generateMealVoucher()側で既に確定済み(guide_id/guide_name_freetext)。該当ガイドが
     // いない行は空欄のままにする(予約全体のガイドへのフォールバックは行わない)。
     let rowGuideName = '', rowGuidePhone = '';
-    if(r.guide_id){
-      const g = guideRegistryCache.find(x=>String(x.id)===String(r.guide_id));
-      if(g){ rowGuideName = g.name||''; rowGuidePhone = g.phone||''; }
-    } else if(r.guide_name_freetext){
-      rowGuideName = r.guide_name_freetext;
+    if(!isSpare){
+      if(r.guide_id){
+        const g = guideRegistryCache.find(x=>String(x.id)===String(r.guide_id));
+        if(g){ rowGuideName = g.name||''; rowGuidePhone = g.phone||''; }
+      } else if(r.guide_name_freetext){
+        rowGuideName = r.guide_name_freetext;
+      }
     }
     const guideText   = [eh(rowGuideName), eh(rowGuidePhone)].filter(Boolean).join(' ');
-    const payText     = eh(r.payment_method||'請求書払い');
-    const memoText    = eh(r.memo||'');
-    const nameJp      = eh(r.restaurant_name||'');
-    const nameEn      = eh(r.restaurant_name_en||'');
+    const payText     = isSpare ? '' : eh(r.payment_method||'請求書払い');
+    const memoText    = isSpare ? '' : eh(r.memo||'');
+    const nameJp      = isSpare ? '' : eh(r.restaurant_name||'');
+    const nameEn      = isSpare ? '' : eh(r.restaurant_name_en||'');
     const nameJpSize  = fitFontSize(r.restaurant_name, 4.685, 97.597, 1.05).toFixed(3);
     const nameEnSize  = fitFontSize(r.restaurant_name_en, 3.644, 97.597, 0.62).toFixed(3);
+    const spareLabel  = isSpare ? `<div style="position:absolute; top:2.200mm; right:4.500mm; font-size:3.200mm; color:#888; font-weight:700; letter-spacing:0.5mm;">予備</div>` : '';
 
     return `<div class="block">
+      ${spareLabel}
       <img class="logo" src="${logoUrl}" style="left:10.410mm;">
       <div class="title">MEAL VOUCHER</div>
       <div class="refbox">${eh(tourName)}</div>
