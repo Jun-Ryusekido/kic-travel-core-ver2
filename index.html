@@ -20556,7 +20556,10 @@ function _buildVoucherHtml(restaurants, tourName, guideName, guidePhone){
     // refbox(ツアーコード)は予備バウチャーでは印字しない。予備は特定のツアーに紐付かず
     // 現地で自由に手書き対応するための汎用フォームであるべきため(印字されると
     // そのツアー専用になってしまい「予備」の意味がなくなる)。
-    const refboxHtml = isSpare ? '' : `<div class="refbox">${eh(tourName)}</div>`;
+    // refbox(ツアーコード)は予備バウチャーであっても通常バウチャーと同じ実データを
+    // 表示する(予備はこのツアーの一部として発行されるものであり、特定のツアーに
+    // 紐付かない汎用フォームにすべきではないため)。
+    const refboxHtml = `<div class="refbox">${eh(tourName)}</div>`;
 
     return `<div class="block">
       <img class="logo" src="${logoUrl}" style="left:10.410mm;">
