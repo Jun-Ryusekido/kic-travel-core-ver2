@@ -20556,13 +20556,17 @@ function _buildVoucherHtml(restaurants, tourName, guideName, guidePhone){
   const realBlocks = [];
   restaurants.forEach(r=>{ realBlocks.push({r, isKic:true}); realBlocks.push({r, isKic:false}); });
 
-  // 最後のページに余白が残る場合、現地での手書き対応用の予備バウチャーを1枚単位で
-  // 過不足なく敷き詰める(2枚1組にこだわらない。残り1枚なら1枚だけ追加する)。
-  // ページがちょうど実データで埋まっている(余白0)場合でも、必ず最低1枚は追加する。
+  // 現地での手書き対応用の予備バウチャーは、必ずKIC控え/レストラン控えの左右セット
+  // (2ブロック1組)で追加する(片側だけ生成される状態は作らない)。実データ1件が常に
+  // 2ブロックのペアで追加される実装上、realBlocks.lengthは常に偶数になるため、
+  // 1ページ4ブロックに対する余りは必ず0(ページがちょうど埋まる)か2(上段のみで終わる)
+  // のどちらかにしかならない。
+  //   - 余り2(奇数件、上段のみで終わる) → 下段に予備を1組(2ブロック)追加して埋める
+  //   - 余り0(偶数件、ページがちょうど埋まる) → 新しいページを追加し、上下とも予備を
+  //     1組ずつ、合計2組(4ブロック)追加する
   const BLOCKS_PER_PAGE = MEAL_VOUCHER_PAGE_SIZE * 2; // 1ページ4ブロック
   const remainder = realBlocks.length % BLOCKS_PER_PAGE;
-  let spareBlocksNeeded = (BLOCKS_PER_PAGE - remainder) % BLOCKS_PER_PAGE;
-  if(spareBlocksNeeded === 0) spareBlocksNeeded = 1;
+  const spareBlocksNeeded = remainder === 0 ? BLOCKS_PER_PAGE : (BLOCKS_PER_PAGE - remainder);
   for(let i=0;i<spareBlocksNeeded;i++){
     realBlocks.push({
       r: { restaurant_name:'', restaurant_name_en:'', meal_type:'', date:'', reservation_time:'',
