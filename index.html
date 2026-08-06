@@ -1152,7 +1152,7 @@ input[type=number]{-moz-appearance:textfield}
             <div class="form-field"><label>原価 (GROSS COST, JPY)</label><input id="nb-cost" type="number" placeholder="1290000"></div>
           </div>
           <div style="margin-top:14px;display:flex;gap:8px">
-            <button class="btn btn-p" onclick="saveBooking()">💾 保存</button>
+            <button class="btn btn-p" id="nb-save-btn" onclick="saveBooking()">💾 保存</button>
             <span class="msg-ok" id="nb-msg">✓ 予約を保存しました</span>
           </div>
         </div>
@@ -1251,7 +1251,7 @@ input[type=number]{-moz-appearance:textfield}
         <div class="card" id="inv-preview-card" style="display:none">
           <div class="card-title">Invoice プレビュー
             <span>
-              <button class="btn btn-p" onclick="saveInvoicePreviewFields()">💾 保存</button>
+              <button class="btn btn-p" id="inv-save-btn" onclick="saveInvoicePreviewFields()">💾 保存</button>
               <button class="btn" onclick="window.print()">🖨 印刷 / PDF保存</button>
               <button class="btn" onclick="document.getElementById('inv-preview-card').style.display='none'">閉じる</button>
             </span>
@@ -1284,7 +1284,7 @@ input[type=number]{-moz-appearance:textfield}
           <div class="card-title" style="position:sticky;top:50px;z-index:10;background:var(--card);padding:8px 0;margin:-8px 0 10px;border-bottom:1px solid var(--border)">見積もり編集
             <span>
               <button class="btn" onclick="previewEstimation()">🖨 プレビュー/印刷</button>
-              <button class="btn btn-p" onclick="saveEstimation()">💾 保存</button>
+              <button class="btn btn-p" id="est-save-btn" onclick="saveEstimation()">💾 保存</button>
               <button class="btn" onclick="closeEstimationEditor()">一覧へ戻る</button>
               <span class="msg-ok" id="est-msg">✓ 保存しました</span>
             </span>
@@ -1757,7 +1757,7 @@ input[type=number]{-moz-appearance:textfield}
             <div class="form-field" style="grid-column:1/-1"><label>備考</label><input id="bt-m-memo" placeholder="備考・確認番号など"></div>
           </div>
           <div style="margin-top:14px;display:flex;gap:8px;align-items:center">
-            <button class="btn btn-p" onclick="saveBtModal()">💾 保存</button>
+            <button class="btn btn-p" id="bt-modal-save-btn" onclick="saveBtModal()">💾 保存</button>
             <button class="btn" onclick="closeBtModal()">閉じる</button>
             <button class="btn" id="bt-modal-delete" style="color:var(--red);margin-left:auto" onclick="deleteBtRecord()">🗑 削除</button>
           </div>
@@ -1875,7 +1875,7 @@ input[type=number]{-moz-appearance:textfield}
             <div class="form-field" style="grid-column:1/-1" id="pn-remarks-wrap"><label>備考（当日バス運行会社）</label><input id="pn-remarks" placeholder="未定時は予定社情報"></div>
           </div>
           <div style="margin-top:14px;display:flex;gap:8px;align-items:center">
-            <button class="btn btn-p" onclick="saveParkingNowReservation()">📤 即時実行待ちとして登録</button>
+            <button class="btn btn-p" id="pn-save-btn" onclick="saveParkingNowReservation()">📤 即時実行待ちとして登録</button>
             <button class="btn" onclick="closeParkingNowModal()">閉じる</button>
           </div>
           <div class="msg-ok" id="pn-modal-msg" style="display:none">✓ 登録しました。PCで book-parking-now.js を実行してください</div>
@@ -2623,7 +2623,7 @@ input[type=number]{-moz-appearance:textfield}
         </div>
         <input id="bd-new-guide-phone" placeholder="電話番号" style="max-width:130px;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:12px">
         <button class="btn" style="font-size:10px" onclick="addGuideToNewList()">＋ ガイドを追加</button>
-        <button class="btn btn-p" style="font-size:10px" onclick="createGuideSettlement()">＋ ガイド精算リンクを発行</button>
+        <button class="btn btn-p" id="gs-create-btn" style="font-size:10px" onclick="createGuideSettlement()">＋ ガイド精算リンクを発行</button>
         <span class="msg-ok" id="gs-msg">✓ リンクを発行しました</span>
       </div>
     </div>
@@ -2716,7 +2716,7 @@ input[type=number]{-moz-appearance:textfield}
     <div class="form-field"><textarea id="arr-footer-notes" rows="5" placeholder="全旅クーポン、ミネラルウォーター配布、バス会社連絡先などの注意事項を入力"></textarea></div>
 
     <div style="margin-top:16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:12px">
-      <button class="btn btn-p" onclick="saveArrangement()">💾 保存</button>
+      <button class="btn btn-p" id="arr-save-btn" onclick="saveArrangement()">💾 保存</button>
       <button class="btn" onclick="previewArrangement()">🖨 プレビュー/印刷</button>
       <button class="btn" onclick="closeArrangementEditor()">閉じる</button>
       <span class="msg-ok" id="arr-msg">✓ 保存しました</span>
@@ -7104,60 +7104,70 @@ async function saveArrangement(){
   const b = findBookingById(currentDetailId);
   if(!b) return;
 
-  const payload = { booking_ref: b.ref_no, updated_at: new Date().toISOString() };
-  ARR_HEADER_FIELDS.forEach(([elId, col])=>{
-    let v = document.getElementById(elId).value;
-    if(col==='arr_date' || col==='dep_date'){ payload[col] = v || null; }
-    else payload[col] = v;
-  });
-  payload.footer_notes = document.getElementById('arr-footer-notes').value;
+  // 保存ボタン押下から完了メッセージが出るまでの間、二重クリックを防ぎ「保存中...」
+  // 表示に変える。成功・失敗いずれの経路でも必ず元に戻すためfinallyで復元する
+  // (処理ロジック自体は無変更)。
+  const saveBtn = document.getElementById('arr-save-btn');
+  const saveBtnOrigHtml = saveBtn ? saveBtn.innerHTML : null;
+  if(saveBtn){ saveBtn.disabled = true; saveBtn.innerHTML = '⏳ 保存中...'; }
+  try{
+    const payload = { booking_ref: b.ref_no, updated_at: new Date().toISOString() };
+    ARR_HEADER_FIELDS.forEach(([elId, col])=>{
+      let v = document.getElementById(elId).value;
+      if(col==='arr_date' || col==='dep_date'){ payload[col] = v || null; }
+      else payload[col] = v;
+    });
+    payload.footer_notes = document.getElementById('arr-footer-notes').value;
 
-  let arrId = currentArrangementId;
-  if(arrId){
-    const {error} = await sb.from('tour_arrangements').update(payload).eq('id', arrId);
-    if(error){ alert('保存に失敗しました: '+error.message); return; }
-  }else{
-    payload.created_by = currentUser ? currentUser.email : null;
-    const {data, error} = await sb.from('tour_arrangements').insert(payload).select().single();
-    if(error){ alert('保存に失敗しました: '+error.message); return; }
-    arrId = data.id;
-    currentArrangementId = arrId;
+    let arrId = currentArrangementId;
+    if(arrId){
+      const {error} = await sb.from('tour_arrangements').update(payload).eq('id', arrId);
+      if(error){ alert('保存に失敗しました: '+error.message); return; }
+    }else{
+      payload.created_by = currentUser ? currentUser.email : null;
+      const {data, error} = await sb.from('tour_arrangements').insert(payload).select().single();
+      if(error){ alert('保存に失敗しました: '+error.message); return; }
+      arrId = data.id;
+      currentArrangementId = arrId;
+    }
+
+    // 日程を保存（全削除→再挿入）
+    await sb.from('tour_arrangement_days').delete().eq('arrangement_id', arrId);
+    if(arrDays.length>0){
+      const rows = arrDays.map((d,i)=>({
+        arrangement_id: arrId,
+        day_number: i+1,
+        day_date: d.day_date || null,
+        day_of_week: d.day_of_week||'',
+        bus_company: d.bus_company||'',
+        itinerary: d.itinerary||'',
+        others_notes: d.others_notes||'',
+        hotel_name: d.hotel_name||'',
+        hotel_area: d.hotel_area||'',
+        hotel_area_phone: d.hotel_area_phone||'',
+        driver_info: d.driver_info||'',
+        breakfast_type: d.breakfast_type||'',
+        lunch_restaurant: d.lunch_restaurant||'',
+        lunch_time: d.lunch_time||'',
+        lunch_phone: d.lunch_phone||'',
+        dinner_restaurant: d.dinner_restaurant||'',
+        dinner_time: d.dinner_time||'',
+        dinner_phone: d.dinner_phone||'',
+        sort_order: i
+      }));
+      const {error: dayErr} = await sb.from('tour_arrangement_days').insert(rows);
+      if(dayErr){ alert('日程の保存に失敗しました: '+dayErr.message); return; }
+    }
+
+    await logAction('手配書保存', b.ref_no + (payload.sheet_label?(' / '+payload.sheet_label):''));
+    const msg = document.getElementById('arr-msg');
+    msg.style.display='inline';
+    setTimeout(()=>{ msg.style.display='none'; }, 2000);
+
+    await loadArrangementsList();
+  }finally{
+    if(saveBtn){ saveBtn.disabled = false; saveBtn.innerHTML = saveBtnOrigHtml; }
   }
-
-  // 日程を保存（全削除→再挿入）
-  await sb.from('tour_arrangement_days').delete().eq('arrangement_id', arrId);
-  if(arrDays.length>0){
-    const rows = arrDays.map((d,i)=>({
-      arrangement_id: arrId,
-      day_number: i+1,
-      day_date: d.day_date || null,
-      day_of_week: d.day_of_week||'',
-      bus_company: d.bus_company||'',
-      itinerary: d.itinerary||'',
-      others_notes: d.others_notes||'',
-      hotel_name: d.hotel_name||'',
-      hotel_area: d.hotel_area||'',
-      hotel_area_phone: d.hotel_area_phone||'',
-      driver_info: d.driver_info||'',
-      breakfast_type: d.breakfast_type||'',
-      lunch_restaurant: d.lunch_restaurant||'',
-      lunch_time: d.lunch_time||'',
-      lunch_phone: d.lunch_phone||'',
-      dinner_restaurant: d.dinner_restaurant||'',
-      dinner_time: d.dinner_time||'',
-      dinner_phone: d.dinner_phone||'',
-      sort_order: i
-    }));
-    const {error: dayErr} = await sb.from('tour_arrangement_days').insert(rows);
-    if(dayErr){ alert('日程の保存に失敗しました: '+dayErr.message); return; }
-  }
-
-  await logAction('手配書保存', b.ref_no + (payload.sheet_label?(' / '+payload.sheet_label):''));
-  const msg = document.getElementById('arr-msg');
-  msg.style.display='inline';
-  setTimeout(()=>{ msg.style.display='none'; }, 2000);
-
-  await loadArrangementsList();
 }
 
 async function previewArrangementById(id){
@@ -8720,6 +8730,9 @@ async function createGuideSettlement(){
   // 複数ガイド全員分の紐付けはguide_names配列側のguide_idを見ること。
   const primaryGuideId = guideNames.find(g=>g.guide_id)?.guide_id || null;
 
+  const saveBtn = document.getElementById('gs-create-btn');
+  const saveBtnOrigHtml = saveBtn ? saveBtn.innerHTML : null;
+  if(saveBtn){ saveBtn.disabled = true; saveBtn.innerHTML = '⏳ 保存中...'; }
   try{
     await guideSettlementsApiCall('insert', { rows: [{
       booking_ref: b.ref_no,
@@ -8730,6 +8743,7 @@ async function createGuideSettlement(){
       created_by: currentUser ? currentUser.email : null
     }] });
   }catch(e){ alert('発行に失敗しました: '+e.message); return; }
+  finally{ if(saveBtn){ saveBtn.disabled = false; saveBtn.innerHTML = saveBtnOrigHtml; } }
 
   bdNewGuideList = [];
   renderBdNewGuideList();
@@ -9531,6 +9545,9 @@ async function saveEstimation(){
     if(!confirm(msg)) return;
   }
 
+  const saveBtn = document.getElementById('est-save-btn');
+  const saveBtnOrigHtml = saveBtn ? saveBtn.innerHTML : null;
+  if(saveBtn){ saveBtn.disabled = true; saveBtn.innerHTML = '⏳ 保存中...'; }
   try {
     const payload = {
       title: document.getElementById('est-title').value,
@@ -9611,6 +9628,8 @@ async function saveEstimation(){
     setTimeout(()=>{ msg.style.display='none'; }, 3000);
   } catch(e) {
     alert('保存中に予期しないエラーが発生しました。\n'+e.message);
+  } finally {
+    if(saveBtn){ saveBtn.disabled = false; saveBtn.innerHTML = saveBtnOrigHtml; }
   }
 }
 
@@ -10477,12 +10496,17 @@ async function saveParkingNowReservation(){
     }
   }
 
+  const saveBtn = document.getElementById('pn-save-btn');
+  const saveBtnOrigHtml = saveBtn ? saveBtn.innerHTML : null;
+  if(saveBtn){ saveBtn.disabled = true; saveBtn.innerHTML = '⏳ 保存中...'; }
   try{
     await parkingReservationsApiCall('save', {payload});
   }catch(e){
     errEl.textContent = '登録エラー: '+e.message;
     errEl.style.display='block';
     return;
+  }finally{
+    if(saveBtn){ saveBtn.disabled = false; saveBtn.innerHTML = saveBtnOrigHtml; }
   }
   msgEl.style.display='block';
   setTimeout(()=>msgEl.style.display='none', 3000);
@@ -15472,7 +15496,7 @@ function renderGuideDocEditorModal(){
       <div class="form-field" style="margin-top:8px"><label>その他ツアー固有の申し送り</label><textarea rows="2" style="width:100%;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:12px;font-family:inherit;box-sizing:border-box" onchange="gdNoteSet('tour_specific',this.value)">${escHtml(d.notes.tour_specific)}</textarea></div>
 
       <div style="margin-top:14px;display:flex;gap:8px">
-        <button class="btn btn-p" onclick="saveGuideDocEditor()">💾 この手配書を保存</button>
+        <button class="btn btn-p" id="gd-save-btn" onclick="saveGuideDocEditor()">💾 この手配書を保存</button>
         <button class="btn" onclick="exportGuideDocExcel('${d.id}')">📥 Excel出力</button>
         <button class="btn" onclick="closeGuideDocEditor()">閉じる</button>
       </div>
@@ -15494,6 +15518,9 @@ async function saveGuideDocEditor(){
     last_revised_at: revisionChanged ? new Date().toISOString() : (d.last_revised_at||null),
     updated_at: new Date().toISOString(),
   };
+  const saveBtn = document.getElementById('gd-save-btn');
+  const saveBtnOrigHtml = saveBtn ? saveBtn.innerHTML : null;
+  if(saveBtn){ saveBtn.disabled = true; saveBtn.innerHTML = '⏳ 保存中...'; }
   try{
     const {error: updErr} = await sb.from('arrangement_documents').update(headerPayload).eq('id', d.id);
     if(updErr) throw new Error('手配書ヘッダーの保存に失敗: '+updErr.message);
@@ -15523,6 +15550,8 @@ async function saveGuideDocEditor(){
     await loadGuideDocsList(currentDetailId);
   }catch(e){
     alert('保存に失敗しました: '+e.message);
+  }finally{
+    if(saveBtn){ saveBtn.disabled = false; saveBtn.innerHTML = saveBtnOrigHtml; }
   }
 }
 
@@ -16210,8 +16239,12 @@ async function saveBooking(){
     gross_cost: Number(document.getElementById('nb-cost').value)||0,
     status: document.getElementById('nb-status').value
   };
+  const saveBtn = document.getElementById('nb-save-btn');
+  const saveBtnOrigHtml = saveBtn ? saveBtn.innerHTML : null;
+  if(saveBtn){ saveBtn.disabled = true; saveBtn.innerHTML = '⏳ 保存中...'; }
   try{ await bookingsApiCall('insert', { rows: [payload] }); }
   catch(e){ alert('保存に失敗しました: '+e.message); return; }
+  finally{ if(saveBtn){ saveBtn.disabled = false; saveBtn.innerHTML = saveBtnOrigHtml; } }
 
   await logAction('予約入力', ref);
   document.getElementById('nb-msg').style.display='inline';
@@ -16680,6 +16713,9 @@ async function saveGuide(){
     updated_at: new Date().toISOString()
   };
 
+  const saveBtn = document.getElementById('gr-save-btn');
+  const saveBtnOrigHtml = saveBtn ? saveBtn.innerHTML : null;
+  if(saveBtn){ saveBtn.disabled = true; saveBtn.innerHTML = '⏳ 保存中...'; }
   try{
     if(currentGuideEditId){
       await guidesApiCall('updateById', { id: currentGuideEditId, fields: payload });
@@ -16688,6 +16724,7 @@ async function saveGuide(){
       await guidesApiCall('insert', { rows: [payload] });
     }
   }catch(e){ alert('保存に失敗しました: '+e.message); return; }
+  finally{ if(saveBtn){ saveBtn.disabled = false; saveBtn.innerHTML = saveBtnOrigHtml; } }
 
   await logAction('ガイド登録更新', name);
   const msg = document.getElementById('gr-msg');
@@ -19734,21 +19771,28 @@ async function saveBtModal(){
     }
   }
 
-  if(currentBtId){
-    const {error} = await sb.from('bullet_train_arrangements').update(payload).eq('id', currentBtId);
-    if(error){ alert('保存エラー: '+error.message); return; }
-    const idx = bulletTrainCache.findIndex(x=>x.id===currentBtId);
-    if(idx>=0) Object.assign(bulletTrainCache[idx], payload);
-  }else{
-    const {data, error} = await sb.from('bullet_train_arrangements').insert(payload).select().single();
-    if(error){ alert('保存エラー: '+error.message); return; }
-    bulletTrainCache.push(data);
-    currentBtId = data.id;
-    document.getElementById('bt-modal-delete').style.display='';
+  const saveBtn = document.getElementById('bt-modal-save-btn');
+  const saveBtnOrigHtml = saveBtn ? saveBtn.innerHTML : null;
+  if(saveBtn){ saveBtn.disabled = true; saveBtn.innerHTML = '⏳ 保存中...'; }
+  try{
+    if(currentBtId){
+      const {error} = await sb.from('bullet_train_arrangements').update(payload).eq('id', currentBtId);
+      if(error){ alert('保存エラー: '+error.message); return; }
+      const idx = bulletTrainCache.findIndex(x=>x.id===currentBtId);
+      if(idx>=0) Object.assign(bulletTrainCache[idx], payload);
+    }else{
+      const {data, error} = await sb.from('bullet_train_arrangements').insert(payload).select().single();
+      if(error){ alert('保存エラー: '+error.message); return; }
+      bulletTrainCache.push(data);
+      currentBtId = data.id;
+      document.getElementById('bt-modal-delete').style.display='';
+    }
+    const msg = document.getElementById('bt-modal-msg');
+    msg.style.display='block'; setTimeout(()=>msg.style.display='none', 2000);
+    filterBulletTrains();
+  }finally{
+    if(saveBtn){ saveBtn.disabled = false; saveBtn.innerHTML = saveBtnOrigHtml; }
   }
-  const msg = document.getElementById('bt-modal-msg');
-  msg.style.display='block'; setTimeout(()=>msg.style.display='none', 2000);
-  filterBulletTrains();
 }
 
 async function deleteBtRecord(){
@@ -21776,15 +21820,22 @@ async function batchSaveAndNext(){
     }
     // choice==='new' はこのまま下の新規登録処理に進む
   }
-  try{ await businessPartnersApiCall('insert', { rows: [payload] }); }
-  catch(e){ alert('保存に失敗しました: ' + e.message); return; }
-  await logAction('取引先登録更新', payload.company_name);
-  multiLocBatch.savedCount++;
+  const saveBtn = document.getElementById('pt-batch-save-btn');
+  const saveBtnOrigHtml = saveBtn ? saveBtn.innerHTML : null;
+  if(saveBtn){ saveBtn.disabled = true; saveBtn.innerHTML = '⏳ 保存中...'; }
   try{
-    const {data: freshPartners} = await sb.from('business_partners').select('*').order('company_name');
-    if(freshPartners) partnersCache = freshPartners;
-  }catch(e){ logError('取引先キャッシュの再読込(一括登録)', e, {toast:false}); }
-  batchAdvance();
+    try{ await businessPartnersApiCall('insert', { rows: [payload] }); }
+    catch(e){ alert('保存に失敗しました: ' + e.message); return; }
+    await logAction('取引先登録更新', payload.company_name);
+    multiLocBatch.savedCount++;
+    try{
+      const {data: freshPartners} = await sb.from('business_partners').select('*').order('company_name');
+      if(freshPartners) partnersCache = freshPartners;
+    }catch(e){ logError('取引先キャッシュの再読込(一括登録)', e, {toast:false}); }
+    batchAdvance();
+  }finally{
+    if(saveBtn){ saveBtn.disabled = false; saveBtn.innerHTML = saveBtnOrigHtml; }
+  }
 }
 
 function batchSkip(){
@@ -21937,6 +21988,9 @@ const fmtPhone = s => {
     notes: document.getElementById('pt-notes').value.trim() || null,
     updated_at: new Date().toISOString()
   };
+  const saveBtn = document.getElementById('pt-save-btn');
+  const saveBtnOrigHtml = saveBtn ? saveBtn.innerHTML : null;
+  if(saveBtn){ saveBtn.disabled = true; saveBtn.innerHTML = '⏳ 保存中...'; }
   try{
     if(currentPartnerEditId){
       await businessPartnersApiCall('updateById', { id: currentPartnerEditId, fields: payload });
@@ -21945,6 +21999,7 @@ const fmtPhone = s => {
       await businessPartnersApiCall('insert', { rows: [payload] });
     }
   }catch(e){ alert('保存に失敗しました: '+e.message); return; }
+  finally{ if(saveBtn){ saveBtn.disabled = false; saveBtn.innerHTML = saveBtnOrigHtml; } }
   await logAction('取引先登録更新', company);
   const msg = document.getElementById('pt-msg');
   msg.style.display='inline';
@@ -22266,6 +22321,9 @@ async function saveAgent(){
     notes: get('ag-notes') || null,
     updated_at: new Date().toISOString()
   };
+  const saveBtn = document.getElementById('ag-save-btn');
+  const saveBtnOrigHtml = saveBtn ? saveBtn.innerHTML : null;
+  if(saveBtn){ saveBtn.disabled = true; saveBtn.innerHTML = '⏳ 保存中...'; }
   try{
     if(currentAgentEditId){
       await agentsApiCall('updateById', { id: currentAgentEditId, fields: payload });
@@ -22274,6 +22332,7 @@ async function saveAgent(){
       await agentsApiCall('insert', { rows: [payload] });
     }
   }catch(e){ alert('保存に失敗しました: '+e.message); return; }
+  finally{ if(saveBtn){ saveBtn.disabled = false; saveBtn.innerHTML = saveBtnOrigHtml; } }
   await logAction('取引先(Agent)登録更新', company);
   const msg = document.getElementById('ag-msg');
   msg.style.display='inline';
@@ -22936,10 +22995,17 @@ async function saveInvoicePreviewFields(){
     note: getVal('inv-note'),
     person_in_charge: getVal('inv-person-in-charge'),
   };
-  const {error} = await sb.from('invoices').update(payload).eq('id', inv.id);
-  if(error){ logError('Invoiceプレビュー項目の保存', error, {toast:false}); alert('保存に失敗しました: '+error.message); return; }
-  Object.assign(inv, payload);
-  alert('✓ 保存しました');
+  const saveBtn = document.getElementById('inv-save-btn');
+  const saveBtnOrigHtml = saveBtn ? saveBtn.innerHTML : null;
+  if(saveBtn){ saveBtn.disabled = true; saveBtn.innerHTML = '⏳ 保存中...'; }
+  try{
+    const {error} = await sb.from('invoices').update(payload).eq('id', inv.id);
+    if(error){ logError('Invoiceプレビュー項目の保存', error, {toast:false}); alert('保存に失敗しました: '+error.message); return; }
+    Object.assign(inv, payload);
+    alert('✓ 保存しました');
+  }finally{
+    if(saveBtn){ saveBtn.disabled = false; saveBtn.innerHTML = saveBtnOrigHtml; }
+  }
 }
 
 // ===== 起動時：ログインセッション復元 =====
@@ -23004,7 +23070,7 @@ function setDateInputValue(el, d){
       <div class="form-field" style="grid-column:1/-1"><label>銀行口座</label><textarea id="gr-bank" rows="2" placeholder="例: 三井住友銀行 渋谷支店 普通1234567 ヤマダタロウ"></textarea></div>       <div class="form-field" style="grid-column:1/-1"><label>マイナンバー（税務用・厳重管理）</label><input id="gr-mynumber" placeholder="例: 1234 5678 9012"></div>
     </div>
     <div style="display:flex;gap:8px;align-items:center;margin-top:12px">
-      <button class="btn btn-p" onclick="saveGuide()">💾 保存</button>
+      <button class="btn btn-p" id="gr-save-btn" onclick="saveGuide()">💾 保存</button>
       <button class="btn" onclick="closeGuideEditor()">閉じる</button>
       <span class="msg-ok" id="gr-msg">✓ 保存しました</span>
     </div>
@@ -23324,13 +23390,13 @@ function setDateInputValue(el, d){
         <span style="font-size:11px;font-weight:400;color:var(--text3);margin-left:8px">一括登録モード</span>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn btn-p" style="font-size:12px" onclick="batchSaveAndNext()">💾 保存して次へ</button>
+        <button class="btn btn-p" id="pt-batch-save-btn" style="font-size:12px" onclick="batchSaveAndNext()">💾 保存して次へ</button>
         <button class="btn" style="font-size:12px" onclick="batchSkip()">スキップ →</button>
         <button class="btn" style="font-size:12px;color:var(--red)" onclick="batchCancel()">✕ 中止</button>
       </div>
     </div>
     <div id="pt-save-bar" style="display:flex;gap:8px;align-items:center;padding:10px 20px;position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:min(960px,95vw);box-sizing:border-box;background:var(--card);box-shadow:0 -2px 10px rgba(0,0,0,.1);z-index:110">
-      <button class="btn btn-p" onclick="savePartner()">💾 保存</button>
+      <button class="btn btn-p" id="pt-save-btn" onclick="savePartner()">💾 保存</button>
       <button class="btn" onclick="closePartnerEditor()">閉じる</button>
       <span class="msg-ok" id="pt-msg">✓ 保存しました</span>
     </div>
@@ -23384,7 +23450,7 @@ function setDateInputValue(el, d){
       <div class="modal-close" onclick="closeAgentEditor()">✕</div>
     </div>
     <div id="ag-save-bar" style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
-      <button class="btn btn-p" onclick="saveAgent()">💾 保存</button>
+      <button class="btn btn-p" id="ag-save-btn" onclick="saveAgent()">💾 保存</button>
       <button class="btn" onclick="closeAgentEditor()">閉じる</button>
       <span class="msg-ok" id="ag-msg">✓ 保存しました</span>
     </div>
