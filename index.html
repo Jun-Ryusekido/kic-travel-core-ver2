@@ -7742,13 +7742,23 @@ async function reflectLocalExpensesToCost(){
   }
   if(!confirm(`仮払い一覧表の合計を万単位切り上げした金額を仕入明細に追加します。\n\n金額: ${yen(roundedUp)}\n(実際の合計: ${yen(total)})\n\nよろしいですか？`)) return;
 
+  // 仕入明細(booking_costs)には「費用種類」列自体が無い(この列を持つのは仮払い一覧表
+  // (local_expenses)側のみ)ため、費用種類に相当する情報は「仕入先」欄(item_name)に
+  // 「仮払金」と入れることで表現する。内容(ツアーコード・ガイド名)は備考(memo)に入れる。
+  // ガイドが複数いる場合も金額は分割しない(印刷用の出金伝票と同じ「1本の合計、宛先は
+  // 参考情報」という設計に合わせ、全ガイド名を併記する)。
+  const tourCode = b.tour_code || b.ref_no || '';
+  const guideNames = _bdLocalVoucherGuideList().map(g=>g.name).filter(Boolean);
+  const guideLabel = guideNames.length ? guideNames.join('・') : '';
+  const memoLabel = `仮払い一覧表（${tourCode}）${guideLabel}`.trim();
+
   const nowIso = new Date().toISOString();
   const newCostRow = {
     booking_id: bookingId,
-    item_name: `仮払い一覧表（${b.tour_code || b.ref_no || ''}）`,
+    item_name: '仮払金',
     amount: roundedUp,
     payment_date: null,
-    memo: '仮払い一覧表出金伝票より反映',
+    memo: memoLabel,
     status: 'pending',
     source_table: 'local_expenses_voucher',
     source_id: bookingId,
