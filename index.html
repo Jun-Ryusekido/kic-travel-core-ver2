@@ -1162,7 +1162,7 @@ input[type=number]{-moz-appearance:textfield}
       <div id="pg-booking-list" class="page" style="display:none">
         <div class="card" id="bl-filter-card" style="position:sticky;top:50px;z-index:10;margin-bottom:0;border-radius:12px 12px 0 0">
           <div class="card-title">検索・絞り込み</div>
-          <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr 1fr">
+          <div class="form-grid" style="--fg-cols:2fr 1fr 1fr 1fr">
             <div class="form-field"><label>検索（REF# / Agent / Tour）</label><input id="bl-search" placeholder="例: Kesari, #1374, Kyoto" oninput="filterBookingListGeneric('bl')"></div>
             <div class="form-field"><label>出発日(From)</label><input id="bl-from" type="date" min="1900-01-01" max="9999-12-31" onblur="filterBookingListGeneric('bl')"></div>
             <div class="form-field"><label>出発日(To)</label><input id="bl-to" type="date" min="1900-01-01" max="9999-12-31" onblur="filterBookingListGeneric('bl')"></div>
@@ -1220,7 +1220,7 @@ input[type=number]{-moz-appearance:textfield}
       <div id="pg-invoice" class="page" style="display:none">
         <div class="card">
           <div class="card-title">検索・絞り込み</div>
-          <div class="form-grid" style="grid-template-columns:2fr 1fr">
+          <div class="form-grid" style="--fg-cols:2fr 1fr">
             <div class="form-field"><label>検索（REF# / Invoice No / Agent / Tour）</label><input id="iv-search" placeholder="例: Kesari, #1374, INV-1374" oninput="filterInvoiceUnified()"></div>
             <div class="form-field"><label>Status</label>
               <select id="iv-status" onchange="filterInvoiceUnified()">
@@ -1610,7 +1610,7 @@ input[type=number]{-moz-appearance:textfield}
           </div>
           <!-- 日付順タブ -->
           <div id="hm-tab-date">
-            <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr 1fr">
+            <div class="form-grid" style="--fg-cols:2fr 1fr 1fr 1fr">
               <div class="form-field"><label>ホテル名 / REF#で絞り込み</label><input id="hm-search" placeholder="例: 京王プラザ / 762 / #762" oninput="filterHotelManagement()"></div>
               <div class="form-field"><label>チェックイン(From)</label><input id="hm-from" type="date" min="1900-01-01" max="9999-12-31" onblur="filterHotelManagement()"></div>
               <div class="form-field"><label>チェックイン(To)</label><input id="hm-to" type="date" min="1900-01-01" max="9999-12-31" onblur="filterHotelManagement()"></div>
