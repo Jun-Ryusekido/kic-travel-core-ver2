@@ -33,8 +33,13 @@ $SYNC_TIMEOUT_SEC = 180
 
 # /api/email-import-insertの認証キー(x-import-keyヘッダー)。gitにコミットされる
 # このファイルには平文で書かず、事前に以下を一度だけ実行してレジストリに保存しておく
-# (Vercel側の環境変数EMAIL_IMPORT_API_KEYと同じ値):
-#   New-Item -Path 'HKCU:\Software\VB and VBA Program Settings\KICImport\Settings' -Force
+# (Vercel側の環境変数EMAIL_IMPORT_API_KEYと同じ値)。
+# 注意: このキーはLastCheck等のVBAマクロと共用の既存キーなので、New-Item -Forceは
+# 絶対に使わないこと(既存キーごと削除されLastCheckが失われ、2026-05-01固定値まで
+# 巻き戻って全メール再処理になる不具合が実際に発生した)。
+#   if (-not (Test-Path 'HKCU:\Software\VB and VBA Program Settings\KICImport\Settings')) {
+#     New-Item -Path 'HKCU:\Software\VB and VBA Program Settings\KICImport\Settings' -Force
+#   }
 #   Set-ItemProperty -Path 'HKCU:\Software\VB and VBA Program Settings\KICImport\Settings' -Name 'ImportApiKey' -Value '<値>'
 $IMPORT_API_KEY = $null
 try{ $IMPORT_API_KEY = (Get-ItemProperty -Path $REG_PATH -ErrorAction Stop).ImportApiKey }catch{}
@@ -109,11 +114,20 @@ try{
   }
 
   # ---- 4. read LastCheck ----
-  $lastCheck = Get-Date '2026-05-01'
+  # LastCheckが読めない場合、以前は2026-05-01へサイレントにフォールバックしていたが、
+  # これが原因でレジストリキーが誤って初期化された際に何千件ものメールを一括再処理
+  # しようとする事故が実際に発生した。読めない場合は危険な既定値を使わず処理を
+  # 中止する(LastCheckは復元後に手動でSet-ItemPropertyし、再実行すること)。
+  $lastCheck = $null
   try{
     $v = (Get-ItemProperty -Path $REG_PATH -ErrorAction Stop).LastCheck
     if($v){ $lastCheck = [datetime]::Parse($v) }
   }catch{}
+  if($null -eq $lastCheck){
+    Write-Log 'FATAL: LastCheck not found in registry (or unreadable). Refusing to fall back to a hardcoded default, since that would risk mass-reprocessing the entire mailbox. Restore LastCheck manually via Set-ItemProperty, then re-run.'
+    if($startedByScript){ $outlook.Quit() }
+    exit 1
+  }
   Write-Log ('LastCheck = ' + $lastCheck.ToString('yyyy-MM-dd HH:mm:ss'))
 
   # ---- 5. restrict inbox to mails newer than LastCheck ----
