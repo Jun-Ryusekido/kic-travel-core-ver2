@@ -20459,18 +20459,16 @@ async function printArrangementSummaryList(){
     const sorted = [...bdHotelItems].sort((a,c)=>(a.check_in||'').localeCompare(c.check_in||''));
     const rows = sorted.map(h=>`<tr>
       <td ${tdS()}>${escHtml(h.hotel_name||'')}</td>
-      <td ${tdS()}>${escHtml(arrPartnerPhone(h.hotel_name))}</td>
+      <td ${tdS('white-space:nowrap')}>${escHtml(arrPartnerPhone(h.hotel_name))}</td>
       <td ${tdS()}>${escHtml(h.check_in||'')}</td>
       <td ${tdS()}>${escHtml(h.check_out||'')}</td>
       <td ${tdS()}>${escHtml(h.room_type||'')}</td>
-      <td ${tdS('text-align:right')}>${h.rooms||''}</td>
       <td ${tdS()}>${escHtml(h.confirmation_no||'')}</td>
-      <td ${tdS()}>${escHtml(h.status||'')}</td>
     </tr>`).join('');
     sections += sectionTitle('🏨 ホテル / Hotels') + `<table style="width:100%;border-collapse:collapse;margin-bottom:6px">
       <thead><tr>
-        <th ${thS()}>ホテル名</th><th ${thS('width:70px')}>電話番号</th><th ${thS('width:70px')}>チェックイン</th><th ${thS('width:70px')}>チェックアウト</th>
-        <th ${thS('width:60px')}>部屋タイプ</th><th ${thS('width:40px')}>部屋数</th><th ${thS('width:70px')}>確認番号</th><th ${thS('width:60px')}>ステータス</th>
+        <th ${thS()}>ホテル名</th><th ${thS('width:95px')}>電話番号</th><th ${thS('width:70px')}>チェックイン</th><th ${thS('width:70px')}>チェックアウト</th>
+        <th ${thS('width:70px')}>部屋タイプ</th><th ${thS('width:70px')}>確認番号</th>
       </tr></thead><tbody>${rows}</tbody></table>`;
   }
 
@@ -20478,18 +20476,16 @@ async function printArrangementSummaryList(){
     const sorted = [...bdBusItems].sort((a,c)=>(a.start_date||'').localeCompare(c.start_date||''));
     const rows = sorted.map(bu=>`<tr>
       <td ${tdS()}>${escHtml(bu.bus_company||'')}</td>
-      <td ${tdS()}>${escHtml(arrPartnerPhone(bu.bus_company))}</td>
+      <td ${tdS('white-space:nowrap')}>${escHtml(arrPartnerPhone(bu.bus_company))}</td>
       <td ${tdS()}>${escHtml(bu.bus_type||'')}</td>
-      <td ${tdS('text-align:right')}>${bu.buses||''}</td>
       <td ${tdS()}>${escHtml(bu.start_date||'')}</td>
       <td ${tdS()}>${escHtml(bu.end_date||'')}</td>
       <td ${tdS()}>${escHtml(bu.confirmation_no||'')}</td>
-      <td ${tdS()}>${escHtml(bu.status||'')}</td>
     </tr>`).join('');
     sections += sectionTitle('🚌 バス / Bus') + `<table style="width:100%;border-collapse:collapse;margin-bottom:6px">
       <thead><tr>
-        <th ${thS()}>バス会社</th><th ${thS('width:70px')}>電話番号</th><th ${thS('width:70px')}>バスタイプ</th><th ${thS('width:35px')}>台数</th>
-        <th ${thS('width:70px')}>開始日</th><th ${thS('width:70px')}>終了日</th><th ${thS('width:70px')}>確認番号</th><th ${thS('width:60px')}>ステータス</th>
+        <th ${thS()}>バス会社</th><th ${thS('width:95px')}>電話番号</th><th ${thS('width:70px')}>バスタイプ</th>
+        <th ${thS('width:70px')}>開始日</th><th ${thS('width:70px')}>終了日</th><th ${thS('width:70px')}>確認番号</th>
       </tr></thead><tbody>${rows}</tbody></table>`;
   }
 
@@ -20498,16 +20494,15 @@ async function printArrangementSummaryList(){
     const rows = sorted.map(f=>`<tr>
       <td ${tdS()}>${escHtml(f.date||'')}</td>
       <td ${tdS()}>${escHtml(f.facility_name||'')}</td>
-      <td ${tdS()}>${escHtml(arrPartnerPhone(f.facility_name))}</td>
+      <td ${tdS('white-space:nowrap')}>${escHtml(arrPartnerPhone(f.facility_name))}</td>
       <td ${tdS('text-align:right')}>${f.pax?Number(f.pax)+'名':''}</td>
       <td ${tdS()}>${escHtml(f.confirmation_no||'')}</td>
       <td ${tdS()}>${escHtml(f.payment_method||'')}</td>
-      <td ${tdS()}>${escHtml(f.status||'')}</td>
     </tr>`).join('');
     sections += sectionTitle('🎡 観光施設・バス駐車場等 / Sightseeing &amp; Parking') + `<table style="width:100%;border-collapse:collapse;margin-bottom:6px">
       <thead><tr>
-        <th ${thS('width:70px')}>日付</th><th ${thS()}>施設名</th><th ${thS('width:70px')}>電話番号</th><th ${thS('width:45px')}>人数</th>
-        <th ${thS('width:70px')}>確認番号</th><th ${thS('width:70px')}>支払方法</th><th ${thS('width:60px')}>ステータス</th>
+        <th ${thS('width:70px')}>日付</th><th ${thS()}>施設名</th><th ${thS('width:95px')}>電話番号</th><th ${thS('width:45px')}>人数</th>
+        <th ${thS('width:70px')}>確認番号</th><th ${thS('width:70px')}>支払方法</th>
       </tr></thead><tbody>${rows}</tbody></table>`;
   }
 
