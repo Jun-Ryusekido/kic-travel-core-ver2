@@ -5151,6 +5151,15 @@ async function addArrRowToCostNow(payload, btnEl, onSuccess){
 }
 const LOCAL_EXPENSE_TYPES = ['食事','食事代','食事/TIP','交通費','入場料','駐車場代','ホテル','ホテル代','水代','駐車料','TIP','雑費','その他'];
 let bdLocked = false; let suppliersCache = []; let busCompaniesCache = []; let restaurantPartnersCache = []; let allPartnersCache = [];
+// 売上明細「項目名」欄オートコンプリート用。固定リスト(常に上位表示)＋過去実績の頻度上位。
+const SALES_ITEM_NAME_FIXED_LIST = [
+  'Tour Fee', 'Tour Fee (FOC)', 'Hotel (Single Suppliment)', 'Hotel (Triple Reduction)',
+  'Hotel Accommodation', 'Reduction', 'Transportation (Car)', 'Transportation (Bus)',
+  'Tour Fee (Child 80%)', 'Tour Fee (Child 50%)', 'Departure Transfer', 'Arrival Transfer',
+  'Meals', 'Bank Transfer Fee', 'Additional fee', 'Cancellation charge', 'Refund',
+  'Deduction', 'Pre stay', 'Ticket',
+];
+let salesItemNameFreqCache = []; // 固定リストと重複しない過去実績、頻度降順、上位30件
 let arrangementsCache = [];
 let currentArrangementId = null;
 let arrDays = [];
@@ -5437,7 +5446,7 @@ function renderSalesTable(){
   }else{
     tbody.innerHTML = bdSalesItems.map((it,i)=>`
       <tr>
-        <td data-label="項目名"><input ${dis} value="${(it.item_name||'').replace(/"/g,'&quot;')}" title="${(it.item_name||'').replace(/"/g,'&quot;')}" onchange="bdSalesItems[${i}].item_name=this.value"></td>
+        <td data-label="項目名"><input ${dis} value="${(it.item_name||'').replace(/"/g,'&quot;')}" title="${(it.item_name||'').replace(/"/g,'&quot;')}" oninput="bdSalesItems[${i}].item_name=this.value;showItemNameSuggestionsForSales(this,${i})" onblur="setTimeout(hideItemNameSuggestionsForSales,150)" onfocus="showItemNameSuggestionsForSales(this,${i})"></td>
         <td data-label="追記事項"><input ${dis} value="${(it.memo||'').replace(/"/g,'&quot;')}" title="${(it.memo||'').replace(/"/g,'&quot;')}" onchange="bdSalesItems[${i}].memo=this.value"></td>
         <td data-label="単価" style="text-align:right"><input ${dis} type="text" inputmode="numeric" value="${Number(it.unit_price||0).toLocaleString('ja-JP')}" onchange="bdSalesRowCalc(${i},this,'unit_price')" style="text-align:right"></td>
         <td data-label="人数" style="text-align:right"><input ${dis} type="number" value="${it.pax||1}" onchange="bdSalesRowCalc(${i},this,'pax')" style="text-align:right"></td>
@@ -5669,6 +5678,74 @@ function showSupplierSuggestions(inputEl, idx){
 
 function hideSupplierSuggestions(){
   const box = document.getElementById('supplier-suggest-box');
+  if(box) box.remove();
+}
+
+// 売上明細item_nameの過去実績を頻度集計する。booking_salesは件数が多くなり得るため
+// item_name列のみ取得しクライアント側でMap集計する(仕入先マスタ等の既存キャッシュと違い、
+// マスタテーブルが無く実績集計そのものが候補データになるため)。固定リスト
+// (SALES_ITEM_NAME_FIXED_LIST)と重複するものは除外し、頻度上位30件のみ残す。
+async function loadSalesItemNameFreqCache(){
+  if(salesItemNameFreqCache.length>0) return;
+  const {data, error} = await sb.from('booking_sales').select('item_name');
+  if(error || !data) return;
+  const counts = new Map();
+  data.forEach(r=>{
+    const name = (r.item_name||'').trim();
+    if(!name) return;
+    if(SALES_ITEM_NAME_FIXED_LIST.includes(name)) return;
+    counts.set(name, (counts.get(name)||0)+1);
+  });
+  salesItemNameFreqCache = Array.from(counts.entries())
+    .sort((a,b)=>b[1]-a[1])
+    .slice(0,30)
+    .map(([name])=>name);
+}
+
+// 売上明細行の項目名入力欄用のオートコンプリート。showSupplierSuggestionsと同じ構造
+// (動的にdiv生成→input直下に配置)を踏襲しつつ、固定リストを常に上位、過去実績を
+// その下に区切って表示する2段構成にする。フォーカス時(query未入力)は全件、
+// 入力中は部分一致で絞り込む。
+function showItemNameSuggestionsForSales(inputEl, idx){
+  hideItemNameSuggestionsForSales();
+  const q = inputEl.value.trim().toLowerCase();
+  const fixedMatches = SALES_ITEM_NAME_FIXED_LIST.filter(n=>!q || n.toLowerCase().includes(q));
+  const freqMatches = salesItemNameFreqCache.filter(n=>!q || n.toLowerCase().includes(q));
+  if(fixedMatches.length===0 && freqMatches.length===0) return;
+
+  const box = document.createElement('div');
+  box.id = 'sales-item-name-suggest-box';
+  box.style.cssText = 'position:absolute;z-index:200;background:#fff;border:1px solid var(--border);border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.12);max-height:220px;overflow-y:auto;font-size:11px';
+  const rect = inputEl.getBoundingClientRect();
+  box.style.left = (rect.left+window.scrollX)+'px';
+  box.style.top = (rect.bottom+window.scrollY)+'px';
+  box.style.width = Math.max(rect.width,180)+'px';
+
+  const itemHtml = n=>`<div class="sales-item-name-suggest-item" style="padding:4px 8px;cursor:pointer" data-name="${escAttr(n)}">${escHtml(n)}</div>`;
+  let html = '';
+  if(fixedMatches.length>0) html += fixedMatches.map(itemHtml).join('');
+  if(freqMatches.length>0){
+    if(fixedMatches.length>0) html += `<div style="padding:3px 8px;font-size:9px;color:var(--text3);border-top:1px solid var(--border);background:var(--bg)">過去の実績</div>`;
+    html += freqMatches.map(itemHtml).join('');
+  }
+  box.innerHTML = html;
+  document.body.appendChild(box);
+
+  box.querySelectorAll('.sales-item-name-suggest-item').forEach(item=>{
+    item.addEventListener('mousedown', e=>{
+      e.preventDefault();
+      const name = item.getAttribute('data-name');
+      inputEl.value = name;
+      if(idx>=0) bdSalesItems[idx].item_name = name;
+      hideItemNameSuggestionsForSales();
+    });
+    item.addEventListener('mouseenter', ()=>{ item.style.background='var(--bg)'; });
+    item.addEventListener('mouseleave', ()=>{ item.style.background=''; });
+  });
+}
+
+function hideItemNameSuggestionsForSales(){
+  const box = document.getElementById('sales-item-name-suggest-box');
   if(box) box.remove();
 }
 
@@ -6701,6 +6778,10 @@ async function openBookingDetail(id){
   // ガイド登録一覧プルダウンを読み込み
   // 仕入先マスタを読み込み
   await loadSuppliersCache();
+  if(_stale()) return;
+
+  // 売上明細「項目名」欄オートコンプリート用の過去実績頻度を読み込み
+  await loadSalesItemNameFreqCache();
   if(_stale()) return;
 
   // ガイド登録一覧プルダウンを読み込み
