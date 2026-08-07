@@ -133,6 +133,10 @@ def generate_voucher_html(tmp_dir: Path) -> Path:
     node_script = f"""
 const fs = require('fs');
 global.window = {{ location: {{ origin: 'http://localhost:5500' }} }};
+// _buildVoucherHtml が参照する、関数外で定義されたグローバル定数(index.html側)。
+// このスクリプトは_buildVoucherHtml本体のみを抜き出すため、関数外の依存はここで
+// 個別に補う必要がある(index.html:MEAL_VOUCHER_PAGE_SIZE定義箇所と値を一致させること)。
+const MEAL_VOUCHER_PAGE_SIZE = 2;
 {src}
 const restaurants = {json.dumps(TEST_RESTAURANTS, ensure_ascii=False)};
 let out = _buildVoucherHtml(restaurants, {json.dumps(TEST_TOUR_NAME)}, {json.dumps(TEST_GUIDE_NAME)}, {json.dumps(TEST_GUIDE_PHONE)});

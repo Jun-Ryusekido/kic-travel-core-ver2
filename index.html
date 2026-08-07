@@ -20816,6 +20816,20 @@ function _buildVoucherHtml(restaurants, tourName, guideName, guidePhone){
     return Math.max(2.2, Math.min(baseMM, needed));
   };
 
+  // ガイド名(欧文の可能性あり)・支払方法等、全角/半角が混在しうるテキスト向けの
+  // 自動縮小計算。全角文字はunit=1.0、半角(ASCII)文字はunit=0.55として概算幅を出す
+  // (全角基準のmmPerUnitはfitFontSizeのJP用係数(1.05)をそのまま流用する)。
+  // 2026-08時点で発覚した不具合: ガイド名(row-value)は元々フォントサイズ固定・幅指定
+  // 無しのため、外国籍ガイド名等で長くなると隣の要素に重なって見える不具合があった。
+  const fitFontSizeMixed = (text, baseMM, widthMM) => {
+    const str = String(text||'');
+    let units = 0;
+    for(const ch of str){ units += /[\x00-\xFF]/.test(ch) ? 0.55 : 1.0; }
+    if(units <= 0) units = 1;
+    const needed = widthMM / (units * 1.05);
+    return Math.max(2.0, Math.min(baseMM, needed));
+  };
+
   function mealBox(letter, checked){
     const box = `<span style="font-size:7.157mm; position:relative; top:0.612mm; display:inline-block; line-height:1;">□</span>`;
     const mark = checked ? `<span style="position:absolute; margin-left:-5.205mm; top:1.431mm; font-size:5.205mm; color:#000;">✓</span>` : '';
@@ -20871,6 +20885,11 @@ function _buildVoucherHtml(restaurants, tourName, guideName, guidePhone){
     }
     const guideText   = [eh(rowGuideName), eh(rowGuidePhone)].filter(Boolean).join(' ');
     const payText     = isSpare ? eh(commonPaymentMethod) : eh(r.payment_method||'請求書払い');
+    // ガイド名は外国籍ガイド等で長くなることがあり、幅指定・自動縮小が無かったため
+    // 隣接要素に重なって見える不具合があった。店名と同じ考え方(fitFontSizeMixed)で
+    // 幅89.789mm(row-valueのmax-widthと同じ)に収まるようフォントサイズを縮小する。
+    const guideTextSize = fitFontSizeMixed([rowGuideName, rowGuidePhone].filter(Boolean).join(' '), 3.904, 89.789).toFixed(3);
+    const payTextSize   = fitFontSizeMixed(isSpare ? commonPaymentMethod : (r.payment_method||'請求書払い'), 3.904, 89.789).toFixed(3);
     const memoText    = isSpare ? '' : eh(r.memo||'');
     const nameJp      = isSpare ? '' : eh(r.restaurant_name||'');
     const nameEn      = isSpare ? '' : eh(r.restaurant_name_en||'');
@@ -20920,9 +20939,9 @@ function _buildVoucherHtml(restaurants, tourName, guideName, guidePhone){
       <div class="vegline" style="top:100.199mm; left:10.410mm;">Veg <span class="uline">　　　</span>　　Non-Veg <span class="uline">　　　</span>　　Jain <span class="uline">　　　</span></div>
       <div class="childpolicy" style="top:89.789mm; left:10.410mm;">*Child rate policy: 50% of adult rate (3-11 yrs)</div>
       <div class="row-label" style="top:109.308mm; left:10.410mm;">ガイド</div><div class="row-label" style="top:109.308mm; left:31.231mm;">：</div>
-      <div class="row-value" style="top:109.308mm;left:36.436mm;">${guideText}</div>
+      <div class="row-value" style="top:109.308mm;left:36.436mm;font-size:${guideTextSize}mm;">${guideText}</div>
       <div class="row-label" style="top:117.767mm; left:10.410mm;">支払方法</div><div class="row-label" style="top:117.767mm; left:31.231mm;">：</div>
-      <div class="row-value" style="top:117.767mm;left:36.436mm;">${payText}</div>
+      <div class="row-value" style="top:117.767mm;left:36.436mm;font-size:${payTextSize}mm;">${payText}</div>
       <div class="sign-label" style="top:127.526mm;left:10.410mm;">ガイド署名</div>
       <div class="sign-label" style="top:127.526mm;left:71.571mm;">レストラン署名</div>
       <div class="sign-box" style="top:131.951mm;left:10.410mm;"></div>
@@ -20983,13 +21002,13 @@ body { margin:0; padding:0; font-family:"Noto Sans JP","Hiragino Sans",Arial,san
 .block { position:relative; width:136.635mm; height:193.242mm; box-sizing:border-box; }
 .logo { position:absolute; top:11.712mm; left:16.917mm; width:14.314mm; height:auto; }
 .title { position:absolute; top:11.191mm; left:36.827mm; font-size:4.424mm; font-weight:700; font-family:Arial,sans-serif; white-space:nowrap; }
-.refbox { position:absolute; top:20.040mm; left:34.614mm; border:0.35mm solid #000; padding:0.260mm 1.952mm; font-size:3.904mm; font-weight:700; white-space:nowrap; }
+.refbox { position:absolute; top:20.040mm; left:34.614mm; border:0.35mm solid #000; padding:0.260mm 1.952mm; font-size:3.904mm; font-weight:700; white-space:nowrap; max-width:30.8mm; overflow:hidden; text-overflow:ellipsis; box-sizing:border-box; }
 .datebox { position:absolute; top:20.040mm; left:68.448mm; border:0.35mm solid #000; padding:0.260mm 1.952mm; font-size:3.904mm; font-weight:700; white-space:nowrap; }
 .badge { position:absolute; top:11.972mm; left:102.021mm; border:0.4mm solid #2b6cb0; padding:0.390mm 1.952mm; font-size:3.644mm; font-weight:700; color:#2b6cb0; white-space:nowrap; }
 .badge.restaurant { border-color:#333; color:#000; }
 .hline { position:absolute; top:33.313mm; left:16.917mm; width:109.308mm; border-top:0.2mm solid #000; }
-.restaurant-name { position:absolute; top:39.689mm; left:41.641mm; width:80.680mm; overflow:hidden; font-weight:700; white-space:nowrap; }
-.restaurant-name-en { position:absolute; top:46.196mm; left:41.641mm; width:80.680mm; overflow:hidden; font-weight:400; font-style:italic; color:#333; white-space:nowrap; }
+.restaurant-name { position:absolute; top:39.689mm; left:41.641mm; width:80.680mm; overflow:hidden; font-weight:700; white-space:nowrap; text-overflow:ellipsis; }
+.restaurant-name-en { position:absolute; top:46.196mm; left:41.641mm; width:80.680mm; overflow:hidden; font-weight:400; font-style:italic; color:#333; white-space:nowrap; text-overflow:ellipsis; }
 .restaurant-label { position:absolute; top:39.689mm; left:16.917mm; font-size:3.774mm; white-space:nowrap; }
 .mealtype-label { position:absolute; top:56.086mm; left:16.917mm; font-size:3.774mm; white-space:nowrap; }
 .checkbox { position:absolute; top:48.148mm; width:5.075mm; height:5.075mm; border:0.35mm solid #000; }
@@ -20999,7 +21018,7 @@ body { margin:0; padding:0; font-family:"Noto Sans JP","Hiragino Sans",Arial,san
 .vegrow { position:absolute; left:78.858mm; font-size:3.383mm; white-space:nowrap; }
 .custlabel { position:absolute; top:62.202mm; left:16.917mm; font-size:3.774mm; white-space:nowrap; }
 .row-label { position:absolute; left:16.917mm; font-size:3.774mm; white-space:nowrap; }
-.row-value { position:absolute; left:49.709mm; font-size:3.904mm; white-space:nowrap; }
+.row-value { position:absolute; left:49.709mm; font-size:3.904mm; white-space:nowrap; max-width:89.789mm; overflow:hidden; text-overflow:ellipsis; }
 .sign-label { position:absolute; top:121.020mm; font-size:3.774mm; white-space:nowrap; }
 .sign-box { position:absolute; width:54.654mm; height:20.170mm; border:0.35mm solid #000; }
 .childpolicy { position:absolute; font-size:2.863mm; color:#c0392b; white-space:nowrap; }
