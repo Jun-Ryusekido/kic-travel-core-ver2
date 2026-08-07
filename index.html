@@ -674,14 +674,33 @@ input[type=number]{-moz-appearance:textfield}
      先頭に開閉シェブロン、末尾に金額(折りたたみ中でも見える)を並べる。
      input自体をタップした場合は編集(フォーカス)を優先し開閉しない
      (renderSalesTable側のonclickでevent.target.tagNameがINPUTか判定)。 */
-  #bd-sales-tbody td.bd-sales-summary-cell{grid-row:1;grid-column:1/13;cursor:pointer;gap:6px}
-  #bd-sales-tbody td.bd-sales-summary-cell input{flex:1;min-width:0}
+  #bd-sales-tbody td.bd-sales-summary-cell{grid-row:1;grid-column:1/13;cursor:pointer;gap:6px;min-height:44px}
+  /* 項目名inputの幅は、金額側(bd-sales-summary-amt)に数百万円台でも折り返さない
+     十分な幅(min-width)を先に確保した上で、残りをflex:1で埋める形にする。
+     金額側の幅を固定してから項目名側を可変にすることで、項目名が短い時に
+     入力欄だけが不自然に伸びきる問題(¥9,999,999程度でも改行・はみ出しなし)を
+     同時に解消する。項目名が長い場合はtext-overflow:ellipsisで省略し、
+     レイアウト崩れを防ぐ(タップ/フォーカスすれば全文編集できる)。 */
+  #bd-sales-tbody td.bd-sales-summary-cell input{
+    flex:1 1 auto;min-width:0;text-overflow:ellipsis
+  }
+  /* 開閉アイコンはタップ領域を44px角以上確保する(視覚上の矢印自体は小さいまま、
+     アイコン周囲の余白をタップ領域として広げる)。サマリー行全体(td)自体も
+     クリック判定対象のため、アイコン単体で44pxに満たなくても実用上は問題ないが、
+     指示に沿いアイコン自体の領域も明示的に44px角確保する。 */
   #bd-sales-tbody .bd-sales-chevron{
-    flex:0 0 auto;display:inline-block;color:var(--text3);font-size:10px;
+    flex:0 0 28px;width:28px;height:44px;display:flex;align-items:center;justify-content:center;
+    margin:0 -4px;color:var(--text3);font-size:11px;
     transition:transform .15s;user-select:none
   }
   #bd-sales-tbody tr.expanded .bd-sales-chevron{transform:rotate(90deg)}
-  #bd-sales-tbody .bd-sales-summary-amt{flex:0 0 auto;font-weight:700;white-space:nowrap;font-size:12px}
+  /* 金額(単価×人数×数量の確定金額)は、パッと見て確定金額と分かるよう太字・
+     やや大きめのフォント・濃い色にし、数百万円(¥9,999,999程度)でも折り返さない
+     min-widthを確保した上で右揃えにする。tabular-numsで桁がズレず見やすくする。 */
+  #bd-sales-tbody .bd-sales-summary-amt{
+    flex:0 0 auto;min-width:96px;text-align:right;font-weight:700;font-size:14px;
+    color:var(--text);white-space:nowrap;font-variant-numeric:tabular-nums
+  }
 
   /* 2行目(詳細): 単価×人数×数量を横並び1行に。ラベルは自明なため付けず
      (data-label属性自体を持たせていないため、共通の::beforeラベル表示は
