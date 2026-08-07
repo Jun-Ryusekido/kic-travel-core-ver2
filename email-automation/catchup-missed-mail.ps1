@@ -21,10 +21,23 @@ $ErrorActionPreference = 'Stop'
 
 $SUPABASE_URL = 'https://nzdygjlnzvtdezslnuoy.supabase.co'
 $API_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56ZHlnamxuenZ0ZGV6c2xudW95Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwODY0NzcsImV4cCI6MjA5NjY2MjQ3N30.eE0lAuWzf-NFHcNNcU1Lk-ubs7K6rKpaMVMoBfML_Aw'
+# email_import_queueへのINSERTはanon/authenticatedから剥奪済み(scripts/lock_down_
+# email_import_queue_writes.sql、SELECTのみ残る)のため、新規メールの送信は/api/
+# email-import-insert(service_role backed)経由に変更した。$API_KEYは引き続き
+# 手順6(既存キーの重複排除用SELECT)のみに使う。
+$IMPORT_API_URL = 'https://kic-travel-core-ver2.vercel.app/api/email-import-insert'
 $TARGET_MAILBOX = 'jr@kictravel.jp'
 $REG_PATH = 'HKCU:\Software\VB and VBA Program Settings\KICImport\Settings'
 $BATCH_SIZE = 200
 $SYNC_TIMEOUT_SEC = 180
+
+# /api/email-import-insertの認証キー(x-import-keyヘッダー)。gitにコミットされる
+# このファイルには平文で書かず、事前に以下を一度だけ実行してレジストリに保存しておく
+# (Vercel側の環境変数EMAIL_IMPORT_API_KEYと同じ値):
+#   New-Item -Path 'HKCU:\Software\VB and VBA Program Settings\KICImport\Settings' -Force
+#   Set-ItemProperty -Path 'HKCU:\Software\VB and VBA Program Settings\KICImport\Settings' -Name 'ImportApiKey' -Value '<値>'
+$IMPORT_API_KEY = $null
+try{ $IMPORT_API_KEY = (Get-ItemProperty -Path $REG_PATH -ErrorAction Stop).ImportApiKey }catch{}
 
 $logPath = Join-Path $PSScriptRoot 'catchup-log.txt'
 function Write-Log([string]$msg){
@@ -35,6 +48,11 @@ function Write-Log([string]$msg){
 function Get-JstString([datetime]$dt){
   # machine runs in JST; ReceivedTime is local time
   return $dt.ToString('yyyy-MM-ddTHH:mm:ss', [Globalization.CultureInfo]::InvariantCulture) + '+09:00'
+}
+
+if(-not $IMPORT_API_KEY){
+  Write-Log 'FATAL: ImportApiKey not found in registry. Set it once via Set-ItemProperty (see comment near IMPORT_API_KEY above) before running this script.'
+  exit 1
 }
 
 try{
@@ -152,15 +170,15 @@ try{
     })
   }
 
-  # ---- 8. send in batches ----
+  # ---- 8. send in batches (via /api/email-import-insert, service_role backed) ----
   $totalSent = 0
   $anyBatchFailed = $false
   for($ofs = 0; $ofs -lt $toSend.Count; $ofs += $BATCH_SIZE){
     $chunk = $toSend[$ofs..([Math]::Min($ofs+$BATCH_SIZE, $toSend.Count)-1)]
-    $json = ConvertTo-Json -InputObject @($chunk) -Depth 4 -Compress
+    $json = ConvertTo-Json -InputObject @{ rows = @($chunk) } -Depth 4 -Compress
     try{
-      $headers = @{ apikey = $API_KEY; Authorization = "Bearer $API_KEY"; Prefer = 'return=minimal' }
-      Invoke-RestMethod -Uri "$SUPABASE_URL/rest/v1/email_import_queue" -Method Post -Headers $headers `
+      $headers = @{ 'x-import-key' = $IMPORT_API_KEY }
+      Invoke-RestMethod -Uri $IMPORT_API_URL -Method Post -Headers $headers `
         -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($json)) | Out-Null
       $totalSent += $chunk.Count
     }catch{
