@@ -650,6 +650,24 @@ input[type=number]{-moz-appearance:textfield}
   #arrtab-bullet td.li-del, #arrtab-guide td.li-del{position:static;box-shadow:none}
   .confirm-table tr.section-row td{display:block!important;padding:6px 8px!important}
 
+  /* 売上明細(#bd-sales-tbody)のみ、ラベル幅・入力欄開始位置がカードごとにズレて
+     見えるという指摘への対応(#bd-sales-tbodyでスコープし、他confirm-table
+     (仕入明細#bd-cost-tbody・bus/restaurant/facility等)には一切影響させない)。
+     共通ルール(flex:0 0 76px)自体はサイト全体で使われているため変更せず、
+     このテーブルだけラベル幅をやや広げてnowrap化することで、5文字ラベル
+     (「入金先銀行」等)でも折り返さず全カードで入力欄の開始位置が揃うようにする。
+     ラベル色も薄いvar(--text3)からより読みやすいvar(--text2)に変更する。
+     単価/人数/数量は文字量が少ないため、無理に他項目と同じ幅までflex:1で
+     伸ばさず、適切な固定幅に絞る(項目名・追記事項側の開始位置ラインは
+     ラベル幅統一により変わらず維持される)。 */
+  #bd-sales-tbody td::before{flex:0 0 82px;white-space:nowrap;color:var(--text2)}
+  /* flex-basisを指定するだけではinput要素の自動最小幅(min-width:auto、コンテンツの
+     intrinsicサイズに基づく)により縮まりきらないことがあるため、min-width:0で
+     明示的に自動最小幅を解除する。 */
+  #bd-sales-tbody td[data-label="単価"] input{flex:0 0 110px!important;min-width:0!important}
+  #bd-sales-tbody td[data-label="人数"] input,
+  #bd-sales-tbody td[data-label="数量"] input{flex:0 0 64px!important;min-width:0!important}
+
   /* ホテル項目のみ、他タブと違う専用のコンパクトレイアウトにする(#bd-hotels-tbodyで
      スコープし、bus/restaurant/facility等の他confirm-tableには一切影響させない)。
      DOM順序・data属性・id参照は一切変更していないため、hotelCalc()等の既存JSは
