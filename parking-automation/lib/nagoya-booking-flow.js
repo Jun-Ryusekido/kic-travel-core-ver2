@@ -71,11 +71,25 @@ async function login(page, loginId, loginPassword) {
   }
 }
 
-async function openNewReservation(page) {
-  // マイページ以外（前回処理の途中画面等）にいる場合に備え、まずマイページへ戻ってから開始する
+// マイページ以外（前回処理の途中画面等、DaySelectやRsvComplete等）にいる場合に備え、
+// まずマイページへ戻ってから開始する。2026-08時点で発覚した不具合: 直前のレコードが
+// カレンダー画面(DaySelect)や完了画面(RsvComplete)に留まった状態から
+// page.goto(`${BASE_URL}/Menu`)でURLへ直接遷移しても、#btnRsvAddが現れない画面に
+// なることがある（このサイトがASP.NET系のポストバック/セッション状態に依存しており、
+// 直接URL遷移では正しい画面状態を再現できないと推測される）。ログイン直後は確実に
+// /Parking/Menuへ到達し#btnRsvAddが使えることを確認済みのため、goto後に#btnRsvAddの
+// 存在を短いタイムアウトで確認し、現れなければ再ログインして確実に復帰する。
+async function ensureOnMenuWithRsvAdd(page, loginId, loginPassword) {
   if (!/\/Parking\/Menu/.test(page.url())) {
     await page.goto(`${BASE_URL}/Menu`, { waitUntil: 'networkidle' });
   }
+  const hasBtn = await page.waitForSelector('#btnRsvAdd', { timeout: 5000 }).catch(() => null);
+  if (hasBtn) return;
+  await login(page, loginId, loginPassword);
+}
+
+async function openNewReservation(page, loginId, loginPassword) {
+  await ensureOnMenuWithRsvAdd(page, loginId, loginPassword);
   await Promise.all([
     page.waitForLoadState('networkidle', { timeout: 20000 }).catch(() => null),
     page.click('#btnRsvAdd'),
@@ -190,11 +204,13 @@ async function completeReservation(page) {
 
 // 1日分（複数台まとめて）の予約処理。成功時はスクリーンショットのパスを返す。
 // primaryFacility が満車/予約不可の場合、fallbackFacility が指定されていれば自動的に切り替える。
-async function processNagoyaDateReservation(page, targetDateISO, vehicles, primaryFacility, fallbackFacility) {
+// loginId/loginPasswordは、直前のレコードの結果で画面状態が崩れていた場合の
+// 再ログイン復帰(ensureOnMenuWithRsvAdd参照)に使う。
+async function processNagoyaDateReservation(page, targetDateISO, vehicles, primaryFacility, fallbackFacility, loginId, loginPassword) {
   const dateCompact = targetDateISO.replace(/-/g, '');
   const [year, month] = targetDateISO.split('-').map(Number);
 
-  await openNewReservation(page);
+  await openNewReservation(page, loginId, loginPassword);
   await selectFacilityAndOpenCalendar(page, primaryFacility);
   await goToMonth(page, year, month);
 

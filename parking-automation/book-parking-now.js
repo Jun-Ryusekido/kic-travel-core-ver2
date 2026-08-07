@@ -155,7 +155,7 @@ async function processNagoyaBatch(sb, records) {
     };
 
     try {
-      const result = await processNagoyaDateReservation(page, dateISO, [vehicle], record.facility_area, null);
+      const result = await processNagoyaDateReservation(page, dateISO, [vehicle], record.facility_area, null, config.loginId, config.loginPassword);
       await markDone(sb, record.id, `予約完了（${result.facilityUsed}）`, result.screenshotPath);
       console.log(`✓ REF#${record.ref_no} 予約完了（${result.facilityUsed}）。スクリーンショット: ${result.screenshotPath}`);
     } catch (e) {
