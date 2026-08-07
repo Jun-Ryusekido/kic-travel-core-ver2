@@ -7,12 +7,19 @@
 // VercelにデプロイされたWeb画面からは直接Playwrightを実行できない（サーバーレス環境の制約）
 // ため、このスクリプトはJUNさんのPCで手動実行する想定。cron等での定期実行にも利用できる。
 //
-// 実行方法: node book-parking-now.js
+// 実行方法(PowerShell):
+//   $env:SUPABASE_SERVICE_ROLE_KEY="xxxx"; node parking-automation\book-parking-now.js
+// 実行方法(コマンドプロンプト):
+//   set SUPABASE_SERVICE_ROLE_KEY=xxxx && node parking-automation\book-parking-now.js
 //
-// 使用するSupabaseの接続情報は、index.html（クライアント側）に埋め込まれているものと
-// 同じpublishable(anon)キーを使用する（既にWeb上で公開されている情報であり、新たな秘匿情報
-// ではない）。config.json/nagoya-config.json/hiroshima-config.jsonにはそれぞれのサイトの
-// ログイン情報のみを保持する。
+// parking_reservationsはscripts/lock_down_parking_reservations.sqlにより、anon/authenticated
+// ロールからの直接アクセスを完全に遮断済み(支払方法・車両ナンバー・運転手氏名・連絡先電話番号等の
+// 機微情報を含むため)。Web画面側(index.html)はservice_role keyを使うサーバーレス関数
+// (/api/table-crud)経由に既に切り替わっているが、このスクリプトはローカルでJUNさんが直接
+// 実行するものであり、ブラウザに公開されることが無いためservice_role keyを直接環境変数から
+// 読み込む(scripts/apply_access_booking_merge.js等、他の管理スクリプトと同じパターン)。
+// config.json/nagoya-config.json/hiroshima-config.jsonにはそれぞれのサイトのログイン情報のみを
+// 保持する（Supabase接続情報とは別の秘匿情報のため使い分けている）。
 const HEADLESS = false;
 
 const fs = require('fs');
@@ -25,7 +32,7 @@ const { login: loginNagoya, processNagoyaDateReservation, logError: logErrorNago
 const { login: loginHiroshima, processReservation: processHiroshimaReservation, logError: logErrorHiroshima } = require('./lib/hiroshima-booking-flow');
 
 const SUPABASE_URL = 'https://nzdygjlnzvtdezslnuoy.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_Cnloaxzb2Ati8gmCa-1o3Q_t3uy6_mB';
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
 const NAGOYA_CONFIG_PATH = path.join(__dirname, 'nagoya-config.json');
 const HIROSHIMA_CONFIG_PATH = path.join(__dirname, 'hiroshima-config.json');
@@ -219,7 +226,15 @@ async function processHiroshimaBatch(sb, records) {
 }
 
 async function main() {
-  const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
+  if (!SUPABASE_SERVICE_ROLE_KEY) {
+    console.error('環境変数 SUPABASE_SERVICE_ROLE_KEY が設定されていません。');
+    console.error('parking_reservationsへのアクセスはservice_role keyが必須です(anonキーでは' +
+      'lock_down_parking_reservations.sql適用後アクセスできません)。');
+    process.exitCode = 1;
+    return;
+  }
+
+  const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
   console.log('Supabaseから即時実行待ちの予約を取得します...');
   const { data: targets, error: fetchError } = await sb
@@ -231,7 +246,8 @@ async function main() {
   if (fetchError) {
     console.error('Supabaseからの取得に失敗しました:', fetchError.message);
     logError(`[即時実行] Supabase取得エラー: ${fetchError.message}`);
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
 
   if (!targets || targets.length === 0) {
@@ -255,5 +271,5 @@ async function main() {
 main().catch((e) => {
   console.error('予期しないエラーが発生しました:', e);
   logError(`[即時実行] 予期しないエラー: ${e.message}\n${e.stack || ''}`);
-  process.exit(1);
+  process.exitCode = 1;
 });
