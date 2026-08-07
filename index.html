@@ -1689,7 +1689,7 @@ input[type=number]{-moz-appearance:textfield}
               <input type="file" id="bt-csv-file" accept=".csv" style="display:none" onchange="onBtCsvFileSelected(event)">
             </span>
           </div>
-          <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr 1fr">
+          <div class="form-grid" style="--fg-cols:2fr 1fr 1fr 1fr">
             <div class="form-field"><label>REF# / 列車名 / 区間で検索</label><input id="bt-search" placeholder="例: KIC250401" oninput="filterBulletTrains()"></div>
             <div class="form-field"><label>乗車日(From)</label><input id="bt-from" type="date" min="1900-01-01" max="9999-12-31" onblur="filterBulletTrains()"></div>
             <div class="form-field"><label>乗車日(To)</label><input id="bt-to" type="date" min="1900-01-01" max="9999-12-31" onblur="filterBulletTrains()"></div>
@@ -2005,7 +2005,7 @@ input[type=number]{-moz-appearance:textfield}
               <button class="btn btn-p" onclick="openPartnerEditor(null)">＋ 新規登録</button>
             </span>
           </div>
-          <div class="form-grid" style="grid-template-columns:1fr 1fr">
+          <div class="form-grid" style="--fg-cols:1fr 1fr">
             <div class="form-field"><label>検索（会社名・担当者・電話・メモ）</label><input id="pt-search" placeholder="例: 神戸交通, 田中" oninput="filterPartners()"></div>
             <div class="form-field"><label>種別</label>
               <select id="pt-category-filter" onchange="filterPartners()">
@@ -23341,13 +23341,13 @@ function setDateInputValue(el, d){
       <div class="form-grid">
         <div class="modal-section-title" style="grid-column:1/-1;margin-top:4px">基本情報</div>
         <div class="pt-field-group" style="grid-column:1/-1">
-          <div class="form-grid" style="grid-template-columns:1fr 1fr">
+          <div class="form-grid" style="--fg-cols:1fr 1fr">
             <div class="form-field"><label>会社名</label><input id="pt-company" placeholder="例: 神戸交通バス"></div>
             <div class="form-field"><label>会社名（英語）</label><input id="pt-company-en" placeholder="e.g. Kobe Kotsu Bus"></div>
           </div>
         </div>
         <div class="pt-field-group" style="grid-column:1/-1">
-          <div class="form-grid" style="grid-template-columns:1fr 1fr">
+          <div class="form-grid" style="--fg-cols:1fr 1fr">
             <div class="form-field"><label>拠点名・支店名</label><input id="pt-branch" placeholder="例: 新宿店"></div>
             <div class="form-field"><label>拠点名・支店名（英語）</label><input id="pt-branch-en" placeholder="e.g. Shinjuku Branch"></div>
           </div>
@@ -23355,13 +23355,13 @@ function setDateInputValue(el, d){
 
         <div class="modal-section-title" style="grid-column:1/-1">担当者情報</div>
         <div class="pt-field-group" style="grid-column:1/-1">
-          <div class="form-grid" style="grid-template-columns:1fr 1fr">
+          <div class="form-grid" style="--fg-cols:1fr 1fr">
             <div class="form-field"><label>担当者名</label><input id="pt-contact" placeholder="例: 田中太郎"></div>
             <div class="form-field"><label>担当者名（英語）</label><input id="pt-contact-en" placeholder="e.g. Taro Tanaka"></div>
           </div>
         </div>
         <div class="pt-field-group" style="grid-column:1/-1">
-          <div class="form-grid" style="grid-template-columns:1fr 1fr">
+          <div class="form-grid" style="--fg-cols:1fr 1fr">
             <div class="form-field"><label>役職</label><input id="pt-position" placeholder="例: 営業部長"></div>
             <div class="form-field"><label>役職（英語）</label><input id="pt-position-en" placeholder="e.g. Sales Manager"></div>
           </div>
@@ -23369,7 +23369,7 @@ function setDateInputValue(el, d){
 
         <div class="modal-section-title" style="grid-column:1/-1">連絡先</div>
         <div class="pt-field-group" style="grid-column:1/-1">
-          <div class="form-grid" style="grid-template-columns:repeat(2,1fr)">
+          <div class="form-grid" style="--fg-cols:repeat(2,1fr)">
             <div class="form-field">
               <label>担当者直通・携帯番号</label>
               <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
