@@ -1847,6 +1847,7 @@ input[type=number]{-moz-appearance:textfield}
             <select id="pn-type" onchange="updateParkingNowTypeUI()">
               <option value="shinosaka">新大阪駅バス駐車場</option>
               <option value="nagoya">名古屋（大型車両夜間宿泊予約システム）</option>
+              <option value="hiroshima">広島（中央公園バス駐車場）</option>
             </select>
           </div>
           <div class="form-grid">
@@ -1876,7 +1877,42 @@ input[type=number]{-moz-appearance:textfield}
             <div class="form-field" id="pn-ng-driverhotel-wrap" style="display:none"><label>運転手宿泊ホテル名</label><input id="pn-ng-driverhotel"></div>
             <div class="form-field" id="pn-ng-contactphone-wrap" style="display:none"><label>連絡先電話番号</label><input id="pn-ng-contactphone" placeholder="例: 03-6869-5550"></div>
             <div class="form-field" id="pn-ng-applicantname-wrap" style="display:none"><label>申込者名（かな・カナ）</label><input id="pn-ng-applicantname" placeholder="例: リュウセキドウ"></div>
-            <div class="form-field" style="grid-column:1/-1" id="pn-remarks-wrap"><label>備考（当日バス運行会社）</label><input id="pn-remarks" placeholder="未定時は予定社情報"></div>
+            <div class="form-field" id="pn-hs-buscount-wrap" style="display:none"><label>予約台数</label>
+              <select id="pn-hs-buscount">
+                <option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option>
+                <option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10">10</option>
+              </select>
+            </div>
+            <div class="form-field" id="pn-hs-bustype-wrap" style="display:none"><label>車両種別</label>
+              <select id="pn-hs-bustype">
+                <option value="団体バス">団体バス</option>
+                <option value="定期観光バス">定期観光バス</option>
+                <option value="マイクロバス">マイクロバス</option>
+                <option value="タクシー">タクシー</option>
+                <option value="その他">その他</option>
+              </select>
+            </div>
+            <div class="form-field" id="pn-hs-contactname-wrap" style="display:none"><label>当日連絡先名前</label><input id="pn-hs-contactname" placeholder="例: 竜石堂"></div>
+            <div class="form-field" id="pn-hs-contacttel-wrap" style="display:none"><label>当日連絡先電話番号</label><input id="pn-hs-contacttel" placeholder="例: 090-1234-5678"></div>
+            <div class="form-field" id="pn-hs-buscompany-wrap" style="display:none"><label>バス会社名（任意）</label><input id="pn-hs-buscompany" placeholder="例: KICトラベル"></div>
+            <div class="form-field" id="pn-hs-passengers-wrap" style="display:none"><label>乗車予定人数（任意）</label><input id="pn-hs-passengers" type="number" min="1" max="60" placeholder="例: 40"></div>
+            <div class="form-field" id="pn-hs-customer-wrap" style="display:none;grid-column:1/-1"><label>利用団体名（ツアー名・任意）</label><input id="pn-hs-customer" placeholder="未入力の場合REF#を使用"></div>
+            <div class="form-field" id="pn-hs-destination-wrap" style="display:none;grid-column:1/-1">
+              <label>利用施設（1つ以上選択）</label>
+              <div style="display:flex;gap:10px;flex-wrap:wrap;padding-top:4px">
+                <label style="font-weight:normal;font-size:12px;display:flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" class="pn-hs-dest-cb" value="広島城">広島城</label>
+                <label style="font-weight:normal;font-size:12px;display:flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" class="pn-hs-dest-cb" value="ひろしまゲートパークプラザ">ひろしまゲートパークプラザ</label>
+                <label style="font-weight:normal;font-size:12px;display:flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" class="pn-hs-dest-cb" value="シミントひろしま">シミントひろしま</label>
+                <label style="font-weight:normal;font-size:12px;display:flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" class="pn-hs-dest-cb" value="広島県立総合体育館">広島県立総合体育館</label>
+                <label style="font-weight:normal;font-size:12px;display:flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" class="pn-hs-dest-cb" value="ファミリープール">ファミリープール</label>
+                <label style="font-weight:normal;font-size:12px;display:flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" class="pn-hs-dest-cb" value="中央図書館">中央図書館</label>
+                <label style="font-weight:normal;font-size:12px;display:flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" class="pn-hs-dest-cb" value="テニスコート">テニスコート</label>
+                <label style="font-weight:normal;font-size:12px;display:flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" class="pn-hs-dest-cb" value="エディオンピースウイング広島">エディオンピースウイング広島</label>
+                <label style="font-weight:normal;font-size:12px;display:flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" class="pn-hs-dest-cb" value="こども文化科学館">こども文化科学館</label>
+                <label style="font-weight:normal;font-size:12px;display:flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" class="pn-hs-dest-cb" value="その他">その他</label>
+              </div>
+            </div>
+            <div class="form-field" style="grid-column:1/-1" id="pn-remarks-wrap"><label id="pn-remarks-label">備考（当日バス運行会社）</label><input id="pn-remarks" placeholder="未定時は予定社情報"></div>
           </div>
           <div style="margin-top:14px;display:flex;gap:8px;align-items:center">
             <button class="btn btn-p" id="pn-save-btn" onclick="saveParkingNowReservation()">📤 即時実行待ちとして登録</button>
@@ -10335,13 +10371,20 @@ function checkBusDoubleBookings(){
 // ここではSupabaseにstatus="即時実行待ち"でレコードを保存するのみで、
 // 実行はJUNさんのPCで parking-automation/book-parking-now.js を手動実行することで行う。
 function updateParkingNowTypeUI(){
-  const isNagoya = document.getElementById('pn-type').value === 'nagoya';
-  document.getElementById('pn-facility-shinosaka-wrap').style.display = isNagoya ? 'none' : '';
+  const type = document.getElementById('pn-type').value;
+  const isNagoya = type === 'nagoya';
+  const isHiroshima = type === 'hiroshima';
+  document.getElementById('pn-facility-shinosaka-wrap').style.display = (isNagoya || isHiroshima) ? 'none' : '';
   document.getElementById('pn-facility-nagoya-wrap').style.display = isNagoya ? '' : 'none';
-  document.getElementById('pn-payment-wrap').style.display = isNagoya ? 'none' : '';
-  document.getElementById('pn-remarks-wrap').style.display = isNagoya ? 'none' : '';
+  document.getElementById('pn-payment-wrap').style.display = (isNagoya || isHiroshima) ? 'none' : '';
+  document.getElementById('pn-remarks-wrap').style.display = '';
+  document.getElementById('pn-remarks-label').textContent = isNagoya ? '備考（当日バス運行会社）' : (isHiroshima ? '備考（任意）' : '備考（当日バス運行会社）');
+  if(isNagoya) document.getElementById('pn-remarks-wrap').style.display = 'none';
   ['pn-ng-buscompany-wrap','pn-ng-drivername-wrap','pn-ng-driverhotel-wrap','pn-ng-contactphone-wrap','pn-ng-applicantname-wrap'].forEach(id=>{
     document.getElementById(id).style.display = isNagoya ? '' : 'none';
+  });
+  ['pn-hs-buscount-wrap','pn-hs-bustype-wrap','pn-hs-contactname-wrap','pn-hs-contacttel-wrap','pn-hs-buscompany-wrap','pn-hs-passengers-wrap','pn-hs-customer-wrap','pn-hs-destination-wrap'].forEach(id=>{
+    document.getElementById(id).style.display = isHiroshima ? '' : 'none';
   });
 }
 
@@ -10358,6 +10401,14 @@ function openParkingNowModal(){
   document.getElementById('pn-ng-driverhotel').value='';
   document.getElementById('pn-ng-contactphone').value='';
   document.getElementById('pn-ng-applicantname').value='';
+  document.getElementById('pn-hs-buscount').value='1';
+  document.getElementById('pn-hs-bustype').value='団体バス';
+  document.getElementById('pn-hs-contactname').value='';
+  document.getElementById('pn-hs-contacttel').value='';
+  document.getElementById('pn-hs-buscompany').value='';
+  document.getElementById('pn-hs-passengers').value='';
+  document.getElementById('pn-hs-customer').value='';
+  document.querySelectorAll('.pn-hs-dest-cb').forEach(cb=>{ cb.checked = false; });
   updateParkingNowTypeUI();
   document.getElementById('pn-modal-msg').style.display='none';
   document.getElementById('pn-modal-err').style.display='none';
@@ -10376,7 +10427,9 @@ function parkingNowStatusColor(status){
 }
 
 function parkingNowFacilityTypeLabel(t){
-  return t==='nagoya' ? '名古屋' : '新大阪';
+  if(t==='nagoya') return '名古屋';
+  if(t==='hiroshima') return '広島';
+  return '新大阪';
 }
 
 // parking_reservations(支払方法・車両ナンバー・運転手氏名等を含む)への読み書きは
@@ -10488,6 +10541,37 @@ async function saveParkingNowReservation(){
       driver_hotel_name: driverhotel,
       contact_phone: contactphone,
       applicant_name: applicantname
+    };
+  }else if(facilityType==='hiroshima'){
+    const buscount = document.getElementById('pn-hs-buscount').value;
+    const bustype = document.getElementById('pn-hs-bustype').value;
+    const contactname = document.getElementById('pn-hs-contactname').value.trim();
+    const contacttel = document.getElementById('pn-hs-contacttel').value.trim();
+    const buscompany = document.getElementById('pn-hs-buscompany').value.trim();
+    const passengers = document.getElementById('pn-hs-passengers').value.trim();
+    const customer = document.getElementById('pn-hs-customer').value.trim();
+    const destinations = Array.from(document.querySelectorAll('.pn-hs-dest-cb:checked')).map(cb=>cb.value);
+    if(!contactname || !contacttel){
+      errEl.textContent = '当日連絡先名前・当日連絡先電話番号は必須です';
+      errEl.style.display='block';
+      return;
+    }
+    if(destinations.length===0){
+      errEl.textContent = '利用施設を1つ以上選択してください';
+      errEl.style.display='block';
+      return;
+    }
+    payload.facility_area = '中央公園バス駐車場';
+    payload.remarks = document.getElementById('pn-remarks').value.trim();
+    payload.extra = {
+      bus_count: Number(buscount)||1,
+      bus_type: bustype,
+      contact_name: contactname,
+      contact_tel: contacttel,
+      bus_company: buscompany || null,
+      passengers: passengers ? Number(passengers) : null,
+      customer: customer || null,
+      destinations
     };
   }else{
     payload.facility_area = document.getElementById('pn-facility-shinosaka').value;
