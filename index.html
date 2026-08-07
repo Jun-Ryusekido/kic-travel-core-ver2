@@ -244,6 +244,9 @@ tr:hover td{background:var(--bg)}
 .u-meta{font-size:10px;color:var(--text3)}
 .msg-ok{font-size:11px;color:var(--green);margin-top:6px;display:none}
 .lnk{color:var(--blue);cursor:pointer;font-weight:600}
+.copy-icon-btn{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;margin-left:4px;border:none;background:transparent;color:var(--text3);cursor:pointer;font-size:12px;border-radius:4px;vertical-align:middle;flex-shrink:0}
+.copy-icon-btn:hover{background:var(--bg);color:var(--blue)}
+.copy-icon-btn.copied{color:var(--green)}
 .row-link{cursor:pointer}
 .row-link:hover{background:var(--bg)}
 .empty{text-align:center;padding:24px;color:var(--text3);font-size:12px}
@@ -21161,14 +21164,20 @@ function renderPartnersRows(){
     return;
   }
 
+  // 各項目横のコピーアイコン。data-copy属性(HTML属性エスケープのみで安全に
+  // 復元できる)にコピー対象のテキストを保持し、クリック時にthis.dataset.copyを
+  // 読んで渡す(onclick文字列に直接値を埋め込むと、値に含まれる引用符・改行で
+  // JS構文が壊れるため避けている)。値が空の項目にはボタン自体を出さない。
+  const copyBtn = (val) => val ? `<button type="button" class="copy-icon-btn" data-copy="${escAttr(val)}" onclick="copyPartnerField(this,this.dataset.copy,event)" title="コピー">📋</button>` : '';
+
   // PC テーブル
   tbody.innerHTML = filtered.map(p=>`
     <tr>
       <td>${escHtml(p.category||'')}</td>
-      <td>${escHtml(p.company_name||'')}${p.branch_name?(' / '+escHtml(p.branch_name)):''}${(p.company_name_en||p.branch_name_en)?('<br><span style="color:var(--text3);font-size:10px">'+escHtml([p.company_name_en,p.branch_name_en].filter(Boolean).join(' / '))+'</span>'):''}</td>
-      <td>${escHtml(p.contact_person||'')}${p.position?(' / '+escHtml(p.position)):''}${(p.contact_person_en||p.position_en)?('<br><span style="color:var(--text3);font-size:10px">'+escHtml([p.contact_person_en,p.position_en].filter(Boolean).join(' / '))+'</span>'):''}</td>
-      <td>${escHtml(p.phone||p.department_phone||p.company_phone||'')}</td>
-      <td style="white-space:normal;font-size:10px;color:var(--text3)">${escHtml(p.notes||'')}</td>
+      <td>${escHtml(p.company_name||'')}${copyBtn(p.company_name)}${p.branch_name?(' / '+escHtml(p.branch_name)):''}${(p.company_name_en||p.branch_name_en)?('<br><span style="color:var(--text3);font-size:10px">'+escHtml([p.company_name_en,p.branch_name_en].filter(Boolean).join(' / '))+'</span>'):''}</td>
+      <td>${escHtml(p.contact_person||'')}${copyBtn(p.contact_person)}${p.position?(' / '+escHtml(p.position)):''}${(p.contact_person_en||p.position_en)?('<br><span style="color:var(--text3);font-size:10px">'+escHtml([p.contact_person_en,p.position_en].filter(Boolean).join(' / '))+'</span>'):''}</td>
+      <td>${escHtml(p.phone||p.department_phone||p.company_phone||'')}${copyBtn(p.phone||p.department_phone||p.company_phone||'')}</td>
+      <td style="white-space:normal;font-size:10px;color:var(--text3)">${escHtml(p.notes||'')}${copyBtn(p.notes)}</td>
       <td style="white-space:nowrap">
         <button class="btn" style="font-size:11px" onclick="showPartnerDetail('${p.id}')">照会</button>
         <button class="btn" style="font-size:11px" onclick="openPartnerEditor('${p.id}')">編集</button>
@@ -21187,13 +21196,13 @@ function renderPartnersRows(){
         <div class="pt-card-body">
           <div class="pt-card-row1">
             ${p.category ? `<span class="pt-card-badge">${escHtml(p.category)}</span>` : ''}
-            <span class="pt-card-company">${escHtml(companyLine||'（社名なし）')}</span>
+            <span class="pt-card-company">${escHtml(companyLine||'（社名なし）')}${copyBtn(p.company_name)}</span>
           </div>
           ${enLine ? `<div class="pt-card-en">${escHtml(enLine)}</div>` : ''}
-          ${personLine ? `<div class="pt-card-meta">${escHtml(personLine)}</div>` : ''}
-          ${phone ? `<div class="pt-card-meta">📞 ${escHtml(phone)}</div>` : ''}
+          ${personLine ? `<div class="pt-card-meta">${escHtml(personLine)}${copyBtn(p.contact_person)}</div>` : ''}
+          ${phone ? `<div class="pt-card-meta">📞 ${escHtml(phone)}${copyBtn(phone)}</div>` : ''}
           ${p.email ? `<div class="pt-card-meta">✉️ ${escHtml(p.email)}</div>` : ''}
-          ${p.notes ? `<div class="pt-card-notes">${escHtml(p.notes)}</div>` : ''}
+          ${p.notes ? `<div class="pt-card-notes">${escHtml(p.notes)}${copyBtn(p.notes)}</div>` : ''}
         </div>
       </div>
       <div class="pt-card-actions">
@@ -21605,6 +21614,19 @@ function copyMultiLocationResult(btn){
     const orig = btn.textContent;
     btn.textContent = '✓ コピーしました';
     setTimeout(() => { btn.textContent = orig; }, 2000);
+  }).catch(() => { alert('コピーに失敗しました。テキストを手動で選択してください。'); });
+}
+
+// 取引先マスタ一覧の各項目(会社名/担当者/電話/メモ)横のコピーアイコン用。
+// クリック直後にアイコンをチェックマークへ一瞬切り替えてコピー完了を示す
+// (copyMultiLocationResult()と同じ「ボタン自身の表示を一時的に変える」パターンを踏襲)。
+function copyPartnerField(btn, text, ev){
+  if(ev) ev.stopPropagation();
+  navigator.clipboard.writeText(text).then(() => {
+    const orig = btn.innerHTML;
+    btn.innerHTML = '✓';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.innerHTML = orig; btn.classList.remove('copied'); }, 1500);
   }).catch(() => { alert('コピーに失敗しました。テキストを手動で選択してください。'); });
 }
 
