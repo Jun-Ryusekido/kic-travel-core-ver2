@@ -650,23 +650,65 @@ input[type=number]{-moz-appearance:textfield}
   #arrtab-bullet td.li-del, #arrtab-guide td.li-del{position:static;box-shadow:none}
   .confirm-table tr.section-row td{display:block!important;padding:6px 8px!important}
 
-  /* 売上明細(#bd-sales-tbody)のみ、ラベル幅・入力欄開始位置がカードごとにズレて
-     見えるという指摘への対応(#bd-sales-tbodyでスコープし、他confirm-table
-     (仕入明細#bd-cost-tbody・bus/restaurant/facility等)には一切影響させない)。
-     共通ルール(flex:0 0 76px)自体はサイト全体で使われているため変更せず、
-     このテーブルだけラベル幅をやや広げてnowrap化することで、5文字ラベル
-     (「入金先銀行」等)でも折り返さず全カードで入力欄の開始位置が揃うようにする。
-     ラベル色も薄いvar(--text3)からより読みやすいvar(--text2)に変更する。
-     単価/人数/数量は文字量が少ないため、無理に他項目と同じ幅までflex:1で
-     伸ばさず、適切な固定幅に絞る(項目名・追記事項側の開始位置ラインは
-     ラベル幅統一により変わらず維持される)。 */
-  #bd-sales-tbody td::before{flex:0 0 82px;white-space:nowrap;color:var(--text2)}
-  /* flex-basisを指定するだけではinput要素の自動最小幅(min-width:auto、コンテンツの
-     intrinsicサイズに基づく)により縮まりきらないことがあるため、min-width:0で
-     明示的に自動最小幅を解除する。 */
-  #bd-sales-tbody td[data-label="単価"] input{flex:0 0 110px!important;min-width:0!important}
-  #bd-sales-tbody td[data-label="人数"] input,
-  #bd-sales-tbody td[data-label="数量"] input{flex:0 0 64px!important;min-width:0!important}
+  /* 売上明細(#bd-sales-tbody)のみ、「項目名＋金額のサマリー(常時表示)」＋
+     「その他項目(タップで開閉する詳細)」の2段構成にする(#bd-sales-tbodyで
+     スコープし、仕入明細#bd-cost-tbody・bus/restaurant/facility等の他
+     confirm-tableには一切影響させない。PC(768px以上)もこのmedia query外
+     なので対象外＝従来通りの通常テーブル表示のまま)。
+     td自体は削除・追加していない(PC側のthead列数と一致させたまま)ため、
+     PC表示のマークアップ・レイアウトには影響しない。
+     全行を12分割の同一グリッドにし、1行目=サマリー(項目名+金額、常時表示)、
+     2行目以降=詳細(class="bd-sales-detail"、tr.expandedの時だけ表示)とする。
+     開閉状態はbdSalesExpandedRows(renderSalesTable関数の直前で定義)で
+     再描画をまたいで保持し、renderSalesTable自体はtoggle時に呼び出さない
+     (classListの付け替えのみ→フォーカス喪失や全行再描画を避ける)。 */
+  #bd-sales-tbody tr{
+    display:grid;grid-template-columns:repeat(12,1fr);gap:6px 8px;
+    border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:10px
+  }
+  #bd-sales-tbody tr:has(td.empty){display:block}
+  #bd-sales-tbody td.bd-sales-detail{display:none!important}
+  #bd-sales-tbody tr.expanded td.bd-sales-detail{display:flex!important}
+
+  /* 1行目: サマリー(常時表示)。項目名inputはこれまで通り編集可能なまま、
+     先頭に開閉シェブロン、末尾に金額(折りたたみ中でも見える)を並べる。
+     input自体をタップした場合は編集(フォーカス)を優先し開閉しない
+     (renderSalesTable側のonclickでevent.target.tagNameがINPUTか判定)。 */
+  #bd-sales-tbody td.bd-sales-summary-cell{grid-row:1;grid-column:1/13;cursor:pointer;gap:6px}
+  #bd-sales-tbody td.bd-sales-summary-cell input{flex:1;min-width:0}
+  #bd-sales-tbody .bd-sales-chevron{
+    flex:0 0 auto;display:inline-block;color:var(--text3);font-size:10px;
+    transition:transform .15s;user-select:none
+  }
+  #bd-sales-tbody tr.expanded .bd-sales-chevron{transform:rotate(90deg)}
+  #bd-sales-tbody .bd-sales-summary-amt{flex:0 0 auto;font-weight:700;white-space:nowrap;font-size:12px}
+
+  /* 2行目(詳細): 単価×人数×数量を横並び1行に。ラベルは自明なため付けず
+     (data-label属性自体を持たせていないため、共通の::beforeラベル表示は
+     そもそも発生しない)、代わりに入力欄の右に単位を小さく添える。 */
+  #bd-sales-tbody td.bd-sales-unitprice{grid-row:2;grid-column:1/6}
+  #bd-sales-tbody td.bd-sales-pax{grid-row:2;grid-column:6/9}
+  #bd-sales-tbody td.bd-sales-qty{grid-row:2;grid-column:9/13}
+  #bd-sales-tbody td.bd-sales-unitprice input,
+  #bd-sales-tbody td.bd-sales-pax input,
+  #bd-sales-tbody td.bd-sales-qty input{flex:1;min-width:0}
+  #bd-sales-tbody td.bd-sales-unitprice::after{content:"円";font-size:9px;color:var(--text3);flex:0 0 auto;white-space:nowrap}
+  #bd-sales-tbody td.bd-sales-pax::after{content:"名";font-size:9px;color:var(--text3);flex:0 0 auto;white-space:nowrap}
+  #bd-sales-tbody td.bd-sales-qty::after{content:"個";font-size:9px;color:var(--text3);flex:0 0 auto;white-space:nowrap}
+
+  /* 3行目(詳細): 単価×人数×数量の計算結果(＝金額)を、3つの入力欄の直下に
+     右寄せで表示する。 */
+  #bd-sales-tbody td.bd-sales-calc-line{grid-row:3;grid-column:1/13;justify-content:flex-end}
+  #bd-sales-tbody td.bd-sales-calc-line::before{content:"＝ ";font-weight:400;color:var(--text3)}
+
+  /* 4行目以降(詳細): 追記事項(ラベルは残す)→入金関連→請求先→削除は、
+     現行の並び順のまま1項目1行(full width)で表示する。 */
+  #bd-sales-tbody td.bd-sales-detail:not(.bd-sales-summary-cell):not(.bd-sales-unitprice):not(.bd-sales-pax):not(.bd-sales-qty):not(.bd-sales-calc-line){grid-column:1/13}
+  #bd-sales-tbody td.li-del.bd-sales-detail{justify-content:flex-end}
+  /* 追記事項・入金関連等、data-labelが残る項目は引き続きラベルを表示するが、
+     共通ルールの薄いvar(--text3)より読みやすいvar(--text2)にする(以前の
+     売上明細カード整列修正での改善を、ラベルが残る項目分についても維持)。 */
+  #bd-sales-tbody td.bd-sales-detail[data-label]::before{color:var(--text2)}
 
   /* ホテル項目のみ、他タブと違う専用のコンパクトレイアウトにする(#bd-hotels-tbodyで
      スコープし、bus/restaurant/facility等の他confirm-tableには一切影響させない)。
@@ -5455,6 +5497,17 @@ function toggleBdAgentColumn(){
   document.getElementById('bd-agent-toggle-btn').textContent = show ? '－ 請求先をまとめる' : '＋ 請求先を分ける';
 }
 
+// スマホカード表示で、各行を「項目名＋金額のサマリー(常時表示)」＋「その他項目
+// (タップで開閉する詳細)」に分けて表示するための開閉状態。再描画(renderSalesTable)
+// のたびに失われないよう、行indexの集合として関数の外で保持する(デフォルトは
+// 全行閉じた状態＝空集合)。PC表示はこの開閉の影響を受けない(CSSで@media(max-width:768px)
+// にスコープしているため、768px以上では常に全項目表示のまま)。
+let bdSalesExpandedRows = new Set();
+function toggleBdSalesRowExpand(i, trEl){
+  if(bdSalesExpandedRows.has(i)) bdSalesExpandedRows.delete(i); else bdSalesExpandedRows.add(i);
+  if(trEl) trEl.classList.toggle('expanded', bdSalesExpandedRows.has(i));
+}
+
 function renderSalesTable(){
   if(_dateInputFocusedIn('bd-sales-tbody')) return;
   const tbody = document.getElementById('bd-sales-tbody');
@@ -5463,16 +5516,18 @@ function renderSalesTable(){
     tbody.innerHTML = '<tr><td colspan="11" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
   }else{
     tbody.innerHTML = bdSalesItems.map((it,i)=>`
-      <tr>
-        <td data-label="項目名"><input ${dis} value="${(it.item_name||'').replace(/"/g,'&quot;')}" title="${(it.item_name||'').replace(/"/g,'&quot;')}" oninput="bdSalesItems[${i}].item_name=this.value;showItemNameSuggestionsForSales(this,${i})" onblur="setTimeout(hideItemNameSuggestionsForSales,150)" onfocus="showItemNameSuggestionsForSales(this,${i})"></td>
-        <td data-label="追記事項"><input ${dis} value="${(it.memo||'').replace(/"/g,'&quot;')}" title="${(it.memo||'').replace(/"/g,'&quot;')}" onchange="bdSalesItems[${i}].memo=this.value"></td>
-        <td data-label="単価" style="text-align:right"><input ${dis} type="text" inputmode="numeric" value="${Number(it.unit_price||0).toLocaleString('ja-JP')}" onchange="bdSalesRowCalc(${i},this,'unit_price')" style="text-align:right"></td>
-        <td data-label="人数" style="text-align:right"><input ${dis} type="number" value="${it.pax||1}" onchange="bdSalesRowCalc(${i},this,'pax')" style="text-align:right"></td>
-        <td data-label="数量" style="text-align:right"><input ${dis} type="number" value="${it.qty||1}" onchange="bdSalesRowCalc(${i},this,'qty')" style="text-align:right"></td>
-        <td data-label="金額" id="bd-sales-amt-${i}" class="li-amt" style="text-align:right">${yen(it.amount||0)}</td>
-        <td data-label="入金日">${renderSalesPaymentDates(it,i,dis)}</td>         <td data-label="入金金額">${renderSalesPaymentAmounts(it,i,dis)}</td>         <td data-label="入金先銀行">${renderSalesPaymentBanks(it,i,dis)}</td>         <td data-label="入金備考">${renderSalesPaymentRemarks(it,i,dis)}</td>         <td data-label="未収" class="li-amt" style="${(Number(it.amount||0)-salesPaymentsTotal(it))>0?'color:var(--red)':'color:var(--green)'}">${yen(Number(it.amount||0)-salesPaymentsTotal(it))}</td>
-        <td class="bd-agent-col" data-label="請求先" style="display:none"><input class="bd-agent-col" style="display:none" ${dis} value="${(it.agent_name||'').replace(/"/g,'&quot;')}" title="${(it.agent_name||'').replace(/"/g,'&quot;')}" placeholder="(予約のAgent)" onchange="bdSalesItems[${i}].agent_name=this.value;renderInvoiceActions()"></td></td>
-        <td class="li-del">${bdLocked?'':`<span class="lnk" style="font-size:10px" onclick="removeSalesRow(${i})">削除</span>`}</td>
+      <tr class="${bdSalesExpandedRows.has(i)?'expanded':''}">
+        <td class="bd-sales-summary-cell" onclick="if(event.target.tagName!=='INPUT')toggleBdSalesRowExpand(${i},this.closest('tr'))">
+          <span class="bd-sales-chevron">▸</span><input ${dis} value="${(it.item_name||'').replace(/"/g,'&quot;')}" title="${(it.item_name||'').replace(/"/g,'&quot;')}" oninput="bdSalesItems[${i}].item_name=this.value;showItemNameSuggestionsForSales(this,${i})" onblur="setTimeout(hideItemNameSuggestionsForSales,150)" onfocus="showItemNameSuggestionsForSales(this,${i})"><span class="bd-sales-summary-amt" id="bd-sales-summary-amt-${i}">${yen(it.amount||0)}</span>
+        </td>
+        <td data-label="追記事項" class="bd-sales-detail"><input ${dis} value="${(it.memo||'').replace(/"/g,'&quot;')}" title="${(it.memo||'').replace(/"/g,'&quot;')}" onchange="bdSalesItems[${i}].memo=this.value"></td>
+        <td class="bd-sales-detail bd-sales-unitprice" style="text-align:right"><input ${dis} type="text" inputmode="numeric" value="${Number(it.unit_price||0).toLocaleString('ja-JP')}" onchange="bdSalesRowCalc(${i},this,'unit_price')" style="text-align:right"></td>
+        <td class="bd-sales-detail bd-sales-pax" style="text-align:right"><input ${dis} type="number" value="${it.pax||1}" onchange="bdSalesRowCalc(${i},this,'pax')" style="text-align:right"></td>
+        <td class="bd-sales-detail bd-sales-qty" style="text-align:right"><input ${dis} type="number" value="${it.qty||1}" onchange="bdSalesRowCalc(${i},this,'qty')" style="text-align:right"></td>
+        <td data-label="金額" id="bd-sales-amt-${i}" class="li-amt bd-sales-detail bd-sales-calc-line" style="text-align:right">${yen(it.amount||0)}</td>
+        <td data-label="入金日" class="bd-sales-detail">${renderSalesPaymentDates(it,i,dis)}</td>         <td data-label="入金金額" class="bd-sales-detail">${renderSalesPaymentAmounts(it,i,dis)}</td>         <td data-label="入金先銀行" class="bd-sales-detail">${renderSalesPaymentBanks(it,i,dis)}</td>         <td data-label="入金備考" class="bd-sales-detail">${renderSalesPaymentRemarks(it,i,dis)}</td>         <td data-label="未収" class="li-amt bd-sales-detail" style="${(Number(it.amount||0)-salesPaymentsTotal(it))>0?'color:var(--red)':'color:var(--green)'}">${yen(Number(it.amount||0)-salesPaymentsTotal(it))}</td>
+        <td class="bd-agent-col bd-sales-detail" data-label="請求先" style="display:none"><input class="bd-agent-col" style="display:none" ${dis} value="${(it.agent_name||'').replace(/"/g,'&quot;')}" title="${(it.agent_name||'').replace(/"/g,'&quot;')}" placeholder="(予約のAgent)" onchange="bdSalesItems[${i}].agent_name=this.value;renderInvoiceActions()"></td></td>
+        <td class="li-del bd-sales-detail">${bdLocked?'':`<span class="lnk" style="font-size:10px" onclick="removeSalesRow(${i})">削除</span>`}</td>
       </tr>`).join('');
   }
   updateDetailGrossPreview();
@@ -5905,6 +5960,9 @@ function bdSalesRowCalc(i, el, field){
   }
   bdSalesItems[i].amount = (Number(bdSalesItems[i].unit_price)||0) * (Number(bdSalesItems[i].pax)||1) * (Number(bdSalesItems[i].qty)||1);
   document.getElementById('bd-sales-amt-'+i).textContent = yen(bdSalesItems[i].amount);
+  // スマホのサマリー一覧(常時表示、折りたたみ中でも見える金額)も同時に同期する
+  const summaryAmtEl = document.getElementById('bd-sales-summary-amt-'+i);
+  if(summaryAmtEl) summaryAmtEl.textContent = yen(bdSalesItems[i].amount);
   updateDetailGrossPreview();
 }
 
