@@ -17461,8 +17461,8 @@ async function extractHotelFromFileHmBatched(chunks, statusEl){
 // REF#候補が日程的にどれだけ離れているかを判定する共通ヘルパー。
 // 両方の日程範囲が重なっていれば0(一致)を返し、重ならない場合は日数の隔たりを返す。
 // どちらかの日付が全く無い場合はnull(判定不能=日程では絞り込めない)を返す。
-const HM_CONFIRM_DATE_FAR_THRESHOLD_DAYS = 30;
-function _hmConfirmDateGapDays(aStart, aEnd, bStart, bEnd){
+const REF_MATCH_DATE_FAR_THRESHOLD_DAYS = 30;
+function _refMatchDateGapDays(aStart, aEnd, bStart, bEnd){
   const as = aStart ? new Date(aStart) : (aEnd ? new Date(aEnd) : null);
   const ae = aEnd ? new Date(aEnd) : as;
   const bs = bStart ? new Date(bStart) : (bEnd ? new Date(bEnd) : null);
@@ -17473,51 +17473,89 @@ function _hmConfirmDateGapDays(aStart, aEnd, bStart, bEnd){
   return Math.round(gapMs / 86400000);
 }
 
-// ホテル読み取り確認画面のREF#自動マッチ候補を、確信度付きで全件洗い出す。
-// 2026-08時点で発覚した不具合(無関係の予約が「✓自動マッチ」として誤確定される)への
-// 対応として、.find()で1件だけ返す旧方式から、.filter()で全候補を集めて確信度・日程で
-// 絞り込む方式に変更した。
+// AI読み取り結果 → 予約(bookings)のREF#自動マッチング候補を、確信度付きで全件洗い出す
+// 共通関数。ホテル/観光施設/請求書/入金照合の4画面がそれぞれ個別に持っていた
+// firstNum/norm/kicGroupNum等のマッチングロジックを統合したもの(2026-08)。
+// 経緯: 元々は.find()で「最初に条件を満たした1件」を無条件で自動マッチ確定させていたが、
+// 部分文字列一致だけで無関係の予約が誤確定される不具合があった(実例: ホテル読み取りで
+// 予約#95が無関係のデータに誤マッチ)。ホテル画面で.filter()+確信度判定+日程照合の
+// 方式に刷新したものを、他の3画面にも適用できる形へ一般化した。
+//
 // - strong(高確信度): REF#の数字列が完全一致、またはツアー名として完全一致
-// - weak(低確信度): 部分文字列一致のみ(旧ステージ2の部分一致・旧ステージ3・4相当)。
-//   日程(check_in/check_out vs bookings.in_date/out_date)が両方判明していて、かつ
-//   HM_CONFIRM_DATE_FAR_THRESHOLD_DAYS(30日)以上離れている場合は、弱い根拠しかない
-//   ままさらに日程まで大きく食い違うため、候補からも除外する。
-function computeHmConfirmCandidates(h, sortedBookings){
+// - weak(低確信度): 部分文字列一致・「KIC＋数字＋_」パターン抽出一致・
+//   「852_KK」形式の短縮ツアーコード一致。opts.dateFieldsが指定されていて、かつ両方の
+//   日程が判明していて、REF_MATCH_DATE_FAR_THRESHOLD_DAYS(30日)以上離れている場合は、
+//   弱い根拠しかないままさらに日程まで大きく食い違うため、候補からも除外する
+//   (opts.dateFieldsがnullの画面=対応する日程項目が無い場合は、この日程による絞り込み
+//   自体を行わない)。
+//
+// item: OCR読み取り結果1件分のオブジェクト
+// sortedBookings: ref_no昇順の予約一覧(bookings)
+// opts:
+//   refField          : string        既定'ref_no'。itemの中でREF#らしき値を持つフィールド名
+//   textFields        : string[]      全文結合(allText)に使うitemのフィールド名の配列
+//                                     (kicGroupNum/852_KK短縮コード/ツアー名部分一致の判定に使用)
+//   dateFields        : {start,end}|null  itemの日程フィールド名。nullなら日程照合をスキップ
+//   bookingDateFields : {start,end}   既定{start:'in_date', end:'out_date'}
+//   dateFarThresholdDays: number      既定REF_MATCH_DATE_FAR_THRESHOLD_DAYS(30)
+// 戻り値: [{booking, confidence:'strong'|'weak', dateGapDays}, ...]
+//         確信度(strong優先)→日程の近さの順にソート済み
+function computeRefMatchCandidates(item, sortedBookings, opts){
+  opts = opts || {};
+  const refField = opts.refField || 'ref_no';
+  const textFields = opts.textFields || [refField];
+  const dateFields = opts.dateFields === undefined ? null : opts.dateFields;
+  const bookingDateFields = opts.bookingDateFields || {start:'in_date', end:'out_date'};
+  const dateFarThresholdDays = opts.dateFarThresholdDays!=null ? opts.dateFarThresholdDays : REF_MATCH_DATE_FAR_THRESHOLD_DAYS;
+
   const firstNum = s => { const m=(s||'').match(/(\d+)/); return m?m[1]:''; };
   const norm = s => (s||'').trim().toUpperCase();
-  const hAllText = [h.ref_no, h.hotel_name, h.memo, h.confirmation_no].map(v=>norm(v)).join(' ');
+  const itemRef = item[refField];
+  const allText = textFields.map(f=>norm(item[f])).join(' ');
   const kicGroupNum = s => { const m=(s||'').match(/KIC\s*(\d+)\s*_/i); return m?m[1]:''; };
-  const hKicGroupNum = kicGroupNum(hAllText);
+  const itemKicGroupNum = kicGroupNum(allText);
+  // 「852_KK」形式の短縮ツアーコード(数字3〜5桁+アンダースコア+英字2〜4文字)を
+  // allTextから全て抜き出しておく。
+  const shortCodePat = /\b(\d{3,5})_([A-Za-z]{2,4})\b/g;
+  const itemShortCodes = [...allText.matchAll(shortCodePat)];
 
   const candidates = [];
   sortedBookings.forEach(b=>{
     let confidence = null;
-    if(h.ref_no){
+    if(itemRef){
       const bNum = firstNum(b.ref_no);
-      const hNum = firstNum(h.ref_no);
-      if(bNum && hNum && bNum===hNum) confidence = 'strong';
-      const hNorm = norm(h.ref_no);
+      const iNum = firstNum(itemRef);
+      if(bNum && iNum && bNum===iNum) confidence = 'strong';
+      const iNorm = norm(itemRef);
       const tNorm = norm(b.tour_name);
-      if(!confidence && hNorm && tNorm){
-        if(hNorm===tNorm) confidence = 'strong';
-        else if(tNorm.includes(hNorm) || hNorm.includes(tNorm)) confidence = 'weak';
+      if(!confidence && iNorm && tNorm){
+        if(iNorm===tNorm) confidence = 'strong';
+        else if(tNorm.includes(iNorm) || iNorm.includes(tNorm)) confidence = 'weak';
       }
     }
-    if(!confidence && hKicGroupNum){
+    if(!confidence && itemKicGroupNum){
       const bNum = firstNum(b.ref_no);
       // 「KIC＋数字＋_」パターンはref_no以外のフィールド(memo/confirmation_no等)を
       // 結合した文字列からも抽出しているため、数値自体が一致していても情報源としての
       // 確度は低い(意図しないフィールドの数字を拾っている可能性がある)とみなし、weakとする。
-      if(bNum && bNum===hKicGroupNum) confidence = 'weak';
+      if(bNum && bNum===itemKicGroupNum) confidence = 'weak';
+    }
+    if(!confidence && itemShortCodes.length){
+      const tNorm = norm(b.tour_name);
+      const tm = tNorm.match(/(\d{3,5})_([A-Z]{2,4})/);
+      if(tm && itemShortCodes.some(m=>String(+tm[1])===String(+m[1]) && tm[2]===m[2].toUpperCase())) confidence = 'weak';
     }
     if(!confidence){
       const bTour = norm(b.tour_name);
-      if(bTour.length>=5 && /\d/.test(bTour) && hAllText.includes(bTour)) confidence = 'weak';
+      if(bTour.length>=5 && /\d/.test(bTour) && allText.includes(bTour)) confidence = 'weak';
     }
     if(!confidence) return;
 
-    const dateGapDays = _hmConfirmDateGapDays(h.check_in, h.check_out, b.in_date, b.out_date);
-    if(confidence==='weak' && dateGapDays!=null && dateGapDays > HM_CONFIRM_DATE_FAR_THRESHOLD_DAYS) return;
+    let dateGapDays = null;
+    if(dateFields){
+      dateGapDays = _refMatchDateGapDays(item[dateFields.start], item[dateFields.end], b[bookingDateFields.start], b[bookingDateFields.end]);
+      if(confidence==='weak' && dateGapDays!=null && dateGapDays > dateFarThresholdDays) return;
+    }
     candidates.push({ booking: b, confidence, dateGapDays });
   });
 
@@ -17572,7 +17610,10 @@ async function showHotelConfirmDialog(hotels){
     // 「低確信度」の候補として保留表示に格下げする(自動では保存対象にしない)。
     // さらに、check_in/check_outとbookings.in_date/out_dateの近さも判定材料に加え、
     // 低確信度候補のうち日程が大きく乖離しているもの(30日以上)は候補からも除外する。
-    const candidates = computeHmConfirmCandidates(h, sortedBookings);
+    const candidates = computeRefMatchCandidates(h, sortedBookings, {
+      textFields: ['ref_no','hotel_name','memo','confirmation_no'],
+      dateFields: {start:'check_in', end:'check_out'},
+    });
     const strongCandidates = candidates.filter(c=>c.confidence==='strong');
     const weakCandidates = candidates.filter(c=>c.confidence==='weak');
     // 高確信度が1件だけに絞れた場合のみ、従来通り自動確定する。
