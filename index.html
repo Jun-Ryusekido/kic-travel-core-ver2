@@ -4419,23 +4419,9 @@ function appendSchemaErrorHint(message){
 }
 
 // 全削除→再挿入の事故(#782でbooking_facilities 9件が消失)を防ぐための安全な差分保存ヘルパー。
+// booking_id以外のキー列(arrangement_document_id等)で置き換えたい場合に使う。
 // 「新規データのINSERTに成功してから、既存の旧行だけをidで指定してDELETEする」順序にすることで、
 // INSERTが何らかの理由で失敗しても旧データは一切削除されない（失敗時は例外を投げてDELETEに進まない）。
-async function safeReplaceBookingRows(table, bookingId, rows, label){
-  const {data: existing, error: fetchErr} = await sb.from(table).select('id').eq('booking_id', bookingId);
-  if(fetchErr) throw new Error(appendSchemaErrorHint(label+'の既存データ確認に失敗: '+fetchErr.message));
-  const existingIds = (existing||[]).map(r=>r.id);
-  if(rows.length){
-    const {error: insErr} = await sb.from(table).insert(rows);
-    if(insErr) throw new Error(appendSchemaErrorHint(label+'の保存に失敗: '+insErr.message));
-  }
-  if(existingIds.length){
-    const {error: delErr} = await sb.from(table).delete().in('id', existingIds);
-    if(delErr) throw new Error(appendSchemaErrorHint(label+'の旧データ削除に失敗（新データは保存済みのため重複している可能性があります）: '+delErr.message));
-  }
-}
-// safeReplaceBookingRowsの汎用版。booking_id以外のキー列(arrangement_document_id等)で
-// 「既存行を全削除→新データ挿入」の置き換えを行いたい場合に使う。
 async function safeReplaceRowsByKey(table, keyCol, keyVal, rows, label){
   const {data: existing, error: fetchErr} = await sb.from(table).select('id').eq(keyCol, keyVal);
   if(fetchErr) throw new Error(appendSchemaErrorHint(label+'の既存データ確認に失敗: '+fetchErr.message));
@@ -14014,10 +14000,6 @@ async function fmClassifyForDuplicates(rows){
   });
   return { toInsert, conflicts };
 }
-function fmRefNoForBookingId(bookingId){
-  const b = (window._fmConfirmBookings||[]).find(x=>String(x.id)===String(bookingId));
-  return b ? (b.ref_no||'(REF#なし)') : '';
-}
 
 async function showFmFacilityConfirmDialog(facilities){
   window._pendingFmFacilities=facilities;
@@ -19899,10 +19881,6 @@ let hmCancelAlertFilter = null;
 let hmSearchDebounceTimer = null;
 let hmFilteredRows = [];
 
-function hmCancelDays(checkInStr){
-  const today = new Date(); today.setHours(0,0,0,0);
-  return Math.floor((new Date(checkInStr) - today) / 86400000);
-}
 
 async function renderHmCancelAlert(){
   const el = document.getElementById('hm-cancel-alert');
@@ -19936,10 +19914,6 @@ function toggleHmCancelFilter(key){
 }
 
 function hmSort(key){ if(hmSortKey===key){hmSortDir*=-1;}else{hmSortKey=key;hmSortDir=1;} renderHotelManagementRows(); }
-function hmLocalTodayStr(){
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-}
 
 // 検索欄はoninputで呼ばれるため、キー入力の都度RPCを叩かないようデバウンスする
 function filterHotelManagement(){
