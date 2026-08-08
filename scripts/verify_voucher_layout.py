@@ -57,6 +57,48 @@ TEST_TOUR_NAME = "KIC1154_J1"
 TEST_GUIDE_NAME = "津崎 美穂"
 TEST_GUIDE_PHONE = "090-1234-5678"
 
+# 英語の長い店名・ガイド名・支払方法でもレイアウトが崩れない(はみ出さない)ことを
+# 確認するための追加テストデータ(baseline.jsonの座標比較とは別枠のチェックに使う。
+# 座標比較はTEST_RESTAURANTS(上記、確定サンプルと同一の短い日本語)を変更せず維持する)。
+LONG_ENGLISH_TEST_RESTAURANTS = [
+    {
+        "restaurant_name": "INTERNATIONAL GRAND PALACE HOTEL RESTAURANT & BANQUET HALL COMPLEX",
+        "restaurant_name_en": "INTERNATIONAL GRAND PALACE HOTEL RESTAURANT AND BANQUET HALL COMPLEX",
+        "meal_type": "夕食", "date": "2026-12-14",
+        "payment_method": "INTERNATIONAL TRAVEL AND TOURISM CONSOLIDATORS PVT LTD (INVOICE PAYMENT)",
+        "memo": "",
+    },
+]
+LONG_ENGLISH_TEST_TOUR_NAME = "KIC1154_J1"
+LONG_ENGLISH_TEST_GUIDE_NAME = "Christopher Alexander Montgomery-Fitzgerald"
+LONG_ENGLISH_TEST_GUIDE_PHONE = "090-1234-5678"
+
+# 各動的フィールドが実際に印字時にはみ出していないかを、PDFから抽出した文字の
+# 右端座標(mm)で機械的に判定するための期待右端(index.htmlのCSS/inline styleの
+# left+width(またはmax-width)と一致させること)。
+#
+# 各フィールドの実テキストは、同じPDF内に実在する隣接ラベル文字列(レストラン/
+# ガイド/支払方法。ALL_LABEL_TEXTS等で使っている確実に見つかる文字列)を
+# find_wordで探し、そのラベルの実際の描画位置を基準に「同じ行の、ラベルより
+# 右にある単語」とみなす。refboxはtour_name(短い固定長・省略されない想定)を
+# そのまま検索する。
+#
+# 注意: 単語抽出時にBLOCK1_X_MAX(analyze_pdfのベースライン比較用、block1のみに
+# 限定するためのpt境界)を流用しないこと。このチェックは「はみ出してblock1の
+# 想定範囲を超えていないか」を見るためのものなので、あらかじめblock1相当の
+# 狭い範囲で単語を切り捨ててしまうと、はみ出した文字自体が検出対象から漏れて
+# 「はみ出しなし」と誤判定してしまう(実際にこの不具合を作り込んで検証中に発見した)。
+OVERFLOW_CHECK_FIELDS = {
+    # フィールド名: (アンカー方式, アンカー値, 期待される右端mm, 許容誤差mm)
+    # 「レストラン：」はHTML上1つのdivにコロンまで含めて書かれているため、PDF抽出でも
+    # 「レストラン」単独ではなく「レストラン：」の1語として抽出される(ガイド/支払方法は
+    # ラベルとコロンが別divのため単独で抽出される、という違いに注意)。
+    "restaurant_name":    ("label", "レストラン：", 122.321, 1.0),  # left:41.641mm + width:80.680mm
+    "row_value_guide":    ("label", "ガイド", 126.225, 1.0),       # left:36.436mm + max-width:89.789mm
+    "row_value_pay":      ("label", "支払方法", 126.225, 1.0),     # left:36.436mm + max-width:89.789mm
+    "refbox":             ("exact", None, 65.414, 1.0),           # left:34.614mm + max-width:30.8mm(境界の緩衝込み)。値はtour_nameを実行時に渡す
+}
+
 # headless Chromeの日本語フォントのToUnicode CMapが不完全なため、
 # PDFテキスト抽出時に一部の漢字が見た目の似たCJK部首（康熙部首）の
 # コードポイントに化けることがある（表示上のグリフは正しく、抽出結果のみ
@@ -128,8 +170,12 @@ def extract_build_voucher_html_source():
     return "\n".join(lines[start:end + 1])
 
 
-def generate_voucher_html(tmp_dir: Path) -> Path:
+def generate_voucher_html(tmp_dir: Path, restaurants=None, tour_name=None, guide_name=None, guide_phone=None, out_name="voucher.html") -> Path:
     src = extract_build_voucher_html_source()
+    restaurants = TEST_RESTAURANTS if restaurants is None else restaurants
+    tour_name = TEST_TOUR_NAME if tour_name is None else tour_name
+    guide_name = TEST_GUIDE_NAME if guide_name is None else guide_name
+    guide_phone = TEST_GUIDE_PHONE if guide_phone is None else guide_phone
     node_script = f"""
 const fs = require('fs');
 global.window = {{ location: {{ origin: 'http://localhost:5500' }} }};
@@ -138,17 +184,17 @@ global.window = {{ location: {{ origin: 'http://localhost:5500' }} }};
 // 個別に補う必要がある(index.html:MEAL_VOUCHER_PAGE_SIZE定義箇所と値を一致させること)。
 const MEAL_VOUCHER_PAGE_SIZE = 2;
 {src}
-const restaurants = {json.dumps(TEST_RESTAURANTS, ensure_ascii=False)};
-let out = _buildVoucherHtml(restaurants, {json.dumps(TEST_TOUR_NAME)}, {json.dumps(TEST_GUIDE_NAME)}, {json.dumps(TEST_GUIDE_PHONE)});
+const restaurants = {json.dumps(restaurants, ensure_ascii=False)};
+let out = _buildVoucherHtml(restaurants, {json.dumps(tour_name)}, {json.dumps(guide_name)}, {json.dumps(guide_phone)});
 out = out.replace(/\\/kic_travel_logo\\.jpg/g, {json.dumps(str((REPO_ROOT / 'public' / 'kic_travel_logo.jpg').resolve()).replace(chr(92), '/'))});
-fs.writeFileSync({json.dumps(str((tmp_dir / 'voucher.html').resolve()).replace(chr(92), '/'))}, out);
+fs.writeFileSync({json.dumps(str((tmp_dir / out_name).resolve()).replace(chr(92), '/'))}, out);
 """
-    node_script_path = tmp_dir / "gen.js"
+    node_script_path = tmp_dir / f"gen_{out_name}.js"
     node_script_path.write_text(node_script, encoding="utf-8")
     result = subprocess.run(["node", str(node_script_path)], cwd=REPO_ROOT, capture_output=True, text=True)
     if result.returncode != 0:
         raise RuntimeError(f"HTML生成に失敗しました:\n{result.stdout}\n{result.stderr}")
-    return tmp_dir / "voucher.html"
+    return tmp_dir / out_name
 
 
 def print_to_pdf(html_path: Path, pdf_path: Path):
@@ -306,6 +352,73 @@ def analyze_pdf(pdf_path: Path):
         return actual, overlap_issues
 
 
+def check_long_english_no_overflow(pdf_path: Path, tour_name: str):
+    """
+    長い英語の店名・ガイド名・支払方法を使ったPDF(generate_voucher_html(...long_en...)で生成)
+    から、各動的フィールドの実際の文字の右端座標(mm)を求め、OVERFLOW_CHECK_FIELDSで定義した
+    期待右端(index.htmlのCSSのleft+width/max-widthから算出した値)を超えていないか判定する。
+    fitFontSizeMixed等による自動縮小・ellipsisでの省略が正しく機能していれば、実際に
+    印字される文字はこの右端に収まるはず(収まらない場合ははみ出し=不具合)。
+    戻り値: 問題ありのフィールド一覧([{field, expected_right_mm, actual_right_mm, over_mm}, ...])
+    """
+    issues = []
+    with pdfplumber.open(pdf_path) as pdf:
+        page = pdf.pages[0]
+        # BLOCK1_X_MAXは使わない(analyze_pdfのベースライン比較専用の狭い境界で、
+        # ここで流用するとはみ出した文字自体が抽出対象から漏れて検出できなくなる)。
+        words = [w for w in page.extract_words() if w["top"] < BLOCK1_Y_MAX]
+        for w in words:
+            w["text"] = normalize_cjk(w["text"])
+
+        for field, (anchor_type, anchor_value, expected_right_mm, tolerance_mm) in OVERFLOW_CHECK_FIELDS.items():
+            if anchor_type == "exact":
+                # refbox: tour_nameは短い固定長を想定しているため、値そのものを検索する
+                anchor_word = find_word(words, tour_name)
+                if anchor_word is None:
+                    issues.append({"field": field, "note": f"値「{tour_name}」自体が見つかりません(要素が描画されていない可能性)"})
+                    continue
+                actual_right_mm = anchor_word["x1"] * PT_TO_MM
+            else:
+                # label: 隣接ラベル(block1側、occurrence=0=先頭に現れるもの)を検索し、
+                # 同じ行(top±3pt)にあるラベルより右側の単語群の右端の最大値を、
+                # 対象フィールドの実際の右端とみなす。x0側の上限は設けない
+                # (はみ出した場合、隣のblockの領域まで文字が続くのを検出したいため)。
+                label_word = find_word(words, anchor_value)
+                if label_word is None:
+                    issues.append({"field": field, "note": f"アンカーラベル「{anchor_value}」が見つかりません"})
+                    continue
+                row_words = [
+                    w for w in words
+                    if abs(w["top"] - label_word["top"]) < 3 and w["x0"] > label_word["x1"]
+                ]
+                if not row_words:
+                    issues.append({"field": field, "note": f"ラベル「{anchor_value}」と同じ行に値のテキストが見つかりません"})
+                    continue
+                # 隣のblock(2つ目のKIC控え/レストラン控えペア)の同名ラベル自体が
+                # 同じ行に来ることがあるため、次の「ラベルらしき」単語が現れたら
+                # そこで打ち切り、対象フィールドの値だけを見るようにする。
+                cutoff_mm = None
+                for w in sorted(row_words, key=lambda w: w["x0"]):
+                    if w["text"] in (anchor_value, "支払方法", "ガイド", "レストラン："):
+                        cutoff_mm = w["x0"] * PT_TO_MM
+                        break
+                candidate_words = row_words
+                if cutoff_mm is not None:
+                    candidate_words = [w for w in row_words if w["x0"] * PT_TO_MM < cutoff_mm]
+                if not candidate_words:
+                    candidate_words = row_words
+                actual_right_mm = max(w["x1"] for w in candidate_words) * PT_TO_MM
+
+            if actual_right_mm > expected_right_mm + tolerance_mm:
+                issues.append({
+                    "field": field,
+                    "expected_right_mm": round(expected_right_mm, 2),
+                    "actual_right_mm": round(actual_right_mm, 2),
+                    "over_mm": round(actual_right_mm - expected_right_mm, 2),
+                })
+    return issues
+
+
 def main():
     if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
         sys.stdout.reconfigure(encoding="utf-8")
@@ -330,6 +443,22 @@ def main():
 
         print("3. pdfplumberで生成PDFを解析中...")
         actual, overlap_issues = analyze_pdf(pdf_path)
+
+        # 長い英語の店名・ガイド名・支払方法でもはみ出さないかの追加チェック。
+        # baseline.jsonとの座標比較(短い日本語サンプル、上記の1〜3)とは完全に別枠で、
+        # このチェックのみ失敗しても座標比較の結果には影響しない(別のテストデータのため)。
+        print("3b. 長い英語データでのはみ出しチェック用PDFを生成・解析中...")
+        long_en_html_path = generate_voucher_html(
+            tmp_dir,
+            restaurants=LONG_ENGLISH_TEST_RESTAURANTS,
+            tour_name=LONG_ENGLISH_TEST_TOUR_NAME,
+            guide_name=LONG_ENGLISH_TEST_GUIDE_NAME,
+            guide_phone=LONG_ENGLISH_TEST_GUIDE_PHONE,
+            out_name="voucher_long_en.html",
+        )
+        long_en_pdf_path = tmp_dir / "voucher_long_en.pdf"
+        print_to_pdf(long_en_html_path, long_en_pdf_path)
+        overflow_issues = check_long_english_no_overflow(long_en_pdf_path, LONG_ENGLISH_TEST_TOUR_NAME)
 
     print("4. ベースラインと比較中...\n")
 
@@ -389,6 +518,20 @@ def main():
         print(f"  NG: {len(overlap_issues)}件の重なりを検出")
     else:
         print("  OK: 全ラベルで罫線の重なりなし")
+
+    print("--- 長い英語データでのはみ出しチェック ---")
+    if overflow_issues:
+        for issue in overflow_issues:
+            if "note" in issue:
+                failures.append(f"[long_english_overflow] {issue['field']}: {issue['note']}")
+            else:
+                failures.append(
+                    f"[long_english_overflow] {issue['field']}: 期待右端={issue['expected_right_mm']}mm "
+                    f"実際={issue['actual_right_mm']}mm ({issue['over_mm']}mmはみ出し)"
+                )
+        print(f"  NG: {len(overflow_issues)}件のはみ出しを検出")
+    else:
+        print("  OK: 長い英語データでもはみ出しなし")
 
     print(f"\n=== 結果: {passes}/{len(baseline['elements'])} 要素が一致 ===\n")
 

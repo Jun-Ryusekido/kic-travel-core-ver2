@@ -21003,6 +21003,10 @@ body { margin:0; padding:0; font-family:"Noto Sans JP","Hiragino Sans",Arial,san
 .logo { position:absolute; top:11.712mm; left:16.917mm; width:14.314mm; height:auto; }
 .title { position:absolute; top:11.191mm; left:36.827mm; font-size:4.424mm; font-weight:700; font-family:Arial,sans-serif; white-space:nowrap; }
 .refbox { position:absolute; top:20.040mm; left:34.614mm; border:0.35mm solid #000; padding:0.260mm 1.952mm; font-size:3.904mm; font-weight:700; white-space:nowrap; max-width:30.8mm; overflow:hidden; text-overflow:ellipsis; box-sizing:border-box; }
+/* datebox(日付)は常に短い日付文字列のみで自由入力ではないため、はみ出し対策の
+   対象外とした。badge(KIC控え/レストラン控え)・mealtype-value(B/L/D固定文字)も
+   同様に、中身がbuildBlock内のリテラル文字列(ctrlLabel等)であり運用者の自由入力
+   ではないため対象外(2026-08 英語表記崩れ対応の調査で確認済み)。 */
 .datebox { position:absolute; top:20.040mm; left:68.448mm; border:0.35mm solid #000; padding:0.260mm 1.952mm; font-size:3.904mm; font-weight:700; white-space:nowrap; }
 .badge { position:absolute; top:11.972mm; left:102.021mm; border:0.4mm solid #2b6cb0; padding:0.390mm 1.952mm; font-size:3.644mm; font-weight:700; color:#2b6cb0; white-space:nowrap; }
 .badge.restaurant { border-color:#333; color:#000; }
@@ -21023,6 +21027,11 @@ body { margin:0; padding:0; font-family:"Noto Sans JP","Hiragino Sans",Arial,san
 .sign-box { position:absolute; width:54.654mm; height:20.170mm; border:0.35mm solid #000; }
 .childpolicy { position:absolute; font-size:2.863mm; color:#c0392b; white-space:nowrap; }
 .remark-label { position:absolute; font-size:3.774mm; font-weight:400; white-space:nowrap; }
+/* remark-box(備考)は自由記述欄で長さの想定が難しく、他フィールドのような
+   1行想定のフォント自動縮小はなじまない(縮小しすぎると逆に読みにくくなる)ため、
+   意図的に縮小ロジックの対象外とした。white-space:nowrapを設定していないため
+   幅内で自然に折り返され、height固定+overflow:hiddenにより高さを超えた分だけ
+   クリップされる(=他要素と重ならない、はみ出さない)設計を維持する。 */
 .remark-box { position:absolute; height:20.170mm; border:0.35mm solid #000; }
 
 .timelabel { position:absolute; top:18.869mm; left:109.569mm; font-size:3.383mm; white-space:nowrap; }
