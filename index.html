@@ -9910,6 +9910,10 @@ body{margin:0;font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Meiryo",s
 .pv-btn{padding:5px 14px;font-size:12px;border-radius:4px;border:1px solid #aaa;cursor:pointer;background:#fff;margin-left:6px}
 .pv-btn-p{background:#004A9F;color:#fff;border-color:#004A9F}
 .pv-body{padding:12px}
+/* pvAutoFitCellFonts()がフォントサイズを下限(6px)まで縮小しても1行に収まらない場合の
+   最終フォールバック。はみ出し・隣接セルとの重なりを防ぐため、収まらない分は省略(...)表示にする
+   (画面表示・印刷のいずれでも同じルールを適用する)。 */
+.pv-body table td,.pv-body table th{overflow:hidden;text-overflow:ellipsis}
 @page{size:A4 landscape;margin:6mm}
 @media print{
   .pv-hd{display:none}
@@ -9918,7 +9922,7 @@ body{margin:0;font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Meiryo",s
   /* font-sizeは強制せず、pvAutoFitCellFonts()がセル単位で計算したinline指定(1行に収まる
      よう段階的に縮小したもの)をそのまま印刷にも反映させる(画面と印刷でセルの実サイズが
      一致する固定px幅レイアウトのため、印刷時だけ別途縮小し直す必要はない)。 */
-  td,th{border:1px solid #999 !important;padding:3px 5px !important;line-height:1.4 !important;vertical-align:top !important;white-space:nowrap !important}
+  td,th{border:1px solid #999 !important;padding:3px 5px !important;line-height:1.4 !important;vertical-align:top !important;white-space:nowrap !important;overflow:hidden !important;text-overflow:ellipsis !important}
   .tbl-wrap{overflow:visible !important;margin-bottom:6px !important}
   .tbl-wrap+.tbl-wrap{page-break-inside:avoid}
   .pv-body{padding:0}
@@ -9934,8 +9938,9 @@ body{margin:0;font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Meiryo",s
 </div>
 <div class="pv-body">`;
   // 各セルはwhite-space:nowrapで折り返しを禁止しているため、列幅(colgroupで固定)より
-  // 内容が長い場合はセル単位でフォントサイズを1pxずつ段階的に縮小し、途中で省略(...)
-  // せずに1行へ収める(画面表示・印刷/PDF保存のいずれでも同じロジックで実行する)。
+  // 内容が長い場合はセル単位でフォントサイズを1pxずつ段階的に縮小し、1行へ収める
+  // (画面表示・印刷/PDF保存のいずれでも同じロジックで実行する)。それでも下限(6px)で
+  // 収まらない場合は、CSS側のtext-overflow:ellipsisにより省略(...)表示にフォールバックする。
   const autoFitScript = `<script>
     function pvAutoFitCellFonts(){
       document.querySelectorAll('.pv-body table td, .pv-body table th').forEach(function(cell){
