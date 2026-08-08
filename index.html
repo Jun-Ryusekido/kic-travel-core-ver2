@@ -6010,14 +6010,6 @@ function addSalesRow(){
   renderSalesTable();
 }
 
-let bankbookExtracted = [];
-
-function toggleBankbookOcr(){
-  const el = document.getElementById('bankbook-ocr-area');
-  if(!el) return;
-  el.style.display = el.style.display === 'none' ? '' : 'none';
-}
-
 // 予約詳細モーダルの「仮払い一覧表」「ガイド精算」セクションの折りたたみ用。
 // デフォルト非表示(collapsed)にし、見出しクリックで開閉する(データ自体はhidden状態でも
 // 裏で通常通りロード・保持されるため、開いた瞬間に表示崩れ等は起きない)。
@@ -6028,75 +6020,6 @@ function toggleBdCollapseSection(bodyId, titleEl){
   el.style.display = collapsed ? '' : 'none';
   const caret = titleEl && titleEl.querySelector('.bd-section-caret');
   if(caret) caret.style.transform = collapsed ? 'rotate(90deg)' : 'rotate(0deg)';
-}
-
-async function extractBankbookFromFile(event){
-  const file = event.target.files[0];
-  if(!file) return;
-  const statusEl = document.getElementById('bankbook-file-status');
-  statusEl.textContent = '⏳ 読み取り中...';
-  statusEl.classList.add('ocr-loading');
-  showGlobalOcrBanner();
-  statusEl.style.color = '';
-  document.getElementById('bankbook-results').innerHTML = '';
-  try{
-    const isPdf = file.name.toLowerCase().endsWith('.pdf');
-    const base64 = await new Promise((resolve, reject) => {
-      const r = new FileReader();
-      r.onload = () => resolve(r.result.split(',')[1]);
-      r.onerror = reject;
-      r.readAsDataURL(file);
-    });
-    const body = isPdf ? {bankbookPdfBase64: base64} : {bankbookImageBase64: base64, bankbookMediaType: file.type};
-    const response = await fetch('/api/extract-card', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(body)
-    });
-    if(!response.ok){ const e = await response.json(); throw new Error(e.error||'サーバーエラー'); }
-    const data = await response.json();
-    const cleaned = (data.text||'').replace(/```json|```/g,'').trim();
-    const parsed = JSON.parse(cleaned);
-    bankbookExtracted = Array.isArray(parsed) ? parsed : [parsed];
-    renderBankbookResults();
-    statusEl.textContent = `✓ ${bankbookExtracted.length}件を読み取りました`;
-    statusEl.classList.remove('ocr-loading');
-    hideGlobalOcrBanner();
-    statusEl.style.color = 'var(--green)';
-  } catch(e) {
-    logError('AI読み取り(OCR)', e, {toast:false});
-    statusEl.textContent = '読み取り失敗: ' + e.message;
-    statusEl.classList.remove('ocr-loading');
-    hideGlobalOcrBanner();
-    statusEl.style.color = 'var(--red)';
-  }
-  event.target.value = '';
-}
-
-function renderBankbookResults(){
-  const el = document.getElementById('bankbook-results');
-  if(!el || bankbookExtracted.length === 0){ if(el) el.innerHTML = ''; return; }
-  const rowOptions = bdSalesItems.map((it,i)=>`<option value="${i}">${i+1}. ${(it.item_name||'(未入力)').replace(/"/g,'&quot;')} ${yen(it.amount||0)}</option>`).join('');
-  el.innerHTML = `<div style="font-size:11px;font-weight:600;margin-bottom:6px">${bankbookExtracted.length}件の入金データを読み取りました</div>`
-    + bankbookExtracted.map((p,k)=>`
-    <div id="bankbook-entry-${k}" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:4px;background:#fff;border:1px solid var(--border);border-radius:6px;padding:5px 8px;font-size:11px">
-      <span style="flex:1">${(p.date||'日付不明')} / <strong>${yen(p.amount||0)}</strong> / ${(p.bank||'—').replace(/</g,'&lt;')}</span>
-      ${rowOptions ? `<select id="bankbook-row-sel-${k}" style="font-size:11px;border:1px solid var(--border);border-radius:4px;padding:2px 4px">${rowOptions}</select>` : ''}
-      <button class="btn btn-p" style="font-size:10px" onclick="applyBankbookEntry(${k})">＋追加</button>
-    </div>`).join('');
-}
-
-function applyBankbookEntry(k){
-  const p = bankbookExtracted[k];
-  if(!p) return;
-  const rowSel = document.getElementById('bankbook-row-sel-'+k);
-  const i = rowSel ? Number(rowSel.value) : 0;
-  if(!bdSalesItems[i]) return;
-  if(!bdSalesItems[i].payments) bdSalesItems[i].payments = [];
-  bdSalesItems[i].payments.push({date: p.date||'', amount: Number(p.amount)||0, bank: p.bank||''});
-  renderSalesTable();
-  const entryEl = document.getElementById('bankbook-entry-'+k);
-  if(entryEl) entryEl.style.display = 'none';
 }
 
 // ===== ダッシュボード 通帳OCR =====
@@ -6851,7 +6774,6 @@ async function openBookingDetail(id){
   originalCostsCount = bdCostItems.length;
   bdLoadSnapshot.sales = JSON.stringify(buildSalesRows(id));
   bdLoadSnapshot.costs = JSON.stringify(buildCostRows(id));
-  bankbookExtracted = [];
 
   bdLocked = !!b.locked;
   renderLockBanner();
