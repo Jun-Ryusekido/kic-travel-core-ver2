@@ -17458,6 +17458,97 @@ async function extractHotelFromFileHmBatched(chunks, statusEl){
   showHotelConfirmDialog(allHotels);
 }
 
+// REF#候補が日程的にどれだけ離れているかを判定する共通ヘルパー。
+// 両方の日程範囲が重なっていれば0(一致)を返し、重ならない場合は日数の隔たりを返す。
+// どちらかの日付が全く無い場合はnull(判定不能=日程では絞り込めない)を返す。
+const HM_CONFIRM_DATE_FAR_THRESHOLD_DAYS = 30;
+function _hmConfirmDateGapDays(aStart, aEnd, bStart, bEnd){
+  const as = aStart ? new Date(aStart) : (aEnd ? new Date(aEnd) : null);
+  const ae = aEnd ? new Date(aEnd) : as;
+  const bs = bStart ? new Date(bStart) : (bEnd ? new Date(bEnd) : null);
+  const be = bEnd ? new Date(bEnd) : bs;
+  if(!as || !bs || isNaN(as) || isNaN(bs)) return null;
+  if(ae >= bs && be >= as) return 0; // 重なりあり
+  const gapMs = as > be ? (as - be) : (bs - ae);
+  return Math.round(gapMs / 86400000);
+}
+
+// ホテル読み取り確認画面のREF#自動マッチ候補を、確信度付きで全件洗い出す。
+// 2026-08時点で発覚した不具合(無関係の予約が「✓自動マッチ」として誤確定される)への
+// 対応として、.find()で1件だけ返す旧方式から、.filter()で全候補を集めて確信度・日程で
+// 絞り込む方式に変更した。
+// - strong(高確信度): REF#の数字列が完全一致、またはツアー名として完全一致
+// - weak(低確信度): 部分文字列一致のみ(旧ステージ2の部分一致・旧ステージ3・4相当)。
+//   日程(check_in/check_out vs bookings.in_date/out_date)が両方判明していて、かつ
+//   HM_CONFIRM_DATE_FAR_THRESHOLD_DAYS(30日)以上離れている場合は、弱い根拠しかない
+//   ままさらに日程まで大きく食い違うため、候補からも除外する。
+function computeHmConfirmCandidates(h, sortedBookings){
+  const firstNum = s => { const m=(s||'').match(/(\d+)/); return m?m[1]:''; };
+  const norm = s => (s||'').trim().toUpperCase();
+  const hAllText = [h.ref_no, h.hotel_name, h.memo, h.confirmation_no].map(v=>norm(v)).join(' ');
+  const kicGroupNum = s => { const m=(s||'').match(/KIC\s*(\d+)\s*_/i); return m?m[1]:''; };
+  const hKicGroupNum = kicGroupNum(hAllText);
+
+  const candidates = [];
+  sortedBookings.forEach(b=>{
+    let confidence = null;
+    if(h.ref_no){
+      const bNum = firstNum(b.ref_no);
+      const hNum = firstNum(h.ref_no);
+      if(bNum && hNum && bNum===hNum) confidence = 'strong';
+      const hNorm = norm(h.ref_no);
+      const tNorm = norm(b.tour_name);
+      if(!confidence && hNorm && tNorm){
+        if(hNorm===tNorm) confidence = 'strong';
+        else if(tNorm.includes(hNorm) || hNorm.includes(tNorm)) confidence = 'weak';
+      }
+    }
+    if(!confidence && hKicGroupNum){
+      const bNum = firstNum(b.ref_no);
+      // 「KIC＋数字＋_」パターンはref_no以外のフィールド(memo/confirmation_no等)を
+      // 結合した文字列からも抽出しているため、数値自体が一致していても情報源としての
+      // 確度は低い(意図しないフィールドの数字を拾っている可能性がある)とみなし、weakとする。
+      if(bNum && bNum===hKicGroupNum) confidence = 'weak';
+    }
+    if(!confidence){
+      const bTour = norm(b.tour_name);
+      if(bTour.length>=5 && /\d/.test(bTour) && hAllText.includes(bTour)) confidence = 'weak';
+    }
+    if(!confidence) return;
+
+    const dateGapDays = _hmConfirmDateGapDays(h.check_in, h.check_out, b.in_date, b.out_date);
+    if(confidence==='weak' && dateGapDays!=null && dateGapDays > HM_CONFIRM_DATE_FAR_THRESHOLD_DAYS) return;
+    candidates.push({ booking: b, confidence, dateGapDays });
+  });
+
+  // 表示順: 確信度(strong優先)→日程の近さ(近い順、判定不能はやや後ろ)→REF#昇順(元のsortedBookings順を維持)
+  candidates.sort((x,y)=>{
+    if(x.confidence!==y.confidence) return x.confidence==='strong' ? -1 : 1;
+    const xGap = x.dateGapDays==null ? Infinity : x.dateGapDays;
+    const yGap = y.dateGapDays==null ? Infinity : y.dateGapDays;
+    return xGap - yGap;
+  });
+  return candidates;
+}
+
+// 「候補（要確認）」一覧から運用者が明示的にクリックして選択した時の処理。
+// 自動マッチと同じ状態(hidden値・入力欄・✓表示)にし、以後は保存対象として扱う。
+function pickHmConfirmCandidate(i, bookingId){
+  const matched = (window._hmConfirmBookings||[]).find(b=>String(b.id)===String(bookingId));
+  if(!matched) return;
+  const hotels = window._pendingHotels;
+  if(hotels && hotels[i]) hotels[i]._bookingId = matched.id;
+  const hidden = document.getElementById(`hm-confirm-booking-${i}`);
+  if(hidden) hidden.value = String(matched.id);
+  const input = document.getElementById(`hm-confirm-input-${i}`);
+  if(input) input.value = matched.ref_no || '(REF#なし)';
+  const note = document.getElementById(`hm-confirm-note-${i}`);
+  if(note){
+    note.style.color = 'var(--green)';
+    note.innerHTML = `✓ 選択済み: ${escHtml(matched.ref_no||'')}`;
+  }
+}
+
 async function showHotelConfirmDialog(hotels){
   window._pendingHotels = hotels;
   allBookingsCache = await fetchAllBookings();
@@ -17472,47 +17563,35 @@ async function showHotelConfirmDialog(hotels){
   const rows = hotels.map((h,i)=>{
     const nights = calcHotelNights(h.check_in||'', h.check_out||'');
     const amount = Number(h.unit_price||0)*Number(h.rooms||1)*nights;
-    // REF#で自動マッチ（4段階）
-    // 1) 最初の連続数字列で比較: "#1154"→"1154"、"KIC1154_J1"→"1154" どちらもマッチ
-    //    ※replace(/[^0-9]/g,'')は"KIC1154_J1"を"11541"にしてしまうため使用不可
-    // 2) h.ref_noとb.tour_nameの直接比較（大文字正規化）
-    // 3) 追加パターン: 集客表(Excel)等の「団体名」列にある「KIC967_TC/SOTC」のような
-    //    「KIC＋数字＋_＋任意の文字列」形式から数字部分だけを抽出して比較する。
-    //    AI抽出結果がref_noではなくmemo等の別フィールドに入ってしまう場合にも対応できるよう、
-    //    h全フィールドを結合したhAllTextに対して正規表現を当てる（既存の1)2)4)とは独立した
-    //    追加パターンとして扱い、メール受信箱側のREF#候補ロジック(computeRefSuggestions)には
-    //    影響を与えない）。
-    // 4) h.ref_noが空の場合: b.tour_nameがhotelオブジェクト内の任意文字列と一致
-    const firstNum = s => { const m=(s||'').match(/(\d+)/); return m?m[1]:''; };
-    const norm = s => (s||'').trim().toUpperCase();
-    // h全フィールドを結合した文字列（ステージ3・4用）
-    const hAllText = [h.ref_no, h.hotel_name, h.memo, h.confirmation_no].map(v=>norm(v)).join(' ');
-    const kicGroupNum = s => { const m=(s||'').match(/KIC\s*(\d+)\s*_/i); return m?m[1]:''; };
-    const hKicGroupNum = kicGroupNum(hAllText);
-    const matchedBooking = sortedBookings.find(b=>{
-      // ステージ1: 最初の連続数字列で比較
-      if(h.ref_no){
-        const bNum = firstNum(b.ref_no);
-        const hNum = firstNum(h.ref_no);
-        if(bNum && hNum && bNum===hNum) return true;
-        // ステージ2: tour_nameとの直接比較
-        const hNorm = norm(h.ref_no);
-        const tNorm = norm(b.tour_name);
-        if(hNorm && tNorm && (hNorm===tNorm || tNorm.includes(hNorm) || hNorm.includes(tNorm))) return true;
-      }
-      // ステージ3: 「KIC＋数字＋_」パターンの数字部分で比較
-      if(hKicGroupNum){
-        const bNum = firstNum(b.ref_no);
-        if(bNum && bNum===hKicGroupNum) return true;
-      }
-      // ステージ4: b.tour_nameがhotelの全フィールド文字列に含まれるか
-      // 数字を含む5文字以上のツアーコード形式のみ対象（誤マッチ防止）
-      const bTour = norm(b.tour_name);
-      return bTour.length >= 5 && /\d/.test(bTour) && hAllText.includes(bTour);
-    });
+    // REF#自動マッチ（確信度付き、複数候補対応）。
+    // 2026-08時点で発覚した不具合: 従来は.find()で「最初に条件を満たした1件」を無条件で
+    // 「✓自動マッチ」として確定させていたが、部分文字列一致(旧ステージ3・4)だけで
+    // 全く無関係の予約が誤って確定してしまう事例があった(似たREF#が多数並ぶデータで
+    // 特に発生しやすい)。REF#完全一致(旧ステージ1・2の完全一致部分)のみを「高確信度」
+    // として従来通り自動確定し、部分一致(旧ステージ2の部分一致・旧ステージ3・4)は
+    // 「低確信度」の候補として保留表示に格下げする(自動では保存対象にしない)。
+    // さらに、check_in/check_outとbookings.in_date/out_dateの近さも判定材料に加え、
+    // 低確信度候補のうち日程が大きく乖離しているもの(30日以上)は候補からも除外する。
+    const candidates = computeHmConfirmCandidates(h, sortedBookings);
+    const strongCandidates = candidates.filter(c=>c.confidence==='strong');
+    const weakCandidates = candidates.filter(c=>c.confidence==='weak');
+    // 高確信度が1件だけに絞れた場合のみ、従来通り自動確定する。
+    // 高確信度が0件、または2件以上(あいまい)の場合は自動確定しない。
+    const matchedBooking = strongCandidates.length===1 ? strongCandidates[0].booking : null;
     hotels[i]._bookingId = matchedBooking ? matchedBooking.id : null;
     const inputVal = matchedBooking ? escHtml(matchedBooking.ref_no||'(REF#なし)') : '';
     const hiddenVal = matchedBooking ? String(matchedBooking.id) : '';
+    // 自動確定できなかった場合に表示する候補一覧(高確信度が複数 or 低確信度のみ)。
+    // クリックで選択するまでは保存対象(hidden値)にしない。
+    const pendingCandidates = matchedBooking ? [] : (strongCandidates.length>1 ? strongCandidates : weakCandidates);
+    const candidateNoteHtml = matchedBooking
+      ? `<div id="hm-confirm-note-${i}" style="font-size:9px;color:var(--green);margin-top:2px">✓ 自動マッチ: ${escHtml(matchedBooking.ref_no||'')}</div>`
+      : (pendingCandidates.length>0
+        ? `<div id="hm-confirm-note-${i}" style="font-size:9px;color:var(--amber,#854F0B);margin-top:2px">
+             ⚠ 候補（要確認、クリックして選択してください）:
+             ${pendingCandidates.slice(0,6).map(c=>`<span class="lnk" style="margin-left:4px;font-weight:600" onclick="pickHmConfirmCandidate(${i},'${c.booking.id}')">#${escHtml(c.booking.ref_no||'')}${c.dateGapDays!=null?`(${c.dateGapDays===0?'日程重複':c.dateGapDays+'日差'})`:''}</span>`).join('')}
+           </div>`
+        : `<div id="hm-confirm-note-${i}" style="font-size:9px;color:var(--text3);margin-top:2px"></div>`);
     const comboHtml = `<div style="position:relative">
       <input type="text" id="hm-confirm-input-${i}" value="${inputVal}"
              placeholder="REF#またはツアー名で検索… (計${sortedBookings.length}件)"
@@ -17525,7 +17604,7 @@ async function showHotelConfirmDialog(hotels){
       <div id="hm-confirm-dd-${i}" style="display:none;position:fixed;top:0;left:0;background:var(--card,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:99999;max-height:180px;overflow-y:auto"></div>
     </div>`;
     return `<div id="hm-confirm-card-${i}" style="border:1px solid var(--border);${h.hotel_name?'':'border-left:4px solid var(--red);'}border-radius:10px;padding:12px;margin-bottom:10px">
-      <div style="margin-bottom:8px">${comboHtml}${matchedBooking?`<div style="font-size:9px;color:var(--green);margin-top:2px">✓ 自動マッチ: ${escHtml(matchedBooking.ref_no||'')}</div>`:''}</div>
+      <div style="margin-bottom:8px">${comboHtml}${candidateNoteHtml}</div>
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;flex-wrap:wrap">
         <input type="text" id="hm-confirm-hotelname-${i}" value="${escAttr(h.hotel_name||'')}" placeholder="ホテル名を入力"
                oninput="updateHmConfirmHotelName(${i}, this.value)"
