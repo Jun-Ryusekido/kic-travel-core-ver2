@@ -6691,6 +6691,13 @@ async function saveLocalExpenses(){
 // 以降の書き込みを一切行わない。
 let _bookingDetailCallSeq = 0;
 
+// booking_costsのSELECT結果をbdCostItems用オブジェクト配列に変換する共通ヘルパー。
+// 予約詳細の複数の読み込み経路(初回表示・仮払い反映・伝票反映・ガイド精算反映・保存後再読込)
+// で全く同じ変換ロジックが必要になるため、ここに集約する。
+function mapCostRowsToBdCostItems(rows){
+  return (rows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, payment_method:r.payment_method||'', memo:r.memo, status:r.status||'pending', card_holder:r.card_holder||'', personal_reimbursement_status:r.personal_reimbursement_status||'', personal_reimbursed_at:r.personal_reimbursed_at||null, source_table:r.source_table||null, source_id:r.source_id||null, source_snapshot:r.source_snapshot||null}));
+}
+
 async function openBookingDetail(id){
   const _myCallSeq = ++_bookingDetailCallSeq;
   const _stale = () => _myCallSeq !== _bookingDetailCallSeq;
@@ -6769,7 +6776,7 @@ async function openBookingDetail(id){
   if(_stale()) return;
 
   bdSalesItems = (salesRows||[]).map(r=>({item_name:r.item_name, memo:r.memo||'', unit_price:r.unit_price, pax:r.pax||1, qty:r.qty, amount:r.amount, payment_date:r.payment_date, agent_name:r.agent_name||'', payments:r.payments||[]}));
-  bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, payment_method:r.payment_method||'', memo:r.memo, status:r.status||'pending', card_holder:r.card_holder||'', personal_reimbursement_status:r.personal_reimbursement_status||'', personal_reimbursed_at:r.personal_reimbursed_at||null, source_table:r.source_table||null, source_id:r.source_id||null, source_snapshot:r.source_snapshot||null}));
+  bdCostItems = mapCostRowsToBdCostItems(costRows);
   originalSalesCount = bdSalesItems.length;
   originalCostsCount = bdCostItems.length;
   bdLoadSnapshot.sales = JSON.stringify(buildSalesRows(id));
@@ -7944,7 +7951,7 @@ async function reflectLocalExpensesToCost(){
   await logAction('仮払い一覧表を仕入明細に反映', b.ref_no+' / '+yen(roundedUp));
 
   const {data: costRows} = await sb.from('booking_costs').select('*').eq('booking_id', bookingId).order('created_at');
-  bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, payment_method:r.payment_method||'', memo:r.memo, status:r.status||'pending', card_holder:r.card_holder||'', personal_reimbursement_status:r.personal_reimbursement_status||'', personal_reimbursed_at:r.personal_reimbursed_at||null, source_table:r.source_table||null, source_id:r.source_id||null, source_snapshot:r.source_snapshot||null}));
+  bdCostItems = mapCostRowsToBdCostItems(costRows);
   renderCostTable();
   alert('仕入明細に反映しました。');
 }
@@ -8944,7 +8951,7 @@ async function reflectVoucherToCost(settlementId, guideIndex){
   b.gross_cost = newGrossCost;
   await logAction('伝票内容を仕入明細に反映', b.ref_no);
   const {data: costRows} = await sb.from('booking_costs').select('*').eq('booking_id', b.id).order('created_at');
-  bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, payment_method:r.payment_method||'', memo:r.memo, status:r.status||'pending', card_holder:r.card_holder||'', personal_reimbursement_status:r.personal_reimbursement_status||'', personal_reimbursed_at:r.personal_reimbursed_at||null, source_table:r.source_table||null, source_id:r.source_id||null, source_snapshot:r.source_snapshot||null}));
+  bdCostItems = mapCostRowsToBdCostItems(costRows);
   renderCostTable();
   renderGuideSettlements();
   alert('仕入明細に反映しました。');
@@ -8979,7 +8986,7 @@ async function reflectCheckedGuideItems(settlementId){
   b.gross_cost = newGrossCost;
   await logAction('ガイド精算→仕入明細反映（選択）', b.ref_no+' / '+targets.length+'件');
   const {data: costRows} = await sb.from('booking_costs').select('*').eq('booking_id', b.id).order('created_at');
-  bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, payment_method:r.payment_method||'', memo:r.memo, status:r.status||'pending', card_holder:r.card_holder||'', personal_reimbursement_status:r.personal_reimbursement_status||'', personal_reimbursed_at:r.personal_reimbursed_at||null, source_table:r.source_table||null, source_id:r.source_id||null, source_snapshot:r.source_snapshot||null}));
+  bdCostItems = mapCostRowsToBdCostItems(costRows);
   renderCostTable();
   await loadGuideSettlements();
 }
@@ -9056,7 +9063,7 @@ async function reflectGuideItems(settlementId){
 
   // 仕入明細・KPIを再読み込み
   const {data: costRows} = await sb.from('booking_costs').select('*').eq('booking_id', b.id).order('created_at');
-  bdCostItems = (costRows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, payment_method:r.payment_method||'', memo:r.memo, status:r.status||'pending', card_holder:r.card_holder||'', personal_reimbursement_status:r.personal_reimbursement_status||'', personal_reimbursed_at:r.personal_reimbursed_at||null, source_table:r.source_table||null, source_id:r.source_id||null, source_snapshot:r.source_snapshot||null}));
+  bdCostItems = mapCostRowsToBdCostItems(costRows);
   renderCostTable();
   await loadGuideSettlements();
 }
@@ -19727,7 +19734,7 @@ async function saveInvoiceConfirm(){
     }
     if(currentDetailId && savedIds.has(currentDetailId)){
       const {data: costData} = await sb.from('booking_costs').select('*').eq('booking_id',currentDetailId).order('created_at');
-      bdCostItems = (costData||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, payment_method:r.payment_method||'', memo:r.memo, status:r.status||'pending', card_holder:r.card_holder||'', personal_reimbursement_status:r.personal_reimbursement_status||'', personal_reimbursed_at:r.personal_reimbursed_at||null, source_table:r.source_table||null, source_id:r.source_id||null, source_snapshot:r.source_snapshot||null}));
+      bdCostItems = mapCostRowsToBdCostItems(costData);
       renderCostTable();
       updateDetailGrossPreview();
       const newGross = bdCostItems.reduce((s,it)=>s+Number(it.amount||0),0);
