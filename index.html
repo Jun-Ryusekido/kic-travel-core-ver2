@@ -6199,39 +6199,29 @@ function renderDashboardBankbookResults(){
     .sort((a,b) => _numOf(a.ref_no) - _numOf(b.ref_no));
   window._dbBbConfirmBookings = sortedBookings;
 
-  const firstNum = s => { const m=(s||'').match(/(\d+)/); return m?m[1]:''; };
-  const norm = s => (s||'').trim().toUpperCase();
-
   const rows = dbBankbookExtracted.map((p,k)=>{
-    const pAllText = norm(p.bank);
-    // Stage1: bank文字列の先頭数値がREF#と一致 / tour_nameとの直接・部分一致
-    let matchedBooking = sortedBookings.find(b=>{
-      const bNum = firstNum(b.ref_no);
-      const pNum = firstNum(p.bank);
-      if(bNum && pNum && bNum===pNum) return true;
-      const tNorm = norm(b.tour_name);
-      if(tNorm.length>=5 && /\d/.test(tNorm) && pAllText.includes(tNorm)) return true;
-      return false;
+    // REF#自動マッチ候補の算出(共通関数、2026-08統合)。bankbookは他の3画面と違い
+    // 「REF#候補として抽出済みのref_no欄」を持たず、振込人名等の自由記述(p.bank、
+    // 例:「フリコミ ○○ホテル 1351」のような文章)しかない。refFieldは意図的に
+    // 指定しない(既定'ref_no'はitemに存在しないため、strong判定(ステージ1: 数字列
+    // 完全一致)は発火しない)。仮にrefFieldにbankを指定すると、自由記述文中の
+    // 最初の数字列を無条件でstrong(高確信度)とみなしてしまい、まさに今回の#95不具合と
+    // 同種の誤マッチを「strong」として再現してしまう(実装時に実際に発生を確認した)。
+    // textFieldsのみでbankを渡すことで、kicGroupNum/852_KKショートコード/ツアー名
+    // 部分一致のweak判定のみを経由させ、必ずクリックでの確認を要求するようにする。
+    const candidates = computeRefMatchCandidates({bank: p.bank}, sortedBookings, {
+      textFields: ['bank'],
+      dateFields: null,
     });
-    // Stage2: "852_KK"形式の短縮ツアーコードをtour_nameにマッチ
-    if(!matchedBooking){
-      const shortCodePat = /\b(\d{3,5})_([A-Za-z]{2,4})\b/g;
-      const codes = [...pAllText.matchAll(shortCodePat)];
-      if(codes.length){
-        matchedBooking = sortedBookings.find(b=>{
-          const tNorm = norm(b.tour_name);
-          const tm = tNorm.match(/(\d{3,5})_([A-Z]{2,4})/);
-          if(!tm) return false;
-          return codes.some(m=>String(+tm[1])===String(+m[1]) && tm[2]===m[2].toUpperCase());
-        });
-      }
-    }
-    // Stage3(F16): 正規表現マッチが失敗した場合のみ、bankbook_payer学習(過去に人手で
-    // 確定した「振込人名等のテキスト→REF#」)を参照する。confirmed_countが多いものを
-    // 優先し、1件以上の実績があれば採用する(cc_merchantと異なり複数候補モーダルは
-    // 出さない画面のため、最有力の1件のみを自動マッチとして提示する)。
+    const strong = candidates.filter(c=>c.confidence==='strong');
+    let matchedBooking = strong.length===1 ? strong[0].booking : null;
+    // Stage(F16、画面固有): 共通関数で高確信度の1件に絞れなかった場合のみ、
+    // bankbook_payer学習(過去に人手で確定した「振込人名等のテキスト→REF#」)を参照する。
+    // confirmed_countが多いものを優先し、1件以上の実績があれば採用する(cc_merchantと
+    // 異なり複数候補モーダルは出さない画面のため、最有力の1件のみを自動マッチとして提示する)。
     let matchedByLearning = false;
     if(!matchedBooking){
+      const norm = s => (s||'').trim().toUpperCase();
       const learned = (window._bbLearnedMap||{})[normalizeLearnKey(p.bank)];
       if(learned && learned.confirmed_value){
         const learnedRefNorm = norm(learned.confirmed_value);
@@ -6239,9 +6229,17 @@ function renderDashboardBankbookResults(){
         if(matchedBooking) matchedByLearning = true;
       }
     }
+    const pendingCandidates = matchedBooking ? [] : candidates;
     dbBankbookExtracted[k]._bookingId = matchedBooking ? matchedBooking.id : null;
     const inputVal = matchedBooking ? escAttr(matchedBooking.ref_no||'(REF#なし)') : '';
     const hiddenVal = matchedBooking ? String(matchedBooking.id) : '';
+    const candidateNoteHtml = matchedBooking
+      ? `<div id="db-bb-note-${k}" style="font-size:10px;color:var(--green);margin-top:2px">✓ ${matchedByLearning?'学習による自動マッチ':'自動マッチ'}: ${escHtml(matchedBooking.ref_no||'')}</div>`
+      : (pendingCandidates.length>0
+        ? `<div id="db-bb-note-${k}" style="font-size:10px;color:var(--amber,#854F0B);margin-top:2px">⚠ 候補（要確認）:
+             ${pendingCandidates.slice(0,6).map(c=>`<span class="lnk" style="margin-left:4px;font-weight:600" onclick="pickDbBbConfirmCandidate(${k},'${c.booking.id}')">#${escHtml(c.booking.ref_no||'')}</span>`).join('')}
+           </div>`
+        : `<div id="db-bb-note-${k}" style="font-size:10px;color:var(--text3);margin-top:2px"></div>`);
     const comboHtml = `<div style="position:relative">
       <input type="text" id="db-bb-input-${k}" value="${inputVal}"
              placeholder="REF#・ツアー名で検索…"
@@ -6252,7 +6250,7 @@ function renderDashboardBankbookResults(){
              style="font-size:11px;padding:5px 6px;border-radius:6px;border:1px solid var(--border);width:100%;min-width:180px;box-sizing:border-box">
       <input type="hidden" id="db-bb-booking-${k}" value="${hiddenVal}">
       <div id="db-bb-dd-${k}" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--card,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:999;max-height:180px;overflow-y:auto;margin-top:2px"></div>
-    </div>${matchedBooking?`<div style="font-size:10px;color:var(--green);margin-top:2px">✓ ${matchedByLearning?'学習による自動マッチ':'自動マッチ'}: ${escHtml(matchedBooking.ref_no||'')}</div>`:''}`;
+    </div>${candidateNoteHtml}`;
     return `
     <tr id="db-bankbook-entry-${k}" style="border-bottom:1px solid var(--border)">
       <td style="padding:6px 8px;white-space:nowrap">${p.date||'—'}</td>
@@ -6325,6 +6323,25 @@ function selectDbBbItem(k, bookingId, ref){
   // (ベストエフォート。失敗しても選択自体には影響しない)。
   const p = dbBankbookExtracted[k];
   if(p && ref && ref!=='(REF#なし)') recordLearnedMapping('bankbook_payer', p.bank, ref);
+}
+
+// 「候補（要確認）」一覧から運用者が明示的にクリックして選択した時の処理。
+function pickDbBbConfirmCandidate(k, bookingId){
+  const matched = (window._dbBbConfirmBookings||[]).find(b=>String(b.id)===String(bookingId));
+  if(!matched) return;
+  const hidden = document.getElementById(`db-bb-booking-${k}`);
+  if(hidden) hidden.value = String(matched.id);
+  const input = document.getElementById(`db-bb-input-${k}`);
+  if(input) input.value = matched.ref_no || '(REF#なし)';
+  const note = document.getElementById(`db-bb-note-${k}`);
+  if(note){
+    note.style.color = 'var(--green)';
+    note.innerHTML = `✓ 選択済み: ${escHtml(matched.ref_no||'')}`;
+  }
+  dbBankbookExtracted[k]._bookingId = matched.id;
+  // F16: selectDbBbItemと同様、候補クリックによる確定も学習の対象にする
+  const p = dbBankbookExtracted[k];
+  if(p && matched.ref_no) recordLearnedMapping('bankbook_payer', p.bank, matched.ref_no);
 }
 
 async function applyDashboardBankbookEntry(k){
