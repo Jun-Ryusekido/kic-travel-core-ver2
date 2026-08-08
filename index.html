@@ -23339,8 +23339,8 @@ async function showInvoicePreview(inv, booking){
   const html = `
     <div style="background:#fff;width:210mm;max-width:100%;min-height:297mm;margin:0 auto;padding:15mm;font-size:11px;color:#222;box-sizing:border-box;font-family:Arial,'Hiragino Kaku Gothic ProN',sans-serif">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px;gap:20px">
-        <div style="flex:1;padding-top:34px">
-          <div style="font-size:18px;font-weight:700">${(billToName||'').replace(/</g,'&lt;')}</div>
+        <div style="flex:1;min-width:0;padding-top:34px">
+          <div style="font-size:18px;font-weight:700;overflow-wrap:break-word;word-break:break-word">${(billToName||'').replace(/</g,'&lt;')}</div>
           <div contenteditable="true" data-placeholder="住所を入力..." style="margin-top:10px;line-height:1.5">${(agentAddress||'').replace(/</g,'&lt;').replace(/\n/g,'<br>')}</div>
         </div>
         <div style="text-align:right;flex-shrink:0">
