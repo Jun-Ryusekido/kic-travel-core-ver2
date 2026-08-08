@@ -14012,38 +14012,33 @@ async function showFmFacilityConfirmDialog(facilities){
     .sort((a,b) => _fmNumOf(a.ref_no) - _fmNumOf(b.ref_no));
   window._fmConfirmBookings = sortedBookings;
 
-  const firstNum = s => { const m=(s||'').match(/(\d+)/); return m?m[1]:''; };
-  const norm = s => (s||'').trim().toUpperCase();
+  // REF#自動マッチ候補の算出(共通関数、2026-08統合)。確信度(strong/weak)・複数候補・
+  // 日程照合(単一のdateフィールドのため start=end=date として渡す)に対応。
   facilities.forEach((f,i)=>{
-    const fAllText = [f.ref_no, f.facility_name, f.memo, f.confirmation_no].map(v=>norm(v)).join(' ');
-    const kicGroupNum = s => { const m=(s||'').match(/KIC\s*(\d+)\s*_/i); return m?m[1]:''; };
-    const fKicGroupNum = kicGroupNum(fAllText);
-    const matchedBooking = sortedBookings.find(b=>{
-      if(f.ref_no){
-        const bNum = firstNum(b.ref_no);
-        const hNum = firstNum(f.ref_no);
-        if(bNum && hNum && bNum===hNum) return true;
-        const hNorm = norm(f.ref_no);
-        const tNorm = norm(b.tour_name);
-        if(hNorm && tNorm && (hNorm===tNorm || tNorm.includes(hNorm) || hNorm.includes(tNorm))) return true;
-      }
-      if(fKicGroupNum){
-        const bNum = firstNum(b.ref_no);
-        if(bNum && bNum===fKicGroupNum) return true;
-      }
-      const bTour = norm(b.tour_name);
-      return bTour.length >= 5 && /\d/.test(bTour) && fAllText.includes(bTour);
+    f._refMatchCandidates = computeRefMatchCandidates(f, sortedBookings, {
+      textFields: ['ref_no','facility_name','memo','confirmation_no'],
+      dateFields: {start:'date', end:'date'},
     });
-    facilities[i]._bookingId = matchedBooking ? matchedBooking.id : null;
+    const strong = f._refMatchCandidates.filter(c=>c.confidence==='strong');
+    f._bookingId = null; // 保存対象は従来通りチェック/選択操作をした行のみ(自動では確定しない)
+    f._fmAutoMatchCandidate = strong.length===1 ? strong[0].booking : null;
   });
 
   const rows=facilities.map((f,i)=>{
-    const matchedBooking = f._bookingId ? sortedBookings.find(b=>String(b.id)===String(f._bookingId)) : null;
+    const matchedBooking = f._fmAutoMatchCandidate;
+    const pendingCandidates = matchedBooking ? [] : f._refMatchCandidates;
     // AIの自動マッチはあくまで「候補」であり、ユーザーが明示的にチェック(確定)または
     // ドロップダウンから選び直す(選択)・入力欄を書き換える(編集)のいずれかの操作をしない限り、
     // hidden(fm-c-booking-i、保存対象のbooking_id)には値を入れない。
     // これにより、AI読み取り結果がユーザーの確認を経ずにそのまま保存される事態を防ぐ。
     const inputVal = matchedBooking ? escHtml(matchedBooking.ref_no||'(REF#なし)') : '';
+    const candidateNoteHtml = matchedBooking
+      ? `<label style="display:block;font-size:9px;color:var(--text2);margin-top:3px;cursor:pointer"><input type="checkbox" id="fm-c-refconfirm-${i}" onchange="fmToggleAutoMatch(${i})" style="vertical-align:middle;margin-right:3px">自動マッチ候補: <b>${escHtml(matchedBooking.ref_no||'')}</b>（チェックで確定）</label>`
+      : (pendingCandidates.length>0
+        ? `<div style="font-size:9px;color:var(--amber,#854F0B);margin-top:3px">⚠ 候補（要確認、クリックして選択）:
+             ${pendingCandidates.slice(0,6).map(c=>`<span class="lnk" style="margin-left:4px;font-weight:600" onclick="pickFmConfirmCandidate(${i},'${c.booking.id}')">#${escHtml(c.booking.ref_no||'')}${c.dateGapDays!=null?`(${c.dateGapDays===0?'日程重複':c.dateGapDays+'日差'})`:''}</span>`).join('')}
+           </div>`
+        : '');
     const comboHtml = `<div style="position:relative;min-width:150px">
       <input type="text" id="fm-c-input-${i}" value="${inputVal}"
              placeholder="REF#/ツアー名で検索"
@@ -14054,7 +14049,7 @@ async function showFmFacilityConfirmDialog(facilities){
              style="font-size:11px;padding:3px 5px;border-radius:5px;border:1px solid var(--border);width:100%;box-sizing:border-box">
       <input type="hidden" id="fm-c-booking-${i}" value="" onchange="fmCheckRowDuplicate(${i})">
       <div id="fm-c-dd-${i}" style="display:none;position:fixed;top:0;left:0;background:var(--card,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:99999;max-height:180px;overflow-y:auto"></div>
-      ${matchedBooking?`<label style="display:block;font-size:9px;color:var(--text2);margin-top:3px;cursor:pointer"><input type="checkbox" id="fm-c-refconfirm-${i}" onchange="fmToggleAutoMatch(${i})" style="vertical-align:middle;margin-right:3px">自動マッチ候補: <b>${escHtml(matchedBooking.ref_no||'')}</b>（チェックで確定）</label>`:''}
+      <div id="fm-c-refnote-${i}">${candidateNoteHtml}</div>
       <div id="fm-c-dupwarn-${i}" style="display:none;margin-top:4px"></div>
     </div>`;
     return `<tr id="fm-c-row-${i}" style="border-bottom:1px solid var(--border)">
@@ -14116,10 +14111,26 @@ async function fmToggleAutoMatch(i){
   const hidden = document.getElementById(`fm-c-booking-${i}`);
   if(!facilities || !checkbox || !hidden) return;
   if(checkbox.checked){
-    hidden.value = String(facilities[i]._bookingId||'');
+    hidden.value = String((facilities[i]._fmAutoMatchCandidate||{}).id||'');
   } else {
     hidden.value = '';
   }
+  await fmCheckRowDuplicate(i);
+}
+
+// 「候補（要確認）」一覧から運用者が明示的にクリックして選択した時の処理。
+// 入力欄・hidden(保存対象のbooking_id)を選択内容で確定し、以後は保存対象として扱う。
+async function pickFmConfirmCandidate(i, bookingId){
+  const matched = (window._fmConfirmBookings||[]).find(b=>String(b.id)===String(bookingId));
+  if(!matched) return;
+  const facilities = window._pendingFmFacilities;
+  if(facilities && facilities[i]) facilities[i]._bookingId = matched.id;
+  const hidden = document.getElementById(`fm-c-booking-${i}`);
+  if(hidden) hidden.value = String(matched.id);
+  const input = document.getElementById(`fm-c-input-${i}`);
+  if(input) input.value = matched.ref_no || '(REF#なし)';
+  const note = document.getElementById(`fm-c-refnote-${i}`);
+  if(note) note.innerHTML = `<div style="font-size:9px;color:var(--green);margin-top:3px">✓ 選択済み: ${escHtml(matched.ref_no||'')}</div>`;
   await fmCheckRowDuplicate(i);
 }
 
