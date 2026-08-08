@@ -33,6 +33,17 @@ async function resolveExcelText(excelBase64, password) {
   return await decryptExcelToSheetsText(buffer, password);
 }
 
+// ホテル/観光施設読み取りプロンプト(text/pdf/image、計6箇所)で同一文言がコピペされて
+// いたref_no抽出ルールを1箇所に集約したもの。観光施設側のみ「852_KK」のような
+// KICプレフィックス省略の短縮ツアーコードにも対応する追加文が必要なため、
+// includeShortCode引数で出し分ける(ホテル側は現状この短縮形への対応文言を含めない、
+// 既存プロンプトの挙動をそのまま維持する)。
+function buildRefNoExtractionRule(includeShortCode) {
+  const base = 'ref_noは文書中のツアーコード・予約番号・REF#・KICから始まる番号等を探してください。集客表等では「団体名」列に「KIC967_TC/SOTC」のような「KIC＋数字＋_＋任意の文字列」形式で記載されることがあり、その場合は数字部分のみをref_noとしてください（例:「KIC967_TC/SOTC」→ref_no:「967」）。';
+  const shortCode = includeShortCode ? '「852_KK」のような「数字_英字」形式（KICプレフィックス省略の短縮形）もref_noとして抽出してください。' : '';
+  return `${base}${shortCode}見つからない場合は空文字にしてください。`;
+}
+
 // targetCheckIn/targetCheckOut（今開いている予約のIn-Date/Out-Date）が渡された場合、
 // プロンプトに追記する絞り込み指示を組み立てる。どちらも空ならフィルタなし（従来通り全件抽出）。
 function buildDateFilterInstruction(fieldLabel, targetCheckIn, targetCheckOut) {
@@ -364,7 +375,7 @@ ${partnerText}
 text: `以下のホテル予約確認メールや文書からホテル情報を抽出してJSON配列で返してください。
 各ホテルの情報を1つのオブジェクトとして配列に含めてください。
 フィールド：ref_no(ツアー番号・予約番号・REF#等), hotel_name, check_in(YYYY-MM-DD), check_out(YYYY-MM-DD), room_type, rooms(数値), breakfast(true/false), unit_price(数値・円), confirmation_no, memo, status
-ref_noは文書中のツアーコード・予約番号・REF#・KICから始まる番号等を探してください。集客表等では「団体名」列に「KIC967_TC/SOTC」のような「KIC＋数字＋_＋任意の文字列」形式で記載されることがあり、その場合は数字部分のみをref_noとしてください（例:「KIC967_TC/SOTC」→ref_no:「967」）。見つからない場合は空文字にしてください。
+${buildRefNoExtractionRule(false)}
 金額が不明な場合は0、部屋数不明は1としてください。
 statusは「手配OK」または「問い合わせ中」のいずれかを入れてください。予約確定・確認番号あり・手配完了等の表現があれば「手配OK」、見積もり・問い合わせ・検討中等であれば「問い合わせ中」としてください。
 重要: 出力は必ずJSON配列そのものだけにしてください。前置き・説明文・注釈・補足・コードブロック記号(\`\`\`)は一切含めないでください。日付形式の説明や注意書きなどの文章も絶対に出力しないでください。出力の最初の文字は必ず[、最後の文字は必ず]にしてください。${buildDateFilterInstruction('チェックイン日(check_in)', targetCheckIn, targetCheckOut)}
@@ -381,7 +392,7 @@ ${resolvedHotelText}`
 { type: 'text', text: `このPDFからホテル予約情報を抽出してJSON配列で返してください。
 各ホテルの情報を1つのオブジェクトとして配列に含めてください。
 フィールド：ref_no(ツアー番号・予約番号・REF#等), hotel_name, check_in(YYYY-MM-DD), check_out(YYYY-MM-DD), room_type, rooms(数値), breakfast(true/false), unit_price(数値・円), confirmation_no, memo
-ref_noは文書中のツアーコード・予約番号・REF#・KICから始まる番号等を探してください。集客表等では「団体名」列に「KIC967_TC/SOTC」のような「KIC＋数字＋_＋任意の文字列」形式で記載されることがあり、その場合は数字部分のみをref_noとしてください（例:「KIC967_TC/SOTC」→ref_no:「967」）。見つからない場合は空文字にしてください。
+${buildRefNoExtractionRule(false)}
 金額が不明な場合は0、部屋数不明は1としてください。
 statusは「手配OK」または「問い合わせ中」のいずれかを入れてください。予約確定・確認番号あり・手配完了等の表現があれば「手配OK」、見積もり・問い合わせ・検討中等であれば「問い合わせ中」としてください。
 重要: 出力は必ずJSON配列そのものだけにしてください。前置き・説明文・注釈・補足・コードブロック記号(\`\`\`)は一切含めないでください。日付形式の説明や注意書きなどの文章も絶対に出力しないでください。出力の最初の文字は必ず[、最後の文字は必ず]にしてください。` }
@@ -396,7 +407,7 @@ statusは「手配OK」または「問い合わせ中」のいずれかを入れ
         { type: 'text', text: `この画像からホテル予約情報を抽出してJSON配列で返してください。
 各ホテルの情報を1つのオブジェクトとして配列に含めてください。
 フィールド：ref_no(ツアー番号・予約番号・REF#等), hotel_name, check_in(YYYY-MM-DD), check_out(YYYY-MM-DD), room_type, rooms(数値), breakfast(true/false), unit_price(数値・円), confirmation_no, memo
-ref_noは文書中のツアーコード・予約番号・REF#・KICから始まる番号等を探してください。集客表等では「団体名」列に「KIC967_TC/SOTC」のような「KIC＋数字＋_＋任意の文字列」形式で記載されることがあり、その場合は数字部分のみをref_noとしてください（例:「KIC967_TC/SOTC」→ref_no:「967」）。見つからない場合は空文字にしてください。
+${buildRefNoExtractionRule(false)}
 金額が不明な場合は0、部屋数不明は1としてください。
 statusは「手配OK」または「問い合わせ中」のいずれかを入れてください。予約確定・確認番号あり・手配完了等の表現があれば「手配OK」、見積もり・問い合わせ・検討中等であれば「問い合わせ中」としてください。
 重要: 出力は必ずJSON配列そのものだけにしてください。前置き・説明文・注釈・補足・コードブロック記号(\`\`\`)は一切含めないでください。日付形式の説明や注意書きなどの文章も絶対に出力しないでください。出力の最初の文字は必ず[、最後の文字は必ず]にしてください。` }
@@ -412,7 +423,7 @@ statusは「手配OK」または「問い合わせ中」のいずれかを入れ
 text: `以下の観光施設・バス駐車場等の手配確認書やメールから情報を抽出してJSON配列で返してください。
 各施設・駐車場等の情報を1つのオブジェクトとして配列に含めてください。
 フィールド：ref_no(ツアー番号・予約番号・REF#等), facility_name(施設名・駐車場名等), date(YYYY-MM-DD), pax(人数・数値), amount(金額・数値・円), status, confirmation_no(確認番号), memo(備考)
-ref_noは文書中のツアーコード・予約番号・REF#・KICから始まる番号等を探してください。集客表等では「団体名」列に「KIC967_TC/SOTC」のような「KIC＋数字＋_＋任意の文字列」形式で記載されることがあり、その場合は数字部分のみをref_noとしてください（例:「KIC967_TC/SOTC」→ref_no:「967」）。「852_KK」のような「数字_英字」形式（KICプレフィックス省略の短縮形）もref_noとして抽出してください。見つからない場合は空文字にしてください。
+${buildRefNoExtractionRule(true)}
 statusは「手配OK」または「問い合わせ中」のいずれかを入れてください。予約確定・確認番号あり・手配完了等の表現があれば「手配OK」、見積もり・問い合わせ・検討中等であれば「問い合わせ中」としてください。
 金額が不明な場合は0、人数不明は0としてください。
 JSONのみ返し、説明文・コードブロック記号は不要です。${buildDateFilterInstruction('日付(date)', targetCheckIn, targetCheckOut)}
@@ -430,7 +441,7 @@ ${resolvedFacilityText}`
         { type: 'text', text: `このPDFから観光施設・バス駐車場等の手配情報を抽出してJSON配列で返してください。
 各施設・駐車場等の情報を1つのオブジェクトとして配列に含めてください。
 フィールド：ref_no(ツアー番号・予約番号・REF#等), facility_name(施設名・駐車場名等), date(YYYY-MM-DD), pax(人数・数値), amount(金額・数値・円), status, confirmation_no(確認番号), memo(備考)
-ref_noは文書中のツアーコード・予約番号・REF#・KICから始まる番号等を探してください。集客表等では「団体名」列に「KIC967_TC/SOTC」のような「KIC＋数字＋_＋任意の文字列」形式で記載されることがあり、その場合は数字部分のみをref_noとしてください（例:「KIC967_TC/SOTC」→ref_no:「967」）。「852_KK」のような「数字_英字」形式（KICプレフィックス省略の短縮形）もref_noとして抽出してください。見つからない場合は空文字にしてください。
+${buildRefNoExtractionRule(true)}
 statusは「手配OK」または「問い合わせ中」のいずれかを入れてください。予約確定・確認番号あり・手配完了等の表現があれば「手配OK」、見積もり・問い合わせ・検討中等であれば「問い合わせ中」としてください。
 金額が不明な場合は0、人数不明は0としてください。
 JSONのみ返し、説明文・コードブロック記号は不要です。` }
@@ -445,7 +456,7 @@ JSONのみ返し、説明文・コードブロック記号は不要です。` }
         { type: 'text', text: `この画像から観光施設・バス駐車場等の手配情報を抽出してJSON配列で返してください。
 各施設・駐車場等の情報を1つのオブジェクトとして配列に含めてください。
 フィールド：ref_no(ツアー番号・予約番号・REF#等), facility_name(施設名・駐車場名等), date(YYYY-MM-DD), pax(人数・数値), amount(金額・数値・円), status, confirmation_no(確認番号), memo(備考)
-ref_noは文書中のツアーコード・予約番号・REF#・KICから始まる番号等を探してください。集客表等では「団体名」列に「KIC967_TC/SOTC」のような「KIC＋数字＋_＋任意の文字列」形式で記載されることがあり、その場合は数字部分のみをref_noとしてください（例:「KIC967_TC/SOTC」→ref_no:「967」）。「852_KK」のような「数字_英字」形式（KICプレフィックス省略の短縮形）もref_noとして抽出してください。見つからない場合は空文字にしてください。
+${buildRefNoExtractionRule(true)}
 statusは「手配OK」または「問い合わせ中」のいずれかを入れてください。予約確定・確認番号あり・手配完了等の表現があれば「手配OK」、見積もり・問い合わせ・検討中等であれば「問い合わせ中」としてください。
 金額が不明な場合は0、人数不明は0としてください。
 JSONのみ返し、説明文・コードブロック記号は不要です。` }
