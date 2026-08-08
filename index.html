@@ -19514,48 +19514,33 @@ async function showInvoiceConfirmDialog(expenses, presetBookingId, invoiceTotal)
     .sort((a,b) => _numOf(a.ref_no) - _numOf(b.ref_no));
   window._invConfirmBookings = sortedBookings;
 
-  const firstNum = s => { const m=(s||'').match(/(\d+)/); return m?m[1]:''; };
-  const norm = s => (s||'').trim().toUpperCase();
-
   const rows = expenses.map((e,i)=>{
     let matchedBooking = null;
+    let pendingCandidates = [];
     if(presetBookingId){
       matchedBooking = sortedBookings.find(b=>b.id===presetBookingId);
     } else {
-      const eAllText = [e.ref_no, e.content, e.supplier_name].map(v=>norm(v)).join(' ');
-      // Stage1: ref_noの先頭数値が一致
-      matchedBooking = sortedBookings.find(b=>{
-        if(e.ref_no){
-          const bNum = firstNum(b.ref_no);
-          const eNum = firstNum(e.ref_no);
-          if(bNum && eNum && bNum===eNum) return true;
-          const eNorm = norm(e.ref_no);
-          const tNorm = norm(b.tour_name);
-          if(eNorm && tNorm && (eNorm===tNorm || tNorm.includes(eNorm) || eNorm.includes(tNorm))) return true;
-        }
-        const bTour = norm(b.tour_name);
-        return bTour.length>=5 && /\d/.test(bTour) && eAllText.includes(bTour);
+      // REF#自動マッチ候補の算出(共通関数、2026-08統合)。請求書には対応する日程項目が
+      // 無いため、dateFields:nullで日程による絞り込みは行わない。
+      const candidates = computeRefMatchCandidates(e, sortedBookings, {
+        textFields: ['ref_no','content','supplier_name'],
+        dateFields: null,
       });
-      // Stage2.5: "852_KK"形式の短縮ツアーコードをtour_nameにマッチ
-      if(!matchedBooking){
-        const shortCodePat = /\b(\d{3,5})_([A-Za-z]{2,4})\b/g;
-        const codes = [...eAllText.matchAll(shortCodePat)];
-        if(codes.length){
-          matchedBooking = sortedBookings.find(b=>{
-            const tNorm = norm(b.tour_name);
-            return codes.some(m=>{
-              const tm = tNorm.match(/(\d{3,5})_([A-Z]{2,4})/);
-              if(!tm) return false;
-              return String(+tm[1])===String(+m[1]) && tm[2]===m[2].toUpperCase();
-            });
-          });
-        }
-      }
+      const strong = candidates.filter(c=>c.confidence==='strong');
+      matchedBooking = strong.length===1 ? strong[0].booking : null;
+      if(!matchedBooking) pendingCandidates = candidates;
     }
     expenses[i]._bookingId = matchedBooking ? matchedBooking.id : null;
     const inputVal = matchedBooking ? escHtml(matchedBooking.ref_no||'(REF#なし)') : '';
     const hiddenVal = matchedBooking ? String(matchedBooking.id) : '';
-    const comboHtml = `${matchedBooking?`<div style="font-size:9px;color:var(--green);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:2px">✓ ${presetBookingId?'現在の予約':'自動マッチ'}: ${escHtml(matchedBooking.ref_no||'')}</div>`:''}<div style="position:relative">
+    const candidateNoteHtml = matchedBooking
+      ? `<div style="font-size:9px;color:var(--green);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:2px">✓ ${presetBookingId?'現在の予約':'自動マッチ'}: ${escHtml(matchedBooking.ref_no||'')}</div>`
+      : (pendingCandidates.length>0
+        ? `<div id="inv-confirm-note-${i}" style="font-size:9px;color:var(--amber,#854F0B);margin-bottom:2px">⚠ 候補（要確認）:
+             ${pendingCandidates.slice(0,6).map(c=>`<span class="lnk" style="margin-left:4px;font-weight:600" onclick="pickInvConfirmCandidate(${i},'${c.booking.id}')">#${escHtml(c.booking.ref_no||'')}</span>`).join('')}
+           </div>`
+        : '');
+    const comboHtml = `${candidateNoteHtml}<div style="position:relative">
       <input type="text" id="inv-confirm-input-${i}" value="${inputVal}"
              placeholder="REF#・ツアー名で検索…"
              autocomplete="off"
@@ -19674,6 +19659,21 @@ function selectInvConfirmItem(i, bookingId, ref){
   if(input) input.value=ref;
   if(hidden) hidden.value=bookingId;
   if(dd) dd.style.display='none';
+}
+
+// 「候補（要確認）」一覧から運用者が明示的にクリックして選択した時の処理。
+function pickInvConfirmCandidate(i, bookingId){
+  const matched = (window._invConfirmBookings||[]).find(b=>String(b.id)===String(bookingId));
+  if(!matched) return;
+  const hidden = document.getElementById(`inv-confirm-booking-${i}`);
+  if(hidden) hidden.value = String(matched.id);
+  const input = document.getElementById(`inv-confirm-input-${i}`);
+  if(input) input.value = matched.ref_no || '(REF#なし)';
+  const note = document.getElementById(`inv-confirm-note-${i}`);
+  if(note){
+    note.style.color = 'var(--green)';
+    note.innerHTML = `✓ 選択済み: ${escHtml(matched.ref_no||'')}`;
+  }
 }
 
 async function saveInvoiceConfirm(){
