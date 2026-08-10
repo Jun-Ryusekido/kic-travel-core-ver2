@@ -7418,7 +7418,9 @@ function addArrDay(){
   renderArrDays();
 }
 function removeArrDay(i){
-  if(!confirm('この日程を削除しますか?')) return;
+  const d = arrDays[i];
+  const label = d ? ['Day '+(i+1), d.day_date, d.hotel_name, d.bus_company].filter(Boolean).join(' / ') : '';
+  if(!confirm(`以下の日程を削除しますか?\n\n${label}`)) return;
   arrDays.splice(i,1);
   renderArrDays();
 }
@@ -9689,7 +9691,9 @@ function addEstDay(){
   renderEstDays(); autoFillEstDayDates(); calcEstimation();
 }
 function removeEstDay(i){
-  if(!confirm('この日程を削除しますか?')) return;
+  const d = estDays[i];
+  const label = d ? ['Day '+(i+1), d.day_date, d.hotel_name].filter(Boolean).join(' / ') : '';
+  if(!confirm(`以下の日程を削除しますか?\n\n${label}`)) return;
   estDays.splice(i,1);
   estFixedRows.forEach(r=>{ if(r.amounts) r.amounts.splice(i,1); });
   estAdmissionRows.forEach(r=>{ if(r.amounts) r.amounts.splice(i,1); if(r.contents) r.contents.splice(i,1); });
@@ -15807,7 +15811,9 @@ function gdAddDayRow(){
 }
 function gdRemoveDayRow(i){
   if(!bdGuideDocEditing) return;
-  if(!confirm('この日の行を削除しますか？')) return;
+  const d = bdGuideDocEditing.days[i];
+  const label = d ? ['Day '+(d.day_no||(i+1)), d.date, d.hotel_name, (d.itinerary_text||'').slice(0,20)].filter(Boolean).join(' / ') : '';
+  if(!confirm(`以下の日の行を削除しますか？\n\n${label}`)) return;
   bdGuideDocEditing.days.splice(i,1);
   renderGuideDocEditorModal();
 }
