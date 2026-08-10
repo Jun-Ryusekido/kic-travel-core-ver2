@@ -5524,6 +5524,9 @@ function addSalesPayment(i){
 
 function removeSalesPayment(i,j){
   if(bdLocked) return;
+  const p = bdSalesItems[i]?.payments?.[j];
+  const label = p ? [p.date, p.amount!=null?`¥${Number(p.amount).toLocaleString()}`:'', p.bank].filter(Boolean).join(' / ') : '';
+  if(!confirm(`以下の入金記録を削除しますか？\n\n${label}`)) return;
   bdSalesItems[i].payments.splice(j,1);
   renderSalesTable();
 }
@@ -8988,6 +8991,9 @@ function addGuideToNewList(){
 }
 
 function removeGuideFromNewList(i){
+  const g = bdNewGuideList[i];
+  const label = g ? [g.name, g.phone].filter(Boolean).join(' / ') : '';
+  if(!confirm(`以下のガイドをリストから削除しますか？\n\n${label}`)) return;
   bdNewGuideList.splice(i,1);
   renderBdNewGuideList();
 }
@@ -9543,7 +9549,12 @@ function renderEstTiers(){
   renderEstSelectedTierOptions();
 }
 function addEstTier(){ estPaxTiers.push({label:'', pax:0}); renderEstTiers(); calcEstimation(); }
-function removeEstTier(i){ estPaxTiers.splice(i,1); renderEstTiers(); calcEstimation(); }
+function removeEstTier(i){
+  const t = estPaxTiers[i];
+  const label = t ? [t.label, t.pax!=null?`${t.pax}名`:''].filter(Boolean).join(' / ') : '';
+  if(!confirm(`以下の人数区分を削除しますか？\n\n${label}`)) return;
+  estPaxTiers.splice(i,1); renderEstTiers(); calcEstimation();
+}
 function renderEstSelectedTierOptions(){
   const sel = document.getElementById('est-selected-tier');
   const cur = sel.value;
@@ -9726,6 +9737,9 @@ function addEstFixedRow(section='hotel'){
   renderEstDays(); calcEstimation();
 }
 function removeEstFixedRow(k){
+  const r = estFixedRows[k];
+  const label = r?.label || '(項目名未入力)';
+  if(!confirm(`以下の固定費項目を削除しますか？\n\n${label}`)) return;
   estFixedRows.splice(k,1);
   renderEstDays(); calcEstimation();
 }
@@ -9734,6 +9748,9 @@ function addEstAdmissionRow(){
   renderEstDays(); calcEstimation();
 }
 function removeEstAdmissionRow(k){
+  const r = estAdmissionRows[k];
+  const label = r?.remark || '(入場料項目)';
+  if(!confirm(`以下の入場料項目を削除しますか？\n\n${label}`)) return;
   estAdmissionRows.splice(k,1);
   renderEstDays(); calcEstimation();
 }

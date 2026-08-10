@@ -78,3 +78,10 @@ python scripts/extract_voucher_baseline.py
 - Node.js（`_buildVoucherHtml` のソースをそのまま実行するため）
 - Google ChromeまたはEdge（headlessでPDF印刷するため。既定パスが見つからない場合は
   環境変数 `CHROME_PATH` で実行ファイルのパスを指定する）
+
+## 削除確認ダイアログのルール
+
+削除操作（`confirm()`を伴うもの）を新規実装する場合、**必ず**削除対象の具体的な内容
+（項目名・金額・氏名・日付等、その画面で意味のある情報）をダイアログの文言に含める
+こと。「削除しますか？」のみの単純な確認は禁止。実装例: `removeCostRow`（支払先・
+金額・備考）、`deleteFacilityTodoItem`（施設名・REF#・期限日）参照。
