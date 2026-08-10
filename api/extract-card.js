@@ -376,6 +376,7 @@ text: `以下のホテル予約確認メールや文書からホテル情報を�
 各ホテルの情報を1つのオブジェクトとして配列に含めてください。
 フィールド：ref_no(ツアー番号・予約番号・REF#等), hotel_name, check_in(YYYY-MM-DD), check_out(YYYY-MM-DD), room_type, rooms(数値), breakfast(true/false), unit_price(数値・円), confirmation_no, memo, status
 ${buildRefNoExtractionRule(false)}
+Excelから変換されたテキストの場合、「No」「IN」「OUT」「部屋数」等の列名がそのまま並んでいるだけの見出し行や、日付・金額等の実データが一切ない空の行は、ホテル情報として抽出しないでください。
 金額が不明な場合は0、部屋数不明は1としてください。
 statusは「手配OK」または「問い合わせ中」のいずれかを入れてください。予約確定・確認番号あり・手配完了等の表現があれば「手配OK」、見積もり・問い合わせ・検討中等であれば「問い合わせ中」としてください。
 重要: 出力は必ずJSON配列そのものだけにしてください。前置き・説明文・注釈・補足・コードブロック記号(\`\`\`)は一切含めないでください。日付形式の説明や注意書きなどの文章も絶対に出力しないでください。出力の最初の文字は必ず[、最後の文字は必ず]にしてください。${buildDateFilterInstruction('チェックイン日(check_in)', targetCheckIn, targetCheckOut)}
