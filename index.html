@@ -3578,7 +3578,7 @@ async function fetchBookingsListLight(){
   let all=[]; let from=0; const pageSize=1000;
   while(true){
     const {data, error} = await sb.from('bookings')
-      .select('id,ref_no,agent_name,tour_name,in_date,out_date,gross_sales,status,pax')
+      .select('id,ref_no,agent_name,tour_name,in_date,out_date,gross_sales,status,pax,staff_in_charge')
       .order('created_at',{ascending:false}).range(from, from+pageSize-1);
     if(error){ logError('予約一覧(軽量版)の読み込み(bookings)', error); break; }
     all = all.concat(data);
@@ -23482,7 +23482,8 @@ async function generateInvoice(bookingId, currency, agentFilter){
     issue_date: issue,
     due_date: due,
     status: 'pending',
-    agent_name: agentFilter || booking.agent_name || null
+    agent_name: agentFilter || booking.agent_name || null,
+    person_in_charge: booking.staff_in_charge || null
   }).select().single();
 
   if(error){
