@@ -5635,6 +5635,48 @@ function selectSalesBulkSplitAgentCandidate(ci, id){
   updateSalesBulkSplitConfirmState();
 }
 
+// 売上明細一覧、各行「請求先」欄のオートコンプリート(取引先マスタ)。
+// 按分モーダルの会社名入力欄と同じagentsCache/_ensureAgentsCacheLoadedを再利用し、
+// キーを列index(ci)ではなく行index(i)にした版。候補選択時はagent_name(表示用文字列)と
+// agent_id(agents.id)の両方をbdSalesItems[i]にセットする。手入力に書き換えた場合は
+// agent_idをnull化する(按分モーダルの既存仕様と同じ挙動)。
+async function showSalesRowAgentSuggest(i){
+  await _ensureAgentsCacheLoaded();
+  renderSalesRowAgentDropdown(i, bdSalesItems[i]?.agent_name);
+}
+function filterSalesRowAgentSuggest(i){
+  const value = document.getElementById(`sales-row-agent-${i}`).value;
+  bdSalesItems[i].agent_name = value;
+  bdSalesItems[i].agent_id = null;
+  renderInvoiceActions();
+  renderSalesRowAgentDropdown(i, value);
+}
+function hideSalesRowAgentSuggest(i){
+  const dd = document.getElementById(`sales-row-agent-dd-${i}`);
+  if(dd) dd.style.display = 'none';
+}
+function renderSalesRowAgentDropdown(i, q){
+  const dd = document.getElementById(`sales-row-agent-dd-${i}`);
+  if(!dd) return;
+  const candidates = _salesBulkSplitAgentCandidates(q);
+  dd.innerHTML = candidates.length
+    ? candidates.map(a=>`<div onmousedown="selectSalesRowAgentCandidate(${i},'${escAttr(String(a.id))}')" style="padding:8px 10px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''"><b>${escHtml(a.company_name)}</b></div>`).join('')
+    : `<div style="padding:8px 10px;font-size:11px;color:var(--text3)">候補なし（そのまま自由入力できます）</div>`;
+  const input = document.getElementById(`sales-row-agent-${i}`);
+  if(input) _positionDropdownNearInput(input, dd);
+  dd.style.display = 'block';
+}
+function selectSalesRowAgentCandidate(i, id){
+  const a = agentsCache.find(x=>String(x.id)===String(id));
+  if(!a) return;
+  bdSalesItems[i].agent_name = a.company_name;
+  bdSalesItems[i].agent_id = a.id;
+  const input = document.getElementById(`sales-row-agent-${i}`);
+  if(input) input.value = a.company_name;
+  hideSalesRowAgentSuggest(i);
+  renderInvoiceActions();
+}
+
 function _salesBulkSplitRowAmount(i, ci){
   const it = bdSalesItems[i];
   const pax = Number(bdSalesSplitPax[i][ci])||0;
@@ -5771,7 +5813,11 @@ function renderSalesTable(){
         <td class="bd-sales-detail bd-sales-qty" style="text-align:right"><input ${dis} type="number" value="${it.qty||1}" onchange="bdSalesRowCalc(${i},this,'qty')" style="text-align:right"></td>
         <td data-label="金額" id="bd-sales-amt-${i}" class="li-amt bd-sales-detail bd-sales-calc-line" style="text-align:right">${yen(it.amount||0)}</td>
         <td data-label="入金日" class="bd-sales-detail">${renderSalesPaymentDates(it,i,dis)}</td>         <td data-label="入金金額" class="bd-sales-detail">${renderSalesPaymentAmounts(it,i,dis)}</td>         <td data-label="入金先銀行" class="bd-sales-detail">${renderSalesPaymentBanks(it,i,dis)}</td>         <td data-label="入金備考" class="bd-sales-detail">${renderSalesPaymentRemarks(it,i,dis)}</td>         <td data-label="未収" class="li-amt bd-sales-detail" style="${(Number(it.amount||0)-salesPaymentsTotal(it))>0?'color:var(--red)':'color:var(--green)'}">${yen(Number(it.amount||0)-salesPaymentsTotal(it))}</td>
-        <td class="bd-agent-col bd-sales-detail" data-label="請求先"><input class="bd-agent-col" ${dis} value="${(it.agent_name||'').replace(/"/g,'&quot;')}" title="${(it.agent_name||'').replace(/"/g,'&quot;')}" placeholder="(予約のAgent)" onchange="bdSalesItems[${i}].agent_name=this.value;renderInvoiceActions()"></td>
+        <td class="bd-agent-col bd-sales-detail" data-label="請求先" style="position:relative">
+          <input class="bd-agent-col" id="sales-row-agent-${i}" ${dis} autocomplete="off" value="${(it.agent_name||'').replace(/"/g,'&quot;')}" title="${(it.agent_name||'').replace(/"/g,'&quot;')}" placeholder="(予約のAgent)"
+            oninput="filterSalesRowAgentSuggest(${i})" onfocus="showSalesRowAgentSuggest(${i})" onblur="setTimeout(()=>hideSalesRowAgentSuggest(${i}),200)">
+          <div id="sales-row-agent-dd-${i}" style="display:none;position:fixed;top:0;left:0;min-width:200px;background:var(--card,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:99999;max-height:180px;overflow-y:auto"></div>
+        </td>
         <td class="li-del bd-sales-detail">${bdLocked?'':`<span class="lnk" style="font-size:10px" onclick="removeSalesRow(${i})">削除</span>`}</td>
       </tr>`).join('');
   }
