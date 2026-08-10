@@ -4455,11 +4455,29 @@ async function safeReplaceRowsByKey(table, keyCol, keyVal, rows, label){
 async function tableCrudApiCall(table, action, payload){
   const token = currentUser ? currentUser.token : null;
   const __t0 = performance.now();
-  const resp = await fetch('/api/table-crud', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ table, action, token, ...payload })
-  });
+  // fetch自体が失敗した場合(サーバーエラー応答ではなく、真のネットワーク断・DNS失敗等)は
+  // 最大1回まで自動リトライする。サーバーが応答を返せた場合(4xx/5xx含む)はネットワーク
+  // エラーではないためリトライせず、下のresp.ok判定にそのまま進む(POSTの二重送信リスクを
+  // 避けるため、リトライ対象は「サーバーに到達すらできなかった」ケースに限定する)。
+  let resp, lastNetErr = null;
+  for(let attempt=1; attempt<=2; attempt++){
+    try{
+      resp = await fetch('/api/table-crud', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ table, action, token, ...payload })
+      });
+      lastNetErr = null;
+      break;
+    }catch(e){
+      lastNetErr = e;
+      console.error(`[tableCrudApiCall] fetch失敗 (${new Date().toISOString()}) table=${table} action=${action} 試行${attempt}/2回目:`, e);
+    }
+  }
+  if(lastNetErr){
+    logError(`tableCrudApiCall(/api/table-crud, table=${table}, action=${action})`, lastNetErr);
+    throw lastNetErr;
+  }
   const data = await parseJsonResponseSafe(resp);
   // 保存処理のボトルネック調査用の計測(2026-08時点、一時追加)。往復合計(clientMs)と
   // サーバー処理時間(serverMs、api/table-crud.js側で計測)・コールドスタートの有無を
@@ -15883,19 +15901,29 @@ function checkBulkReadSanity(items, dateField){
   );
 }
 
-// サーバー応答が来ないまま「読み取り中」で固まらないよう、タイムアウト付きfetch
+// サーバー応答が来ないまま「読み取り中」で固まらないよう、タイムアウト付きfetch。
+// タイムアウト(AbortError)はリトライしない(同じだけ待たされるだけで意味が薄いため)。
+// 真のネットワークエラー(fetch自体が失敗、サーバーに到達すらできなかった場合)のみ、
+// 最大1回まで自動リトライする。
 async function fetchWithTimeout(url, opts, timeoutMs){
-  const controller = new AbortController();
   const effectiveTimeoutMs = timeoutMs || 90000;
-  const timer = setTimeout(()=>controller.abort(), effectiveTimeoutMs);
-  try{
-    return await fetch(url, Object.assign({}, opts, {signal: controller.signal}));
-  }catch(e){
-    if(e.name === 'AbortError') throw new Error(`サーバーからの応答がタイムアウトしました（${Math.round(effectiveTimeoutMs/1000)}秒）。ファイルサイズが大きい場合は分割するか、時間をおいて再度お試しください。`);
-    throw e;
-  }finally{
-    clearTimeout(timer);
+  let lastNetErr = null;
+  for(let attempt=1; attempt<=2; attempt++){
+    const controller = new AbortController();
+    const timer = setTimeout(()=>controller.abort(), effectiveTimeoutMs);
+    try{
+      const resp = await fetch(url, Object.assign({}, opts, {signal: controller.signal}));
+      clearTimeout(timer);
+      return resp;
+    }catch(e){
+      clearTimeout(timer);
+      if(e.name === 'AbortError') throw new Error(`サーバーからの応答がタイムアウトしました（${Math.round(effectiveTimeoutMs/1000)}秒）。ファイルサイズが大きい場合は分割するか、時間をおいて再度お試しください。`);
+      lastNetErr = e;
+      console.error(`[fetchWithTimeout] fetch失敗 (${new Date().toISOString()}) url=${url} 試行${attempt}/2回目:`, e);
+    }
   }
+  logError(`fetchWithTimeout(${url})`, lastNetErr);
+  throw lastNetErr;
 }
 // .docx（Word）から本文テキストを抽出（JSZipでword/document.xmlを取り出しタグを除去）
 async function extractDocxText(file){
@@ -18582,6 +18610,8 @@ function renderCcTable(){
 
 function toggleCcRowSelect(id, checked){
   if(checked) ccSelectedIds.add(String(id)); else ccSelectedIds.delete(String(id));
+  // 診断用ログ(選択件数が反応しない不具合の再発時調査のため、2026-08時点で追加)。
+  console.log(`[toggleCcRowSelect] id=${id} checked=${checked} ccSelectedIds(${ccSelectedIds.size}件)=`, [...ccSelectedIds]);
   updateCcBulkDeleteBar();
 }
 
@@ -18597,6 +18627,8 @@ function toggleCcSelectAllVisible(checked){
 // 現在の選択状況(フィルター横断で保持しているccSelectedIds)に合わせて更新する。
 function updateCcBulkDeleteBar(){
   const btn = document.getElementById('cc-bulk-delete-btn');
+  // 診断用ログ(選択件数が反応しない不具合の再発時調査のため、2026-08時点で追加)。
+  console.log(`[updateCcBulkDeleteBar] ccSelectedIds.size=${ccSelectedIds.size} btn要素が見つかったか=${!!btn}`);
   if(btn){
     btn.textContent = `選択した${ccSelectedIds.size}件を削除`;
     btn.disabled = ccSelectedIds.size===0;
