@@ -630,6 +630,10 @@ input[type=number]{-moz-appearance:textfield}
    - セクション見出し行(colspan)は tr に class="section-row" を付けると
      カード枠なしの帯として表示される
    - ソート用ヘッダ行を行内に持つ場合は tr に class="cost-sort-row" で非表示化 */
+/* 売上明細(スマホ専用)の開閉シェブロン・サマリー金額は、renderSalesTable()が画面幅に
+   関わらず常にDOMへ出力するため、PC(768px超)ではデフォルトで非表示にしておく。
+   下の@media(max-width:768px)内で表示状態に戻す。 */
+.bd-sales-chevron, .bd-sales-summary-amt{display:none}
 @media(max-width:768px){
   .confirm-table{min-width:0!important}
   .confirm-table colgroup{display:none}
@@ -698,7 +702,7 @@ input[type=number]{-moz-appearance:textfield}
      やや大きめのフォント・濃い色にし、数百万円(¥9,999,999程度)でも折り返さない
      min-widthを確保した上で右揃えにする。tabular-numsで桁がズレず見やすくする。 */
   #bd-sales-tbody .bd-sales-summary-amt{
-    flex:0 0 auto;min-width:96px;text-align:right;font-weight:700;font-size:14px;
+    display:inline-flex;flex:0 0 auto;min-width:96px;text-align:right;font-weight:700;font-size:14px;
     color:var(--text);white-space:nowrap;font-variant-numeric:tabular-nums
   }
 
