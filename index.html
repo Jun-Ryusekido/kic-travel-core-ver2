@@ -4299,7 +4299,13 @@ function filterBookingListGeneric(prefix){
     }
     if(from && (!b.in_date || b.in_date < from)) return false;
     if(to && (!b.in_date || b.in_date > to)) return false;
-    if(status && b.status !== status) return false;
+    if(status){
+      // Open検索では、ステータスが「ファイナル済み」でもツアーがOut日(最終日)を
+      // 過ぎるまでは稼働中の予約として表示する(Openのみを厳密一致させると、
+      // ファイナル済みだが実施中のツアーが検索結果から消えてしまうため)。
+      const isActiveFinalized = status==='open' && b.status==='finalized' && b.out_date && b.out_date>=localDateStr();
+      if(b.status!==status && !isActiveFinalized) return false;
+    }
     return true;
   });
 
