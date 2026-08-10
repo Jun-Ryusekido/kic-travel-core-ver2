@@ -2671,12 +2671,12 @@ input[type=number]{-moz-appearance:textfield}
       <div>
         <h4 class="green">売上明細</h4>
         <div id="bd-invoice-actions" style="margin-bottom:4px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-          <button class="btn" id="bd-agent-toggle-btn" style="font-size:10px" onclick="toggleBdAgentColumn()">＋ 請求先を分ける</button>
+          <button class="btn" id="bd-agent-toggle-btn" style="font-size:10px" onclick="openSalesBulkSplitModal()">＋ 請求先を分ける</button>
           <button class="btn" style="font-size:10px" onclick="openBdInvoicesModal()">関連Invoice(<span id="bd-inv-count">0</span>件)</button>
           <span id="bd-inv-empty-hint" style="display:none;font-size:10px;color:var(--text3)">関連するInvoiceはありません</span>
         </div>
         <div class="tbl-wrap"><table class="li-table confirm-table">
-          <thead><tr><th style="width:11%">項目名</th><th style="width:24%">追記事項</th><th style="width:7%;text-align:right">単価</th><th style="width:4%;text-align:right">人数</th><th style="width:4%;text-align:right">数量</th><th class="li-amt" style="width:7%;text-align:right">金額</th><th style="width:7%">入金日</th><th style="width:8%" class="li-amt">入金金額</th><th style="width:9%">入金先銀行</th><th style="width:10%">入金備考</th><th style="width:6%" class="li-amt">未収</th><th class="bd-agent-col" style="width:120px;display:none">請求先</th><th class="li-del" style="width:3%"></th></tr></thead>
+          <thead><tr><th style="width:11%">項目名</th><th style="width:24%">追記事項</th><th style="width:7%;text-align:right">単価</th><th style="width:4%;text-align:right">人数</th><th style="width:4%;text-align:right">数量</th><th class="li-amt" style="width:7%;text-align:right">金額</th><th style="width:7%">入金日</th><th style="width:8%" class="li-amt">入金金額</th><th style="width:9%">入金先銀行</th><th style="width:10%">入金備考</th><th style="width:6%" class="li-amt">未収</th><th class="bd-agent-col" style="width:120px">請求先</th><th class="li-del" style="width:3%"></th></tr></thead>
           <tbody id="bd-sales-tbody"></tbody>
         </table></div>
         <button class="btn" id="bd-sales-add-btn" style="font-size:10px;margin-top:4px" onclick="addSalesRow()">＋ 行追加</button>
@@ -5528,10 +5528,150 @@ function removeSalesPayment(i,j){
   renderSalesTable();
 }
 
-function toggleBdAgentColumn(){
-  const show = document.querySelector('.bd-agent-col').style.display === 'none';
-  document.querySelectorAll('.bd-agent-col').forEach(el=>{ el.style.display = show ? '' : 'none'; });
-  document.getElementById('bd-agent-toggle-btn').textContent = show ? '－ 請求先をまとめる' : '＋ 請求先を分ける';
+// ─── 売上明細を請求先ごとに一括按分 ──────────────────────────────────────────
+// 「＋ 請求先を分ける」ボタンから開くモーダル。会社名を列、既存のbdSalesItems各行を
+// 行とする表で、セルに人数を入力すると単価×人数(×元のqty)を自動計算する。行ごとに
+// 「会社の人数合計」が元の人数と一致しているかを判定し(全社0名の行は按分対象外として
+// 常に一致扱い＝元の行のまま変更しない)、全行一致するまで確定できない。確定すると、
+// 按分対象の行だけを人数>0の会社ごとの複数行に置き換える(項目名/単価/数量/備考/
+// payment_dateは元の行から引き継ぎ、paymentsは空にする＝入金情報は分割前提として
+// 引き継がない。分割後の行は既存のbdSalesItemsの行と全く同じ形のデータのため、
+// 保存(saveBookingDetail)・請求書発行(issueInvoiceFromBookingDetail)のロジックは
+// 一切変更していない)。
+let bdSalesSplitCompanies = [];
+let bdSalesSplitPax = [];
+
+function openSalesBulkSplitModal(){
+  if(bdLocked) return;
+  if(!bdSalesItems.length){ alert('売上明細がありません'); return; }
+  bdSalesSplitCompanies = ['', ''];
+  bdSalesSplitPax = bdSalesItems.map(()=>[0,0]);
+  document.getElementById('sales-bulk-split-modal')?.remove();
+  const modal = document.createElement('div');
+  modal.id = 'sales-bulk-split-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:300;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto';
+  modal.innerHTML = `<div style="background:var(--card,#fff);border-radius:12px;padding:20px;width:100%;max-width:900px;margin-top:10px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div style="font-size:13px;font-weight:700">売上明細を請求先ごとに一括按分</div>
+      <button class="btn" onclick="document.getElementById('sales-bulk-split-modal').remove()">✕</button>
+    </div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:8px">各行の人数を会社ごとに入力してください。全社の人数が0のままの行は変更されません。全行の人数合計が元の人数と一致すると「確定」できます。</div>
+    <div style="overflow-x:auto"><table id="sales-bulk-split-table" style="border-collapse:collapse;width:100%;font-size:11px"></table></div>
+    <button class="btn" style="font-size:11px;margin-top:8px" onclick="addSalesBulkSplitCompany()">＋ 列を追加</button>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+      <button class="btn" onclick="document.getElementById('sales-bulk-split-modal').remove()">キャンセル</button>
+      <button class="btn btn-p" id="sales-bulk-split-confirm-btn" onclick="confirmSalesBulkSplit()">確定</button>
+    </div>
+  </div>`;
+  document.body.appendChild(modal);
+  renderSalesBulkSplitTable();
+}
+
+function addSalesBulkSplitCompany(){
+  bdSalesSplitCompanies.push('');
+  bdSalesSplitPax.forEach(row=>row.push(0));
+  renderSalesBulkSplitTable();
+}
+
+function removeSalesBulkSplitCompany(ci){
+  if(bdSalesSplitCompanies.length<=1) return;
+  bdSalesSplitCompanies.splice(ci,1);
+  bdSalesSplitPax.forEach(row=>row.splice(ci,1));
+  renderSalesBulkSplitTable();
+}
+
+function _salesBulkSplitRowAmount(i, ci){
+  const it = bdSalesItems[i];
+  const pax = Number(bdSalesSplitPax[i][ci])||0;
+  return (Number(it.unit_price)||0) * pax * (Number(it.qty)||1);
+}
+
+// 全社0名(未入力)の行は按分対象外として常に一致扱いにする(元の行のまま残すだけの
+// 行にまで、毎回全社の人数入力を強制しないため)。
+function _salesBulkSplitRowMatches(i){
+  const it = bdSalesItems[i];
+  const totalPax = bdSalesSplitPax[i].reduce((s,p)=>s+(Number(p)||0),0);
+  if(totalPax === 0) return true;
+  return Math.abs(totalPax - (Number(it.pax)||1)) < 1e-6;
+}
+
+function renderSalesBulkSplitTable(){
+  const table = document.getElementById('sales-bulk-split-table');
+  if(!table) return;
+  const companies = bdSalesSplitCompanies;
+  const theadCompanyCells = companies.map((c,ci)=>`<th style="padding:4px;min-width:150px;text-align:left">
+    <div style="display:flex;gap:4px;align-items:center">
+      <input placeholder="会社名${ci+1}" value="${(c||'').replace(/"/g,'&quot;')}" style="flex:1;font-size:11px" oninput="bdSalesSplitCompanies[${ci}]=this.value;updateSalesBulkSplitConfirmState()">
+      ${companies.length>1?`<span class="lnk" style="font-size:10px" onclick="removeSalesBulkSplitCompany(${ci})">×</span>`:''}
+    </div>
+  </th>`).join('');
+  const rowsHtml = bdSalesItems.map((it,i)=>{
+    const cells = companies.map((c,ci)=>`<td style="padding:4px;border-top:1px solid var(--border);text-align:right">
+        <input type="number" value="${bdSalesSplitPax[i][ci]||''}" style="width:56px;text-align:right;font-size:11px" oninput="bdSalesSplitPax[${i}][${ci}]=Number(this.value)||0;renderSalesBulkSplitRowStatus(${i})">
+        <div id="sales-bulk-split-amt-${i}-${ci}" style="font-size:9px;color:var(--text3)">${yen(_salesBulkSplitRowAmount(i,ci))}</div>
+      </td>`).join('');
+    return `<tr>
+      <td style="padding:4px;border-top:1px solid var(--border)">${escHtml(it.item_name||'(項目名未入力)')}</td>
+      <td style="padding:4px;border-top:1px solid var(--border);text-align:right">${yen(it.unit_price||0)}</td>
+      <td style="padding:4px;border-top:1px solid var(--border);text-align:right">${it.pax||1}名</td>
+      ${cells}
+      <td id="sales-bulk-split-status-${i}" style="padding:4px;border-top:1px solid var(--border);text-align:center"></td>
+    </tr>`;
+  }).join('');
+  table.innerHTML = `<thead><tr>
+    <th style="padding:4px;text-align:left">項目名</th><th style="padding:4px;text-align:right">単価</th><th style="padding:4px;text-align:right">元の人数</th>
+    ${theadCompanyCells}
+    <th style="padding:4px">判定</th>
+  </tr></thead><tbody>${rowsHtml}</tbody>`;
+  bdSalesItems.forEach((_,i)=>renderSalesBulkSplitRowStatus(i));
+}
+
+function renderSalesBulkSplitRowStatus(i){
+  bdSalesSplitCompanies.forEach((c,ci)=>{
+    const el = document.getElementById(`sales-bulk-split-amt-${i}-${ci}`);
+    if(el) el.textContent = yen(_salesBulkSplitRowAmount(i,ci));
+  });
+  const statusEl = document.getElementById(`sales-bulk-split-status-${i}`);
+  if(statusEl){
+    const ok = _salesBulkSplitRowMatches(i);
+    statusEl.innerHTML = ok ? '<span style="color:var(--green,#1a7f37)">✓</span>' : '<span style="color:var(--red,#c0392b)">⚠</span>';
+  }
+  updateSalesBulkSplitConfirmState();
+}
+
+function updateSalesBulkSplitConfirmState(){
+  const allMatch = bdSalesItems.every((_,i)=>_salesBulkSplitRowMatches(i));
+  // 人数が1件でも入力されている会社の列は、会社名が空欄のままだと確定不可にする
+  const namesOk = bdSalesSplitCompanies.every((name,ci)=>{
+    const used = bdSalesSplitPax.some(row=>Number(row[ci])>0);
+    return !used || (name && name.trim());
+  });
+  const btn = document.getElementById('sales-bulk-split-confirm-btn');
+  if(btn) btn.disabled = !allMatch || !namesOk;
+}
+
+function confirmSalesBulkSplit(){
+  const newItems = [];
+  bdSalesItems.forEach((it,i)=>{
+    const paxRow = bdSalesSplitPax[i];
+    const totalPax = paxRow.reduce((s,p)=>s+(Number(p)||0),0);
+    if(totalPax === 0){
+      newItems.push(it); // 按分対象外、元の行のまま残す
+      return;
+    }
+    bdSalesSplitCompanies.forEach((name,ci)=>{
+      const pax = Number(paxRow[ci])||0;
+      if(pax<=0) return;
+      newItems.push({
+        item_name: it.item_name, memo: it.memo, unit_price: it.unit_price, pax, qty: it.qty||1,
+        amount: (Number(it.unit_price)||0)*pax*(Number(it.qty)||1),
+        payment_date: it.payment_date, agent_name: name.trim(), payments: []
+      });
+    });
+  });
+  bdSalesItems = newItems;
+  document.getElementById('sales-bulk-split-modal')?.remove();
+  renderSalesTable();
 }
 
 // スマホカード表示で、各行を「項目名＋金額のサマリー(常時表示)」＋「その他項目
@@ -5563,7 +5703,7 @@ function renderSalesTable(){
         <td class="bd-sales-detail bd-sales-qty" style="text-align:right"><input ${dis} type="number" value="${it.qty||1}" onchange="bdSalesRowCalc(${i},this,'qty')" style="text-align:right"></td>
         <td data-label="金額" id="bd-sales-amt-${i}" class="li-amt bd-sales-detail bd-sales-calc-line" style="text-align:right">${yen(it.amount||0)}</td>
         <td data-label="入金日" class="bd-sales-detail">${renderSalesPaymentDates(it,i,dis)}</td>         <td data-label="入金金額" class="bd-sales-detail">${renderSalesPaymentAmounts(it,i,dis)}</td>         <td data-label="入金先銀行" class="bd-sales-detail">${renderSalesPaymentBanks(it,i,dis)}</td>         <td data-label="入金備考" class="bd-sales-detail">${renderSalesPaymentRemarks(it,i,dis)}</td>         <td data-label="未収" class="li-amt bd-sales-detail" style="${(Number(it.amount||0)-salesPaymentsTotal(it))>0?'color:var(--red)':'color:var(--green)'}">${yen(Number(it.amount||0)-salesPaymentsTotal(it))}</td>
-        <td class="bd-agent-col bd-sales-detail" data-label="請求先" style="display:none"><input class="bd-agent-col" style="display:none" ${dis} value="${(it.agent_name||'').replace(/"/g,'&quot;')}" title="${(it.agent_name||'').replace(/"/g,'&quot;')}" placeholder="(予約のAgent)" onchange="bdSalesItems[${i}].agent_name=this.value;renderInvoiceActions()"></td></td>
+        <td class="bd-agent-col bd-sales-detail" data-label="請求先"><input class="bd-agent-col" ${dis} value="${(it.agent_name||'').replace(/"/g,'&quot;')}" title="${(it.agent_name||'').replace(/"/g,'&quot;')}" placeholder="(予約のAgent)" onchange="bdSalesItems[${i}].agent_name=this.value;renderInvoiceActions()"></td>
         <td class="li-del bd-sales-detail">${bdLocked?'':`<span class="lnk" style="font-size:10px" onclick="removeSalesRow(${i})">削除</span>`}</td>
       </tr>`).join('');
   }
@@ -5586,9 +5726,9 @@ function renderInvoiceActions(){
   const container = document.getElementById('bd-invoice-actions');
   if(!container) return;
   const agents = getDistinctSalesAgents();
-  const toggleBtn = `<button class="btn" id="bd-agent-toggle-btn" style="font-size:10px" onclick="toggleBdAgentColumn()">＋ 請求先を分ける</button>`;
+  const toggleBtn = `<button class="btn" id="bd-agent-toggle-btn" style="font-size:10px" onclick="openSalesBulkSplitModal()">＋ 請求先を分ける</button>`;
   // 「関連Invoice」ボタン：件数はbdInvoicesCacheの現在値をそのまま埋め込む
-  // （このコンテナはtoggleBdAgentColumn・行追加等のたびに再生成されるため）
+  // （このコンテナはopenSalesBulkSplitModal・行追加等のたびに再生成されるため）
   const invCount = (typeof bdInvoicesCache!=='undefined' && bdInvoicesCache) ? bdInvoicesCache.length : 0;
   const invBtn = `<button class="btn" style="font-size:10px" onclick="openBdInvoicesModal()">関連Invoice(<span id="bd-inv-count">${invCount}</span>件)</button>
     <span id="bd-inv-empty-hint" style="display:${invCount===0?'':'none'};font-size:10px;color:var(--text3)">関連するInvoiceはありません</span>`;
@@ -5610,10 +5750,6 @@ function renderInvoiceActions(){
         </span>`;
       }).join('') + toggleBtn + invBtn;
   }
-  // 「請求先を分ける」ボタンのテキストを現在の列表示状態に合わせて更新
-  const col = document.querySelector('.bd-agent-col');
-  const btn = document.getElementById('bd-agent-toggle-btn');
-  if(btn && col) btn.textContent = col.style.display === 'none' ? '＋ 請求先を分ける' : '－ 請求先をまとめる';
 }
 
 let bdCostSortField = null, bdCostSortDir = 1, bdCostSearch = '';
