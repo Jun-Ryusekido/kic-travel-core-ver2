@@ -5542,6 +5542,7 @@ function removeSalesPayment(i,j){
 // 保存(saveBookingDetail)・請求書発行(issueInvoiceFromBookingDetail)のロジックは
 // 一切変更していない)。
 let bdSalesSplitCompanies = [];
+let bdSalesSplitCompanyIds = []; // 各列、取引先マスタから選択された場合のagents.id(手入力・未選択ならnull)
 let bdSalesSplitPax = [];
 
 function openSalesBulkSplitModal(){
@@ -5549,6 +5550,7 @@ function openSalesBulkSplitModal(){
   if(!bdSalesItems.length){ alert('売上明細がありません'); return; }
   _ensureAgentsCacheLoaded();
   bdSalesSplitCompanies = ['', ''];
+  bdSalesSplitCompanyIds = [null, null];
   bdSalesSplitPax = bdSalesItems.map(()=>[0,0]);
   document.getElementById('sales-bulk-split-modal')?.remove();
   const modal = document.createElement('div');
@@ -5573,6 +5575,7 @@ function openSalesBulkSplitModal(){
 
 function addSalesBulkSplitCompany(){
   bdSalesSplitCompanies.push('');
+  bdSalesSplitCompanyIds.push(null);
   bdSalesSplitPax.forEach(row=>row.push(0));
   renderSalesBulkSplitTable();
 }
@@ -5580,15 +5583,17 @@ function addSalesBulkSplitCompany(){
 function removeSalesBulkSplitCompany(ci){
   if(bdSalesSplitCompanies.length<=1) return;
   bdSalesSplitCompanies.splice(ci,1);
+  bdSalesSplitCompanyIds.splice(ci,1);
   bdSalesSplitPax.forEach(row=>row.splice(ci,1));
   renderSalesBulkSplitTable();
 }
 
 // 会社名入力欄のオートコンプリート(取引先マスタ、既存のnb-agent/bd-agentと同じ
 // agentsCache/_ensureAgentsCacheLoadedを再利用する)。列数が可変なため、列index(ci)を
-// キーにした汎用版として実装する(候補選択後も文字列自体はbdSalesSplitCompaniesに
-// 保持するだけで、agent_idのような追跡は行わない。取引先マスタ登録済みの正式名称の
-// 文字列をそのまま使うことが目的のため、自由入力との区別までは不要と判断)。
+// キーにした汎用版として実装する。候補選択時は文字列(bdSalesSplitCompanies)に加えて
+// agents.id(bdSalesSplitCompanyIds)も保持する。同名の取引先マスタが複数存在する場合、
+// 文字列一致だけではInvoice住所欄がどちらの住所か特定できないため(REF#962で実際に
+// 発生)、agent_idで一意に紐付けるのが目的。手入力に書き換えられた場合はidを無効化する。
 function _salesBulkSplitAgentCandidates(q){
   const query = toHalfWidth((q||'').trim().toLowerCase());
   if(!query) return agentsCache.slice(0,50);
@@ -5600,6 +5605,7 @@ async function showSalesBulkSplitAgentSuggest(ci){
 }
 function filterSalesBulkSplitAgentSuggest(ci){
   bdSalesSplitCompanies[ci] = document.getElementById(`sales-bulk-split-company-${ci}`).value;
+  bdSalesSplitCompanyIds[ci] = null; // 手入力に変わったため、選択済みIDは無効化する(候補再選択が必要)
   updateSalesBulkSplitConfirmState();
   renderSalesBulkSplitAgentDropdown(ci, bdSalesSplitCompanies[ci]);
 }
@@ -5622,6 +5628,7 @@ function selectSalesBulkSplitAgentCandidate(ci, id){
   const a = agentsCache.find(x=>String(x.id)===String(id));
   if(!a) return;
   bdSalesSplitCompanies[ci] = a.company_name;
+  bdSalesSplitCompanyIds[ci] = a.id;
   const input = document.getElementById(`sales-bulk-split-company-${ci}`);
   if(input) input.value = a.company_name;
   hideSalesBulkSplitAgentSuggest(ci);
@@ -5722,7 +5729,8 @@ function confirmSalesBulkSplit(){
       newItems.push({
         item_name: it.item_name, memo: it.memo, unit_price: it.unit_price, pax, qty: it.qty||1,
         amount: (Number(it.unit_price)||0)*pax*(Number(it.qty)||1),
-        payment_date: it.payment_date, agent_name: name.trim(), payments: singleTarget ? (it.payments||[]) : []
+        payment_date: it.payment_date, agent_name: name.trim(), agent_id: bdSalesSplitCompanyIds[ci]||null,
+        payments: singleTarget ? (it.payments||[]) : []
       });
     });
   });
@@ -6210,7 +6218,7 @@ function buildSalesRows(bookingId){
   return bdSalesItems.filter(it=>it.item_name||Number(it.amount)||it.memo||it.agent_name||it.payment_date||(it.payments&&it.payments.length)).map(it=>({
     booking_id: bookingId, item_name: it.item_name||'', memo: it.memo||null, unit_price: Number(it.unit_price)||0,
     pax: Number(it.pax)||1, qty: Number(it.qty)||1, amount: Number(it.amount)||0, payment_date: sanitizeDateField(it.payment_date),
-    agent_name: it.agent_name||null, payments: it.payments||[]
+    agent_name: it.agent_name||null, agent_id: it.agent_id||null, payments: it.payments||[]
   }));
 }
 function buildCostRows(bookingId){
@@ -23465,10 +23473,15 @@ async function generateInvoice(bookingId, currency, agentFilter){
 
   // 請求先で金額を絞り込み（売上明細が登録されている場合）
   let amount;
+  let agentId = null;
   const {data: salesRows} = await sb.from('booking_sales').select('*').eq('booking_id', bookingId);
   if(salesRows && salesRows.length>0){
     const filtered = salesRows.filter(r=>salesItemBelongsToAgent(r, agentFilter, booking.agent_name));
     amount = filtered.reduce((s,r)=>s+Number(r.amount||0),0);
+    // 絞り込んだ明細行がagent_idを持っていれば(按分モーダルでマスタから選択された場合)、
+    // Invoice側にもそのまま引き継ぐ(住所欄の重複company_name問題を回避するため)。
+    const withAgentId = filtered.find(r=>r.agent_id);
+    if(withAgentId) agentId = withAgentId.agent_id;
   }else{
     amount = Number(booking.gross_sales||0);
   }
@@ -23483,6 +23496,7 @@ async function generateInvoice(bookingId, currency, agentFilter){
     due_date: due,
     status: 'pending',
     agent_name: agentFilter || booking.agent_name || null,
+    agent_id: agentId,
     person_in_charge: booking.staff_in_charge || null
   }).select().single();
 
@@ -23543,15 +23557,23 @@ async function showInvoicePreview(inv, booking){
   const balance = amount - depositConverted;
 
   // 請求先名・住所を取得。取引先マスタ(agents、取引先/エージェントマスタ管理画面が
-  // 読み書きしている実体)をcompany_nameで検索する。以前はagent_infoという別テーブル
+  // 読み書きしている実体)を参照する。以前はagent_infoという別テーブル
   // (このInvoiceプレビュー以外どこからも参照・更新されていない孤立テーブル)を
   // 見ていたため、取引先マスタに正式名称・住所を登録していても一切連携していなかった
   // (通常予約・按分予約を問わず発生していた不具合)。
+  // agent_idがあれば一意に特定できるため優先する。agent_idが無い(未対応の古いデータ等)
+  // 場合のみcompany_name文字列一致にフォールバックするが、同名の取引先が複数登録されて
+  // いる場合はどちらか一方を勝手に選ばず空欄のままにする(誤った住所を表示するリスクを
+  // 避けるため。REF#962で同名「M/S. SOTC TRAVEL LTD.」が担当者違いで2件登録されており、
+  // company_name一致だと.maybeSingle()がエラーになり住所が取得できていなかった)。
   const billToName = inv.agent_name || booking.agent_name || '';
   let agentAddress = '';
-  if(billToName){
-    const {data: agentRow} = await sb.from('agents').select('address').eq('company_name', billToName).or('is_deleted.is.null,is_deleted.eq.false').maybeSingle();
+  if(inv.agent_id){
+    const {data: agentRow} = await sb.from('agents').select('address').eq('id', inv.agent_id).maybeSingle();
     if(agentRow) agentAddress = agentRow.address || '';
+  }else if(billToName){
+    const {data: agentRows} = await sb.from('agents').select('address').eq('company_name', billToName).or('is_deleted.is.null,is_deleted.eq.false');
+    if(agentRows && agentRows.length===1) agentAddress = agentRows[0].address || '';
   }
 
   const itemRows = items.map(it=>`
