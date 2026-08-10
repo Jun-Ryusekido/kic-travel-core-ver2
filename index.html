@@ -5702,6 +5702,7 @@ function updateSalesBulkSplitConfirmState(){
 
 function confirmSalesBulkSplit(){
   const newItems = [];
+  let paymentsNotCarried = false;
   bdSalesItems.forEach((it,i)=>{
     const paxRow = bdSalesSplitPax[i];
     const totalPax = paxRow.reduce((s,p)=>s+(Number(p)||0),0);
@@ -5709,19 +5710,28 @@ function confirmSalesBulkSplit(){
       newItems.push(it); // 按分対象外、元の行のまま残す
       return;
     }
-    bdSalesSplitCompanies.forEach((name,ci)=>{
+    const targetCis = bdSalesSplitCompanies.map((name,ci)=>ci).filter(ci=>(Number(paxRow[ci])||0)>0);
+    // 分割先が1社のみ(実質的な請求先の付け替え)なら入金記録をそのまま引き継ぐ。
+    // 2社以上に分かれる場合、どちらの入金かを自動判定できないため空のままにし、
+    // 元の行に入金記録があった場合は手動確認を促す警告を出す(二重計上防止)。
+    const singleTarget = targetCis.length === 1;
+    if(!singleTarget && (it.payments||[]).length>0) paymentsNotCarried = true;
+    targetCis.forEach(ci=>{
+      const name = bdSalesSplitCompanies[ci];
       const pax = Number(paxRow[ci])||0;
-      if(pax<=0) return;
       newItems.push({
         item_name: it.item_name, memo: it.memo, unit_price: it.unit_price, pax, qty: it.qty||1,
         amount: (Number(it.unit_price)||0)*pax*(Number(it.qty)||1),
-        payment_date: it.payment_date, agent_name: name.trim(), payments: []
+        payment_date: it.payment_date, agent_name: name.trim(), payments: singleTarget ? (it.payments||[]) : []
       });
     });
   });
   bdSalesItems = newItems;
   document.getElementById('sales-bulk-split-modal')?.remove();
   renderSalesTable();
+  if(paymentsNotCarried){
+    alert('入金情報は自動で按分されていません。各請求先の入金内容を手動で確認・入力してください。');
+  }
 }
 
 // スマホカード表示で、各行を「項目名＋金額のサマリー(常時表示)」＋「その他項目
