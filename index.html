@@ -7330,7 +7330,9 @@ function renderArrangementsList(){
 }
 
 async function deleteArrangement(id){
-  if(!confirm('この手配書を削除しますか?')) return;
+  const a = arrangementsCache.find(x=>x.id===id);
+  const label = a ? [a.sheet_label||'(未設定)', a.tour_code, a.bus_company_name, a.guide_name].filter(Boolean).join(' / ') : '';
+  if(!confirm(`以下の手配書を削除しますか?\n\n${label}`)) return;
   await sb.from('tour_arrangements').delete().eq('id', id);
   await loadArrangementsList();
 }
@@ -8031,8 +8033,12 @@ async function reviewCheckedGuideItems(status){
 async function deleteCheckedGuideItems(){
   const checks = document.querySelectorAll('.gs-check:checked');
   if(checks.length===0){ alert('削除する項目を選択してください'); return; }
-  if(!confirm(checks.length+'件を削除しますか？')) return;
   const ids = Array.from(checks).map(c=>c.dataset.id);
+  const allItems = guideSettlementsCache.flatMap(s=>s.items||[]);
+  const targets = ids.map(id=>allItems.find(it=>it.id===id)).filter(Boolean);
+  const preview = targets.slice(0,5).map(it=>`・${it.expense_date||'(日付不明)'} / ${it.category||'(カテゴリ未設定)'} / ${it.description||'(内容未入力)'} / ¥${Number(it.amount||0).toLocaleString()}`).join('\n');
+  const more = targets.length>5 ? `\n…他${targets.length-5}件` : '';
+  if(!confirm(`以下の${ids.length}件を削除しますか？\n\n${preview}${more}`)) return;
   await guideSettlementItemsApiCall('deleteByIds', { ids });
   await loadGuideSettlements();
 }
@@ -10734,6 +10740,7 @@ async function parkingReservationsApiCall(action, payload){
   return tableCrudApiCall('parking_reservations', action, payload);
 }
 
+let parkingNowHistoryCache = [];
 async function loadParkingNowHistory(){
   const el = document.getElementById('pn-history-list');
   el.textContent = '読み込み中...';
@@ -10749,6 +10756,7 @@ async function loadParkingNowHistory(){
     el.innerHTML = '<span style="color:var(--red)">読み込みエラー: '+escHtml(e.message)+'</span>';
     return;
   }
+  parkingNowHistoryCache = data||[];
   if(!data || data.length===0){ el.textContent = '登録履歴はまだありません'; return; }
   el.innerHTML = data.map(r=>{
     const c = parkingNowStatusColor(r.status);
@@ -10764,7 +10772,9 @@ async function loadParkingNowHistory(){
 }
 
 async function deleteParkingNowReservation(id){
-  if(!confirm('この駐車場予約の登録を削除しますか？')) return;
+  const r = parkingNowHistoryCache.find(x=>x.id===id);
+  const label = r ? `[${parkingNowFacilityTypeLabel(r.facility_type)}] REF#${r.ref_no||''} ${(r.start_datetime||'').replace('T',' ').slice(0,16)}〜${(r.end_datetime||'').replace('T',' ').slice(0,16)}` : '';
+  if(!confirm(`以下の駐車場予約の登録を削除しますか？\n\n${label}`)) return;
   try{
     await parkingReservationsApiCall('delete', {id});
     await loadParkingNowHistory();
@@ -20312,7 +20322,9 @@ async function saveBtModal(){
 
 async function deleteBtRecord(){
   if(!currentBtId) return;
-  if(!confirm('このレコードを削除しますか？')) return;
+  const r = bulletTrainCache.find(x=>x.id===currentBtId);
+  const label = r ? [r.booking_ref, r.ride_date, r.train_name, r.train_number?('号数:'+r.train_number):''].filter(Boolean).join(' / ') : '';
+  if(!confirm(`以下の新幹線手配レコードを削除しますか？\n\n${label}`)) return;
   const {error} = await sb.from('bullet_train_arrangements').delete().eq('id', currentBtId);
   if(error){ alert('削除エラー: '+error.message); return; }
   bulletTrainCache = bulletTrainCache.filter(x=>x.id!==currentBtId);
