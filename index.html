@@ -5547,6 +5547,7 @@ let bdSalesSplitPax = [];
 function openSalesBulkSplitModal(){
   if(bdLocked) return;
   if(!bdSalesItems.length){ alert('売上明細がありません'); return; }
+  _ensureAgentsCacheLoaded();
   bdSalesSplitCompanies = ['', ''];
   bdSalesSplitPax = bdSalesItems.map(()=>[0,0]);
   document.getElementById('sales-bulk-split-modal')?.remove();
@@ -5583,6 +5584,50 @@ function removeSalesBulkSplitCompany(ci){
   renderSalesBulkSplitTable();
 }
 
+// 会社名入力欄のオートコンプリート(取引先マスタ、既存のnb-agent/bd-agentと同じ
+// agentsCache/_ensureAgentsCacheLoadedを再利用する)。列数が可変なため、列index(ci)を
+// キーにした汎用版として実装する(候補選択後も文字列自体はbdSalesSplitCompaniesに
+// 保持するだけで、agent_idのような追跡は行わない。取引先マスタ登録済みの正式名称の
+// 文字列をそのまま使うことが目的のため、自由入力との区別までは不要と判断)。
+function _salesBulkSplitAgentCandidates(q){
+  const query = toHalfWidth((q||'').trim().toLowerCase());
+  if(!query) return agentsCache.slice(0,50);
+  return agentsCache.filter(a=>toHalfWidth((a.company_name||'').toLowerCase()).includes(query)).slice(0,50);
+}
+async function showSalesBulkSplitAgentSuggest(ci){
+  await _ensureAgentsCacheLoaded();
+  renderSalesBulkSplitAgentDropdown(ci, bdSalesSplitCompanies[ci]);
+}
+function filterSalesBulkSplitAgentSuggest(ci){
+  bdSalesSplitCompanies[ci] = document.getElementById(`sales-bulk-split-company-${ci}`).value;
+  updateSalesBulkSplitConfirmState();
+  renderSalesBulkSplitAgentDropdown(ci, bdSalesSplitCompanies[ci]);
+}
+function hideSalesBulkSplitAgentSuggest(ci){
+  const dd = document.getElementById(`sales-bulk-split-company-dd-${ci}`);
+  if(dd) dd.style.display = 'none';
+}
+function renderSalesBulkSplitAgentDropdown(ci, q){
+  const dd = document.getElementById(`sales-bulk-split-company-dd-${ci}`);
+  if(!dd) return;
+  const candidates = _salesBulkSplitAgentCandidates(q);
+  dd.innerHTML = candidates.length
+    ? candidates.map(a=>`<div onmousedown="selectSalesBulkSplitAgentCandidate(${ci},'${escAttr(String(a.id))}')" style="padding:8px 10px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''"><b>${escHtml(a.company_name)}</b></div>`).join('')
+    : `<div style="padding:8px 10px;font-size:11px;color:var(--text3)">候補なし（そのまま自由入力できます）</div>`;
+  const input = document.getElementById(`sales-bulk-split-company-${ci}`);
+  if(input) _positionDropdownNearInput(input, dd);
+  dd.style.display = 'block';
+}
+function selectSalesBulkSplitAgentCandidate(ci, id){
+  const a = agentsCache.find(x=>String(x.id)===String(id));
+  if(!a) return;
+  bdSalesSplitCompanies[ci] = a.company_name;
+  const input = document.getElementById(`sales-bulk-split-company-${ci}`);
+  if(input) input.value = a.company_name;
+  hideSalesBulkSplitAgentSuggest(ci);
+  updateSalesBulkSplitConfirmState();
+}
+
 function _salesBulkSplitRowAmount(i, ci){
   const it = bdSalesItems[i];
   const pax = Number(bdSalesSplitPax[i][ci])||0;
@@ -5603,9 +5648,11 @@ function renderSalesBulkSplitTable(){
   if(!table) return;
   const companies = bdSalesSplitCompanies;
   const theadCompanyCells = companies.map((c,ci)=>`<th style="padding:4px;min-width:150px;text-align:left">
-    <div style="display:flex;gap:4px;align-items:center">
-      <input placeholder="会社名${ci+1}" value="${(c||'').replace(/"/g,'&quot;')}" style="flex:1;font-size:11px" oninput="bdSalesSplitCompanies[${ci}]=this.value;updateSalesBulkSplitConfirmState()">
+    <div style="display:flex;gap:4px;align-items:center;position:relative">
+      <input id="sales-bulk-split-company-${ci}" placeholder="会社名${ci+1}(取引先マスタから検索)" value="${(c||'').replace(/"/g,'&quot;')}" autocomplete="off" style="flex:1;font-size:11px"
+        oninput="filterSalesBulkSplitAgentSuggest(${ci})" onfocus="showSalesBulkSplitAgentSuggest(${ci})" onblur="setTimeout(()=>hideSalesBulkSplitAgentSuggest(${ci}),200)">
       ${companies.length>1?`<span class="lnk" style="font-size:10px" onclick="removeSalesBulkSplitCompany(${ci})">×</span>`:''}
+      <div id="sales-bulk-split-company-dd-${ci}" style="display:none;position:fixed;top:0;left:0;min-width:200px;background:var(--card,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:99999;max-height:180px;overflow-y:auto"></div>
     </div>
   </th>`).join('');
   const rowsHtml = bdSalesItems.map((it,i)=>{
@@ -23484,11 +23531,15 @@ async function showInvoicePreview(inv, booking){
   const depositConverted = isUSD ? depositJPY/USD_RATE : depositJPY;
   const balance = amount - depositConverted;
 
-  // 請求先名・住所を取得
+  // 請求先名・住所を取得。取引先マスタ(agents、取引先/エージェントマスタ管理画面が
+  // 読み書きしている実体)をcompany_nameで検索する。以前はagent_infoという別テーブル
+  // (このInvoiceプレビュー以外どこからも参照・更新されていない孤立テーブル)を
+  // 見ていたため、取引先マスタに正式名称・住所を登録していても一切連携していなかった
+  // (通常予約・按分予約を問わず発生していた不具合)。
   const billToName = inv.agent_name || booking.agent_name || '';
   let agentAddress = '';
   if(billToName){
-    const {data: agentRow} = await sb.from('agent_info').select('address').eq('name', billToName).maybeSingle();
+    const {data: agentRow} = await sb.from('agents').select('address').eq('company_name', billToName).or('is_deleted.is.null,is_deleted.eq.false').maybeSingle();
     if(agentRow) agentAddress = agentRow.address || '';
   }
 
