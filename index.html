@@ -15481,16 +15481,14 @@ async function remapArrDayForeignKeys(bookingId){
   });
 }
 
-// booking_costsの「仕入明細へ追加」経由で作られた行(source_table/source_idを持つ)は、
-// 追加元のホテル/バス/レストラン/観光施設/水がsaveXxxItems()(safeReplaceBookingRows方式、
-// 内容が同じでも既存行を全delete→新IDで全insertし直す)によって保存されると、source_idが
-// 旧IDのまま孤立してしまう(REF#967で実際に発生: booking_restaurants14件のID総入れ替えに
-// 追従できず、booking_costs側が孤立し「ソースが削除されました」警告が出る状態になった)。
-// remapArrDayForeignKeys()と全く同じ「内容一致で新IDへ付け替える」パターンをbooking_costsにも
-// 適用する。戻り値は実際に1件でもsource_idを書き換えたか(呼び出し側でbooking_costsの
-// 再保存が必要かどうかの判定に使う)。
-async function remapCostSourceIds(bookingId){
-  if(!bdCostItems.some(it=>it.source_table && it.source_id)) return false;
+// ホテル/バス/レストラン/観光施設/水はsaveXxxItems()(safeReplaceBookingRows方式、内容が
+// 同じでも既存行を全delete→新IDで全insertし直す)によって保存されると、これらのidを
+// 「追加元」として保持している他テーブル(booking_costs.source_id/vendor_email_logs.source_id)
+// のリンクが旧IDのまま孤立してしまう(REF#967で実際に発生: booking_restaurants14件のID
+// 総入れ替えにbooking_costs側が追従できず孤立し「ソースが削除されました」警告が出る状態に
+// なった)。remapArrDayForeignKeys()と同じ「内容一致で新IDへ付け替える」パターンを、
+// booking_costs.source_id/vendor_email_logs.source_idの両方に適用するための共通部分。
+async function _fetchFreshArrangementSourceTables(bookingId){
   const [{data: freshHotels}, {data: freshBuses}, {data: freshRests}, {data: freshFacs}, {data: freshWater}] = await Promise.all([
     sb.from('booking_hotels').select('id,hotel_name,check_in,check_out').eq('booking_id', bookingId),
     sb.from('booking_buses').select('id,bus_company,start_date,end_date').eq('booking_id', bookingId),
@@ -15498,34 +15496,66 @@ async function remapCostSourceIds(bookingId){
     sb.from('booking_facilities').select('id,facility_name,date').eq('booking_id', bookingId),
     sb.from('booking_water_items').select('id,item_name,date').eq('booking_id', bookingId),
   ]);
-  const remapId = (oldId, oldList, freshList, matchFn) => {
-    if(!oldId) return oldId;
-    const old = oldList.find(x=>String(x.id)===String(oldId));
-    if(!old) return null;
-    const match = (freshList||[]).find(f=>matchFn(f, old));
-    return match ? match.id : null;
-  };
-  const SOURCE_REMAP_CONFIG = {
-    booking_hotels: { oldList: bdHotelItems, freshList: freshHotels,
+  return { booking_hotels: freshHotels, booking_buses: freshBuses, booking_restaurants: freshRests, booking_facilities: freshFacs, booking_water_items: freshWater };
+}
+function _arrangementSourceRemapConfig(freshTables){
+  return {
+    booking_hotels: { oldList: bdHotelItems, freshList: freshTables.booking_hotels,
       matchFn: (f,old)=>f.hotel_name===old.hotel_name && f.check_in===old.check_in && f.check_out===old.check_out },
-    booking_buses: { oldList: bdBusItems, freshList: freshBuses,
+    booking_buses: { oldList: bdBusItems, freshList: freshTables.booking_buses,
       matchFn: (f,old)=>f.bus_company===old.bus_company && f.start_date===old.start_date && f.end_date===old.end_date },
-    booking_restaurants: { oldList: bdRestaurantItems, freshList: freshRests,
+    booking_restaurants: { oldList: bdRestaurantItems, freshList: freshTables.booking_restaurants,
       matchFn: (f,old)=>f.restaurant_name===old.restaurant_name && f.date===old.date && f.meal_type===old.meal_type },
-    booking_facilities: { oldList: bdFacilityItems, freshList: freshFacs,
+    booking_facilities: { oldList: bdFacilityItems, freshList: freshTables.booking_facilities,
       matchFn: (f,old)=>f.facility_name===old.facility_name && f.date===old.date },
-    booking_water_items: { oldList: bdWaterItems, freshList: freshWater,
+    booking_water_items: { oldList: bdWaterItems, freshList: freshTables.booking_water_items,
       matchFn: (f,old)=>f.item_name===old.item_name && f.date===old.date },
   };
+}
+// 一致するものが見つからない場合(実際に削除された場合)はnullにする(remapArrDayForeignKeys
+// と同じ挙動。誤って無関係な行に紐付けてしまうことを避けるため)。
+function _remapArrangementSourceId(oldId, cfg){
+  if(!oldId || !cfg) return oldId;
+  const old = cfg.oldList.find(x=>String(x.id)===String(oldId));
+  if(!old) return null;
+  const match = (cfg.freshList||[]).find(f=>cfg.matchFn(f, old));
+  return match ? match.id : null;
+}
+
+// booking_costsの「仕入明細へ追加」経由で作られた行(source_table/source_idを持つ)の
+// source_idを付け替える。戻り値は実際に1件でもsource_idを書き換えたか(呼び出し側で
+// booking_costsの再保存が必要かどうかの判定に使う)。
+function remapCostSourceIds(config){
   let changed = false;
   bdCostItems.forEach(it=>{
     if(!it.source_table || !it.source_id) return;
-    const cfg = SOURCE_REMAP_CONFIG[it.source_table];
+    const cfg = config[it.source_table];
     if(!cfg) return;
-    const newId = remapId(it.source_id, cfg.oldList, cfg.freshList, cfg.matchFn);
+    const newId = _remapArrangementSourceId(it.source_id, cfg);
     if(newId !== it.source_id){ it.source_id = newId; changed = true; }
   });
   return changed;
+}
+
+// vendor_email_logs(仕入先確認メール送信ログ、二重送信防止用)も同じsource_table/source_id
+// でホテル/バス/レストラン/観光施設/水の行を参照しているため、同じ孤立リスクがある
+// (ID変更後、以前送信済みのはずのメールが「未送信」として再度候補に上がり、重複送信の
+// 可能性が生じる)。このテーブルはbdCostItemsのようなクライアント側の編集用配列を
+// 持たないため、対象booking_idの既存ログ行をDBから都度取得して付け替える。
+// booking_costsと異なり画面上に警告表示等は無いため、再保存自体はupdateByIdで1件ずつ
+// 行う(replace方式ではないので全delete→再insertのリスクはそもそも無い)。
+async function remapVendorEmailLogSourceIds(bookingId, config){
+  const {data: logs, error} = await sb.from('vendor_email_logs').select('id,source_table,source_id').eq('booking_id', bookingId);
+  if(error || !logs || !logs.length) return;
+  for(const log of logs){
+    if(!log.source_table || !log.source_id) continue;
+    const cfg = config[log.source_table];
+    if(!cfg) continue;
+    const newId = _remapArrangementSourceId(log.source_id, cfg);
+    if(newId !== log.source_id){
+      await vendorEmailLogsApiCall('updateById', { id: log.id, fields: { source_id: newId } });
+    }
+  }
 }
 
 // ヘッダーの差分比較専用フィールド(last_revised_at/updated_atは保存の都度書き換わる
@@ -16636,13 +16666,11 @@ async function saveBookingDetail(){
     // 手配書タブ自体は無変更でも合わせて再保存する。
     const arrDocNeedsRemap = (hotelsDirty || busesDirty || restaurantsDirty) && bdArrDayItems.length > 0;
     const arrDocDirty = arrDocOwnDirty || arrDocNeedsRemap;
-    // ホテル/バス/レストラン/観光施設/水のいずれかが変更された場合、「仕入明細へ追加」経由で
-    // 作られたbooking_costs行が保持しているsource_idが旧IDのまま孤立し得るため
-    // (remapArrDayForeignKeysと同じ理由。REF#967で実際に発生)、該当する仕入明細が1件でも
-    // あれば付け替え処理を行う(costsNeedsRemapがtrueでも、実際に付け替えが発生しなければ
-    // remapCostSourceIds内部で仕入明細の再保存自体はスキップされる)。
-    const costsNeedsRemap = (hotelsDirty || busesDirty || restaurantsDirty || facilitiesDirty || waterDirty)
-      && bdCostItems.some(it=>it.source_table && it.source_id);
+    // ホテル/バス/レストラン/観光施設/水のいずれかが変更された場合、これらのidを「追加元」
+    // として保持しているbooking_costs.source_id/vendor_email_logs.source_idが旧IDのまま
+    // 孤立し得るため(remapArrDayForeignKeysと同じ理由。REF#967で実際に発生)、付け替え処理を
+    // 行う。実際に付け替えが発生しなければbooking_costsの再保存自体はスキップされる。
+    const arrangementSourceRemapNeeded = hotelsDirty || busesDirty || restaurantsDirty || facilitiesDirty || waterDirty;
     // ガイド別手配書は、ガイド構成(booking_guides)か手配書(日毎明細・ヘッダー)のいずれかに
     // 変更があった場合のみ意味を持つため、両方無変更ならスキップする。
     const guideDocsDirty = guidesDirty || arrDocDirty;
@@ -16703,16 +16731,22 @@ async function saveBookingDetail(){
     await runSkippable('観光施設(booking_facilities)', facilitiesDirty, () => saveFacilityItems());
     // ここから先の明細保存は、1つが失敗しても残りを止めない(既存のフォールトアイソレーション)。
     await runSkippableIsolated('ミネラルウォーター', 'booking_water_items', waterDirty, () => saveWaterItems());
-    // ホテル/バス/レストラン/観光施設/水の保存(上記)が終わった後、「仕入明細へ追加」経由の
-    // booking_costs行が持つsource_idを最新IDへ付け替える。実際に1件でも付け替えが発生した
-    // 場合のみbooking_costsを再保存する(何も変わらなければ再保存自体行わない)。
-    await runSkippableIsolated('仕入明細のソースID付け替え(booking_costs)', 'booking_costs', costsNeedsRemap, async () => {
-      const changed = await remapCostSourceIds(bookingId);
+    // ホテル/バス/レストラン/観光施設/水の保存(上記)が終わった後、これらのidを「追加元」として
+    // 保持しているbooking_costs.source_id/vendor_email_logs.source_idを最新IDへ付け替える。
+    // 2箇所で同じ「最新の5テーブルの状態」を使うため、フェッチは1回だけ行い共有する。
+    // booking_costsは実際に1件でも付け替えが発生した場合のみ再保存する(何も変わらなければ
+    // 再保存自体行わない)。vendor_email_logsはreplace方式ではない(1件ずつupdateById)ため、
+    // 全delete→再insertのリスクはそもそも無い。
+    await runSkippableIsolated('仕入明細/仕入先メールログのソースID付け替え', 'booking_costs / vendor_email_logs', arrangementSourceRemapNeeded, async () => {
+      const freshTables = await _fetchFreshArrangementSourceTables(bookingId);
+      const config = _arrangementSourceRemapConfig(freshTables);
+      const changed = remapCostSourceIds(config);
       if(changed){
         const rows = buildCostRows(bookingId);
         await bookingCostsApiCall('replace', { bookingId, rows });
         bdLoadSnapshot.costs = JSON.stringify(rows);
       }
+      await remapVendorEmailLogSourceIds(bookingId, config);
     });
     await runSkippableIsolated('新幹線手配', 'bullet_train_arrangements', bulletTrainDirty, () => saveBulletTrainItems());
     await runSkippableIsolated('ガイド', 'booking_guides', guidesDirty, () => saveGuideItems());

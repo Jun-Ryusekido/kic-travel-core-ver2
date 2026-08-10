@@ -164,10 +164,15 @@ const TABLE_CONFIG = {
   // (下記stampNewRows参照)。クライアント自己申告のsent_byを一切信用せず、
   // 検証済みセッションのemail(changedBy)をサーバー側でスタンプする。読み取りは
   // 二重送信チェックのUI表示に使うためanonにもSELECTを許可する(STEP2提示SQL参照)。
+  // updateByIdは、ホテル/バス/レストラン/観光施設/水の保存(safeReplaceBookingRows方式で
+  // 既存行を全delete→新IDで再insertする)によってsource_idが指す先が変わった際、
+  // remapVendorEmailLogSourceIds()がsource_idを新IDへ付け替えるためだけに使う
+  // (updatableFieldsでsource_id以外を書き換えられないよう制限する)。
   vendor_email_logs: {
-    actions: ['insert'],
+    actions: ['insert', 'updateById'],
     label: '仕入先確認メールログ',
     stampSentByField: 'sent_by',
+    updatableFields: ['source_id'],
   },
   // learned_mappings(OCR学習データ): ユーザーの確定操作を「category+input_key+
   // confirmed_value」で蓄積する共通テーブル。新設テーブルのため最初から書き込みは
