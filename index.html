@@ -23464,11 +23464,6 @@ async function showInvoicePreview(inv, booking){
 
   const fmtMoney = v => isUSD ? '$'+(Number(v)/USD_RATE).toLocaleString(undefined,{minimumFractionDigits:2}) : yen(v);
 
-  const {data: salesForDeposit} = await sb.from('booking_sales').select('payments').eq('booking_id', booking.id);
-  const depositJPY = (salesForDeposit||[]).reduce((s,r)=>s+(r.payments||[]).reduce((ps,p)=>ps+(Number(p.amount)||0),0),0);
-  const depositConverted = isUSD ? depositJPY/USD_RATE : depositJPY;
-  const balance = amount - depositConverted;
-
   // 売上明細を取得（請求先で絞り込み）
   const {data: salesRows} = await sb.from('booking_sales').select('*').eq('booking_id', booking.id).order('created_at');
   let items;
@@ -23480,6 +23475,14 @@ async function showInvoicePreview(inv, booking){
   }else{
     items = [{item_name: booking.tour_name||'Tour Fee', unit_price: Number(inv.amount), pax:1, qty: 1, amount: Number(inv.amount)}];
   }
+
+  // 入金額は、このInvoiceの明細(items、請求先で絞り込み済み)に紐づく行の入金記録のみを
+  // 合算する。以前は予約全体のbooking_sales.paymentsを無条件に合算していたため、
+  // 「請求先を分ける」で複数請求先に分割された予約では、他の請求先分の入金額まで
+  // 混ざって表示されてしまっていた。
+  const depositJPY = items.reduce((s,r)=>s+(r.payments||[]).reduce((ps,p)=>ps+(Number(p.amount)||0),0),0);
+  const depositConverted = isUSD ? depositJPY/USD_RATE : depositJPY;
+  const balance = amount - depositConverted;
 
   // 請求先名・住所を取得
   const billToName = inv.agent_name || booking.agent_name || '';
