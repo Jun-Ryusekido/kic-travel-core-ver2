@@ -6474,7 +6474,18 @@ function addCostRow(){
   const tbody = document.getElementById('bd-cost-tbody');
   if(tbody.lastElementChild) tbody.lastElementChild.scrollIntoView({block:'nearest'});
 }
-function removeSalesRow(i){ if(bdLocked) return; if(!confirm('この行を削除しますか？')) return; bdSalesItems.splice(i,1); renderSalesTable(); }
+function removeSalesRow(i){
+  if(bdLocked) return;
+  const it = bdSalesItems[i];
+  const name = it?.item_name || '(項目名未入力)';
+  const amount = Number(it?.amount)||0;
+  const agent = it?.agent_name ? `\n請求先: ${it.agent_name}` : '';
+  const memo = it?.memo ? `\n追記事項: ${it.memo}` : '';
+  const msg = `以下の行を削除しますか？\n\n項目名: ${name}\n金額: ¥${amount.toLocaleString()}${agent}${memo}`;
+  if(!confirm(msg)) return;
+  bdSalesItems.splice(i,1);
+  renderSalesTable();
+}
 function removeCostRow(i){
   if(bdLocked) return;
   const it = bdCostItems[i];
@@ -9406,7 +9417,9 @@ async function copyEstimation(id){
 }
 
 async function deleteEstimation(id){
-  if(!confirm('この見積もりを削除しますか?')) return;
+  const e = estimationsCache.find(x=>x.id===id);
+  const title = e?.title || '(無題)';
+  if(!confirm(`以下の見積もりを削除しますか?\n\nタイトル: ${title}`)) return;
   // estimation_fit_itemsはF1事前調査で実データ0件・書き込み経路なしと確認済みのため
   // 移行対象外(引き続きanon直接delete。将来的にデータが入る可能性に備え、念のため残す)。
   await sb.from('estimation_fit_items').delete().eq('estimation_id', id);
