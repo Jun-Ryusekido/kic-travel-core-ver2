@@ -4660,7 +4660,11 @@ async function fetchVendorEmailCandidates(){
       const pendingDays = ageDays==null ? null : -ageDays;
       const untilUse = daysFrom(r[src.dateCol]);
       const reasonLongPending = pendingDays!=null && pendingDays >= 14;
-      const reasonImminent = untilUse!=null && untilUse <= 30;
+      // 利用日から30日を超えて経過した案件は、もはや「間近」とは言えないため対象外にする
+      // (業務フロー点検⑤: 下限が無く、利用日を大幅に過ぎた古い未確定案件が無期限に一覧へ
+      // 残り続けていた不具合の対策。登録から14日以上未対応であればreasonLongPending側で
+      // 引き続き対象になるため、対応が必要な案件が消えることはない)。
+      const reasonImminent = untilUse!=null && untilUse <= 30 && untilUse >= -30;
       if(!reasonLongPending && !reasonImminent) return;
       const b = bookingById[r.booking_id] || {};
       candidates.push({
