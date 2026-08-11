@@ -15558,6 +15558,47 @@ async function remapVendorEmailLogSourceIds(bookingId, config){
   }
 }
 
+// credit_card_statements.matched_booking_cost_idもbooking_costs.idを参照しており、
+// booking_costsが保存(replace方式、内容が同じでも既存行を全delete→新IDで全insertし直す)
+// されるたびに、消込確定済みのクレカ明細の紐付けが切れるリスクがある(2026-08-10の点検で
+// 判明、点検時点では孤立0件)。ただしbooking_costsは他テーブルと異なりクライアント側
+// (bdCostItems)がidを保持しない設計のため、remapCostSourceIds等と同じ「クライアントの
+// 旧state」を基準にできない。そのため呼び出し側で、booking_costsが書き換わる"前"に
+// 予めDBから取得しておいたoldCostRows(id,item_name,amount,payment_date)を受け取り、
+// 書き換わった"後"のbooking_costsと内容一致で照合する。
+// 同一内容(項目名+金額+支払日)の行が複数ある等で一意に特定できない場合は、誤って
+// 無関係な行に紐付けてしまうことを避けるため、null化も付け替えもせず現状維持し、
+// コンソールに警告を出すのみに留める(消込済みの記録を勝手に消さない。孤立自体は
+// 別途SQLで検出・目視確認できる)。
+async function remapCreditCardStatementSourceIds(bookingId, oldCostRows){
+  if(!oldCostRows || !oldCostRows.length) return;
+  const {data: stmts, error} = await sb.from('credit_card_statements')
+    .select('id,matched_booking_cost_id').eq('matched_booking_id', bookingId).not('matched_booking_cost_id', 'is', null);
+  if(error || !stmts || !stmts.length) return;
+  const {data: freshCosts} = await sb.from('booking_costs').select('id,item_name,amount,payment_date').eq('booking_id', bookingId);
+  const sig = r => `${r.item_name||''}|${Number(r.amount)||0}|${r.payment_date||''}`;
+  const groupBySig = list => {
+    const m = {};
+    (list||[]).forEach(r=>{ const s = sig(r); (m[s] = m[s]||[]).push(r); });
+    return m;
+  };
+  const oldBySig = groupBySig(oldCostRows);
+  const freshBySig = groupBySig(freshCosts);
+  for(const stmt of stmts){
+    const oldRow = oldCostRows.find(r=>String(r.id)===String(stmt.matched_booking_cost_id));
+    if(!oldRow) continue; // 保存前スナップショットに無い(この予約のbooking_costsではない等)場合は触らない
+    const s = sig(oldRow);
+    if((oldBySig[s]||[]).length !== 1 || (freshBySig[s]||[]).length !== 1){
+      console.warn(`[remapCreditCardStatementSourceIds] 内容(${s})が複数行と一致し一意に特定できないため、紐付けを維持します(孤立の可能性あり): credit_card_statements.id=${stmt.id}`);
+      continue;
+    }
+    const newId = freshBySig[s][0].id;
+    if(String(newId) !== String(stmt.matched_booking_cost_id)){
+      await creditCardStatementsApiCall('updateById', { id: stmt.id, fields: { matched_booking_cost_id: newId } });
+    }
+  }
+}
+
 // ヘッダーの差分比較専用フィールド(last_revised_at/updated_atは保存の都度書き換わる
 // 派生値のため、これらを含めて比較すると常に「変更あり」判定になってしまう。
 // ユーザーが実際に編集し得る項目のみを対象にする)。
@@ -16671,6 +16712,10 @@ async function saveBookingDetail(){
     // 孤立し得るため(remapArrDayForeignKeysと同じ理由。REF#967で実際に発生)、付け替え処理を
     // 行う。実際に付け替えが発生しなければbooking_costsの再保存自体はスキップされる。
     const arrangementSourceRemapNeeded = hotelsDirty || busesDirty || restaurantsDirty || facilitiesDirty || waterDirty;
+    // booking_costs自体が保存(costsDirty)されるか、上記のsource_id付け替えで再保存
+    // (arrangementSourceRemapNeeded経由)される場合、booking_costsの行idが変わり得るため、
+    // それを参照しているcredit_card_statements.matched_booking_cost_idも付け替え対象になる。
+    const costsIdsMayChange = costsDirty || arrangementSourceRemapNeeded;
     // ガイド別手配書は、ガイド構成(booking_guides)か手配書(日毎明細・ヘッダー)のいずれかに
     // 変更があった場合のみ意味を持つため、両方無変更ならスキップする。
     const guideDocsDirty = guidesDirty || arrDocDirty;
@@ -16703,6 +16748,15 @@ async function saveBookingDetail(){
         logError(`予約詳細の保存(${label})`, e, {toast:false});
         failedSteps.push({ label, table, message: e.message });
       }
+    }
+
+    // credit_card_statements.matched_booking_cost_idの付け替え用に、booking_costsが
+    // このあと書き換わる(replaceで新IDが振られる)"前"の状態をあらかじめ取得しておく
+    // (bdCostItemsはidを保持しないため、書き換わった後からは元のidを辿れない)。
+    let _oldCostRowsForCcRemap = null;
+    if(costsIdsMayChange){
+      const {data: oldCosts} = await sb.from('booking_costs').select('id,item_name,amount,payment_date').eq('booking_id', bookingId);
+      _oldCostRowsForCcRemap = oldCosts || [];
     }
 
     await runSkippable('売上明細(booking_sales)', salesDirty, async () => {
@@ -16748,6 +16802,11 @@ async function saveBookingDetail(){
       }
       await remapVendorEmailLogSourceIds(bookingId, config);
     });
+    // 上記までにbooking_costsが書き換わっている可能性がある(costsDirty経由・上記の
+    // source_id付け替え経由のいずれか)ため、そのidを参照しているcredit_card_statements
+    // (クレカ明細の消込確定リンク)も、保存前に取得しておいたoldCostRowsを基準に付け替える。
+    await runSkippableIsolated('クレジットカード明細の消込リンク付け替え', 'credit_card_statements', costsIdsMayChange,
+      () => remapCreditCardStatementSourceIds(bookingId, _oldCostRowsForCcRemap));
     await runSkippableIsolated('新幹線手配', 'bullet_train_arrangements', bulletTrainDirty, () => saveBulletTrainItems());
     await runSkippableIsolated('ガイド', 'booking_guides', guidesDirty, () => saveGuideItems());
     // 手配書は「FKの張り替え→ヘッダ/明細の保存」が1セットで、途中で分割すると
