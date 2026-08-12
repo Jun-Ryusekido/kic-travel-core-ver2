@@ -1915,6 +1915,23 @@ input[type=number]{-moz-appearance:textfield}
             <tbody id="fm-tbody"><tr><td colspan="8" class="empty">読み込み中...</td></tr></tbody>
           </table></div>
         </div>
+        <div class="card" style="margin-bottom:14px">
+          <div class="card-title">🕐 施設の営業情報（定休日・営業時間）
+            <button class="btn" style="font-size:11px" onclick="loadFacilityOpInfoAdminList()">🔄 更新</button>
+          </div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:8px">
+            AIのweb検索で保存された各施設の営業情報の一覧です。予約詳細の観光施設タブ(🕐ボタン)から追加・再確認できます。
+            「手動確認済み」の行はAI再検索で上書きされません。
+          </div>
+          <div style="margin-bottom:8px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            <input id="opinfo-admin-new-name" placeholder="施設名を入力して調べる(例: 東京スカイツリー)" style="font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;width:280px;max-width:100%">
+            <button class="btn btn-p" style="font-size:11px" onclick="searchNewFacilityOpInfoFromAdmin()">🌐 webで調べて登録</button>
+          </div>
+          <div class="tbl-wrap"><table class="confirm-table" style="font-size:11px;min-width:800px">
+            <thead><tr><th style="width:18%">施設名</th><th style="width:20%">定休日</th><th style="width:18%">営業時間</th><th>臨時休業・特記</th><th style="width:12%">最終確認</th><th style="width:12%"></th></tr></thead>
+            <tbody id="opinfo-admin-tbody"><tr><td colspan="6" class="empty">「🔄 更新」を押すと読み込みます</td></tr></tbody>
+          </table></div>
+        </div>
       </div>
 
       <!-- 駐車場 今すぐ予約モーダル -->
@@ -4558,6 +4575,7 @@ async function estimationsApiCall(action, payload){ return tableCrudApiCall('est
 async function estimationDaysApiCall(action, payload){ return tableCrudApiCall('estimation_days', action, payload); }
 async function estimationFixedRowsApiCall(action, payload){ return tableCrudApiCall('estimation_fixed_rows', action, payload); }
 async function estimationBookingReflectionsApiCall(action, payload){ return tableCrudApiCall('estimation_booking_reflections', action, payload); }
+async function facilityOperatingInfoApiCall(action, payload){ return tableCrudApiCall('facility_operating_info', action, payload); }
 
 // クレジットカード払いの「名義人」選択肢は、表記ゆれの再発防止のため自由入力にせず、
 // 既存のapp_users(スタッフ一覧)から選ぶ固定リストにする(名義人専用マスタは新設しない)。
@@ -7215,6 +7233,9 @@ async function openBookingDetail(id){
   bdBulletTrainItems = (btRows||[]).map(r=>({ride_date:r.ride_date||'',train_name:r.train_name||'',train_number:r.train_number||'',departure_station:r.departure_station||'',departure_time:r.departure_time||'',arrival_station:r.arrival_station||'',arrival_time:r.arrival_time||'',pax_adult:r.pax_adult||0,pax_child:r.pax_child||0,pax_free:r.pax_free||0,discount_rate:r.discount_rate||0,status:r.status||'回答待ち',memo:r.memo||'',payment_method:r.payment_method||'',amount:r.amount||0}));
   bdLoadSnapshot.bulletTrain = JSON.stringify(buildBulletTrainRows(bdCurrentRefNo));
   renderBusTable(); renderRestaurantTable(); renderFacilityTable(); renderWaterTable(); renderBulletTrainTable();
+  // 観光施設の営業情報キャッシュを非同期で読み込み、完了したら定休日警告バッジを反映する
+  // (待たない。読み込み前でもテーブル表示自体には影響しない)
+  loadFacilityOperatingInfoCache().then(()=>{ if(!_stale()) renderFacilityTable(); }).catch(()=>{});
 
   // 手配書(新テーブル群)を読み込み。bdHotelItems/bdRestaurantItemsが読み込み済みであることに依存する
   // （日毎明細のホテル/レストランのプルダウンをそこから組み立てるため、この位置で読み込む）。
@@ -13925,6 +13946,217 @@ function saveRestaurantConfirm(){
 }
 
 // ─── 観光施設 ─────────────────────────────────────────────────────────────────
+// ─── 観光施設の営業情報(OPEN/CLOSE)確認 ─────────────────────────────────────
+// facility_operating_infoテーブルに保存されたAI web検索の結果(定休日・営業時間・
+// 臨時休業)を表示・更新する。保存済みなら即表示、なければ「webで調べる」で
+// AI検索(classify-email-relevance.jsのmode:'facility-operating-info')を実行して保存する。
+// manually_verified=trueの行(手動確認済み)はAI再検索の結果で自動上書きしない。
+let facilityOperatingInfoCache = null; // facility_name(正規化) -> 行 のMap。予約詳細を開くたびではなく初回参照時に一括読み込み
+
+function normalizeFacilityNameForOpInfo(s){
+  return String(s||'').normalize('NFKC').toLowerCase().replace(/[\s　]/g,'');
+}
+async function loadFacilityOperatingInfoCache(force){
+  if(facilityOperatingInfoCache && !force) return;
+  const {data} = await sb.from('facility_operating_info').select('*');
+  facilityOperatingInfoCache = new Map();
+  (data||[]).forEach(r=>facilityOperatingInfoCache.set(normalizeFacilityNameForOpInfo(r.facility_name), r));
+}
+function findFacilityOperatingInfo(facilityName){
+  if(!facilityOperatingInfoCache) return null;
+  return facilityOperatingInfoCache.get(normalizeFacilityNameForOpInfo(facilityName)) || null;
+}
+// 行の日付が定休日パターンに合致しそうな場合の警告バッジ。確実な判定は不可能なため
+// 「可能性」の注意喚起にとどめる(曜日名の単純一致のみ。「祝日を除く」等の複雑な
+// 条件は判定せず、詳細はポップアップで人間が確認する)。
+const FACILITY_WEEKDAY_NAMES = ['日','月','火','水','木','金','土'];
+function facilityClosedDayWarnHtml(it){
+  if(!it.facility_name || !it.date) return '';
+  const info = findFacilityOperatingInfo(it.facility_name);
+  if(!info) return '';
+  const warns = [];
+  const closed = String(info.regular_closed_days||'');
+  if(closed && !/年中無休|無休/.test(closed)){
+    const d = new Date(it.date+'T00:00:00');
+    if(!isNaN(d)){
+      const wd = FACILITY_WEEKDAY_NAMES[d.getDay()];
+      if(closed.includes(wd+'曜')){
+        warns.push(`⚠ ${it.date}は${wd}曜日: 定休日の可能性(${escHtml(closed.slice(0,40))})`);
+      }
+    }
+  }
+  if(info.notes && String(info.notes).trim()){
+    warns.push(`ℹ ${escHtml(String(info.notes).slice(0,60))}`);
+  }
+  if(!warns.length) return '';
+  return `<div style="font-size:9px;color:var(--amber,#854F0B);margin-top:2px;line-height:1.5">${warns.join('<br>')}</div>`;
+}
+
+async function openFacilityOperatingInfo(i){
+  const it = bdFacilityItems[i];
+  const name = (it.facility_name||'').trim();
+  if(!name){ alert('施設名を入力してください'); return; }
+  await loadFacilityOperatingInfoCache();
+  showFacilityOperatingInfoModal(name, it.date||'');
+}
+
+function showFacilityOperatingInfoModal(facilityName, targetDate){
+  document.getElementById('facility-opinfo-modal')?.remove();
+  const info = findFacilityOperatingInfo(facilityName);
+  const modal = document.createElement('div');
+  modal.id = 'facility-opinfo-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:400;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto';
+  modal.innerHTML = `<div style="background:var(--card,#fff);border-radius:12px;padding:18px;width:100%;max-width:560px;margin-top:30px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div style="font-weight:700;font-size:14px">🕐 ${escHtml(facilityName)} の営業情報</div>
+      <button class="btn" style="font-size:11px" onclick="document.getElementById('facility-opinfo-modal').remove()">閉じる</button>
+    </div>
+    <div id="facility-opinfo-body"></div>
+  </div>`;
+  modal.addEventListener('mousedown', e=>{ if(e.target===modal) modal.remove(); });
+  document.body.appendChild(modal);
+  renderFacilityOperatingInfoBody(facilityName, targetDate, info);
+}
+
+function renderFacilityOperatingInfoBody(facilityName, targetDate, info){
+  const body = document.getElementById('facility-opinfo-body');
+  if(!body) return;
+  const searchBtn = (label)=>`<button class="btn btn-p" style="font-size:12px" onclick="runFacilityOperatingInfoSearch('${escAttr(facilityName)}','${escAttr(targetDate)}')">${label}</button>
+    <span style="font-size:10px;color:var(--text3);margin-left:6px">AIがwebを検索します(数秒〜十数秒かかります)</span>`;
+  if(!info){
+    body.innerHTML = `<div style="font-size:12px;color:var(--text3);margin-bottom:10px">この施設の営業情報はまだ保存されていません。</div>${searchBtn('🌐 webで調べる')}`;
+    return;
+  }
+  const checkedAt = info.ai_checked_at ? new Date(info.ai_checked_at).toLocaleString('ja-JP') : '—';
+  const fld = (label, value)=>`<div style="margin-bottom:6px"><div style="font-size:10px;color:var(--text3)">${label}</div><div style="font-size:12px">${escHtml(value||'—')}</div></div>`;
+  body.innerHTML = `
+    ${fld('定休日', info.regular_closed_days)}
+    ${fld('営業時間', info.operating_hours)}
+    ${fld('臨時休業・特記事項', info.notes)}
+    ${info.source_url?`<div style="margin-bottom:6px"><div style="font-size:10px;color:var(--text3)">情報源</div><a href="${escAttr(info.source_url)}" target="_blank" rel="noopener" style="font-size:11px;word-break:break-all">${escHtml(info.source_url)}</a></div>`:''}
+    <div style="font-size:10px;color:var(--text3);margin-bottom:10px">
+      最終確認: ${escHtml(checkedAt)}
+      ${info.confidence==='low'?'<span style="color:var(--red);margin-left:6px">⚠ AIが公式情報を確認できていません</span>':''}
+      ${info.manually_verified?'<span style="color:var(--green);margin-left:6px">✓ 手動確認済み(AI再検索で上書きされません)</span>':''}
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+      ${searchBtn('🔄 webで再確認')}
+    </div>
+    <div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">
+      <div style="font-size:10px;color:var(--text3);margin-bottom:4px">手動で修正する(公式サイト・電話等で確認した内容を直接入力):</div>
+      <div style="display:grid;gap:4px">
+        <input id="opinfo-edit-closed" value="${escAttr(info.regular_closed_days||'')}" placeholder="定休日" style="font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px">
+        <input id="opinfo-edit-hours" value="${escAttr(info.operating_hours||'')}" placeholder="営業時間" style="font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px">
+        <input id="opinfo-edit-notes" value="${escAttr(info.notes||'')}" placeholder="臨時休業・特記事項" style="font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px">
+      </div>
+      <button class="btn" style="font-size:11px;margin-top:6px" onclick="saveFacilityOperatingInfoManual('${escAttr(facilityName)}','${escAttr(targetDate)}','${escAttr(info.id)}')">💾 手動確認済みとして保存</button>
+    </div>`;
+}
+
+async function runFacilityOperatingInfoSearch(facilityName, targetDate){
+  const body = document.getElementById('facility-opinfo-body');
+  const existing = findFacilityOperatingInfo(facilityName);
+  if(existing && existing.manually_verified){
+    if(!confirm('この施設は手動確認済みです。AI検索の結果で上書きしますか？\n(上書きすると手動確認済みフラグは外れます)')) return;
+  }
+  if(body) body.innerHTML = '<div style="font-size:12px;color:var(--text3)">🌐 webを検索しています...</div>';
+  let info;
+  try{
+    const resp = await fetch('/api/classify-email-relevance', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ mode:'facility-operating-info', facilityName, targetDate })
+    });
+    const json = await parseJsonResponseSafe(resp);
+    if(!resp.ok || json.error) throw new Error(json.error||'検索に失敗しました');
+    info = json.info;
+  }catch(e){
+    if(body) body.innerHTML = `<div style="font-size:12px;color:var(--red);margin-bottom:8px">検索に失敗しました: ${escHtml(e.message)}</div>`;
+    renderFacilityOperatingInfoRetry(facilityName, targetDate);
+    return;
+  }
+  // 保存(既存行があればupdate、なければinsert)
+  const fields = {
+    regular_closed_days: info.regular_closed_days, operating_hours: info.operating_hours,
+    notes: info.notes, source_url: info.source_url, confidence: info.confidence,
+    ai_checked_at: new Date().toISOString(), manually_verified: false,
+    updated_at: new Date().toISOString(),
+  };
+  try{
+    if(existing){
+      await facilityOperatingInfoApiCall('updateById', { id: existing.id, fields });
+    }else{
+      await facilityOperatingInfoApiCall('insert', { rows: [{ facility_name: facilityName, ...fields }] });
+    }
+  }catch(e){
+    alert('検索結果の保存に失敗しました: '+e.message);
+  }
+  await loadFacilityOperatingInfoCache(true);
+  renderFacilityOperatingInfoBody(facilityName, targetDate, findFacilityOperatingInfo(facilityName));
+  renderFacilityTable(); // 定休日警告バッジを最新化
+}
+function renderFacilityOperatingInfoRetry(facilityName, targetDate){
+  const body = document.getElementById('facility-opinfo-body');
+  if(!body) return;
+  body.innerHTML += `<button class="btn btn-p" style="font-size:12px" onclick="runFacilityOperatingInfoSearch('${escAttr(facilityName)}','${escAttr(targetDate)}')">🔄 もう一度試す</button>`;
+}
+
+async function saveFacilityOperatingInfoManual(facilityName, targetDate, id){
+  const fields = {
+    regular_closed_days: document.getElementById('opinfo-edit-closed')?.value||'',
+    operating_hours: document.getElementById('opinfo-edit-hours')?.value||'',
+    notes: document.getElementById('opinfo-edit-notes')?.value||'',
+    manually_verified: true,
+    updated_at: new Date().toISOString(),
+  };
+  try{
+    await facilityOperatingInfoApiCall('updateById', { id, fields });
+  }catch(e){ alert('保存に失敗しました: '+e.message); return; }
+  await loadFacilityOperatingInfoCache(true);
+  renderFacilityOperatingInfoBody(facilityName, targetDate, findFacilityOperatingInfo(facilityName));
+  renderFacilityTable();
+  alert('手動確認済みとして保存しました。');
+}
+
+// ─── 観光地予約管理画面の営業情報一覧セクション ─────────────────────────────
+async function loadFacilityOpInfoAdminList(){
+  const tbody = document.getElementById('opinfo-admin-tbody');
+  if(!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="6" class="empty">読み込み中...</td></tr>';
+  await loadFacilityOperatingInfoCache(true);
+  const rows = Array.from(facilityOperatingInfoCache.values()).sort((a,b)=>String(a.facility_name).localeCompare(String(b.facility_name),'ja'));
+  if(!rows.length){ tbody.innerHTML = '<tr><td colspan="6" class="empty">保存された営業情報はまだありません</td></tr>'; return; }
+  tbody.innerHTML = rows.map(r=>{
+    const checkedAt = r.ai_checked_at ? new Date(r.ai_checked_at).toLocaleDateString('ja-JP') : '—';
+    return `<tr>
+      <td data-label="施設名">${escHtml(r.facility_name)}${r.manually_verified?' <span style="font-size:9px;color:var(--green)">✓手動確認済</span>':''}${r.confidence==='low'?' <span style="font-size:9px;color:var(--red)">⚠低確度</span>':''}</td>
+      <td data-label="定休日">${escHtml(r.regular_closed_days||'—')}</td>
+      <td data-label="営業時間">${escHtml(r.operating_hours||'—')}</td>
+      <td data-label="臨時休業・特記">${escHtml(r.notes||'—')}</td>
+      <td data-label="最終確認">${escHtml(checkedAt)}</td>
+      <td style="white-space:nowrap">
+        <button class="btn" style="font-size:10px" onclick="showFacilityOperatingInfoModal('${escAttr(r.facility_name)}','')">詳細</button>
+        <button class="btn" style="font-size:10px;color:var(--red)" onclick="deleteFacilityOpInfoAdmin('${escAttr(r.id)}','${escAttr(r.facility_name)}')">🗑</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+async function deleteFacilityOpInfoAdmin(id, name){
+  if(!confirm(`「${name}」の営業情報を削除しますか？`)) return;
+  try{
+    await facilityOperatingInfoApiCall('deleteById', { id });
+  }catch(e){ alert('削除に失敗しました: '+e.message); return; }
+  await loadFacilityOperatingInfoCache(true);
+  loadFacilityOpInfoAdminList();
+}
+async function searchNewFacilityOpInfoFromAdmin(){
+  const input = document.getElementById('opinfo-admin-new-name');
+  const name = (input?.value||'').trim();
+  if(!name){ alert('施設名を入力してください'); return; }
+  await loadFacilityOperatingInfoCache();
+  showFacilityOperatingInfoModal(name, '');
+  // 未保存ならモーダル内の「webで調べる」ボタンから検索する(自動では検索しない=コスト制御)
+}
+
 function renderFacilityTable(){
   const tbody = document.getElementById('bd-facilities-tbody');
   if(!tbody) return;
@@ -13933,7 +14165,7 @@ function renderFacilityTable(){
     tbody.innerHTML='<tr><td colspan="11" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
   }else{
     tbody.innerHTML = bdFacilityItems.map((it,i)=>`<tr>
-      <td data-label="施設名" style="position:relative"><input value="${escAttr(it.facility_name)}" oninput="bdFacilityItems[${i}].facility_name=this.value;showFacilitySuggest(this,${i})" onfocus="showFacilitySuggest(this,${i})" onblur="setTimeout(hideFacilitySuggest,150)" style="width:100%"></td>
+      <td data-label="施設名" style="position:relative"><div style="display:flex;gap:3px;align-items:center"><input value="${escAttr(it.facility_name)}" oninput="bdFacilityItems[${i}].facility_name=this.value;showFacilitySuggest(this,${i})" onfocus="showFacilitySuggest(this,${i})" onblur="setTimeout(hideFacilitySuggest,150)" style="flex:1;min-width:0"><button class="btn" style="font-size:10px;padding:2px 5px;flex-shrink:0" title="営業日・営業時間を確認" onclick="openFacilityOperatingInfo(${i})">🕐</button></div>${facilityClosedDayWarnHtml(it)}</td>
       <td data-label="日付"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.date||''}" onchange="bdFacilityItems[${i}].date=this.value"></td>
       <td data-label="人数"><input type="number" value="${it.pax||0}" onchange="bdFacilityItems[${i}].pax=Number(this.value)" style="width:100%"></td>
       <td data-label="金額"><input type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="facilityAmountCalc(${i},this)"></td>

@@ -319,6 +319,13 @@ const TABLE_CONFIG = {
     label: '見積もり予約反映履歴',
     stampSentByField: 'created_by',
   },
+  // 観光施設の営業情報(定休日・営業時間・臨時休業)。AI web検索の結果を保存して再利用し、
+  // 手動修正(manually_verified=true)された行はAI再検索で上書きしない。
+  // 書き込みはこのAPI経由のみ(anon/authenticatedはSELECTのみ)。
+  facility_operating_info: {
+    actions: ['insert', 'updateById', 'deleteById'],
+    label: '観光施設営業情報',
+  },
 };
 
 // learned_mappingsのcategoryはこの4種のみ許可する(bodyの値をそのまま保存しない)。
