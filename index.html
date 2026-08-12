@@ -11082,7 +11082,11 @@ const EMAIL_INBOX_CATEGORY_MAP = {
   'ホテル': {tab:'hotel', textId:'hotel-ocr-text', areaId:'hotel-ocr-area'},
   'バス': {tab:'bus', textId:'bus-ocr-text', areaId:'bus-ocr-area'},
   'レストラン': {tab:'rest', textId:'rest-ocr-text', areaId:'rest-ocr-area'},
-  '観光施設・バス駐車場等': {tab:'fac', textId:'fac-ocr-text', areaId:'fac-ocr-area'}
+  '観光施設・バス駐車場等': {tab:'fac', textId:'fac-ocr-text', areaId:'fac-ocr-area'},
+  // ミネラルウォータータブには他タブと違いメール本文の貼り付け欄が無く、手動入力の表のみ。
+  // textId/areaIdに対応する要素は存在しないが、performSingleEmailSend側でif(textEl)/if(areaEl)
+  // の存在チェックをしているため、水タブを開いて取り込み済みにする動作だけが行われ安全。
+  'ミネラルウォーター': {tab:'water', textId:'water-ocr-text', areaId:'water-ocr-area'}
 };
 
 // 未取り込み(imported=false)のメールを一覧表示。REF#とカテゴリを指定して該当予約に送れるようにする
