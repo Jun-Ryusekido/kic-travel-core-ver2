@@ -7409,6 +7409,7 @@ function closeBookingDetail(){
   document.getElementById('detail-modal').classList.remove('open');
   document.getElementById('bd-invoices-modal')?.classList.remove('open');
   currentDetailId = null;
+  hideFacilitySuggest();
 }
 
 function updateReflectionDecidedPrice(reflId, tierIdx, val){
