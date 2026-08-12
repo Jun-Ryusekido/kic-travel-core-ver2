@@ -10,68 +10,6 @@ export default async function handler(req) {
   try{
     const body = await req.json();
 
-    // ─── mode:'facility-operating-info' ───────────────────────────────────────
-    // 観光施設の営業情報(定休日・営業時間・臨時休業)をAIのweb検索で調べる。
-    // Vercel Hobbyプランの関数数上限(12本)対策で、役割の近いAI呼び出し系の
-    // このエンドポイントにmodeパラメータで同居させる(新規関数は作らない)。
-    // 入力: {mode:'facility-operating-info', facilityName, targetDate?}
-    // 出力: {info: {regular_closed_days, operating_hours, notes, source_url, confidence}}
-    if(body.mode === 'facility-operating-info'){
-      const facilityName = String(body.facilityName||'').trim().slice(0,100);
-      if(!facilityName) return new Response(JSON.stringify({error:'施設名が指定されていません'}), {status:400, headers:{'Content-Type':'application/json'}});
-      const targetDate = String(body.targetDate||'').trim().slice(0,20);
-      const targetDateNote = targetDate ? `\n特に「${targetDate}」前後の臨時休業・特別営業の情報があれば必ずnotesに含めてください。` : '';
-      const response = await fetch('https://api.anthropic.com/v1/messages',{
-        method:'POST',
-        headers:{
-          'Content-Type':'application/json',
-          'x-api-key': process.env.ANTHROPIC_API_KEY,
-          'anthropic-version':'2023-06-01'
-        },
-        body: JSON.stringify({
-          model:'claude-sonnet-4-6',
-          max_tokens:2000,
-          tools:[{type:'web_search_20250305', name:'web_search', max_uses:4}],
-          messages:[{
-            role:'user',
-            content: `日本の観光施設「${facilityName}」の営業情報をweb検索で調べてください。公式サイトの情報を最優先してください。${targetDateNote}
-
-以下のJSON形式のみで回答してください(マークダウンのコードブロック記法や前置きは一切不要):
-{"regular_closed_days":"定休日(例:毎週月曜、年末年始12/29-1/3。無休なら「年中無休」)","operating_hours":"営業時間(例:9:00-17:00、入場は16:30まで)","notes":"臨時休業・改装・特記事項(なければ空文字)","source_url":"根拠にした公式サイト等のURL","confidence":"high または low(公式情報を確認できなければlow)"}
-
-施設が特定できない・情報が見つからない場合は {"error":"情報が見つかりませんでした"} を返してください。`
-          }]
-        })
-      });
-      const data = await response.json();
-      if(!response.ok){
-        const errMsg = data?.error?.message || 'Anthropic APIエラー';
-        return new Response(JSON.stringify({error: errMsg}), {status: 502, headers:{'Content-Type':'application/json'}});
-      }
-      // web検索ツール使用時、contentにはtool_use/tool_result等が混在するため、
-      // typeがtextのブロックだけを結合してからJSONを取り出す。
-      const text = (data.content||[]).filter(c=>c.type==='text').map(c=>c.text).join('\n');
-      let parsed;
-      try{
-        // 応答テキスト中の最初の{...}ブロックを抽出してパースする(前置き文が混ざる場合への保険)
-        const m = text.match(/\{[\s\S]*\}/);
-        parsed = JSON.parse((m ? m[0] : text).replace(/```json|```/g,'').trim());
-      }catch(e){
-        return new Response(JSON.stringify({error: 'AIの応答を解析できませんでした'}), {status: 502, headers:{'Content-Type':'application/json'}});
-      }
-      if(parsed.error){
-        return new Response(JSON.stringify({error: parsed.error}), {status: 404, headers:{'Content-Type':'application/json'}});
-      }
-      const info = {
-        regular_closed_days: String(parsed.regular_closed_days||'').slice(0,500),
-        operating_hours: String(parsed.operating_hours||'').slice(0,500),
-        notes: String(parsed.notes||'').slice(0,1000),
-        source_url: String(parsed.source_url||'').slice(0,500),
-        confidence: parsed.confidence==='low' ? 'low' : 'high',
-      };
-      return new Response(JSON.stringify({info}), {headers:{'Content-Type':'application/json'}});
-    }
-
     const {emails} = body;
     if(!Array.isArray(emails) || emails.length === 0){
       return new Response(JSON.stringify({results: []}), {headers:{'Content-Type':'application/json'}});

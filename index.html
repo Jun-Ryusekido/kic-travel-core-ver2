@@ -14062,7 +14062,7 @@ async function runFacilityOperatingInfoSearch(facilityName, targetDate){
   if(body) body.innerHTML = '<div style="font-size:12px;color:var(--text3)">🌐 webを検索しています...</div>';
   let info;
   try{
-    const resp = await fetch('/api/classify-email-relevance', {
+    const resp = await fetch('/api/extract-card', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ mode:'facility-operating-info', facilityName, targetDate })
     });
