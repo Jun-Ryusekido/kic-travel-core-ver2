@@ -8291,8 +8291,16 @@ async function reflectLocalExpensesToCost(){
   b.gross_cost = newGrossCost;
   await logAction('仮払い一覧表を仕入明細に反映', b.ref_no+' / '+yen(roundedUp));
 
-  const {data: costRows} = await sb.from('booking_costs').select('*').eq('booking_id', bookingId).order('created_at');
-  bdCostItems = mapCostRowsToBdCostItems(costRows);
+  // 以前はbooking_costsをDBから全件再取得してbdCostItemsを丸ごと差し替えていたが、
+  // 仕入明細タブで他の行を編集中(まだ「保存」ボタンを押していない)の状態でこのボタンを
+  // 押すと、その未保存の編集が黙って失われてしまう不具合があった。今回追加した行の内容は
+  // 既に分かっているため、全件再取得はせずローカル配列に1行追記するだけにする。
+  bdCostItems.push({
+    item_name: newCostRow.item_name, amount: newCostRow.amount, payment_date: newCostRow.payment_date,
+    payment_method: '', memo: newCostRow.memo, status: newCostRow.status,
+    card_holder: '', personal_reimbursement_status: '', personal_reimbursed_at: null,
+    source_table: null, source_id: null, source_snapshot: null
+  });
   renderCostTable();
   alert('仕入明細に反映しました。');
 }
@@ -9294,8 +9302,18 @@ async function reflectVoucherToCost(settlementId, guideIndex){
   await bookingsApiCall('updateById', { id: b.id, fields: {gross_cost:newGrossCost, updated_at:new Date().toISOString()} });
   b.gross_cost = newGrossCost;
   await logAction('伝票内容を仕入明細に反映', b.ref_no);
-  const {data: costRows} = await sb.from('booking_costs').select('*').eq('booking_id', b.id).order('created_at');
-  bdCostItems = mapCostRowsToBdCostItems(costRows);
+  // 全件再取得してbdCostItemsを丸ごと差し替えると、仕入明細タブで他の行を編集中(まだ
+  // 「保存」ボタンを押していない)の未保存の編集が黙って失われてしまう不具合があった
+  // (reflectLocalExpensesToCostと同じ問題)。追加したrowsの内容は既知のため、
+  // ローカル配列に追記するだけにする。
+  rows.forEach(r=>{
+    bdCostItems.push({
+      item_name: r.item_name, amount: r.amount, payment_date: r.payment_date,
+      payment_method: '', memo: r.memo, status: 'pending',
+      card_holder: '', personal_reimbursement_status: '', personal_reimbursed_at: null,
+      source_table: null, source_id: null, source_snapshot: null
+    });
+  });
   renderCostTable();
   renderGuideSettlements();
   alert('仕入明細に反映しました。');
@@ -9329,8 +9347,16 @@ async function reflectCheckedGuideItems(settlementId){
   await bookingsApiCall('updateById', { id: b.id, fields: {gross_cost:newGrossCost, updated_at: new Date().toISOString()} });
   b.gross_cost = newGrossCost;
   await logAction('ガイド精算→仕入明細反映（選択）', b.ref_no+' / '+targets.length+'件');
-  const {data: costRows} = await sb.from('booking_costs').select('*').eq('booking_id', b.id).order('created_at');
-  bdCostItems = mapCostRowsToBdCostItems(costRows);
+  // 全件再取得しての丸ごと差し替えによる未保存編集の消失を防ぐため、追加したrowsを
+  // ローカル配列に追記するだけにする(reflectLocalExpensesToCostと同じ対応)。
+  rows.forEach(r=>{
+    bdCostItems.push({
+      item_name: r.item_name, amount: r.amount, payment_date: r.payment_date,
+      payment_method: '', memo: r.memo, status: 'pending',
+      card_holder: '', personal_reimbursement_status: '', personal_reimbursed_at: null,
+      source_table: null, source_id: null, source_snapshot: null
+    });
+  });
   renderCostTable();
   await loadGuideSettlements();
 }
@@ -9405,9 +9431,16 @@ async function reflectGuideItems(settlementId){
 
   await logAction('ガイド精算→仕入明細反映', b.ref_no + ' / ' + targets.length + '件');
 
-  // 仕入明細・KPIを再読み込み
-  const {data: costRows} = await sb.from('booking_costs').select('*').eq('booking_id', b.id).order('created_at');
-  bdCostItems = mapCostRowsToBdCostItems(costRows);
+  // 全件再取得しての丸ごと差し替えによる未保存編集の消失を防ぐため、追加したrowsを
+  // ローカル配列に追記するだけにする(reflectLocalExpensesToCostと同じ対応)。
+  rows.forEach(r=>{
+    bdCostItems.push({
+      item_name: r.item_name, amount: r.amount, payment_date: r.payment_date,
+      payment_method: '', memo: r.memo, status: 'pending',
+      card_holder: '', personal_reimbursement_status: '', personal_reimbursed_at: null,
+      source_table: null, source_id: null, source_snapshot: null
+    });
+  });
   renderCostTable();
   await loadGuideSettlements();
 }
@@ -20344,8 +20377,17 @@ async function saveInvoiceConfirm(){
       return;
     }
     if(currentDetailId && savedIds.has(currentDetailId)){
-      const {data: costData} = await sb.from('booking_costs').select('*').eq('booking_id',currentDetailId).order('created_at');
-      bdCostItems = mapCostRowsToBdCostItems(costData);
+      // 全件再取得しての丸ごと差し替えによる未保存編集の消失を防ぐため、追加した
+      // costRowsのうちcurrentDetailId分をローカル配列に追記するだけにする
+      // (reflectLocalExpensesToCostと同じ対応)。
+      costRows.filter(r=>r.booking_id===currentDetailId).forEach(r=>{
+        bdCostItems.push({
+          item_name: r.item_name, amount: r.amount, payment_date: r.payment_date,
+          payment_method: '', memo: r.memo, status: 'pending',
+          card_holder: '', personal_reimbursement_status: '', personal_reimbursed_at: null,
+          source_table: null, source_id: null, source_snapshot: null
+        });
+      });
       renderCostTable();
       updateDetailGrossPreview();
       const newGross = bdCostItems.reduce((s,it)=>s+Number(it.amount||0),0);
