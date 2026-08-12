@@ -13047,6 +13047,7 @@ function onEmailSplitRefInput(i, el){
 // 消えてしまうことを実際のバグとして確認済み。この保存が本当の転記手段）。
 async function appendEmailExcerptAsDraftRow(tab, excerpt){
   if(!excerpt) return;
+  const bookingId = currentDetailId;
   if(tab==='hotel'){
     bdHotelItems.push({hotel_name:'', check_in:'', check_out:'', room_type:'', rooms:1, breakfast:false, unit_price:0, amount:0, confirmation_no:'', memo:excerpt});
     renderHotelTable();
@@ -13070,6 +13071,29 @@ async function appendEmailExcerptAsDraftRow(tab, excerpt){
     bdWaterItems.push({item_name:'', date:'', qty:0, unit_price:0, amount:0, status:'問い合わせ中', memo:excerpt, payment_method:''});
     renderWaterTable();
     await saveWaterItems();
+  }
+  // 上記の保存(doReplace、全削除→新IDで再挿入)は、メインの「保存」ボタン全体のフローとは
+  // 別に単体で呼ばれており、メインフローが保存の最後にまとめて行っているsource_id付け替え
+  // (remapCostSourceIds/remapVendorEmailLogSourceIds)を経由しない。そのため、この予約に
+  // 既存のbooking_costs/vendor_email_logsがこのタブの行をsource_table/source_idとして
+  // 参照していた場合、doReplaceで新IDに切り替わった際に孤立し「ソースが削除されました」の
+  // 誤警告が出てしまっていた(2026-08-12、REF#1062で確認)。メインフローと同じ手順(保存直前の
+  // 配列=bdHotelItems等を旧IDとして保持→保存後の実データと内容一致で付け替え)をここでも行う。
+  // bdHotelItems等は上記のsaveXxxItems()では書き換えないため、この時点でもまだ保存前の
+  // (=旧IDを持つ)状態のままであり、oldListとして使える。
+  if(bookingId && currentDetailId === bookingId){
+    try{
+      const freshTables = await _fetchFreshArrangementSourceTables(bookingId);
+      const config = _arrangementSourceRemapConfig(freshTables);
+      const changed = remapCostSourceIds(config);
+      if(changed){
+        const rows = buildCostRows(bookingId);
+        await bookingCostsApiCall('replace', { bookingId, rows });
+        bdLoadSnapshot.costs = JSON.stringify(rows);
+        renderCostTable();
+      }
+      await remapVendorEmailLogSourceIds(bookingId, config);
+    }catch(e){ logError('メール分割振り分け: 仕入明細ソースID付け替え', e, {toast:false}); }
   }
 }
 
