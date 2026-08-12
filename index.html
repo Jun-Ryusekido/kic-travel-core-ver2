@@ -11736,9 +11736,24 @@ function emailCategoryKeywordHit(k, haystack){
   return haystack.includes(k);
 }
 
+// 返信・転送メールは本文の先頭に新規のコメントがあり、その下に過去の引用メールが
+// そのまま含まれることが多い。guessEmailCategory等の判定は引用部分まで含めて全文を
+// 見てしまうため、返信内容自体は無関係の話題でも、引用された過去のやり取り(例:古い
+// ホテルの相談)のキーワードに引きずられて誤判定することがあった(REF#1226で「添付
+// わすれました」という一言だけの返信が、引用部分の宿泊キーワードにより「ホテル」と
+// 誤って提案された事例で発見)。Outlook等が挿入する典型的な引用境界(From:/差出人:等の
+// ヘッダーブロック、区切り線)を検出し、それより前の「新規に書かれた部分」だけを
+// 判定対象にする。境界が見つからない場合は従来通り全文を対象にする(後方互換)。
+const EMAIL_QUOTE_BOUNDARY_RE = /\r?\n(From:\s|差出人:\s|-{5,}\s*Original Message\s*-{5,}|_{10,}|On .{0,80} wrote:)/i;
+function stripQuotedReplyContent(body){
+  const text = String(body||'');
+  const m = text.match(EMAIL_QUOTE_BOUNDARY_RE);
+  return m ? text.slice(0, m.index) : text;
+}
+
 function guessEmailCategory(subject, body, sender){
   const subj = String(subject||'').toLowerCase();
-  const text = String(body||'').slice(0, 2000).toLowerCase();
+  const text = stripQuotedReplyContent(body).slice(0, 2000).toLowerCase();
   const from = String(sender||'').toLowerCase();
   const combined = subj + ' ' + text + ' ' + from;
   const attractionHit = ATTRACTION_VEHICLE_KEYWORDS.find(kw=>combined.includes(kw.toLowerCase()));
