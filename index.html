@@ -11533,6 +11533,10 @@ function computeRefSuggestions(subject, body, index){
 function applyRefSuggestion(emailId, refNo){
   const input = document.getElementById('email-inbox-ref-'+emailId);
   if(input) input.value = refNo;
+  // input.valueへの直接代入ではoninputイベントが発火せず、saveEmailInboxRowState
+  // (state保存)が呼ばれないため、候補クリック後に再描画(非同期の広告判定完了・
+  // タブ切替等)が起きるとREF#入力が静かに消えてしまう不具合があった。明示的に呼ぶ。
+  saveEmailInboxRowState(emailId);
 }
 
 // メール一覧の各行には冒頭80文字のプレビューのみ表示しているが、それだけでは
@@ -12959,19 +12963,28 @@ function resolveEmailSplitRef(rawRef){
   return '';
 }
 
+// 抜粋テキストのみからカテゴリを推定する。以前はif/elseの順序で先にマッチした
+// カテゴリを機械的に採用していたため、送迎依頼メールの「ホテル着/ホテル発」
+// (送迎先としての言及)に反応してバスをホテルと誤判定する不具合があった。
+// guessEmailCategory(メイン一覧側の判定)と同じEMAIL_CATEGORY_KEYWORDS辞書・
+// emailCategoryKeywordHitを使い、一致したキーワード数の多いカテゴリを採用する
+// スコアリング方式に統一する。候補ごとに件名・送信者は無いため抜粋本文のみで判定する。
 function guessEmailSplitCategory(excerpt){
-  const t = excerpt||'';
-  const busCharterHit = BUS_CHARTER_KEYWORDS.some(kw=>t.includes(kw));
-  if(ATTRACTION_VEHICLE_KEYWORDS.some(kw=>t.includes(kw)) && !busCharterHit) return '観光施設・バス駐車場等';
-  // 送迎・貸切バスの依頼文には送迎先として「ホテル着」「ホテル発」のような表記が頻出し、
-  // 実際の予約対象はホテルではなくバスなのに、ホテルの判定を先に行うと「ホテル」と誤判定
-  // されていた(実機で確認された不具合)。「バス」判定を「ホテル」判定より先に行うことで、
-  // バスに関する強い語(バス・送迎・車両・ドライバー・号車)を含む文面を優先的にバスと判定する。
-  if(/バス|送迎|車両|ドライバー|号車/.test(t)) return 'バス';
-  if(/ホテル|宿泊|泊/.test(t)) return 'ホテル';
-  if(/レストラン|食事|昼食|夕食/.test(t)) return 'レストラン';
-  if(/施設|駐車場|拝観|入場/.test(t)) return '観光施設・バス駐車場等';
-  return 'ホテル';
+  const t = String(excerpt||'').toLowerCase();
+  const busCharterHit = BUS_CHARTER_KEYWORDS.some(kw=>t.includes(kw.toLowerCase()));
+  const attractionHit = ATTRACTION_VEHICLE_KEYWORDS.find(kw=>t.includes(kw.toLowerCase()));
+  if(attractionHit && !busCharterHit) return '観光施設・バス駐車場等';
+
+  const scores = {};
+  for(const [cat, keywords] of Object.entries(EMAIL_CATEGORY_KEYWORDS)){
+    scores[cat] = keywords.reduce((s,kw)=> s + (emailCategoryKeywordHit(kw.toLowerCase(), t) ? 1 : 0), 0);
+  }
+  const sorted = Object.entries(scores).sort((a,b)=>b[1]-a[1]);
+  const [topCat, topScore] = sorted[0];
+  // この画面は候補ごとに必ず何らかのカテゴリが選択された状態で表示する必要があるため
+  // (未分類にはできない。ユーザーが後で手動修正できる)、手がかりが全く無い場合のみ
+  // 従来通り「ホテル」を既定値にする。
+  return topScore > 0 ? topCat : 'ホテル';
 }
 
 function renderEmailSplitCandidates(){
@@ -13050,6 +13063,13 @@ async function appendEmailExcerptAsDraftRow(tab, excerpt){
     bdFacilityItems.push({facility_name:'', date:'', pax:0, amount:0, status:'問い合わせ中', confirmation_no:'', deadline_date:'', payment_method:'', memo:excerpt});
     renderFacilityTable();
     await saveFacilityItems();
+  }else if(tab==='water'){
+    // ミネラルウォータータブ用。EMAIL_INBOX_CATEGORY_MAPにミネラルウォーターを追加した際、
+    // ここへの対応が漏れており、複数REF#分割振り分けでミネラルウォーターを選択すると
+    // 抜粋がどこにも保存されず消えてしまう不具合があったため追加。
+    bdWaterItems.push({item_name:'', date:'', qty:0, unit_price:0, amount:0, status:'問い合わせ中', memo:excerpt, payment_method:''});
+    renderWaterTable();
+    await saveWaterItems();
   }
 }
 
