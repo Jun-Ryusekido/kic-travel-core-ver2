@@ -13087,12 +13087,23 @@ async function appendEmailExcerptAsDraftRow(tab, excerpt){
       const config = _arrangementSourceRemapConfig(freshTables);
       const changed = remapCostSourceIds(config);
       if(changed){
+        // booking_costsをreplaceすると(doReplace方式のため)全行のidが新しくなり、
+        // それを参照しているcredit_card_statements.matched_booking_cost_id(クレカ明細の
+        // 消込確定リンク)も孤立しうる。メインの保存フローと同じく、replaceで書き換わる前の
+        // 状態(id/item_name/amount/payment_date)をあらかじめ取得しておく。
+        const {data: oldCostRows} = await sb.from('booking_costs').select('id,item_name,amount,payment_date').eq('booking_id', bookingId);
         const rows = buildCostRows(bookingId);
         await bookingCostsApiCall('replace', { bookingId, rows });
         bdLoadSnapshot.costs = JSON.stringify(rows);
         renderCostTable();
+        await remapCreditCardStatementSourceIds(bookingId, oldCostRows || []);
       }
       await remapVendorEmailLogSourceIds(bookingId, config);
+      // 手配書タブの日毎明細(bdArrDayItems)もホテル/バス/レストランのIDを外部キーとして
+      // 保持しており、同じ孤立リスクを抱える(remapArrDayForeignKeysの元々のコメント参照)。
+      // この時点ではbdArrDayItems自体は未保存(メモリ上のみ)だが、この後の同一セッション内で
+      // 手配書タブが保存される可能性があるため、ここで同じタイミングで付け替えておく。
+      if(bdArrDayItems.length) await remapArrDayForeignKeys(bookingId);
     }catch(e){ logError('メール分割振り分け: 仕入明細ソースID付け替え', e, {toast:false}); }
   }
 }
