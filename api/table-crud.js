@@ -27,7 +27,8 @@ const TABLE_CONFIG = {
   // 毎時バックアップの差分化のためupdated_at列を追加し(scripts/add_updated_at_to_booking_costs.sql)、
   // booking_buses/booking_restaurantsと同じ方式でサーバー側に確実にスタンプする。
   booking_costs: { actions: ['replace', 'insert', 'deleteByBooking'], label: '仕入明細', stampIdentity: true, stampUpdatedAt: true, auditLog: true },
-  local_expenses: { actions: ['replace'], label: '現地費用明細' },
+  // deleteByBookingは予約削除(deleteBookingData)用(2026-08-12点検で追加。それまで予約削除の削除対象から漏れていた)
+  local_expenses: { actions: ['replace', 'deleteByBooking'], label: '現地費用明細' },
   parking_reservations: { actions: ['list', 'save', 'delete'], label: '駐車場予約' },
   // guide_settlements/guide_settlement_items: 社内スタッフ(index.html、ログインセッション
   // トークンで認証)からの操作に加え、ガイド本人がguide.html(ログイン機構を持たず、精算
@@ -184,7 +185,8 @@ const TABLE_CONFIG = {
   // remapVendorEmailLogSourceIds()がsource_idを新IDへ付け替えるためだけに使う
   // (updatableFieldsでsource_id以外を書き換えられないよう制限する)。
   vendor_email_logs: {
-    actions: ['insert', 'updateById'],
+    // deleteByBookingは予約削除(deleteBookingData)用(2026-08-12点検で追加)
+    actions: ['insert', 'updateById', 'deleteByBooking'],
     label: '仕入先確認メールログ',
     stampSentByField: 'sent_by',
     updatableFields: ['source_id'],
@@ -238,7 +240,8 @@ const TABLE_CONFIG = {
   tour_guides: { actions: ['replace', 'deleteByBooking'], label: '手配書ガイド(印字用メタデータ)' },
   tour_day_itinerary: { actions: ['replace', 'deleteByBooking'], label: '手配書日毎明細' },
   tour_arrangement_notes: { actions: ['replace', 'deleteByBooking'], label: '手配書注意文言' },
-  booking_water_items: { actions: ['replace'], label: 'ミネラルウォーター明細' },
+  // deleteByBookingは予約削除(deleteBookingData)用(2026-08-12点検で追加。それまで予約削除の削除対象から漏れていた)
+  booking_water_items: { actions: ['replace', 'deleteByBooking'], label: 'ミネラルウォーター明細' },
   // tour_arrangement_headers: booking_idに1:1のヘッダー行。既存クライアントコードは
   // replaceではなくupdate(存在時)/insert(新規時)の直接呼び出しのため、汎用の
   // updateById/insertReturningをそのまま使う(insertReturningは新規作成時に採番id を
@@ -311,7 +314,8 @@ const TABLE_CONFIG = {
   // 事前調査時のSQL案でもcreated_by列のみを追加対象としており、updated_by列が
   // 存在しない前提(stampIdentityを使うと存在しない列で失敗するため使わない)。
   estimation_booking_reflections: {
-    actions: ['insert', 'updateById'],
+    // deleteByBookingは予約削除(deleteBookingData)用(2026-08-12点検で追加)
+    actions: ['insert', 'updateById', 'deleteByBooking'],
     label: '見積もり予約反映履歴',
     stampSentByField: 'created_by',
   },

@@ -7952,6 +7952,13 @@ async function backupBookingDataBeforeDelete(b, refNo){
     arrangement_documents: sb.from('arrangement_documents').select('*').eq('booking_id', b.id),
     guide_settlements: sb.from('guide_settlements').select('*').eq('booking_ref', refNo),
     tour_arrangements: sb.from('tour_arrangements').select('*').eq('booking_ref', refNo),
+    // 2026-08-12点検で追加: 以下4テーブルもbooking_id/booking_refで予約に紐づくが、
+    // バックアップ・削除の両方から漏れていた(DB側のcascade設定に依存して消える場合、
+    // バックアップに残らないままデータが失われる)。
+    booking_water_items: sb.from('booking_water_items').select('*').eq('booking_id', b.id),
+    local_expenses: sb.from('local_expenses').select('*').eq('booking_id', b.id),
+    vendor_email_logs: sb.from('vendor_email_logs').select('*').eq('booking_id', b.id),
+    estimation_booking_reflections: sb.from('estimation_booking_reflections').select('*').eq('booking_id', b.id),
   };
   const keys = Object.keys(queries);
   const results = await Promise.all(keys.map(k=>queries[k]));
@@ -8072,6 +8079,12 @@ async function deleteBookingData(){
     await bookingRestaurantsApiCall('deleteByBooking', { bookingId: b.id });
     await bookingFacilitiesApiCall('deleteByBooking', { bookingId: b.id });
     await sb.from('bullet_train_arrangements').delete().eq('booking_ref', refNo);
+    // 2026-08-12点検で追加: 以下4テーブルも予約に紐づくが削除対象から漏れていた
+    // (DB側のcascade設定に依存すると、バックアップに残らないまま消える/または孤立する)。
+    await bookingWaterItemsApiCall('deleteByBooking', { bookingId: b.id });
+    await localExpensesApiCall('deleteByBooking', { bookingId: b.id });
+    await vendorEmailLogsApiCall('deleteByBooking', { bookingId: b.id });
+    await estimationBookingReflectionsApiCall('deleteByBooking', { bookingId: b.id });
 
     // 見積もりの変換リンクのみ解除（見積もり自体は残す）。F1対応でupdateはAPI経由に
     // なったため、対象idを読み取り(select、anon許可のまま)で特定してからupdateByIdsする。
