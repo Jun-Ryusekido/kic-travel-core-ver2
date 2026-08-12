@@ -10718,6 +10718,24 @@ async function saveHotelItems(){
   const rows = buildHotelRows(bookingId);
   await bookingHotelsApiCall('replace', { bookingId, rows });
   bdLoadSnapshot.hotels = JSON.stringify(rows);
+  // doReplace(サーバー側で全削除→新IDで再挿入)により、保存前のbdHotelItemsは古いIDの
+  // ままになる。仕入明細の「ソースが削除されました」警告(costSourceWarning)はこの
+  // クライアント側配列とbooking_costs.source_idを突き合わせているため、更新しないと
+  // 実際には存在するデータなのに削除されたと誤表示されてしまう不具合があった
+  // (2026-08-12、REF#1062で確認)。保存直後に最新のIDで読み直し、仕入明細欄も
+  // 再描画して警告を正しい状態に更新する。
+  const {data: freshRows} = await sb.from('booking_hotels').select('*').eq('booking_id', bookingId).order('sort_order');
+  if(currentDetailId === bookingId){ // 読み直し完了までの間に別の予約を開いていたら上書きしない
+    bdHotelItems = (freshRows||[]).map(r=>({
+      id: r.id, hotel_name: r.hotel_name||'', check_in: r.check_in||'', check_out: r.check_out||'',
+      room_type: r.room_type||'', rooms: r.rooms||1, breakfast: r.breakfast||false,
+      unit_price: r.unit_price||0, amount: r.amount||0,
+      confirmation_no: r.confirmation_no||'', status: r.status||'回答待ち', memo: r.memo||'', payment_method: r.payment_method||'',
+      cost_added: r.cost_added||false
+    }));
+    renderHotelTable();
+    renderCostTable();
+  }
 }
 
 // テーブル全体を再描画せずに合計のみ更新するヘルパー（フォーカス中の日付入力を破壊しない）
@@ -10792,6 +10810,20 @@ async function saveBusItems(){
   bdLoadSnapshot.buses = JSON.stringify(rows);
   // 保存後に同一予約内の重複登録を再チェックする(警告表示のみで、保存自体はブロックしない)
   checkBusDoubleBookings();
+  // doReplaceによりIDが新しくなるため、仕入明細の「ソースが削除されました」誤警告を防ぐ
+  // 目的でbdBusItemsを最新IDで読み直す(saveHotelItemsと同じ対応。詳細はそちらのコメント参照)。
+  const {data: freshRows} = await sb.from('booking_buses').select('*').eq('booking_id', bookingId).order('created_at');
+  if(currentDetailId === bookingId){
+    bdBusItems = (freshRows||[]).map(r=>({
+      id:r.id,bus_company:r.bus_company||'',bus_type:r.bus_type||'',buses:r.buses||1,start_date:r.start_date||'',end_date:r.end_date||'',
+      amount:r.amount||0,status:r.status||'問い合わせ中',confirmation_no:r.confirmation_no||'',
+      driver_hotel_name:r.driver_hotel_name||'',driver_hotel_phone:r.driver_hotel_phone||'',driver_hotel_address:r.driver_hotel_address||'',
+      driver_check_in:r.driver_check_in||'',driver_check_out:r.driver_check_out||'',driver_hotel_amount:r.driver_hotel_amount||0,
+      memo:r.memo||'',payment_method:r.payment_method||'',cost_added:r.cost_added||false
+    }));
+    renderBusTable();
+    renderCostTable();
+  }
 }
 
 // ─── バスの重複登録チェック(同一予約内) ─────────────────────────
@@ -13679,6 +13711,18 @@ async function saveRestaurantItems(){
   const rows = buildRestaurantRows(bookingId);
   await bookingRestaurantsApiCall('replace', { bookingId, rows });
   bdLoadSnapshot.restaurants = JSON.stringify(rows);
+  // doReplaceによりIDが新しくなるため、仕入明細の「ソースが削除されました」誤警告を防ぐ
+  // 目的でbdRestaurantItemsを最新IDで読み直す(saveHotelItemsと同じ対応。詳細はそちらのコメント参照)。
+  const {data: freshRows} = await sb.from('booking_restaurants').select('*').eq('booking_id', bookingId).order('created_at');
+  if(currentDetailId === bookingId){
+    bdRestaurantItems = (freshRows||[]).map(r=>({
+      id:r.id,restaurant_name:r.restaurant_name||'',meal_type:r.meal_type||'昼食',date:r.date||'',reservation_time:r.reservation_time||'',
+      pax:r.pax||0,amount:r.amount||0,status:r.status||'問い合わせ中',payment_method:r.payment_method||'',memo:r.memo||'',
+      guide_id:r.guide_id||null,guide_name_freetext:r.guide_name_freetext||'',cost_added:r.cost_added||false
+    }));
+    renderRestaurantTable();
+    renderCostTable();
+  }
 }
 
 // ─── レストランAI読み取り ─────────────────────────────────────────────────────
@@ -13971,6 +14015,18 @@ async function saveFacilityItems(){
   const rows = buildFacilityRows(bookingId);
   await bookingFacilitiesApiCall('replace', { bookingId, rows });
   bdLoadSnapshot.facilities = JSON.stringify(rows);
+  // doReplaceによりIDが新しくなるため、仕入明細の「ソースが削除されました」誤警告を防ぐ
+  // 目的でbdFacilityItemsを最新IDで読み直す(saveHotelItemsと同じ対応。詳細はそちらのコメント参照)。
+  const {data: freshRows} = await sb.from('booking_facilities').select('*').eq('booking_id', bookingId).order('created_at');
+  if(currentDetailId === bookingId){
+    bdFacilityItems = (freshRows||[]).map(r=>({
+      id:r.id,facility_name:r.facility_name||'',date:r.date||'',pax:r.pax||0,amount:r.amount||0,status:r.status||'問い合わせ中',
+      confirmation_no:r.confirmation_no||'',deadline_date:r.deadline_date||'',payment_method:r.payment_method||'',memo:r.memo||'',
+      deadline_completed:r.deadline_completed||false,deadline_completed_at:r.deadline_completed_at||null,cost_added:r.cost_added||false
+    }));
+    renderFacilityTable();
+    renderCostTable();
+  }
 }
 
 // ─── ミネラルウォーター ─────────────────────────────────────────────────────
@@ -14031,6 +14087,17 @@ async function saveWaterItems(){
   const rows = buildWaterRows(bookingId);
   await bookingWaterItemsApiCall('replace', { bookingId, rows });
   bdLoadSnapshot.water = JSON.stringify(rows);
+  // doReplaceによりIDが新しくなるため、仕入明細の「ソースが削除されました」誤警告を防ぐ
+  // 目的でbdWaterItemsを最新IDで読み直す(saveHotelItemsと同じ対応。詳細はそちらのコメント参照)。
+  const {data: freshRows} = await sb.from('booking_water_items').select('*').eq('booking_id', bookingId).order('created_at');
+  if(currentDetailId === bookingId){
+    bdWaterItems = (freshRows||[]).map(r=>({
+      id:r.id,item_name:r.item_name||'',date:r.date||'',qty:r.qty||0,unit_price:r.unit_price||0,amount:r.amount||0,
+      status:r.status||'問い合わせ中',memo:r.memo||'',payment_method:r.payment_method||'',cost_added:r.cost_added||false
+    }));
+    renderWaterTable();
+    renderCostTable();
+  }
 }
 
 // ─── 観光施設AI読み取り ───────────────────────────────────────────────────────
