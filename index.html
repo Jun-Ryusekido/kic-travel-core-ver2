@@ -12963,8 +12963,12 @@ function guessEmailSplitCategory(excerpt){
   const t = excerpt||'';
   const busCharterHit = BUS_CHARTER_KEYWORDS.some(kw=>t.includes(kw));
   if(ATTRACTION_VEHICLE_KEYWORDS.some(kw=>t.includes(kw)) && !busCharterHit) return '観光施設・バス駐車場等';
+  // 送迎・貸切バスの依頼文には送迎先として「ホテル着」「ホテル発」のような表記が頻出し、
+  // 実際の予約対象はホテルではなくバスなのに、ホテルの判定を先に行うと「ホテル」と誤判定
+  // されていた(実機で確認された不具合)。「バス」判定を「ホテル」判定より先に行うことで、
+  // バスに関する強い語(バス・送迎・車両・ドライバー・号車)を含む文面を優先的にバスと判定する。
+  if(/バス|送迎|車両|ドライバー|号車/.test(t)) return 'バス';
   if(/ホテル|宿泊|泊/.test(t)) return 'ホテル';
-  if(/バス|送迎|車両/.test(t)) return 'バス';
   if(/レストラン|食事|昼食|夕食/.test(t)) return 'レストラン';
   if(/施設|駐車場|拝観|入場/.test(t)) return '観光施設・バス駐車場等';
   return 'ホテル';
