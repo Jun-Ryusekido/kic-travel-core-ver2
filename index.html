@@ -5530,7 +5530,10 @@ function bdSalesPaymentAmountCalc(i,j,el){
   const v = parseNum(el.value);
   bdSalesItems[i].payments[j].amount = v;
   el.value = v.toLocaleString('ja-JP');
-  renderSalesTable();
+  // 以前はrenderSalesTable()で全体を再描画していたが、入力中のフォーカスが失われる
+  // (次の入金欄へ連続入力できない)ため、影響のあるセル(未収・サマリー)だけを更新する。
+  updateBdSalesUnpaidCell(i);
+  updateDetailGrossPreview();
 }
 
 function addSalesPayment(i){
@@ -5830,7 +5833,7 @@ function renderSalesTable(){
         <td class="bd-sales-detail bd-sales-pax" style="text-align:right"><input ${dis} type="number" value="${it.pax||1}" onchange="bdSalesRowCalc(${i},this,'pax')" style="text-align:right"></td>
         <td class="bd-sales-detail bd-sales-qty" style="text-align:right"><input ${dis} type="number" value="${it.qty||1}" onchange="bdSalesRowCalc(${i},this,'qty')" style="text-align:right"></td>
         <td data-label="金額" id="bd-sales-amt-${i}" class="li-amt bd-sales-detail bd-sales-calc-line" style="text-align:right">${yen(it.amount||0)}</td>
-        <td data-label="入金日" class="bd-sales-detail">${renderSalesPaymentDates(it,i,dis)}</td>         <td data-label="入金金額" class="bd-sales-detail">${renderSalesPaymentAmounts(it,i,dis)}</td>         <td data-label="入金先銀行" class="bd-sales-detail">${renderSalesPaymentBanks(it,i,dis)}</td>         <td data-label="入金備考" class="bd-sales-detail">${renderSalesPaymentRemarks(it,i,dis)}</td>         <td data-label="未収" class="li-amt bd-sales-detail" style="${(Number(it.amount||0)-salesPaymentsTotal(it))>0?'color:var(--red)':'color:var(--green)'}">${yen(Number(it.amount||0)-salesPaymentsTotal(it))}</td>
+        <td data-label="入金日" class="bd-sales-detail">${renderSalesPaymentDates(it,i,dis)}</td>         <td data-label="入金金額" class="bd-sales-detail">${renderSalesPaymentAmounts(it,i,dis)}</td>         <td data-label="入金先銀行" class="bd-sales-detail">${renderSalesPaymentBanks(it,i,dis)}</td>         <td data-label="入金備考" class="bd-sales-detail">${renderSalesPaymentRemarks(it,i,dis)}</td>         <td data-label="未収" id="bd-sales-unpaid-${i}" class="li-amt bd-sales-detail" style="${(Number(it.amount||0)-salesPaymentsTotal(it))>0?'color:var(--red)':'color:var(--green)'}">${yen(Number(it.amount||0)-salesPaymentsTotal(it))}</td>
         <td class="bd-agent-col bd-sales-detail" data-label="請求先" style="position:relative">
           <input class="bd-agent-col" id="sales-row-agent-${i}" ${dis} autocomplete="off" value="${(it.agent_name||'').replace(/"/g,'&quot;')}" title="${(it.agent_name||'').replace(/"/g,'&quot;')}" placeholder="(予約のAgent)"
             oninput="filterSalesRowAgentSuggest(${i})" onfocus="showSalesRowAgentSuggest(${i})" onblur="setTimeout(()=>hideSalesRowAgentSuggest(${i}),200)">
@@ -6307,7 +6310,22 @@ function bdSalesRowCalc(i, el, field){
   // スマホのサマリー一覧(常時表示、折りたたみ中でも見える金額)も同時に同期する
   const summaryAmtEl = document.getElementById('bd-sales-summary-amt-'+i);
   if(summaryAmtEl) summaryAmtEl.textContent = yen(bdSalesItems[i].amount);
+  // 未収セルも即時更新する(以前は金額セルだけ更新され、未収セルは全体再描画まで
+  // 古い値のまま残っていたため、単価・人数を編集した直後の未収表示が実態と食い違う
+  // 不具合があった。2026-08-12、REF#1062で確認)
+  updateBdSalesUnpaidCell(i);
   updateDetailGrossPreview();
+}
+
+// 売上明細1行分の未収セル(金額-入金合計)を再計算して表示を更新する。
+// 単価/人数/数量の変更(bdSalesRowCalc)・入金額の変更(bdSalesPaymentAmountCalc)の
+// どちらからも呼ばれる。
+function updateBdSalesUnpaidCell(i){
+  const cell = document.getElementById('bd-sales-unpaid-'+i);
+  if(!cell || !bdSalesItems[i]) return;
+  const unpaid = Number(bdSalesItems[i].amount||0) - salesPaymentsTotal(bdSalesItems[i]);
+  cell.textContent = yen(unpaid);
+  cell.style.color = unpaid>0 ? 'var(--red)' : 'var(--green)';
 }
 
 function bdCostRowCalc(i, el){
