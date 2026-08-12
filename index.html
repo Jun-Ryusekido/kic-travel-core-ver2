@@ -11880,6 +11880,12 @@ async function expandEmailInboxRange(){
   emailInboxLoadDays = null;
   try{
     await reloadEmailInboxRows();
+    // reloadEmailInboxRows()自体は検索フィルタを保持せず全件表示にしてしまうため、
+    // 検索ボックスに入力済みの検索語があれば再適用する(適用しないと、検索語が
+    // 入力欄に残ったまま一覧だけ無関係な全件表示に戻ってしまう不具合があった)。
+    const searchEl = document.getElementById('email-inbox-search');
+    const term = searchEl ? searchEl.value.trim() : '';
+    if(term) await applyEmailInboxSearch(term);
   }catch(e){
     emailInboxLoadDays = EMAIL_INBOX_DEFAULT_DAYS;   // 失敗したら元の範囲に戻す
     alert('過去分の読み込みに失敗しました: '+e.message);
