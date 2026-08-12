@@ -13,6 +13,9 @@ import { getServiceKey } from './lib/app-users-db.js';
 import { verifySessionToken } from './lib/session-token.js';
 
 const SB_URL = 'https://nzdygjlnzvtdezslnuoy.supabase.co';
+// クライアント側(index.html)のACCOUNTING_EMAILSと同じ一覧。経理担当者限定操作の
+// サーバー側チェック(checkBookingCostsPaymentDateRestriction等)で使う。
+const ACCOUNTING_EMAILS = ['admin@kictravel.jp', 'kanri@kictravel.jp'];
 
 // テーブルごとに許可するactionをホワイトリスト化する。ここに無い(table, action)の
 // 組み合わせは400で拒否する。
@@ -43,6 +46,18 @@ const TABLE_CONFIG = {
     allowedDeleteFields: ['booking_ref'],
     stampIdentity: true,
     auditLog: true,
+    // 「締めを解除」(status:'open'への書き戻し)はクライアント側のisAccountingUser()で
+    // ボタン自体を隠しているが、有効なセッショントークンさえあればAPIを直接叩けてしまう
+    // 抜け穴があったため、email_import_queueのexcluded_reasonと同じ方式でサーバー側にも
+    // 二重の防御を追加する(2026-08-12点検で発見)。
+    restrictedFieldValues: [
+      {
+        field: 'status',
+        value: 'open',
+        allowedEmails: ['admin@kictravel.jp', 'kanri@kictravel.jp'],
+        message: 'ガイド精算の締め解除は経理担当者のみ操作できます。',
+      },
+    ],
   },
   guide_settlement_items: {
     actions: ['insert', 'updateById', 'updateByIds', 'deleteById', 'deleteByIds', 'deleteByField', 'guestInsert', 'guestUpdateById'],
@@ -930,9 +945,43 @@ export default async function handler(req, res) {
     return null;
   }
 
+  // booking_costsの「出金日」(payment_date)欄は、経理担当者以外はクライアント側で
+  // 入力欄自体が無効化されているが、それはUI上の制御に過ぎず、有効なセッション
+  // トークンさえあればAPIを直接叩いて書き換えられる抜け穴があった(2026-08-12点検で
+  // 発見)。booking_costsはdoReplace(全削除→再挿入)方式で保存されるため、
+  // guide_settlementsのような「特定の値」への単純な制限では対応できない
+  // (idが毎回変わるため、新規行と既存行を内容(仕入先名+金額+出金日以外の内容)で
+  // 緩やかに照合し、出金日だけが変更されている行を検出する。remapCostSourceIds等の
+  // 既存の「内容一致で対応付ける」パターンと同じ考え方)。一意に対応付けられない場合は
+  // 誤検知で全スタッフの通常保存を止めてしまう方が実害が大きいため、安全側(=許可)に倒す。
+  async function checkBookingCostsPaymentDateRestriction(bookingId, rows) {
+    if (!bookingId || !Array.isArray(rows)) return null;
+    if (changedBy && ACCOUNTING_EMAILS.includes(changedBy)) return null;
+    const existingRes = await sbFetch('booking_costs', `?booking_id=eq.${encodeURIComponent(bookingId)}&select=item_name,amount,memo,payment_date`);
+    if (!existingRes.ok) return null; // 確認自体に失敗した場合は誤って全員をブロックしないよう許可する
+    const existing = await existingRes.json();
+    const usedExisting = new Set();
+    for (const row of rows) {
+      const match = (existing || []).find((e, i) =>
+        !usedExisting.has(i) && e.item_name === (row.item_name || '') && Number(e.amount || 0) === Number(row.amount || 0) && (e.memo || '') === (row.memo || ''));
+      if (!match) continue; // 対応する既存行が一意に見つからない(新規行等)場合は対象外
+      usedExisting.add(existing.indexOf(match));
+      const existingDate = match.payment_date || null;
+      const newDate = row.payment_date || null;
+      if (existingDate !== newDate) {
+        return { status: 403, body: { error: '仕入明細の出金日は経理担当者のみ変更できます。' } };
+      }
+    }
+    return null;
+  }
+
   try {
     if (action === 'replace') {
       const { bookingId, rows } = req.body;
+      if (table === 'booking_costs') {
+        const denied = await checkBookingCostsPaymentDateRestriction(bookingId, rows);
+        if (denied) return res.status(denied.status).json(denied.body);
+      }
       const result = await doReplace(table, config.label, bookingId, stampNewRows(rows), config, changedBy);
       return res.status(result.status).json(result.body);
     }
