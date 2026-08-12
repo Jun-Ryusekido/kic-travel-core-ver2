@@ -23531,11 +23531,20 @@ async function addUser(){
 }
 
 async function deleteUserAccount(userId, email){
-  if(!confirm(`アカウント「${email}」を削除しますか？\nこの操作は取り消せません。削除するとこのユーザーはログインできなくなります。`)) return;
+  // 誤クリック・誤操作による削除を防ぐため、単なるOK/キャンセル確認ではなく、
+  // 削除対象のメールアドレスを正確に入力させる方式にする(GitHubのリポジトリ削除と
+  // 同じパターン。実機確認時に「確認の案内が不安」との指摘を受けて強化)。
+  const typed = prompt(`アカウント「${email}」を削除します。\n\nこの操作は取り消せません。削除するとこのユーザーはログインできなくなります。\n\n本当に削除する場合は、確認のため削除対象のメールアドレスをそのまま入力してください:`);
+  if(typed===null) return; // キャンセル
+  if(typed.trim() !== email){
+    alert('入力されたメールアドレスが一致しないため、削除を中止しました。');
+    return;
+  }
   try{
     await accountAdminApiCall({ mode:'delete', userId });
   }catch(e){ alert('削除に失敗しました: '+e.message); return; }
   await logAction('ユーザー削除', email);
+  alert(`アカウント「${email}」を削除しました。`);
   loadAccounts();
 }
 
