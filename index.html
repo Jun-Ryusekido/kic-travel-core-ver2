@@ -12572,16 +12572,23 @@ function goToEmailInboxPage(page){
   renderEmailInboxPage();
 }
 
-// AIにメール本文を渡し、REF#/ツアー番号ごとの候補（{ref_no, excerpt}の配列）を取得する。
-async function fetchEmailSplitCandidates(subject, body){
+// AIにメール本文を渡し、REF#/ツアー番号ごとの候補（{ref_no, excerpt, is_flagged}の配列）を取得する。
+// htmlBodyを渡すと、サーバー側(api/extract-email-refs.js)が赤字・強調表記を正規表現で
+// 検知し、各候補が赤字箇所と重なるかどうかをis_flaggedとして一緒に返す(html_bodyが
+// 無い/未対応の古いメールの場合はこれまで通りis_flaggedを考慮せず動作する)。
+async function fetchEmailSplitCandidates(subject, body, htmlBody){
   // 極端に長い本文(埋め込み画像のBase64データ等が紛れ込んだ場合を含む)をそのままAIに
   // 渡すと、応答が遅くなりVercelの実行時間上限に達して関数がタイムアウトし、
   // JSONではなくプラットフォーム側のエラーページが返ってくることがあるため、
   // 実務上十分な長さに切り詰めてから送信する。
   const cappedBody = String(body||'').slice(0, 8000);
+  // html_bodyは色抽出(正規表現処理)にのみ使いAI自体には渡さないため、本文ほど厳しく
+  // 絞る必要はないが、送信コスト・処理時間を抑えるため念のため上限を設ける
+  // (VBA側で既に50000文字に切り詰め済み。ここではその範囲内で十分な長さを許容する)。
+  const cappedHtmlBody = htmlBody ? String(htmlBody).slice(0, 50000) : undefined;
   const resp = await fetch('/api/extract-email-refs', {
     method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({subject, body: cappedBody})
+    body: JSON.stringify({subject, body: cappedBody, html_body: cappedHtmlBody})
   });
   const data = await parseJsonResponseSafe(resp);
   if(!resp.ok || data.error){ throw new Error(data.error || 'AI解析でエラーが発生しました'); }
@@ -12629,17 +12636,18 @@ async function sendEmailToBooking(emailId){
   const manualRef = refInput ? refInput.value.trim() : '';
   setEmailInboxRefWarn(emailId, false);
 
-  const {data: emailRow, error: eErr} = await sb.from('email_import_queue').select('subject,body').eq('id', emailId).single();
+  const {data: emailRow, error: eErr} = await sb.from('email_import_queue').select('subject,body,html_body').eq('id', emailId).single();
   if(eErr){ alert('メール本文の取得に失敗しました: '+eErr.message); return; }
   const subject = emailRow.subject||'';
   const body = emailRow.body||'';
+  const htmlBody = emailRow.html_body||'';
 
   const sendBtn = document.getElementById('email-inbox-send-'+emailId);
   const origLabel = sendBtn ? sendBtn.innerHTML : '';
   if(sendBtn){ sendBtn.disabled = true; sendBtn.innerHTML = '⏳ AI判定中...'; }
   let aiCandidates = [];
   try{
-    aiCandidates = await fetchEmailSplitCandidates(subject, body);
+    aiCandidates = await fetchEmailSplitCandidates(subject, body, htmlBody);
   }catch(e){
     logError('メール受信箱: REF#抽出', e, {toast:false});
   }
@@ -12647,14 +12655,20 @@ async function sendEmailToBooking(emailId){
 
   if(!allBookingsCache.length) allBookingsCache = await fetchAllBookings();
 
-  let candidates = Array.isArray(aiCandidates) ? aiCandidates.map(c=>({ref_no: c.ref_no, excerpt: c.excerpt})) : [];
+  let candidates = Array.isArray(aiCandidates) ? aiCandidates.map(c=>({ref_no: c.ref_no, excerpt: c.excerpt, is_flagged: !!c.is_flagged})) : [];
   if(manualRef){
     const resolvedManual = resolveEmailSplitRef(manualRef) || manualRef;
+    // 手動入力されたREF#と同一のAI候補が既にある場合、その候補が赤字/強調ありと
+    // 判定されていれば警告が消えてしまわないよう、手動候補側に引き継いでから重複を除く。
+    const duplicateFlagged = candidates.some(c=>{
+      const r = resolveEmailSplitRef(String(c.ref_no||'').trim()) || String(c.ref_no||'').trim();
+      return r === resolvedManual && c.is_flagged;
+    });
     candidates = candidates.filter(c=>{
       const r = resolveEmailSplitRef(String(c.ref_no||'').trim()) || String(c.ref_no||'').trim();
       return r !== resolvedManual;
     });
-    candidates = [{ref_no: manualRef, excerpt: body}, ...candidates];
+    candidates = [{ref_no: manualRef, excerpt: body, is_flagged: duplicateFlagged}, ...candidates];
   }
 
   if(candidates.length===0){
@@ -12995,7 +13009,7 @@ function applyEmailPartnerDiffAndOpenEditor(){
 
 // ─── メール受信箱: REF#候補確認モーダル(AI提案 + 手動候補 → 確認 → 送信) ─────────
 let emailSplitEmailId = null;
-let emailSplitCandidates = []; // [{rawRef, excerpt, refNo, category, checked, unresolved, status, errorMsg}]
+let emailSplitCandidates = []; // [{rawRef, excerpt, refNo, category, checked, unresolved, status, errorMsg, is_flagged}]
 
 // AIが返した候補配列(および手動候補)を受け取り、既存bookingへの解決を行った上で確認モーダルを表示する。
 async function showEmailSplitModal(emailId, parsed){
@@ -13017,7 +13031,8 @@ async function showEmailSplitModal(emailId, parsed){
       checked: true,
       unresolved: !resolved,
       status: 'pending',
-      errorMsg: ''
+      errorMsg: '',
+      is_flagged: !!c.is_flagged
     };
   });
   document.getElementById('email-split-status').textContent = `${emailSplitCandidates.length}件の候補が見つかりました`;
@@ -13107,6 +13122,7 @@ function renderEmailSplitCandidates(){
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
         <input type="checkbox" ${c.checked?'checked':''} ${dis} onchange="emailSplitCandidates[${i}].checked=this.checked">
         ${isDone ? `<span style="font-size:11px;font-weight:700;color:var(--green,#1a7f37)">✓ 完了</span>` : ''}
+        ${c.is_flagged ? `<span style="font-size:11px;font-weight:600;color:var(--red)">⚠ 赤字表記あり(手配不可の可能性)</span>` : ''}
         <label style="font-size:11px;color:var(--text3)">REF#</label>
         <span style="display:inline-flex;align-items:center;gap:0;border:1px solid ${c.unresolved?'var(--red)':'var(--border)'};border-radius:6px;overflow:hidden" id="email-split-ref-wrap-${i}">
           <span style="font-size:11px;color:var(--text3);padding:4px 0 4px 7px;user-select:none">#</span>
