@@ -13012,6 +13012,17 @@ let emailSplitEmailId = null;
 let emailSplitCandidates = []; // [{rawRef, excerpt, refNo, category, checked, unresolved, status, errorMsg, is_flagged}]
 
 // AIが返した候補配列(および手動候補)を受け取り、既存bookingへの解決を行った上で確認モーダルを表示する。
+// 「手配不可」等、予約が確定しない/不要になることを示す典型的なキーワード。本文の色情報
+// (is_flagged/赤字検知)が無い、またはAIが拾えなかった場合でも、抜粋テキスト自体に
+// これらの語が含まれていれば同じ警告バッジを出す(赤字検知 OR キーワード一致)。
+// 「確認」「連絡」等の曖昧な語は誤検知(false positive)を招くため含めない。誤って無関係な
+// 候補にバッジが付くより、検知できない方が実害が少ないという方針(赤字検知の正規表現と同じ考え方)。
+const EMAIL_SPLIT_UNAVAILABLE_KEYWORDS = ['手配不可', 'キャンセル', '催行未定', '一旦外し', '取消', '中止'];
+function emailSplitHasUnavailableKeyword(text){
+  const t = String(text||'');
+  return EMAIL_SPLIT_UNAVAILABLE_KEYWORDS.some(kw=>t.includes(kw));
+}
+
 async function showEmailSplitModal(emailId, parsed){
   emailSplitEmailId = emailId;
   document.getElementById('email-split-modal').classList.add('open');
@@ -13032,7 +13043,7 @@ async function showEmailSplitModal(emailId, parsed){
       unresolved: !resolved,
       status: 'pending',
       errorMsg: '',
-      is_flagged: !!c.is_flagged
+      is_flagged: !!c.is_flagged || emailSplitHasUnavailableKeyword(c.excerpt||'')
     };
   });
   document.getElementById('email-split-status').textContent = `${emailSplitCandidates.length}件の候補が見つかりました`;
@@ -13066,7 +13077,12 @@ function showEmailSplitErr(msg){
 }
 
 // AIが抽出した生の表記（"KIC0879_TC"等）を、実在するbookings.ref_noに解決する。
-// 完全一致→ツアー名に含まれる→番号部分だけの一致、の順に緩めていく。見つからなければ空文字（不明）。
+// 完全一致→ツアー名に含まれる、の順に緩めていく。見つからなければ空文字（不明）。
+// 以前はここに「rawRefから拾った3桁以上の数字が、どの予約のref_no/tour_nameに部分
+// 文字列として含まれていれば一致とみなす」という更に緩いフォールバックがあったが、
+// これが緩すぎて、催行未定でまだbookingsに作られていない回(KIC1305_JF)が全く無関係な
+// 既存予約(#794)に誤って結び付いてしまう実害があったため削除した。一致する予約が
+// 本当に存在しない場合は、無理に何かへ結び付けず空文字（未解決）を返すのが正しい。
 function resolveEmailSplitRef(rawRef){
   if(!rawRef) return '';
   const norm = s => (s||'').toUpperCase().replace(/[^A-Z0-9#]/g,'');
@@ -13078,12 +13094,6 @@ function resolveEmailSplitRef(rawRef){
   if(b) return b.ref_no;
   b = allBookingsCache.find(x=>x.tour_name && norm(x.tour_name).includes(target));
   if(b) return b.ref_no;
-  const digits = rawRef.match(/\d{3,}/);
-  if(digits){
-    const d = digits[0];
-    b = allBookingsCache.find(x=>norm(x.ref_no).includes(d) || (x.tour_name && x.tour_name.includes(d)));
-    if(b) return b.ref_no;
-  }
   return '';
 }
 
@@ -13122,7 +13132,7 @@ function renderEmailSplitCandidates(){
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
         <input type="checkbox" ${c.checked?'checked':''} ${dis} onchange="emailSplitCandidates[${i}].checked=this.checked">
         ${isDone ? `<span style="font-size:11px;font-weight:700;color:var(--green,#1a7f37)">✓ 完了</span>` : ''}
-        ${c.is_flagged ? `<span style="font-size:11px;font-weight:600;color:var(--red)">⚠ 赤字表記あり(手配不可の可能性)</span>` : ''}
+        ${c.is_flagged ? `<span style="font-size:11px;font-weight:600;color:var(--red)">⚠ 手配不可の可能性</span>` : ''}
         <label style="font-size:11px;color:var(--text3)">REF#</label>
         <span style="display:inline-flex;align-items:center;gap:0;border:1px solid ${c.unresolved?'var(--red)':'var(--border)'};border-radius:6px;overflow:hidden" id="email-split-ref-wrap-${i}">
           <span style="font-size:11px;color:var(--text3);padding:4px 0 4px 7px;user-select:none">#</span>
