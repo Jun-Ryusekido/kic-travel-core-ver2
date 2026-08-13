@@ -9827,7 +9827,10 @@ function renderEstDays(){
     </th>`;
   }
   html += `<th style="background:transparent;border:none;padding:4px 6px;white-space:nowrap;vertical-align:top">
-    <button class="btn btn-p" onclick="addEstDay()">＋ Day追加</button>
+    <div style="display:flex;flex-direction:column;gap:4px">
+      <button class="btn btn-p" onclick="addEstDay()">＋ Day追加</button>
+      <button class="btn btn-p" onclick="addEstDayCopy()">⧉ コピーして追加</button>
+    </div>
   </th>`;
   html += `<th style="min-width:90px;text-align:right;white-space:nowrap">合計</th></tr></thead><tbody>`;
 
@@ -9944,6 +9947,29 @@ function addEstDay(){
   estDays.push(JSON.parse(JSON.stringify(EST_DAY_BLANK)));
   estFixedRows.forEach(r=>{ r.amounts = r.amounts||[]; r.amounts.push(0); });
   estAdmissionRows.forEach(r=>{ r.amounts = r.amounts||[]; r.amounts.push(0); r.contents = r.contents||[]; r.contents.push(''); });
+  renderEstDays(); autoFillEstDayDates(); calcEstimation();
+}
+// 現在の最終日(一番右の列)の内容(ホテル代・食事・バス代固定費等)をそのままコピーした
+// 新しい日程を末尾に追加する。day_date自体もコピーされるが、この後のautoFillEstDayDates()
+// で1日目の日付を起点に再計算されるため、addEstDay()と同様に結果的に正しく1日ずつ
+// 増えていく(既存のこのロジックはそのまま利用し、変更しない)。
+function addEstDayCopy(){
+  if(!estDays.length){ addEstDay(); return; } // 日程が1件も無い場合は通常のDay追加と同じ扱い
+  const lastDay = JSON.parse(JSON.stringify(estDays[estDays.length-1]));
+  estDays.push(lastDay);
+  estFixedRows.forEach(r=>{
+    r.amounts = r.amounts||[];
+    const lastAmount = r.amounts.length ? r.amounts[r.amounts.length-1] : 0;
+    r.amounts.push(lastAmount);
+  });
+  estAdmissionRows.forEach(r=>{
+    r.amounts = r.amounts||[];
+    const lastAmount = r.amounts.length ? r.amounts[r.amounts.length-1] : 0;
+    r.amounts.push(lastAmount);
+    r.contents = r.contents||[];
+    const lastContent = r.contents.length ? r.contents[r.contents.length-1] : '';
+    r.contents.push(lastContent);
+  });
   renderEstDays(); autoFillEstDayDates(); calcEstimation();
 }
 function removeEstDay(i){

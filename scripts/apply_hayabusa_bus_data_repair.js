@@ -19,8 +19,12 @@
 //      booking_idで入っていることを確認する)。
 //
 // 実行方法:
-//   SUPABASE_SERVICE_ROLE_KEY=xxxx node scripts/apply_hayabusa_bus_data_repair.js --plan <path> [--yes]
+//   SUPABASE_SERVICE_ROLE_KEY=xxxx node scripts/apply_hayabusa_bus_data_repair.js --plan <path> [--yes] [--exclude-codes KIC1226_DSG,KIC1162_AT]
 //   --yes を付けない場合、実行前に対象件数を表示し、確認プロンプトで一時停止する。
+//   --exclude-codes は、JUNさんが内容確認の上で「この団体名は今回移動しない」と判断した
+//   候補を、実行計画(moves)から extracted_kic_code の完全一致で除外する(カンマ区切りで
+//   複数指定可)。除外された分はunmatchedと同様、booking_hotels側にもbooking_buses側にも
+//   一切触れない(このスクリプトでは何もしない=手動確認が必要なまま残る)。
 
 const fs = require('fs');
 const path = require('path');
@@ -30,10 +34,11 @@ const { SB_URL } = require('./dry_run_hayabusa_bus_data_repair');
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
 function parseArgs(argv) {
-  const args = { plan: null, yes: false };
+  const args = { plan: null, yes: false, excludeCodes: [] };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--plan') args.plan = argv[++i];
     if (argv[i] === '--yes') args.yes = true;
+    if (argv[i] === '--exclude-codes') args.excludeCodes = argv[++i].split(',').map((s) => s.trim()).filter(Boolean);
   }
   return args;
 }
@@ -92,15 +97,30 @@ async function main() {
     console.error(`実行計画JSONが見つかりません: ${planPath}`);
     process.exit(1);
   }
-  const { moves, unmatched, unrecognized } = JSON.parse(fs.readFileSync(planPath, 'utf8'));
+  const { moves: allMoves, unmatched, unrecognized } = JSON.parse(fs.readFileSync(planPath, 'utf8'));
+
+  const excludeSet = new Set(args.excludeCodes);
+  const moves = (allMoves || []).filter((m) => !excludeSet.has(m.extracted_kic_code));
+  const excludedMoves = (allMoves || []).filter((m) => excludeSet.has(m.extracted_kic_code));
 
   console.log(`=== 実行計画の内容 ===`);
-  console.log(`moves(booking_busesへ移動): ${(moves || []).length}件`);
+  console.log(`moves(実行計画全体): ${(allMoves || []).length}件`);
+  if (excludeSet.size) {
+    console.log(`  うち --exclude-codes で除外: ${excludedMoves.length}件`);
+    excludedMoves.forEach((m) => console.log(`    booking_hotels#${m.booking_hotels_id} (${m.extracted_kic_code}) → 除外(このスクリプトでは一切変更しません)`));
+    const notFoundCodes = args.excludeCodes.filter((c) => !allMoves.some((m) => m.extracted_kic_code === c));
+    if (notFoundCodes.length) {
+      console.error(`\n警告: --exclude-codesで指定されたコードのうち、movesに存在しないものがあります: ${notFoundCodes.join(', ')}`);
+      console.error('指定間違いの可能性があるため、確認してから再実行してください。処理を中止します。');
+      process.exit(1);
+    }
+  }
+  console.log(`moves(実際に処理する件数): ${moves.length}件`);
   console.log(`unmatched(処理保留・未処理リスト): ${(unmatched || []).length}件 ※このスクリプトでは一切変更しません`);
   console.log(`unrecognized(要手動確認): ${(unrecognized || []).length}件 ※このスクリプトでは一切変更しません`);
 
-  if (!moves || !moves.length) {
-    console.log('moves対象が0件のため、書き込みは行いません。');
+  if (!moves.length) {
+    console.log('処理対象が0件のため、書き込みは行いません。');
     return;
   }
 
