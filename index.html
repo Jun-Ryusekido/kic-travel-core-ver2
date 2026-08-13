@@ -12636,11 +12636,16 @@ async function sendEmailToBooking(emailId){
   const manualRef = refInput ? refInput.value.trim() : '';
   setEmailInboxRefWarn(emailId, false);
 
-  const {data: emailRow, error: eErr} = await sb.from('email_import_queue').select('subject,body,html_body').eq('id', emailId).single();
+  const {data: emailRow, error: eErr} = await sb.from('email_import_queue').select('subject,body,html_body,sender').eq('id', emailId).single();
   if(eErr){ alert('メール本文の取得に失敗しました: '+eErr.message); return; }
   const subject = emailRow.subject||'';
   const body = emailRow.body||'';
   const htmlBody = emailRow.html_body||'';
+  const sender = emailRow.sender||'';
+  // 候補ごとの抜粋だけではカテゴリのキーワードが拾えない場合(日程・団体名のみの
+  // 抜粋等)に備え、親メール全体(件名・本文・送信者)からのカテゴリ推定もあらかじめ
+  // 用意しておき、showEmailSplitModal側のフォールバックとして渡す。
+  const parentCatGuess = guessEmailCategory(subject, body, sender);
 
   const sendBtn = document.getElementById('email-inbox-send-'+emailId);
   const origLabel = sendBtn ? sendBtn.innerHTML : '';
@@ -12676,7 +12681,7 @@ async function sendEmailToBooking(emailId){
     return;
   }
 
-  await showEmailSplitModal(emailId, candidates);
+  await showEmailSplitModal(emailId, candidates, parentCatGuess.category);
 }
 
 // メールを軸に、AIでメール本文から取引先マスタ(business_partners)の項目を抽出し、
@@ -13023,7 +13028,14 @@ function emailSplitHasUnavailableKeyword(text){
   return EMAIL_SPLIT_UNAVAILABLE_KEYWORDS.some(kw=>t.includes(kw));
 }
 
-async function showEmailSplitModal(emailId, parsed){
+// parentCategory: 呼び出し元(sendEmailToBooking)が親メール全体(件名・本文・送信者)から
+// guessEmailCategoryで推定したカテゴリ(null/未分類の場合あり)。候補ごとの抜粋だけでは
+// キーワードが拾えない場合(例:「①KIC1172_JF(A)…」のような日程・団体名のみの抜粋)の
+// フォールバックとして使う。これも無い/決まらない場合は空文字のまま「未分類」とし、
+// 無理に何かのカテゴリを決め打ちしない(はやぶさ国際観光バスの30件メールで、抜粋に
+// キーワードが無かったため全件が無条件に「ホテル」とみなされ、実際にはバス手配の
+// メールがbooking_hotelsへ大量に誤保存された実害があったため)。
+async function showEmailSplitModal(emailId, parsed, parentCategory){
   emailSplitEmailId = emailId;
   document.getElementById('email-split-modal').classList.add('open');
   document.getElementById('email-split-status').textContent = '';
@@ -13034,11 +13046,12 @@ async function showEmailSplitModal(emailId, parsed){
   emailSplitCandidates = parsed.map(c=>{
     const rawRef = String(c.ref_no||'').trim();
     const resolved = resolveEmailSplitRef(rawRef);
+    const category = guessEmailSplitCategory(c.excerpt||'') || parentCategory || '';
     return {
       rawRef,
       excerpt: c.excerpt||'',
       refNo: resolved || '',
-      category: guessEmailSplitCategory(c.excerpt||''),
+      category,
       checked: true,
       unresolved: !resolved,
       status: 'pending',
@@ -13121,6 +13134,13 @@ function resolveEmailSplitRef(rawRef){
 // guessEmailCategory(メイン一覧側の判定)と同じEMAIL_CATEGORY_KEYWORDS辞書・
 // emailCategoryKeywordHitを使い、一致したキーワード数の多いカテゴリを採用する
 // スコアリング方式に統一する。候補ごとに件名・送信者は無いため抜粋本文のみで判定する。
+// 手がかりが全く無い場合は null を返す(呼び出し元でメール全体のカテゴリ判定に
+// フォールバックする。それでも決まらなければ「未分類」のまま確認画面に表示し、
+// スタッフに手動選択させる)。
+// 以前はここで決め打ちで「ホテル」をデフォルトにしていたが、抜粋(候補ごとの短い
+// 抜粋文)には「バス」等のキーワードが含まれないケースがあり、その場合に全件が
+// 無条件でホテルと誤判定され、実際にはバス手配のメールがbooking_hotelsへ
+// 大量に誤保存される実害があったため廃止した。
 function guessEmailSplitCategory(excerpt){
   const t = String(excerpt||'').toLowerCase();
   const busCharterHit = BUS_CHARTER_KEYWORDS.some(kw=>t.includes(kw.toLowerCase()));
@@ -13133,10 +13153,7 @@ function guessEmailSplitCategory(excerpt){
   }
   const sorted = Object.entries(scores).sort((a,b)=>b[1]-a[1]);
   const [topCat, topScore] = sorted[0];
-  // この画面は候補ごとに必ず何らかのカテゴリが選択された状態で表示する必要があるため
-  // (未分類にはできない。ユーザーが後で手動修正できる)、手がかりが全く無い場合のみ
-  // 従来通り「ホテル」を既定値にする。
-  return topScore > 0 ? topCat : 'ホテル';
+  return topScore > 0 ? topCat : null;
 }
 
 function renderEmailSplitCandidates(){
@@ -13144,7 +13161,8 @@ function renderEmailSplitCandidates(){
     const isDone = c.status==='done';
     const isError = c.status==='error';
     const dis = isDone ? 'disabled' : '';
-    const borderColor = isDone ? 'var(--green,#1a7f37)' : (c.unresolved||isError) ? 'var(--red)' : 'var(--border)';
+    const categoryMissing = !c.category;
+    const borderColor = isDone ? 'var(--green,#1a7f37)' : (c.unresolved||isError||categoryMissing) ? 'var(--red)' : 'var(--border)';
     return `
     <div style="border:1px solid ${borderColor};border-radius:8px;padding:10px;margin-bottom:8px;${isDone?'opacity:0.65':''}">
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
@@ -13157,9 +13175,11 @@ function renderEmailSplitCandidates(){
           <input id="email-split-ref-${i}" inputmode="numeric" value="${escAttr((c.refNo||'').replace(/^\D+/,''))}" placeholder="${c.unresolved?'不明・数字で入力':''}" ${dis} oninput="onEmailSplitRefInput(${i}, this)" style="font-size:11px;padding:4px 7px 4px 3px;border:none;outline:none;width:110px">
         </span>
         <label style="font-size:11px;color:var(--text3)">カテゴリ</label>
-        <select ${dis} onchange="emailSplitCandidates[${i}].category=this.value" style="font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px">
+        <select id="email-split-cat-${i}" ${dis} onchange="onEmailSplitCategoryChange(${i}, this)" style="font-size:11px;padding:4px 7px;border:1px solid ${categoryMissing?'var(--red)':'var(--border)'};border-radius:6px">
+          <option value="" ${c.category?'':'selected'}>-- 未分類 --</option>
           ${Object.keys(EMAIL_INBOX_CATEGORY_MAP).map(cat=>`<option value="${escAttr(cat)}" ${c.category===cat?'selected':''}>${escHtml(cat)}</option>`).join('')}
         </select>
+        <span id="email-split-cat-warn-${i}" style="font-size:11px;color:var(--red);font-weight:600">${categoryMissing ? '⚠ 未分類（選択してください）' : ''}</span>
         <span id="email-split-warn-${i}" style="font-size:${c.unresolved?'11px':'10px'};color:${c.unresolved?'var(--red)':'var(--text3)'};font-weight:${c.unresolved?'600':'normal'}">${
           c.unresolved ? `⚠ 不明（元の表記: ${escHtml(c.rawRef)}）` : `元の表記: ${escHtml(c.rawRef)}`
         }</span>
@@ -13168,6 +13188,17 @@ function renderEmailSplitCandidates(){
       ${isError ? `<div style="font-size:11px;color:var(--red);font-weight:600;margin-top:6px">⚠ ${escHtml(c.errorMsg||'')}</div>` : ''}
     </div>
   `;}).join('');
+}
+
+// カテゴリ<select>の変更時、全体を再描画せずにこの要素・警告テキストだけを直接更新する
+// (REF#入力欄のonEmailSplitRefInputと同じ方針。selectはinputほどフォーカス問題は
+// 起きないが、他候補の状態(進捗表示中の再描画等)と競合しないよう軽量な更新に留める)。
+function onEmailSplitCategoryChange(i, el){
+  emailSplitCandidates[i].category = el.value;
+  const missing = !el.value;
+  el.style.borderColor = missing ? 'var(--red)' : 'var(--border)';
+  const warnEl = document.getElementById('email-split-cat-warn-'+i);
+  if(warnEl) warnEl.textContent = missing ? '⚠ 未分類（選択してください）' : '';
 }
 
 // REF#入力欄はキー入力のたびにrenderEmailSplitCandidates()（innerHTML全体の再構築）を
@@ -13285,6 +13316,8 @@ async function submitEmailSplit(){
   const pending = checked.filter(c=>c.status!=='done');
   const missingRef = pending.filter(c=>!c.refNo || !c.refNo.trim());
   if(missingRef.length>0){ showEmailSplitErr('REF#が未入力の候補があります。すべて入力してください。'); return; }
+  const missingCategory = pending.filter(c=>!c.category);
+  if(missingCategory.length>0){ showEmailSplitErr('カテゴリが未分類の候補があります。すべて選択してください。'); return; }
 
   if(!allBookingsCache.length) allBookingsCache = await fetchAllBookings();
 
