@@ -10212,7 +10212,7 @@ async function saveEstimation(){
       ...estAdmissionRows.map((r,k)=>{
         const cts = r.contents||[];
         const label = '@admission:'+(r.remark||'') + (cts.some(c=>c) ? '@@'+JSON.stringify(cts) : '');
-        return {estimation_id: estId, label, amounts: (r.amounts||[]).map(a=>Number(a)||0), sort_order: 1000+k};
+        return {estimation_id: estId, label, amounts: (r.amounts||[]).map(a=>Number(a)||0), sort_order: 1000+k, section: ''};
       })
     ];
     try{
