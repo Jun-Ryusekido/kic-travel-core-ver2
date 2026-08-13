@@ -13077,12 +13077,17 @@ function showEmailSplitErr(msg){
 }
 
 // AIが抽出した生の表記（"KIC0879_TC"等）を、実在するbookings.ref_noに解決する。
-// 完全一致→ツアー名に含まれる、の順に緩めていく。見つからなければ空文字（不明）。
+// 完全一致→ツアー名に含まれる→ref_noの数字部分の完全一致、の順に緩めていく。
+// 見つからなければ空文字（不明）。
 // 以前はここに「rawRefから拾った3桁以上の数字が、どの予約のref_no/tour_nameに部分
-// 文字列として含まれていれば一致とみなす」という更に緩いフォールバックがあったが、
-// これが緩すぎて、催行未定でまだbookingsに作られていない回(KIC1305_JF)が全く無関係な
-// 既存予約(#794)に誤って結び付いてしまう実害があったため削除した。一致する予約が
-// 本当に存在しない場合は、無理に何かへ結び付けず空文字（未解決）を返すのが正しい。
+// 文字列として含まれていれば一致とみなす」フォールバックがあったが、tour_name(自由
+// 記述の長いテキスト)側への部分文字列一致が緩すぎて、催行未定でまだbookingsに作られて
+// いない回(KIC1305_JF)が全く無関係な既存予約(#794。tour_nameにたまたま"1305"を含む)に
+// 誤って結び付いてしまう実害があった。そのため一旦丸ごと削除したところ、今度は
+// ref_no側の数字一致(KIC1173_JF→#1173等、元々安全に機能していた大多数の正常系)まで
+// 巻き添えで解決できなくなるregressionを起こしてしまった。tour_name側の部分文字列
+// 一致が誤爆の原因であり、ref_no側の数字「完全一致」はそもそも安全な仕組みだったため、
+// ref_no側のみをここに復元する(tour_nameへの数字部分一致は絶対に追加しないこと)。
 function resolveEmailSplitRef(rawRef){
   if(!rawRef) return '';
   const norm = s => (s||'').toUpperCase().replace(/[^A-Z0-9#]/g,'');
@@ -13094,6 +13099,19 @@ function resolveEmailSplitRef(rawRef){
   if(b) return b.ref_no;
   b = allBookingsCache.find(x=>x.tour_name && norm(x.tour_name).includes(target));
   if(b) return b.ref_no;
+  // ref_noの数字部分だけを取り出して比較する(tour_nameとは絶対に比較しないこと)。
+  // ref_noは"#1173"のような短く明確な予約番号なので、数字部分の完全一致は安全。
+  // tour_nameは自由記述の長いテキストのため、数字の部分文字列一致は誤爆の元になる
+  // (KIC1305_JFが無関係な#794のtour_nameにたまたま含まれる"1305"と誤結合した実害あり)。
+  const digits = rawRef.match(/\d{3,}/);
+  if(digits){
+    const d = digits[0];
+    b = allBookingsCache.find(x=>{
+      const refDigits = String(x.ref_no||'').replace(/\D/g,'');
+      return refDigits && refDigits === d;
+    });
+    if(b) return b.ref_no;
+  }
   return '';
 }
 
