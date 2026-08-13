@@ -21821,12 +21821,12 @@ async function printArrangementSummaryList(){
       <td ${tdS('white-space:nowrap')}>${escHtml(arrPartnerPhone(f.facility_name))}</td>
       <td ${tdS('text-align:right')}>${f.pax?Number(f.pax)+'名':''}</td>
       <td ${tdS()}>${escHtml(f.confirmation_no||'')}</td>
-      <td ${tdS()}>${escHtml(f.payment_method||'')}</td>
+      <td ${tdS('white-space:nowrap;font-size:7.5px')}>${escHtml(f.payment_method||'')}</td>
     </tr>`).join('');
     sections += sectionTitle('🎡 観光施設・バス駐車場等 / Sightseeing &amp; Parking') + `<table style="width:100%;border-collapse:collapse;margin-bottom:6px">
       <thead><tr>
         <th ${thS('width:70px')}>日付</th><th ${thS()}>施設名</th><th ${thS('width:95px')}>電話番号</th><th ${thS('width:45px')}>人数</th>
-        <th ${thS('width:70px')}>確認番号</th><th ${thS('width:70px')}>支払方法</th>
+        <th ${thS('width:70px')}>確認番号</th><th ${thS('width:78px')}>支払方法</th>
       </tr></thead><tbody>${rows}</tbody></table>`;
   }
 
