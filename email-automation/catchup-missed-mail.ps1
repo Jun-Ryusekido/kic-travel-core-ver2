@@ -28,7 +28,11 @@ $API_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI
 $IMPORT_API_URL = 'https://kic-travel-core-ver2.vercel.app/api/email-import-insert'
 $TARGET_MAILBOX = 'jr@kictravel.jp'
 $REG_PATH = 'HKCU:\Software\VB and VBA Program Settings\KICImport\Settings'
-$BATCH_SIZE = 200
+# html_body(最大50000文字)を送るようになったため、1バッチあたりの合計サイズが
+# Vercelのリクエストボディ上限(約4.5MB)を超えないよう200から50へ下げた。
+# 200件 x 50000文字 = 最大約10MBとなりバッチ全体が失敗する。50件なら最大約2.5MBに収まる。
+# (/api/email-import-insert 側でも1件50000文字に切り詰めるが、件数x長さの合計には効かない)
+$BATCH_SIZE = 50
 $SYNC_TIMEOUT_SEC = 180
 
 # /api/email-import-insertの認証キー(x-import-keyヘッダー)。gitにコミットされる
@@ -53,6 +57,23 @@ function Write-Log([string]$msg){
 function Get-JstString([datetime]$dt){
   # machine runs in JST; ReceivedTime is local time
   return $dt.ToString('yyyy-MM-ddTHH:mm:ss', [Globalization.CultureInfo]::InvariantCulture) + '+09:00'
+}
+
+# メール本文のHTML版を取得する。プレーンテキストの.Bodyでは色(赤字)等の書式が完全に
+# 失われ、はやぶさ国際観光バスの「手配不可の日を赤字で表示します」というメールで
+# どの回が手配不可か判別できなかったため、HTML版も併せて送る。
+# 埋め込み画像のdata:base64は巨大なうえ赤字判定に不要なので事前に除去し、
+# 50000文字で切り詰める(/api/email-import-insert 側でも同じ長さで切り詰める)。
+# HTMLBodyの取得はメール種別によっては失敗しうるため、失敗時は$null(=従来どおり
+# html_body無しで送信)にフォールバックし、取り込み自体は絶対に止めない。
+function Get-SafeHtmlBody($itm){
+  try{
+    $h = [string]$itm.HTMLBody
+    if(-not $h){ return $null }
+    $h = [regex]::Replace($h, 'data:image/[a-zA-Z]+;base64,[A-Za-z0-9+/=\s]+', '')
+    if($h.Length -gt 50000){ $h = $h.Substring(0, 50000) }
+    return $h
+  }catch{ return $null }
 }
 
 if(-not $IMPORT_API_KEY){
@@ -181,6 +202,7 @@ try{
       body        = [string]$itm.Body
       sender      = [string]$itm.SenderEmailAddress
       received_at = $receivedStr
+      html_body   = Get-SafeHtmlBody $itm
     })
   }
 
