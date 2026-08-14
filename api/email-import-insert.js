@@ -51,19 +51,26 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: `1リクエストあたり最大${MAX_ROWS_PER_REQUEST}件までです（${rows.length}件指定）` });
   }
 
-  // クライアントが送ってきた値のうち、この4列だけを取り出してinsertする
-  // (任意の列を書き込めるようにはしない)。
+  // クライアントが送ってきた値のうち、この6列だけを取り出してinsertする
+  // (任意の列を書き込めるようにはしない)。html_body/attachmentsは2026-08-14に
+  // email_import_queueへ追加された列(html_body: メール受信箱の赤字/強調表記検知に使う
+  // HTML本文、attachments: Supabase Storageへアップロード済みの添付ファイル情報の配列)。
   const sanitized = [];
   for (const r of rows) {
     if (!r || typeof r !== 'object') return res.status(400).json({ error: 'rowsの形式が不正です' });
-    const { subject, body: mailBody, sender, received_at } = r;
+    const { subject, body: mailBody, sender, received_at, html_body, attachments } = r;
     if (typeof sender !== 'string' || !sender) return res.status(400).json({ error: 'senderは必須です' });
     if (typeof received_at !== 'string' || !received_at) return res.status(400).json({ error: 'received_atは必須です' });
+    // html_bodyはVBA側で既に50,000文字に切り詰め済みだが、サーバー側でも念のため
+    // 二重に切り詰める(呼び出し元がVBA以外に増えた場合の安全策)。
+    const cappedHtmlBody = typeof html_body === 'string' ? html_body.slice(0, 50000) : '';
     sanitized.push({
       subject: typeof subject === 'string' ? subject : '',
       body: typeof mailBody === 'string' ? mailBody : '',
       sender,
       received_at,
+      html_body: cappedHtmlBody,
+      attachments: Array.isArray(attachments) ? attachments : [],
     });
   }
 
