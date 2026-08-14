@@ -162,16 +162,19 @@ async function main() {
         bus_company: '',
         bus_type: '',
         buses: 1,
-        start_date: '',
-        end_date: '',
+        // start_date/end_date/driver_check_in/driver_check_outはdate型のため、空欄は''ではなく
+        // nullを入れる(''を渡すとPostgresが 22007 invalid input syntax for type date を返す)。
+        // index.htmlのbuildBusRowsもsanitizeDateFieldで同様にnull化している。
+        start_date: null,
+        end_date: null,
         amount: 0,
         status: '問い合わせ中',
         confirmation_no: '',
         driver_hotel_name: '',
         driver_hotel_phone: '',
         driver_hotel_address: '',
-        driver_check_in: '',
-        driver_check_out: '',
+        driver_check_in: null,
+        driver_check_out: null,
         driver_hotel_amount: 0,
         memo: m.memo,
         created_by: 'script:apply_hayabusa_bus_data_repair',
