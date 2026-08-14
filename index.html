@@ -3439,13 +3439,23 @@ function applyLoggedInUI(data){
 }
 
 // ===== エラーログ閲覧ページ（管理者のみ） =====
+// 2026-08-14点検でerror_logsがRLS無効・anonに全権限付与のまま放置されていたことが判明したため、
+// 読み取りをservice_role経由の/api/table-crud(errorLogsApiCall)に切替えた(書き込みは
+// logError()のままanonキーでINSERTする。scripts/lock_down_error_logs_writes.sql参照)。
 async function loadErrorLogs(){
   const tbody = document.getElementById('error-log-tbody');
   if(!tbody) return;
   tbody.innerHTML = '<tr><td colspan="5" class="empty">読み込み中...</td></tr>';
-  const {data, error} = await sb.from('error_logs').select('*').order('created_at',{ascending:false}).limit(100);
-  if(error){
-    tbody.innerHTML = `<tr><td colspan="5" class="empty" style="color:var(--red)">エラーログの読み込みに失敗しました: ${escHtml(error.message)}<br>（error_logsテーブルが未作成の可能性があります。scripts/create_error_logs_table.sql をSQL Editorで実行してください）</td></tr>`;
+  let data;
+  try{
+    const result = await errorLogsApiCall('list', {limit:100});
+    if(result.tableMissing){
+      tbody.innerHTML = '<tr><td colspan="5" class="empty" style="color:var(--red)">error_logsテーブルが未作成です。scripts/create_error_logs_table.sql をSQL Editorで実行してください。</td></tr>';
+      return;
+    }
+    data = result.rows;
+  }catch(e){
+    tbody.innerHTML = `<tr><td colspan="5" class="empty" style="color:var(--red)">エラーログの読み込みに失敗しました: ${escHtml(e.message)}</td></tr>`;
     return;
   }
   if(!data || data.length===0){
@@ -4545,6 +4555,12 @@ async function vendorEmailLogsApiCall(action, payload){ return tableCrudApiCall(
 // updatableFields)で is_excluded/excluded_reason/ignored/imported/postponed の5列に
 // 限定されている。読み取り(select)は従来通りanon+RLSのまま変更しない。
 async function emailImportQueueApiCall(action, payload){ return tableCrudApiCall('email_import_queue', action, payload); }
+// error_logsの読み取り(list)専用。RLS無効・anonに全権限が付与されたままだった問題
+// (2026-08-14点検で発見)への対応で、閲覧(list)のみservice_role key経由に切替えた。
+// サーバー側(table-crud.jsのERROR_LOG_VIEWER_EMAILS)でも閲覧者を制限しているため、
+// isErrorLogViewer()以外のユーザーがこのAPIを直接叩いても403になる。書き込み(logError()の
+// INSERT)は従来どおりanonキーのまま変更していない。
+async function errorLogsApiCall(action, payload){ return tableCrudApiCall('error_logs', action, payload); }
 // learned_mappings(OCR学習データ)。書き込みはservice_role専用API経由のみ。
 // 読み取り(候補表示用)はanonキーでのSELECTを直接使う(fetchLearnedMappings参照)。
 async function learnedMappingsApiCall(action, payload){ return tableCrudApiCall('learned_mappings', action, payload); }
