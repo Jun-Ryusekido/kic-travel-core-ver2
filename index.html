@@ -2057,6 +2057,7 @@ input[type=number]{-moz-appearance:textfield}
           </div>
           <div style="font-size:11px;color:var(--text3);margin-bottom:10px">AIがメール本文からREF#・ツアー番号ごとの該当箇所を抽出します。内容を確認・必要であれば修正してから送信してください。「不明」の候補はREF#を手動入力しないと送信できません。</div>
           <div id="email-split-status" style="font-size:12px;color:var(--text3);margin-bottom:10px">読み込み中...</div>
+          <div id="email-split-coverage-warn" style="display:none;font-size:11px;color:var(--red);font-weight:600;border:1px solid var(--red);border-radius:6px;padding:8px 10px;margin-bottom:10px"></div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
             <button class="btn" style="font-size:11px" onclick="emailSplitToggleAll(true)">全選択</button>
             <button class="btn" style="font-size:11px" onclick="emailSplitToggleAll(false)">全解除</button>
@@ -12681,7 +12682,7 @@ async function sendEmailToBooking(emailId){
     return;
   }
 
-  await showEmailSplitModal(emailId, candidates, parentCatGuess.category);
+  await showEmailSplitModal(emailId, candidates, parentCatGuess.category, body);
 }
 
 // メールを軸に、AIでメール本文から取引先マスタ(business_partners)の項目を抽出し、
@@ -13035,12 +13036,37 @@ function emailSplitHasUnavailableKeyword(text){
 // 無理に何かのカテゴリを決め打ちしない(はやぶさ国際観光バスの30件メールで、抜粋に
 // キーワードが無かったため全件が無条件に「ホテル」とみなされ、実際にはバス手配の
 // メールがbooking_hotelsへ大量に誤保存された実害があったため)。
-async function showEmailSplitModal(emailId, parsed, parentCategory){
+// 本文中に現れるREF#・KICツアー番号らしきトークンを、AIを使わず正規表現だけで拾い出す。
+// AI(fetchEmailSplitCandidates)が本文の一部を取りこぼしても、従来は「抽出できた分」だけが
+// 確認モーダルに並ぶだけで、取りこぼしの存在自体がどこにも表示されず気付けなかった
+// (はやぶさ国際観光バスの30件メールで、30件中18件しか抽出されないまま送信・imported=trueと
+// なり、残り12件がどこにも書き込まれない実害が発生した)。
+function extractEmailRefTokens(text){
+  const t = String(text||'');
+  const norm = s => String(s).toUpperCase().replace(/[^A-Z0-9]/g,'');
+  const found = new Set();
+  for(const m of t.matchAll(/KIC[-_\s]?\d{3,}[A-Za-z0-9_]*(?:\s*\([A-Za-z]\))?/gi)) found.add(norm(m[0]));
+  for(const m of t.matchAll(/(?:REF\s*#?|#)\s?\d{3,}/gi)) found.add(norm(m[0]));
+  return found;
+}
+
+// 本文から拾えた番号のうち、AI候補(rawRef/excerpt)のどこにも現れないものを返す。
+// 件数の単純比較ではなく「本文にあるのに候補に無い番号」を突き合わせるため、
+// 同じ予約が複数の表記で書かれていても誤検知しにくい。
+function findEmailRefTokensMissingFromCandidates(body, candidates){
+  const norm = s => String(s).toUpperCase().replace(/[^A-Z0-9]/g,'');
+  const hay = candidates.map(c=>norm(String(c.rawRef||'')+' '+String(c.excerpt||''))).join('\n');
+  return [...extractEmailRefTokens(body)].filter(tok=>tok && !hay.includes(tok));
+}
+
+async function showEmailSplitModal(emailId, parsed, parentCategory, body){
   emailSplitEmailId = emailId;
   document.getElementById('email-split-modal').classList.add('open');
   document.getElementById('email-split-status').textContent = '';
   document.getElementById('email-split-err').style.display = 'none';
   document.getElementById('email-split-progress').textContent = '';
+  const coverageEl = document.getElementById('email-split-coverage-warn');
+  if(coverageEl){ coverageEl.style.display='none'; coverageEl.textContent=''; }
 
   if(!allBookingsCache.length) allBookingsCache = await fetchAllBookings();
   emailSplitCandidates = parsed.map(c=>{
@@ -13060,6 +13086,16 @@ async function showEmailSplitModal(emailId, parsed, parentCategory){
     };
   });
   document.getElementById('email-split-status').textContent = `${emailSplitCandidates.length}件の候補が見つかりました`;
+
+  // AIが本文中の番号を取りこぼしていないかを、この場でスタッフに知らせる(送信をブロックは
+  // しない。誤検知の可能性があるため、あくまで手動確認の促しに留める)。
+  const missedTokens = findEmailRefTokensMissingFromCandidates(body||'', emailSplitCandidates);
+  if(coverageEl && missedTokens.length){
+    coverageEl.textContent = `⚠ 本文には候補に含まれていない番号が${missedTokens.length}件あります（${missedTokens.join(', ')}）。`
+      + `AIが取りこぼした可能性があります。必要であればこのメールを送信後に残りを手動で追加するか、REF#欄に入力して個別に送信してください。`;
+    coverageEl.style.display = 'block';
+  }
+
   const bulkCatSel = document.getElementById('email-split-bulk-cat');
   if(bulkCatSel){
     bulkCatSel.innerHTML = `<option value="">カテゴリを選択...</option>` +
@@ -13307,7 +13343,10 @@ async function appendEmailExcerptAsDraftRow(tab, excerpt){
 // 途中の1件でエラーが起きた場合は、それ以前に成功した候補はstatus='done'として残したまま
 // 処理を止め、残りの未処理候補は保留にする（この時点ではimported=trueに更新しない）。
 // 再度「送信」を押した際は、status==='done'の候補は重複送信せずスキップし、
-// 未処理・エラーだった候補だけ再試行する。全件成功して初めてimported=trueに更新する。
+// 未処理・エラーだった候補だけ再試行する。
+// imported=trueに更新するのは「全候補(チェックを外したものも含む)がdoneになった場合」
+// だけとする。以前は「チェックが入っている候補を処理し切ったら無条件にimported=true」
+// だったため、チェックを外した候補やエラーで中断した残りが黙って捨てられていた。
 async function submitEmailSplit(){
   const errEl = document.getElementById('email-split-err');
   errEl.style.display='none';
@@ -13341,20 +13380,17 @@ async function submitEmailSplit(){
         if(r2.data){ booking = r2.data; refNo = fallbackRef; }
       }
     }
+    // エラー時はここで return せず break する。中断・未処理の後始末と警告は
+    // ループ後の1箇所(未処理チェック)に集約し、「処理が途中で止まったのに
+    // imported=true が立つ」経路を作らないようにする。
     if(bErr || !booking){
       c.status = 'error'; c.errorMsg = `REF# "${refNo}" の予約が見つかりませんでした`;
-      renderEmailSplitCandidates();
-      if(submitBtn){ submitBtn.disabled = false; submitBtn.innerHTML = origLabel; }
-      if(progressEl) progressEl.textContent = '';
-      return;
+      break;
     }
     const map = EMAIL_INBOX_CATEGORY_MAP[c.category];
     if(!map){
       c.status = 'error'; c.errorMsg = 'カテゴリが不正です';
-      renderEmailSplitCandidates();
-      if(submitBtn){ submitBtn.disabled = false; submitBtn.innerHTML = origLabel; }
-      if(progressEl) progressEl.textContent = '';
-      return;
+      break;
     }
 
     try{
@@ -13377,11 +13413,39 @@ async function submitEmailSplit(){
       renderEmailSplitCandidates();
     }catch(e){
       c.status = 'error'; c.errorMsg = e.message || String(e);
-      renderEmailSplitCandidates();
-      if(submitBtn){ submitBtn.disabled = false; submitBtn.innerHTML = origLabel; }
-      if(progressEl) progressEl.textContent = '';
-      return;
+      break;
     }
+  }
+
+  // ── 未処理チェック(imported=true を立ててよいかの唯一の判定箇所) ─────────────
+  // 従来はループを抜けた時点で無条件に imported=true を立てていた。しかし
+  // ループが回るのは「チェックが入っている候補(pending)」だけであり、
+  //   (a) スタッフがチェックを外した候補
+  //   (b) エラーで中断し、それ以降まだ処理していない候補
+  // は status が 'done' にならないまま残る。それでもメールは「取り込み済み」に
+  // なって受信箱から消えるため、書き込まれなかった分に誰も気付けなかった
+  // (はやぶさ国際観光バスの30件メールで、18件だけ送信された状態で imported=true が
+  // 立ち、残り12件がどのテーブルにも存在しないまま失われた)。
+  // 全候補が done になったときだけ imported=true を立て、そうでなければ
+  // 明示的に警告して受信箱に残す。
+  const notDone = emailSplitCandidates.filter(c=>c.status!=='done');
+  if(notDone.length>0){
+    renderEmailSplitCandidates();
+    if(submitBtn){ submitBtn.disabled = false; submitBtn.innerHTML = origLabel; }
+    if(progressEl) progressEl.textContent = '';
+    const detail = notDone.map(c=>{
+      const label = c.refNo || c.rawRef || '(REF#不明)';
+      if(c.status==='error') return `・${label} … エラー: ${c.errorMsg||'原因不明'}`;
+      if(!c.checked) return `・${label} … チェックが外れているため送信していません`;
+      return `・${label} … 未送信`;
+    }).join('\n');
+    showEmailSplitErr(`${doneCount}/${emailSplitCandidates.length}件のみ送信しました。未処理が${notDone.length}件あるため、このメールは「取り込み済み」にしていません。`);
+    alert(`⚠ このメールの処理は完了していません。\n\n`
+      + `送信済み: ${doneCount}件 / 全${emailSplitCandidates.length}件\n`
+      + `未処理: ${notDone.length}件\n\n${detail}\n\n`
+      + `未処理が残っているため「取り込み済み」にせず、受信箱に残しました。\n`
+      + `残りを送信するか、対象外であればこのメールを「無視」にしてください。`);
+    return;
   }
 
   try{
