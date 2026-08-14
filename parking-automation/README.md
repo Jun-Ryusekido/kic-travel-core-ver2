@@ -5,6 +5,7 @@
 - **新大阪駅バス駐車場**（revn.jrbusparkingyoyaku.jp） / 設定: `config.json`
 - **名古屋 大型車両夜間宿泊予約システム**（midori.ccx.mobi/Parking、名城公園正門前駐車場・若宮大通公園白川前駐車場） / 設定: `nagoya-config.json`
 - **京都テルサ 大型バス駐車場**（reserva.be/kyototerrsaparking） / 設定: `.env`
+- **広島城 中央公園バス駐車場予約システム**（bus.hiroshimacastle.jp） / 設定: `hiroshima-config.json`（`lib/hiroshima-booking-flow.js`。現時点ではWeb画面の「今すぐ予約」経由（`book-parking-now.js`、`facility_type: "hiroshima"`）でのみ実行可能で、新大阪・名古屋のような単独バッチ実行スクリプトはまだありません）
 
 ## セットアップ（初回のみ）
 
@@ -75,8 +76,8 @@ Web画面（Vercel）からは直接Playwrightを実行できないため、こ�
 エラー内容、スクリーンショットのパス）は同レコードに書き戻され、Web画面側でも確認できます。
 
 事前に一度だけ、Supabase側で `parking_reservations` テーブルを作成しておく必要があります
-（SQLは本READMEの末尾を参照）。`facility_type`（`shinosaka`/`nagoya`）によって、新大阪・名古屋
-どちらの自動化処理を使うかを自動的に振り分けます。
+（SQLは本READMEの末尾を参照）。`facility_type`（`shinosaka`/`nagoya`/`hiroshima`）によって、
+新大阪・名古屋・広島のどの自動化処理を使うかを自動的に振り分けます。
 
 ---
 
@@ -310,7 +311,7 @@ node parking-kyoto-terrsa-midnight.js --dry-run
 
 ## Supabase側の事前準備（parking_reservationsテーブル）
 
-Web画面の「今すぐ予約」機能を使う場合、SupabaseのSQL Editorで一度だけ以下を実行してテーブルを作成してください（このスクリプト自身はSupabaseへのDDL実行権限を持たないpublishable keyしか使わないため、テーブル作成はSupabase側で手動で行う必要があります）。
+Web画面の「今すぐ予約」機能を使う場合、SupabaseのSQL Editorで一度だけ以下を実行してテーブルを作成してください（`book-parking-now.js`はservice_role keyを使いますが、PostgRESTクライアント経由ではテーブル作成等のDDLを実行できないため、テーブル作成はSupabase側のSQL Editorで手動で行う必要があります）。
 
 ```sql
 create table if not exists parking_reservations (
@@ -339,7 +340,7 @@ alter table parking_reservations add column if not exists facility_type text not
 alter table parking_reservations add column if not exists extra jsonb;
 ```
 
-- `facility_type`: `'shinosaka'`（新大阪駅バス駐車場）/ `'nagoya'`（名古屋）。`book-parking-now.js`はこの値でどちらの自動化処理を使うか振り分けます。
-- `extra`: 名古屋分の追加項目（`bus_company_name`/`driver_name`/`driver_hotel_name`/`contact_phone`/`applicant_name`）をJSONBで保持します。新大阪分では未使用（null）です。
+- `facility_type`: `'shinosaka'`（新大阪駅バス駐車場）/ `'nagoya'`（名古屋）/ `'hiroshima'`（広島城 中央公園バス駐車場）。`book-parking-now.js`はこの値でどの自動化処理を使うか振り分けます。
+- `extra`: 名古屋分の追加項目（`bus_company_name`/`driver_name`/`driver_hotel_name`/`contact_phone`/`applicant_name`）、広島分の追加項目（`bus_count`/`bus_type`/`contact_name`/`contact_tel`/`bus_company`/`passengers`/`customer`/`destinations`）をそれぞれJSONBで保持します。新大阪分では未使用（null）です。
 
-（既存の他テーブルと同様、クライアント側はpublishable/anonキーで直接読み書きするためRLSは無効化しています。）
+（`scripts/lock_down_parking_reservations.sql`実行後は、anon/authenticatedロールからのparking_reservationsへの直接アクセス（select/insert/update/delete）はすべて剥奪済みです。Web画面（index.html）はブラウザ上のpublishable/anonキーでは読み書きできず、`/api/table-crud.js`経由のservice_role keyアクセスに統一されています。`book-parking-now.js`はJUNさんのPC上で環境変数`SUPABASE_SERVICE_ROLE_KEY`を使い、Vercelの`/api/table-crud.js`を介さず直接Supabaseへservice_role keyで接続します。）
