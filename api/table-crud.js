@@ -16,6 +16,10 @@ const SB_URL = 'https://nzdygjlnzvtdezslnuoy.supabase.co';
 // クライアント側(index.html)のACCOUNTING_EMAILSと同じ一覧。経理担当者限定操作の
 // サーバー側チェック(checkBookingCostsPaymentDateRestriction等)で使う。
 const ACCOUNTING_EMAILS = ['admin@kictravel.jp', 'kanri@kictravel.jp'];
+// クライアント側(index.html)のERROR_LOG_VIEWER_EMAILSと同じ一覧。error_logsのlistアクションは
+// isErrorLogViewer()によるUI制御(メニュー非表示)だけでなく、有効なセッションさえあれば誰でも
+// 叩けてしまわないよう、サーバー側でもここに含まれるemailのみに制限する。
+const ERROR_LOG_VIEWER_EMAILS = ['admin@kictravel.jp', 'jr@kictravel.jp'];
 
 // テーブルごとに許可するactionをホワイトリスト化する。ここに無い(table, action)の
 // 組み合わせは400で拒否する。
@@ -30,6 +34,13 @@ const TABLE_CONFIG = {
   // deleteByBookingは予約削除(deleteBookingData)用(2026-08-12点検で追加。それまで予約削除の削除対象から漏れていた)
   local_expenses: { actions: ['replace', 'deleteByBooking'], label: '現地費用明細' },
   parking_reservations: { actions: ['list', 'save', 'delete'], label: '駐車場予約' },
+  // error_logsはRLS無効・anonにSELECT/INSERT/UPDATE/DELETE/TRUNCATE全権限が付与されたまま
+  // 放置されており、公開anonキーだけで全ユーザーのエラーログ(スタックトレース含む)を
+  // 誰でも閲覧・改ざん・削除できる状態だった(2026-08-14点検で発見)。まず読み取り(list)
+  // のみをこのAPI経由(service_role key)に切替え、書き込み(INSERT)はlogError()から
+  // 従来どおりanonキーで行う(anonにはINSERTのみ残す想定。剥奪自体はscripts/
+  // lock_down_error_logs_writes.sqlをJUNさんが実行してから有効になる)。
+  error_logs: { actions: ['list'], label: 'エラーログ' },
   // guide_settlements/guide_settlement_items: 社内スタッフ(index.html、ログインセッション
   // トークンで認証)からの操作に加え、ガイド本人がguide.html(ログイン機構を持たず、精算
   // リンクのaccess_tokenのみで認証する)から自分の精算明細を送信・編集するケースがある。
@@ -603,8 +614,11 @@ async function doUpdatePayments(table, rowId, payments) {
   return { status: 200, body: { ok: true } };
 }
 
-// parking_reservations専用: 一覧取得。テーブル未作成時はエラーにせず空配列を返す
-// (移行前のparking-reservations.jsと同じフォールバック挙動)。
+// 一覧取得(降順・limit付き)の汎用実装。parking_reservations向けに作られたが、
+// table/limit以外にテーブル固有の処理を持たないため、同じ形(created_at降順の単純な
+// 一覧)で十分なerror_logsのlistアクションもこの関数をそのまま流用する。
+// テーブル未作成時はエラーにせず空配列を返す(移行前のparking-reservations.jsと
+// 同じフォールバック挙動)。
 async function doParkingList(table, limit) {
   const lim = Number(limit) > 0 ? Math.min(Number(limit), 200) : 10;
   const r = await sbFetch(table, `?select=*&order=created_at.desc&limit=${lim}`);
@@ -1028,6 +1042,9 @@ export default async function handler(req, res) {
       return res.status(result.status).json(result.body);
     }
     if (action === 'list') {
+      if (table === 'error_logs' && (!changedBy || !ERROR_LOG_VIEWER_EMAILS.includes(changedBy))) {
+        return res.status(403).json({ error: 'エラーログの閲覧権限がありません' });
+      }
       const { limit } = req.body;
       const result = await doParkingList(table, limit);
       return res.status(result.status).json(result.body);
