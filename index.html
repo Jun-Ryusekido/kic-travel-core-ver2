@@ -1972,7 +1972,7 @@ input[type=number]{-moz-appearance:textfield}
                 <option value="クレジットカード">クレジットカード</option>
               </select>
             </div>
-            <div class="form-field" id="pn-ng-buscompany-wrap" style="display:none"><label>バス会社名</label><input id="pn-ng-buscompany" placeholder="例: KICトラベル"></div>
+            <div class="form-field" id="pn-ng-buscompany-wrap" style="display:none;position:relative"><label>バス会社名</label><input id="pn-ng-buscompany" placeholder="例: KICトラベル" autocomplete="off" oninput="showBusCompanySuggest(this,-1)" onfocus="showBusCompanySuggest(this,-1)" onblur="setTimeout(hideBusCompanySuggest,150)"></div>
             <div class="form-field" id="pn-ng-drivername-wrap" style="display:none"><label>運転手名</label><input id="pn-ng-drivername" placeholder="未定可"></div>
             <div class="form-field" id="pn-ng-driverhotel-wrap" style="display:none"><label>運転手宿泊ホテル名</label><input id="pn-ng-driverhotel"></div>
             <div class="form-field" id="pn-ng-contactphone-wrap" style="display:none"><label>連絡先電話番号</label><input id="pn-ng-contactphone" placeholder="例: 03-6869-5550"></div>
@@ -2823,7 +2823,10 @@ input[type=number]{-moz-appearance:textfield}
       <div class="form-field"><label>バス看板名</label><input id="arr-bus-signboard"></div>
       <div class="form-field"><label>国籍</label><input id="arr-nationality"></div>
       <div class="form-field" style="grid-column:1/-1"><label>Pax情報</label><input id="arr-pax-info" placeholder="例: 18名+3 内:小0名 他、13*1, 17*1あり"></div>
-      <div class="form-field"><label>旅行会社名</label><input id="arr-agency-name"></div>
+      <div class="form-field" style="position:relative"><label>旅行会社名</label><input id="arr-agency-name" autocomplete="off"
+           oninput="filterAgentSuggest('arr')" onfocus="showAgentSuggest('arr')" onblur="setTimeout(()=>hideAgentSuggest('arr'),200)">
+        <div id="arr-agency-name-dd" style="display:none;position:fixed;background:var(--card,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:99999;max-height:220px;overflow-y:auto"></div>
+      </div>
       <div class="form-field"><label>旅行会社予約番号</label><input id="arr-agency-booking-no"></div>
       <div class="form-field"><label>ガイド名</label>
         <div style="display:flex;gap:4px">
@@ -5291,7 +5294,7 @@ async function addArrRowToCostNow(payload, btnEl, onSuccess){
   }
 }
 const LOCAL_EXPENSE_TYPES = ['食事','食事代','食事/TIP','交通費','入場料','駐車場代','ホテル','ホテル代','水代','駐車料','TIP','雑費','その他'];
-let bdLocked = false; let suppliersCache = []; let busCompaniesCache = []; let restaurantPartnersCache = []; let allPartnersCache = []; let facilityPartnersCache = [];
+let bdLocked = false; let suppliersCache = []; let busCompaniesCache = []; let restaurantPartnersCache = []; let allPartnersCache = []; let facilityPartnersCache = []; let hotelPartnersCache = [];
 // 売上明細「項目名」欄オートコンプリート用。固定リスト(常に上位表示)＋過去実績の頻度上位。
 const SALES_ITEM_NAME_FIXED_LIST = [
   'Tour Fee', 'Tour Fee (FOC)', 'Hotel (Single Suppliment)', 'Hotel (Triple Reduction)',
@@ -6184,13 +6187,55 @@ async function showBusCompanySuggest(inputEl, idx){
   box.innerHTML = matches.map(p=>`<div class="bus-co-item" style="padding:4px 8px;cursor:pointer" data-name="${escAttr(p.company_name)}">${escHtml(p.company_name)}${p.phone?`<span style="color:var(--text3);margin-left:6px;font-size:10px">${escHtml(p.phone)}</span>`:''}</div>`).join('');
   document.body.appendChild(box);
   box.querySelectorAll('.bus-co-item').forEach(item=>{
-    item.addEventListener('mousedown',e=>{ e.preventDefault(); const n=item.getAttribute('data-name'); inputEl.value=n; bdBusItems[idx].bus_company=n; hideBusCompanySuggest(); });
+    // idx<0は明細行に属さない単独欄(駐車場予約モーダルのバス会社名等)からの呼び出しで、
+    // 配列への反映を行わず入力欄の値を書き換えるだけにする(showSupplierSuggestionsと同じ考え方)。
+    item.addEventListener('mousedown',e=>{ e.preventDefault(); const n=item.getAttribute('data-name'); inputEl.value=n; if(idx>=0) bdBusItems[idx].bus_company=n; hideBusCompanySuggest(); });
     item.addEventListener('mouseenter',()=>{ item.style.background='var(--bg)'; });
     item.addEventListener('mouseleave',()=>{ item.style.background=''; });
   });
 }
 function hideBusCompanySuggest(){
   const box = document.getElementById('bus-company-suggest-box');
+  if(box) box.remove();
+}
+// ホテルタブの「ホテル名」欄オートコンプリート。取引先マスタ(business_partners)のカテゴリ「ホテル」から検索。
+// 手配管理のホテルタブ(bdHotelItems)以外に、手配書編集モーダル(arrDays)・見積もり編集画面(estDays)からも
+// 呼ばれるため、書き込み先の配列をarr引数で受け取る(showBusCompanySuggest等と異なり単一配列に固定できないため)。
+async function loadHotelPartnersCache(){
+  if(hotelPartnersCache.length>0) return;
+  const {data} = await sb.from('business_partners')
+    .select('company_name,phone')
+    .eq('category','ホテル')
+    .or('is_deleted.is.null,is_deleted.eq.false')
+    .order('company_name');
+  hotelPartnersCache = data||[];
+}
+async function showHotelSuggest(inputEl, idx, arr){
+  hideHotelSuggest();
+  await loadHotelPartnersCache();
+  const q = inputEl.value.trim().toLowerCase();
+  const matches = (q
+    ? hotelPartnersCache.filter(p=>p.company_name.toLowerCase().includes(q))
+    : hotelPartnersCache
+  ).slice(0,12);
+  if(!matches.length) return;
+  const box = document.createElement('div');
+  box.id = 'hotel-suggest-box';
+  box.style.cssText = 'position:absolute;z-index:200;background:#fff;border:1px solid var(--border);border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.12);max-height:200px;overflow-y:auto;font-size:11px';
+  const rect = inputEl.getBoundingClientRect();
+  box.style.left = (rect.left+window.scrollX)+'px';
+  box.style.top  = (rect.bottom+window.scrollY)+'px';
+  box.style.width = Math.max(rect.width,180)+'px';
+  box.innerHTML = matches.map(p=>`<div class="hotel-item" style="padding:4px 8px;cursor:pointer" data-name="${escAttr(p.company_name)}">${escHtml(p.company_name)}${p.phone?`<span style="color:var(--text3);margin-left:6px;font-size:10px">${escHtml(p.phone)}</span>`:''}</div>`).join('');
+  document.body.appendChild(box);
+  box.querySelectorAll('.hotel-item').forEach(item=>{
+    item.addEventListener('mousedown',e=>{ e.preventDefault(); const n=item.getAttribute('data-name'); inputEl.value=n; if(arr && arr[idx]) arr[idx].hotel_name=n; hideHotelSuggest(); });
+    item.addEventListener('mouseenter',()=>{ item.style.background='var(--bg)'; });
+    item.addEventListener('mouseleave',()=>{ item.style.background=''; });
+  });
+}
+function hideHotelSuggest(){
+  const box = document.getElementById('hotel-suggest-box');
   if(box) box.remove();
 }
 // 観光施設・バス駐車場等タブの「施設名」欄オートコンプリート。取引先マスタ(business_partners)のカテゴリ「その他」から検索。
@@ -7615,7 +7660,7 @@ function arrDayCardHtml(d, i){
       <div class="form-field"><label>日付</label><input type="date" min="1900-01-01" max="9999-12-31" value="${_safeDate(d.day_date)}" onchange="arrDays[${i}].day_date=this.value"></div>
       <div class="form-field"><label>曜日</label><input value="${escAttr(d.day_of_week)}" placeholder="例: 月" onchange="arrDays[${i}].day_of_week=this.value"></div>
       <div class="form-field"><label>バス会社</label><input value="${escAttr(d.bus_company)}" onchange="arrDays[${i}].bus_company=this.value"></div>
-      <div class="form-field"><label>ホテル名</label><input value="${escAttr(d.hotel_name)}" onchange="arrDays[${i}].hotel_name=this.value"></div>
+      <div class="form-field" style="position:relative"><label>ホテル名</label><input value="${escAttr(d.hotel_name)}" oninput="arrDays[${i}].hotel_name=this.value;showHotelSuggest(this,${i},arrDays)" onfocus="showHotelSuggest(this,${i},arrDays)" onblur="setTimeout(hideHotelSuggest,150)"></div>
       <div class="form-field"><label>エリア</label><input value="${escAttr(d.hotel_area)}" placeholder="例: 東京、大阪" onchange="arrDays[${i}].hotel_area=this.value"></div>
       <div class="form-field"><label>エリア代表番号</label><input value="${escAttr(d.hotel_area_phone)}" onchange="arrDays[${i}].hotel_area_phone=this.value"></div>
       <div class="form-field" style="grid-column:1/-1"><label>ドライバー宿泊/バスP情報</label><input value="${escAttr(d.driver_info)}" placeholder="例: DRV同宿 P:あり" onchange="arrDays[${i}].driver_info=this.value"></div>
@@ -9869,7 +9914,13 @@ function renderEstDays(){
   // テキスト行
   const textRow = (label, key, ph) => {
     let r = `<tr><td class="lbl">${label}</td>`;
-    for(let i=0;i<n;i++) r += `<td><input value="${escAttr(estDays[i][key]||'')}" placeholder="${ph||''}" onchange="estDays[${i}].${key}=this.value"></td>`;
+    // ホテル名欄のみ取引先マスタ(business_partners category='ホテル')からのサジェストを付ける
+    for(let i=0;i<n;i++){
+      const attrs = key==='hotel_name'
+        ? `oninput="estDays[${i}].${key}=this.value;showHotelSuggest(this,${i},estDays)" onfocus="showHotelSuggest(this,${i},estDays)" onblur="setTimeout(hideHotelSuggest,150)"`
+        : `onchange="estDays[${i}].${key}=this.value"`;
+      r += `<td${key==='hotel_name'?' style="position:relative"':''}><input value="${escAttr(estDays[i][key]||'')}" placeholder="${ph||''}" ${attrs}></td>`;
+    }
     r += `<td></td><td></td>`;
     return r + '</tr>';
   };
@@ -10779,7 +10830,7 @@ function renderHotelTable(){
     tbody.innerHTML = bdHotelItems.map((it,i)=>{
       const nights = calcHotelNights(it.check_in, it.check_out);
       return `<tr>
-        <td data-label="ホテル名"><input value="${escAttr(it.hotel_name)}" oninput="bdHotelItems[${i}].hotel_name=this.value" style="width:100%"></td>
+        <td data-label="ホテル名" style="position:relative"><input value="${escAttr(it.hotel_name)}" oninput="bdHotelItems[${i}].hotel_name=this.value;showHotelSuggest(this,${i},bdHotelItems)" onfocus="showHotelSuggest(this,${i},bdHotelItems)" onblur="setTimeout(hideHotelSuggest,150)" style="width:100%"></td>
         <td data-label="ｲﾝ"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.check_in}" onchange="bdHotelItems[${i}].check_in=this.value;hotelCalc(${i})"></td>
         <td data-label="ｱｳﾄ"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.check_out}" onchange="bdHotelItems[${i}].check_out=this.value;hotelCalc(${i})"></td>
         <td data-label="部屋タイプ"><input value="${escAttr(it.room_type)}" oninput="bdHotelItems[${i}].room_type=this.value" placeholder="部屋タイプ" style="width:100%"></td>
@@ -23631,18 +23682,21 @@ async function _ensureAgentsCacheLoaded(){
   _agentSuggestLoading = null;
 }
 
-// scope: 'nb'(New Booking作成フォーム) | 'bd'(予約詳細モーダル)。
+// scope: 'nb'(New Booking作成フォーム) | 'bd'(予約詳細モーダル) | 'arr'(手配書編集モーダルの旅行会社名)。
 // selectedIdは「候補から選択した状態のまま(文字を書き換えずに)保存した場合のみ」
 // agent_idとして使う(ガイド検索サジェスト・仮払い一覧表出金伝票の宛先ガイド選択と
 // 同じ考え方=候補選択後に手入力で編集したら自由入力扱いに戻す)。
-const _agentAutocompleteSelectedId = { nb: null, bd: null };
+// なお'arr'は手配書Excel用データにテキストとしてのみ反映され、agent_idの保存先を
+// 持たないためresolveAgentIdForSaveは呼ばない(候補選択でinput値を埋める用途のみ)。
+const _agentAutocompleteSelectedId = { nb: null, bd: null, arr: null };
 // bd-agentの「読み込み時点の値」。保存時にこの値と現在値が一致していれば、
 // agent_idは元のまま維持する(未編集ならagent_idも変更しない、という要件のため)。
 let _bdOriginalAgentName = '';
 let _bdOriginalAgentId = null;
 
-function _agentInputId(scope){ return scope==='nb' ? 'nb-agent' : 'bd-agent'; }
-function _agentDdId(scope){ return scope==='nb' ? 'nb-agent-dd' : 'bd-agent-dd'; }
+const _AGENT_SCOPE_IDS = { nb: 'nb-agent', bd: 'bd-agent', arr: 'arr-agency-name' };
+function _agentInputId(scope){ return _AGENT_SCOPE_IDS[scope] || 'bd-agent'; }
+function _agentDdId(scope){ return _AGENT_SCOPE_IDS[scope] ? `${_AGENT_SCOPE_IDS[scope]}-dd` : 'bd-agent-dd'; }
 
 function _agentCandidates(q){
   const query = toHalfWidth((q||'').trim().toLowerCase());
