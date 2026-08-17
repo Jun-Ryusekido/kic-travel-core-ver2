@@ -20,6 +20,11 @@ const ACCOUNTING_EMAILS = ['admin@kictravel.jp', 'kanri@kictravel.jp'];
 // isErrorLogViewer()によるUI制御(メニュー非表示)だけでなく、有効なセッションさえあれば誰でも
 // 叩けてしまわないよう、サーバー側でもここに含まれるemailのみに制限する。
 const ERROR_LOG_VIEWER_EMAILS = ['admin@kictravel.jp', 'jr@kictravel.jp'];
+// クライアント側(index.html)のCARD_HOLDER_ADMIN_EMAILSと同じ一覧。card_holders(カード名義人
+// マスタ)のinsert/updateByIdは、isCardHolderAdmin()によるUI制御(メニュー非表示・go()の
+// ガード)だけでなく、有効なセッションさえあれば誰でも叩けてしまわないよう、サーバー側でも
+// ここに含まれるemailのみに制限する(error_logsのlistアクションと同じ考え方)。
+const CARD_HOLDER_ADMIN_EMAILS = ['admin@kictravel.jp'];
 
 // テーブルごとに許可するactionをホワイトリスト化する。ここに無い(table, action)の
 // 組み合わせは400で拒否する。
@@ -336,6 +341,16 @@ const TABLE_CONFIG = {
   facility_operating_info: {
     actions: ['insert', 'updateById', 'deleteById'],
     label: '観光施設営業情報',
+  },
+  // card_holders(カード名義人マスタ): クレジットカード払いの「名義人を選択」欄の候補元
+  // (scripts/create_card_holders_table.sql参照)。読み取り(select)はanon/authenticatedにも
+  // SELECTを許可しているため各画面が直接読み取る。新規追加(insert)・無効化(updateById、
+  // is_active=falseへの更新のみ。物理削除はしない)はこのAPI経由のservice_role操作のみとし、
+  // かつCARD_HOLDER_ADMIN_EMAILSに含まれるemailのみ実行できるようhandler側で追加チェックする
+  // (下記の'insert'/'updateById'分岐内、table==='card_holders'の判定を参照)。
+  card_holders: {
+    actions: ['insert', 'updateById'],
+    label: 'カード名義人マスタ',
   },
 };
 
@@ -1011,6 +1026,9 @@ export default async function handler(req, res) {
       return res.status(result.status).json(result.body);
     }
     if (action === 'insert') {
+      if (table === 'card_holders' && (!changedBy || !CARD_HOLDER_ADMIN_EMAILS.includes(changedBy))) {
+        return res.status(403).json({ error: 'カード名義人マスタの追加はadmin@kictravel.jpのみ操作できます' });
+      }
       const { rows } = req.body;
       const result = await doInsert(table, config.label, stampNewRows(rows), config, changedBy);
       return res.status(result.status).json(result.body);
@@ -1060,6 +1078,9 @@ export default async function handler(req, res) {
       return res.status(result.status).json(result.body);
     }
     if (action === 'updateById') {
+      if (table === 'card_holders' && (!changedBy || !CARD_HOLDER_ADMIN_EMAILS.includes(changedBy))) {
+        return res.status(403).json({ error: 'カード名義人マスタの更新はadmin@kictravel.jpのみ操作できます' });
+      }
       const { id, fields } = req.body;
       const invalid = validateUpdatableFields(fields);
       if (invalid) return res.status(invalid.status).json(invalid.body);
