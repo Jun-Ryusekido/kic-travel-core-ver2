@@ -22753,6 +22753,14 @@ function initTourCalendar(){
 // 表示月の1日目・末日目のセルで、実際の期間がその月の外にも続いている場合は
 // ◀/▶を添えて「分断されているだけで実際は続いている」ことが分かるようにする
 // (マトリクスタブで月をまたぐツアーが分断されて見える、という既知の教訓を踏まえた配慮)。
+// 日付列・レーン名列の幅(px)。table-layout:fixedと組み合わせて使うことで、内容(長いホテル名等)
+// に関わらず列幅を厳密に固定する。デスクトップの一般的な画面幅(サイドバー200px+余白を除いた
+// 表示領域)で31列(最大の月)が横スクロール無しで収まることを目安に決めた値
+// (レーン名列76px + 日付列24px×31列 ≒ 820px)。
+const TC_DAY_COL_WIDTH = 24;
+const TC_LANE_COL_WIDTH = 76;
+// セル内テキスト(ホテル名・バス会社名・ガイド名)は省略表示(ellipsis)にし、
+// title属性で全文を見られるようにする。
 function tcBuildSubRow(icon, label, items, days, ym, monthStart, monthEnd, dateStartField, dateEndField, halfOpen, nameFn){
   const cells = days.map(d=>{
     const ds = `${ym}-${String(d).padStart(2,'0')}`;
@@ -22762,13 +22770,13 @@ function tcBuildSubRow(icon, label, items, days, ym, monthStart, monthEnd, dateS
         ? (it[dateStartField] <= ds && it[dateEndField] > ds)
         : (it[dateStartField] <= ds && it[dateEndField] >= ds);
     });
-    if(!item) return `<td style="border:1px solid var(--border);padding:2px;min-width:34px"></td>`;
+    if(!item) return `<td style="border:1px solid var(--border);padding:1px;width:${TC_DAY_COL_WIDTH}px"></td>`;
     const arrowL = (d===1 && item[dateStartField] < monthStart) ? '◀' : '';
     const arrowR = (d===days.length && item[dateEndField] > monthEnd) ? '▶' : '';
     const name = nameFn(item);
-    return `<td style="border:1px solid var(--border);padding:2px;background:var(--blue-lt);cursor:pointer" onclick="openBookingDetail('${item.booking_id}')" title="${escHtml(name)}"><span style="font-size:9px;color:var(--blue);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;text-align:center">${arrowL}${escHtml(name)}${arrowR}</span></td>`;
+    return `<td style="border:1px solid var(--border);padding:1px;width:${TC_DAY_COL_WIDTH}px;max-width:${TC_DAY_COL_WIDTH}px;background:var(--blue-lt);cursor:pointer" onclick="openBookingDetail('${item.booking_id}')" title="${escHtml(name)}"><span style="font-size:8px;color:var(--blue);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;text-align:center">${arrowL}${escHtml(name)}${arrowR}</span></td>`;
   }).join('');
-  return `<tr><td style="padding:3px 6px;font-size:10px;white-space:nowrap;position:sticky;left:0;background:#fff;border-right:2px solid var(--border);color:var(--text2)">${icon} ${label}</td>${cells}</tr>`;
+  return `<tr><td style="padding:2px 4px;font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:${TC_LANE_COL_WIDTH}px;max-width:${TC_LANE_COL_WIDTH}px;position:sticky;left:0;background:#fff;border-right:2px solid var(--border);color:var(--text2)" title="${icon} ${label}">${icon} ${label}</td>${cells}</tr>`;
 }
 
 async function renderTourCalendar(){
@@ -22819,13 +22827,15 @@ async function renderTourCalendar(){
   });
   (headerRows||[]).forEach(r=>{ headerByBooking[r.booking_id] = r; });
 
+  // table-layout:fixedにより、この1行目(thead)のth幅がそのまま各列の固定幅になる
+  // (tbody側のtd幅指定は保険。TC_DAY_COL_WIDTH/TC_LANE_COL_WIDTH参照)。
   const thead = `<thead><tr>
-    <th style="min-width:180px;padding:4px 6px;text-align:left;position:sticky;left:0;background:#fff;z-index:2;border-right:2px solid var(--border)">レーン</th>
+    <th style="width:${TC_LANE_COL_WIDTH}px;max-width:${TC_LANE_COL_WIDTH}px;padding:3px 4px;text-align:left;position:sticky;left:0;background:#fff;z-index:2;border-right:2px solid var(--border)">レーン</th>
     ${days.map(d=>{
       const dt = new Date(year, month-1, d);
       const dow = ['日','月','火','水','木','金','土'][dt.getDay()];
       const we = dt.getDay()===0||dt.getDay()===6;
-      return `<th style="min-width:34px;text-align:center;padding:3px 2px;font-size:10px;${we?'color:var(--blue)':''}">${d}<br><span style="font-size:9px">${dow}</span></th>`;
+      return `<th style="width:${TC_DAY_COL_WIDTH}px;max-width:${TC_DAY_COL_WIDTH}px;text-align:center;padding:2px 1px;font-size:9px;${we?'color:var(--blue)':''}">${d}<br><span style="font-size:8px">${dow}</span></th>`;
     }).join('')}
   </tr></thead>`;
 
@@ -22835,7 +22845,7 @@ async function renderTourCalendar(){
     const arrFlight = header && header.arr_flight ? ('到着便: '+header.arr_flight) : '';
     const headerLine = [b.ref_no, b.tour_code, b.agent_name, paxStr, arrFlight].filter(Boolean).join(' ｜ ');
     const headerRow = `<tr style="cursor:pointer" onclick="openBookingDetail('${b.id}')">
-      <td colspan="${days.length+1}" style="position:sticky;left:0;background:var(--blue-lt);padding:5px 8px;font-size:11px;font-weight:600;color:var(--blue);border-top:2px solid var(--border)">${escHtml(headerLine)}</td>
+      <td colspan="${days.length+1}" style="position:sticky;left:0;background:var(--blue-lt);padding:4px 6px;font-size:10px;font-weight:600;color:var(--blue);border-top:2px solid var(--border);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${escHtml(headerLine)}">${escHtml(headerLine)}</td>
     </tr>`;
     const hotelRow = tcBuildSubRow('🏨','ホテル', hotelsByBooking[b.id]||[], days, ym, monthStart, monthEnd, 'check_in','check_out', true, it=>it.hotel_name||'(ホテル名未設定)');
     const busRow = tcBuildSubRow('🚌','バス', busesByBooking[b.id]||[], days, ym, monthStart, monthEnd, 'start_date','end_date', false, it=>it.bus_company||'(バス会社未設定)');
@@ -22843,7 +22853,9 @@ async function renderTourCalendar(){
     return headerRow + hotelRow + busRow + guideRow;
   }).join('');
 
-  body.innerHTML = `<table style="border-collapse:collapse;font-size:11px">${thead}<tbody>${tbody}</tbody></table>`;
+  // table-layout:fixedにより、内容(長いホテル名等)に関わらずTC_DAY_COL_WIDTH/TC_LANE_COL_WIDTH
+  // の固定幅で列がレイアウトされる(31列でも横スクロール無しで収まるようにするための変更)。
+  body.innerHTML = `<table style="border-collapse:collapse;table-layout:fixed;font-size:11px">${thead}<tbody>${tbody}</tbody></table>`;
 }
 
 async function loadPartners(){
