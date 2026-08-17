@@ -2332,6 +2332,8 @@ input[type=number]{-moz-appearance:textfield}
       </div>
     </div>
 
+    <div id="bd-presence-banner" style="display:none;background:#FFF3CD;border:1px solid #FFE69C;border-radius:6px;padding:6px 12px;margin-bottom:8px;font-size:11px;color:#856404"></div>
+
     <div class="detail-summary">
       <div class="kpi"><div class="kpi-lbl">売上</div><div class="kpi-val" id="bd-sum-sales">-</div></div>
       <div class="kpi"><div class="kpi-lbl">仕入</div><div class="kpi-val" id="bd-sum-cost">-</div></div>
@@ -4557,6 +4559,57 @@ function statusPill(status){
 
 // ===== 予約台帳モーダル =====
 let currentDetailId = null;
+
+// ===== 予約編集の「編集中表示」(ロックではなく気づきのみ) =====
+// 60秒ごとにheartbeatを送り、同時にlist_activeで自分以外の編集中ユーザーを再取得して
+// バナー表示を更新する(list_activeも同じ間隔で呼ぶことで、他ユーザーのハートビートが
+// 途絶えて5分経過した場合の「編集中」表示の自動消灯も、次回ポーリング時に自然に反映される。
+// 専用のタイムアウト監視タイマーは別途設けない)。
+const BD_PRESENCE_HEARTBEAT_MS = 60 * 1000;
+let _bdPresenceTimer = null;
+let _bdPresenceBookingId = null;
+function _bdPresenceTick(){
+  const bookingId = _bdPresenceBookingId;
+  if(!bookingId) return;
+  bookingEditPresenceApiCall('heartbeat', { bookingId, userName: currentUser ? currentUser.name : '' })
+    .catch(e=>console.warn('[編集中表示] heartbeat送信に失敗しました', e));
+  bookingEditPresenceApiCall('list_active', { bookingId })
+    .then(res=>{ if(bookingId===_bdPresenceBookingId) renderBdPresenceBanner(res.rows||[]); })
+    .catch(e=>console.warn('[編集中表示] 編集中ユーザーの取得に失敗しました', e));
+}
+function renderBdPresenceBanner(others){
+  const el = document.getElementById('bd-presence-banner');
+  if(!el) return;
+  if(!others || !others.length){ el.style.display = 'none'; el.textContent = ''; return; }
+  const names = others.map(o=>o.user_name || o.user_email || '(不明なユーザー)');
+  el.textContent = `⚠ ${names.join('、')}さんがこの予約を編集中です`;
+  el.style.display = '';
+}
+// モーダルを開く(または別の予約に切り替える)たびに呼ぶ。既に別の予約のハートビートが
+// 動いていれば、まずそちらをrelease/停止してから新しい予約のハートビートを開始する
+// (モーダルを閉じずに別の予約を続けて開いた場合も、古い予約の「編集中」表示が残り続けない
+// ようにするため)。
+function startBdPresenceHeartbeat(bookingId){
+  stopBdPresenceHeartbeat();
+  if(!bookingId) return;
+  _bdPresenceBookingId = bookingId;
+  _bdPresenceTick();
+  _bdPresenceTimer = setInterval(_bdPresenceTick, BD_PRESENCE_HEARTBEAT_MS);
+}
+// closeBookingDetail()から必ず呼ばれる想定(呼び出し箇所は1つに集約済み)。ハートビートを
+// 失敗しても、モーダルを閉じる操作自体をブロックしない(気づきのための機能であり、
+// releaseに失敗しても最悪ハートビートが5分後に自動失効するだけで実害は無いため)。
+function stopBdPresenceHeartbeat(){
+  if(_bdPresenceTimer){ clearInterval(_bdPresenceTimer); _bdPresenceTimer = null; }
+  const bookingId = _bdPresenceBookingId;
+  _bdPresenceBookingId = null;
+  const banner = document.getElementById('bd-presence-banner');
+  if(banner){ banner.style.display = 'none'; banner.textContent = ''; }
+  if(bookingId){
+    bookingEditPresenceApiCall('release', { bookingId }).catch(e=>console.warn('[編集中表示] releaseに失敗しました', e));
+  }
+}
+
 let bdSalesItems = [];
 let bdCostItems = [];
 let _bdReflections = []; // 反映履歴キャッシュ（decided_unit_price の即時保存用）
@@ -4691,6 +4744,11 @@ async function learnedMappingsApiCall(action, payload){ return tableCrudApiCall(
 //     (bdArrGuideItems)からのコピーで、印字用の見た目を管理する側。
 //     buildArrGuideRows/saveArrDoc参照。
 async function bookingGuidesApiCall(action, payload){ return tableCrudApiCall('booking_guides', action, payload); }
+// booking_edit_presence(予約編集の「編集中表示」)への書き込み/読み取り。heartbeat/list_active/
+// releaseの3アクションのみ許可されている(api/table-crud.js参照)。ロック(排他制御)ではなく
+// あくまで気づきのための記録のため、失敗しても編集操作自体はブロックしない
+// (呼び出し側で個別にcatchし、失敗時はconsole警告に留める設計。startBdPresenceHeartbeat等参照)。
+async function bookingEditPresenceApiCall(action, payload){ return tableCrudApiCall('booking_edit_presence', action, payload); }
 async function tourGuidesApiCall(action, payload){ return tableCrudApiCall('tour_guides', action, payload); }
 async function tourDayItineraryApiCall(action, payload){ return tableCrudApiCall('tour_day_itinerary', action, payload); }
 async function tourArrangementNotesApiCall(action, payload){ return tableCrudApiCall('tour_arrangement_notes', action, payload); }
@@ -7267,6 +7325,7 @@ async function openBookingDetail(id){
   currentDetailId = id;
   bdCurrentRefNo = b.ref_no;
   bdLoadSnapshot = {}; // 予約を開き直すたびに差分保存のスナップショットをリセットする
+  startBdPresenceHeartbeat(id); // 「編集中表示」のハートビート開始(気づきのみ、編集操作はブロックしない)
 
   // 手配管理タブのOCR貼り付け欄は予約に紐づかない共有DOM要素のため、前に開いていた別予約の
   // 内容が残ったまま見えてしまうことがあった（メール一括送信機能で実際に発生を確認）。
@@ -7373,12 +7432,7 @@ async function openBookingDetail(id){
   // booking_guidesはDDL未実行の環境ではテーブルが存在せずエラーになるため、他の明細と異なり
   // alert()では出さずconsole.warnに留める（新規テーブルのため既存データ消失リスクがない）。
   if(guideFetchErr){ logError('ガイド明細の読み込み', guideFetchErr); }
-  bdGuideItems = (guideRows||[]).map(r=>({
-    id: r.id, guide_id: r.guide_id||null, guide_name_freetext: r.guide_name_freetext||'',
-    start_date: r.start_date||'', end_date: r.end_date||'', status: r.status||'回答待ち', memo: r.memo||'',
-    payment_method: r.payment_method||'', amount: r.amount||0,
-    _freetextMode: !r.guide_id && !!r.guide_name_freetext
-  }));
+  bdGuideItems = (guideRows||[]).map(mapGuideDbRow);
   originalGuideCount = bdGuideItems.length;
   bdLoadSnapshot.guides = JSON.stringify(buildGuideRows(id));
   renderGuideTable();
@@ -7389,14 +7443,7 @@ async function openBookingDetail(id){
   const {data: hotelRows, error: hotelFetchErr} = await sb.from('booking_hotels').select('*').eq('booking_id', id).order('sort_order');
   if(_stale()) return;
   if(hotelFetchErr){ alert('ホテル明細の読み込みに失敗しました。このまま保存すると既存データが消える危険があるため、画面を再読み込みしてください。\n'+hotelFetchErr.message); }
-  bdHotelItems = (hotelRows||[]).map(r=>({
-    id: r.id,
-    hotel_name: r.hotel_name||'', check_in: r.check_in||'', check_out: r.check_out||'',
-    room_type: r.room_type||'', rooms: r.rooms||1, breakfast: r.breakfast||false,
-    unit_price: r.unit_price||0, amount: r.amount||0,
-    confirmation_no: r.confirmation_no||'', status: r.status||'回答待ち', memo: r.memo||'', payment_method: r.payment_method||'',
-    cost_added: r.cost_added||false
-  }));
+  bdHotelItems = (hotelRows||[]).map(mapHotelDbRow);
   originalHotelCount = bdHotelItems.length;
   bdLoadSnapshot.hotels = JSON.stringify(buildHotelRows(id));
   renderHotelTable();
@@ -7410,7 +7457,7 @@ async function openBookingDetail(id){
   ]);
   if(_stale()) return;
   if(busFetchErr||restFetchErr||facFetchErr||waterFetchErr){ alert('手配明細の読み込みに一部失敗しました。このまま保存すると既存データが消える危険があるため、画面を再読み込みしてください。\n'+(busFetchErr||restFetchErr||facFetchErr||waterFetchErr).message); }
-  bdBusItems = (busRows||[]).map(r=>({id:r.id,bus_company:r.bus_company||'',bus_type:r.bus_type||'',buses:r.buses||1,start_date:r.start_date||'',end_date:r.end_date||'',amount:r.amount||0,status:r.status||'問い合わせ中',confirmation_no:r.confirmation_no||'',driver_hotel_name:r.driver_hotel_name||'',driver_hotel_phone:r.driver_hotel_phone||'',driver_hotel_address:r.driver_hotel_address||'',driver_check_in:r.driver_check_in||'',driver_check_out:r.driver_check_out||'',driver_hotel_amount:r.driver_hotel_amount||0,memo:r.memo||'',payment_method:r.payment_method||'',cost_added:r.cost_added||false}));
+  bdBusItems = (busRows||[]).map(mapBusDbRow);
   originalBusCount = bdBusItems.length;
   bdLoadSnapshot.buses = JSON.stringify(buildBusRows(id));
   bdRestaurantItems = (restRows||[]).map(r=>({id:r.id,restaurant_name:r.restaurant_name||'',meal_type:r.meal_type||'昼食',date:r.date||'',reservation_time:r.reservation_time||'',pax:r.pax||0,amount:r.amount||0,status:r.status||'問い合わせ中',payment_method:r.payment_method||'',memo:r.memo||'',guide_id:r.guide_id||null,guide_name_freetext:r.guide_name_freetext||'',cost_added:r.cost_added||false}));
@@ -7599,6 +7646,7 @@ function closeBookingDetail(){
   document.getElementById('bd-invoices-modal')?.classList.remove('open');
   currentDetailId = null;
   hideFacilitySuggest();
+  stopBdPresenceHeartbeat(); // 「編集中表示」のハートビート停止+release(呼び出し箇所が複数あってもここ1箇所に集約されているため、他の呼び出し元を個別に変更する必要はない)
 }
 
 function updateReflectionDecidedPrice(reflId, tierIdx, val){
@@ -10953,12 +11001,28 @@ function addHotelRow(){
   renderHotelTable();
 }
 
+// DB行(booking_hotelsのselect結果)→bdHotelItemsと同じ形の中間オブジェクトへの変換。
+// openBookingDetail()でのロード時と、保存時の食い違い検知でDBを再取得した際の両方から
+// このロジックを使うことで、変換のズレによる誤検知を防ぐ。
+function mapHotelDbRow(r){
+  return {
+    id: r.id,
+    hotel_name: r.hotel_name||'', check_in: r.check_in||'', check_out: r.check_out||'',
+    room_type: r.room_type||'', rooms: r.rooms||1, breakfast: r.breakfast||false,
+    unit_price: r.unit_price||0, amount: r.amount||0,
+    confirmation_no: r.confirmation_no||'', status: r.status||'回答待ち', memo: r.memo||'', payment_method: r.payment_method||'',
+    cost_added: r.cost_added||false
+  };
+}
 // DB行→送信rows形式への変換のみを行う純粋関数。差分保存の比較(ロード直後/保存直前の
 // 2時点でこれを呼びJSON文字列化して比較する)と、実際の保存(saveHotelItems)の両方から
 // 同じロジックを使うことで、正規化のズレによる誤検知(変更なしなのに差分ありと誤判定、
 // またはその逆)を防ぐ。
-function buildHotelRows(bookingId){
-  return bdHotelItems.filter(it=>it.hotel_name||it.room_type||it.check_in||it.check_out||it.amount||it.confirmation_no||it.memo||it.breakfast).map((it,i)=>({
+// itemsを省略するとbdHotelItems(画面上の現在の内容)を対象にする。保存時の食い違い検知
+// (DBから再取得した最新行との比較)でも、DB行をmapHotelDbRow()でこの関数と同じ入力形に
+// 変換した配列を渡すことで、同一の変換ロジックを再利用できるようにしている。
+function buildHotelRows(bookingId, items){
+  return (items||bdHotelItems).filter(it=>it.hotel_name||it.room_type||it.check_in||it.check_out||it.amount||it.confirmation_no||it.memo||it.breakfast).map((it,i)=>({
     booking_id: bookingId,
     hotel_name: it.hotel_name||'',
     check_in: sanitizeDateField(it.check_in),
@@ -10976,6 +11040,25 @@ function buildHotelRows(bookingId){
     sort_order: i
   }));
 }
+// ===== 保存時の食い違い検知(複数人が同じ予約を同時編集した場合の無言上書き防止) =====
+// ロード時点のスナップショット(bdLoadSnapshot)と、保存直前にDBから再取得した"最新の"内容
+// (自分の未保存の編集ではなく、他ユーザーが保存したかもしれないDB上の実データ)を比較する。
+// 新しい列(updated_at等)は追加せず、既存のbuildXxxRows(id)による正規化・JSON文字列比較の
+// パターンをそのまま流用する。一致しなければ、そのタブの保存を中止するエラーを投げる
+// (呼び出し元がrunSkippableならタブ単体で保存全体を中断、runSkippableIsolatedならこの
+// タブだけ失敗として分離される。既存のフォールトアイソレーションの粒度をそのまま踏襲)。
+async function checkNoSaveConflict(snapshotKey, tabLabel, table, bookingId, orderCol, mapFn, buildFn){
+  const {data, error} = await sb.from(table).select('*').eq('booking_id', bookingId).order(orderCol);
+  if(error){
+    // 再取得自体に失敗した場合、食い違いの有無を判定できないため安全側に倒して保存を中止する
+    // (判定できないまま保存を続行して無言上書きになるより、保存が止まる方が安全なため)。
+    throw new Error(`${tabLabel}の最新状態の確認に失敗しました。保存を中止しました。\n`+error.message);
+  }
+  const freshJson = JSON.stringify(buildFn(bookingId, (data||[]).map(mapFn)));
+  if(bdLoadSnapshot[snapshotKey] !== freshJson){
+    throw new Error(`内容が更新されています。最新の状態を確認してからやり直してください。（${tabLabel}）`);
+  }
+}
 async function saveHotelItems(){
   if(!currentDetailId) return;
   // currentDetailIdはグローバル変数のため、await中に閉じる/別の予約を開く等で
@@ -10983,6 +11066,7 @@ async function saveHotelItems(){
   // booking_idがnullのまま保存されてしまう不具合(#782で発生)を防ぐ。
   const bookingId = currentDetailId;
   const rows = buildHotelRows(bookingId);
+  await checkNoSaveConflict('hotels', 'ホテル', 'booking_hotels', bookingId, 'sort_order', mapHotelDbRow, buildHotelRows);
   await bookingHotelsApiCall('replace', { bookingId, rows });
   bdLoadSnapshot.hotels = JSON.stringify(rows);
 }
@@ -11037,8 +11121,17 @@ function addBusRow(){
   bdBusItems.push({bus_company:'',bus_type:'',buses:1,start_date:'',end_date:'',amount:0,status:'問い合わせ中',confirmation_no:'',memo:'',payment_method:''});
   renderBusTable();
 }
-function buildBusRows(bookingId){
-  return bdBusItems.filter(it=>it.bus_company||it.bus_type||it.start_date||it.end_date||it.amount||it.confirmation_no||it.memo).map(it=>({
+// DB行(booking_busesのselect結果)→bdBusItemsと同じ形の中間オブジェクトへの変換。
+// openBookingDetail()でのロード時と、保存時の食い違い検知でDBを再取得した際の両方から
+// このロジックを使うことで、変換のズレによる誤検知を防ぐ。
+function mapBusDbRow(r){
+  return {id:r.id,bus_company:r.bus_company||'',bus_type:r.bus_type||'',buses:r.buses||1,start_date:r.start_date||'',end_date:r.end_date||'',amount:r.amount||0,status:r.status||'問い合わせ中',confirmation_no:r.confirmation_no||'',driver_hotel_name:r.driver_hotel_name||'',driver_hotel_phone:r.driver_hotel_phone||'',driver_hotel_address:r.driver_hotel_address||'',driver_check_in:r.driver_check_in||'',driver_check_out:r.driver_check_out||'',driver_hotel_amount:r.driver_hotel_amount||0,memo:r.memo||'',payment_method:r.payment_method||'',cost_added:r.cost_added||false};
+}
+// itemsを省略するとbdBusItems(画面上の現在の内容)を対象にする。保存時の食い違い検知
+// (DBから再取得した最新行との比較)でも、DB行をmapBusDbRow()でこの関数と同じ入力形に
+// 変換した配列を渡すことで、同一の変換ロジックを再利用できるようにしている。
+function buildBusRows(bookingId, items){
+  return (items||bdBusItems).filter(it=>it.bus_company||it.bus_type||it.start_date||it.end_date||it.amount||it.confirmation_no||it.memo).map(it=>({
     booking_id: bookingId,
     bus_company: it.bus_company||'', bus_type: it.bus_type||'',
     buses: Number(it.buses)||1,
@@ -11055,6 +11148,7 @@ async function saveBusItems(){
   if(!currentDetailId) return;
   const bookingId = currentDetailId; // await中のcurrentDetailId変更に影響されないようスナップショットを保持
   const rows = buildBusRows(bookingId);
+  await checkNoSaveConflict('buses', 'バス', 'booking_buses', bookingId, 'created_at', mapBusDbRow, buildBusRows);
   await bookingBusesApiCall('replace', { bookingId, rows });
   bdLoadSnapshot.buses = JSON.stringify(rows);
   // 保存後に同一予約内の重複登録を再チェックする(警告表示のみで、保存自体はブロックしない)
@@ -15806,10 +15900,24 @@ function addGuideRow(){
   renderGuideTable();
 }
 
+// DB行(booking_guidesのselect結果)→bdGuideItemsと同じ形の中間オブジェクトへの変換。
+// openBookingDetail()でのロード時と、保存時の食い違い検知でDBを再取得した際の両方から
+// このロジックを使うことで、変換のズレによる誤検知を防ぐ。
+function mapGuideDbRow(r){
+  return {
+    id: r.id, guide_id: r.guide_id||null, guide_name_freetext: r.guide_name_freetext||'',
+    start_date: r.start_date||'', end_date: r.end_date||'', status: r.status||'回答待ち', memo: r.memo||'',
+    payment_method: r.payment_method||'', amount: r.amount||0,
+    _freetextMode: !r.guide_id && !!r.guide_name_freetext
+  };
+}
 // booking_guides = ガイドのアサイン状況管理(役割の詳細はbookingGuidesApiCall宣言部の
 // コメント参照)。手配書印字用のtour_guidesとは別テーブルなので混同しないこと。
-function buildGuideRows(bookingId){
-  return bdGuideItems.filter(it=>it.guide_id||it.guide_name_freetext||it.start_date||it.end_date||it.memo||it.amount).map(it=>({
+// itemsを省略するとbdGuideItems(画面上の現在の内容)を対象にする。保存時の食い違い検知
+// (DBから再取得した最新行との比較)でも、DB行をmapGuideDbRow()でこの関数と同じ入力形に
+// 変換した配列を渡すことで、同一の変換ロジックを再利用できるようにしている。
+function buildGuideRows(bookingId, items){
+  return (items||bdGuideItems).filter(it=>it.guide_id||it.guide_name_freetext||it.start_date||it.end_date||it.memo||it.amount).map(it=>({
     booking_id: bookingId,
     guide_id: it.guide_id||null,
     guide_name_freetext: it.guide_id ? '' : (it.guide_name_freetext||''),
@@ -15825,6 +15933,7 @@ async function saveGuideItems(){
   if(!currentDetailId) return;
   const bookingId = currentDetailId; // await中のcurrentDetailId変更に影響されないようスナップショットを保持
   const rows = buildGuideRows(bookingId);
+  await checkNoSaveConflict('guides', 'ガイド', 'booking_guides', bookingId, 'created_at', mapGuideDbRow, buildGuideRows);
   await bookingGuidesApiCall('replace', { bookingId, rows });
   bdLoadSnapshot.guides = JSON.stringify(rows);
   // 保存後に他予約との二重アサインを再チェックする(警告表示のみで、保存自体はブロックしない)
@@ -17632,6 +17741,9 @@ async function saveBookingDetail(){
     document.getElementById('bd-msg').style.display='inline';
     document.getElementById('bd-msg-top').style.display='inline';
     document.getElementById('bd-updated').textContent = '最終更新: '+new Date(payload.updated_at).toLocaleString('ja-JP');
+    // 保存後もそのまま編集を続ける可能性があるため、ハートビートのsetInterval自体は止めず、
+    // 保存直後にも1回送っておく(「編集中」表示が保存タイミングで途切れて見えないようにする)。
+    if(_bdPresenceBookingId===bookingId) _bdPresenceTick();
     setTimeout(()=>{
       document.getElementById('bd-msg').style.display='none';
       document.getElementById('bd-msg-top').style.display='none';
