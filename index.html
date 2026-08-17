@@ -1045,6 +1045,7 @@ input[type=number]{-moz-appearance:textfield}
     <div class="sb-item active" data-pg="dashboard" onclick="go('dashboard')">📊 ダッシュボード<span class="sb-en">/ Dashboard</span></div>
     <div class="sb-item" data-pg="new-booking" onclick="go('new-booking')">➕ New Booking</div>
     <div class="sb-item" data-pg="booking-list" onclick="go('booking-list')">📋 Booking List</div>
+    <div class="sb-item" data-pg="tour-calendar" onclick="go('tour-calendar')">🗓 ツアー運行カレンダー<span class="sb-en">/ Calendar</span></div>
     <div class="sb-item" data-pg="hotels" onclick="go('hotels')">🏨 ホテル予約管理<span class="sb-en">/ Hotels</span></div>
     <div class="sb-item" data-pg="bullet-trains" onclick="go('bullet-trains')">🚅 新幹線手配<span class="sb-en">/ Shinkansen</span></div>
     <div class="sb-item" data-pg="facility-management" onclick="go('facility-management')">🎡 観光地予約管理<span class="sb-en">/ Facilities</span></div>
@@ -1282,6 +1283,21 @@ input[type=number]{-moz-appearance:textfield}
             <thead id="bl-thead"></thead>
             <tbody id="bl-tbody"><tr class="bl-fullrow"><td colspan="8" class="empty">読み込み中...</td></tr></tbody>
           </table></div>
+        </div>
+      </div>
+
+      <!-- ツアー運行カレンダー(閲覧専用。予約データから自動生成。編集はセルクリックで開く予約詳細モーダル側で行う) -->
+      <div id="pg-tour-calendar" class="page" style="display:none">
+        <div class="card">
+          <div class="card-title">ツアー運行カレンダー</div>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+            <select id="tc-ym" onchange="renderTourCalendar()" style="padding:6px 10px;border-radius:8px;border:1px solid var(--border);font-size:12px"></select>
+            <label style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:4px;cursor:pointer">
+              <input type="checkbox" id="tc-show-cancelled" onchange="renderTourCalendar()">キャンセル済みも表示
+            </label>
+            <span style="font-size:10px;color:var(--text3)">◀▶ = 表示月の外にも日程が続いています</span>
+          </div>
+          <div id="tc-body" style="overflow-x:auto"></div>
         </div>
       </div>
 
@@ -3644,7 +3660,7 @@ function restoreSession(){
 
 // ===== ナビゲーション =====
 const pageNames={
-  dashboard:'Dashboard','new-booking':'New Booking','booking-list':'Booking List',
+  dashboard:'Dashboard','new-booking':'New Booking','booking-list':'Booking List','tour-calendar':'ツアー運行カレンダー',
   invoice:'Invoice',estimation:'見積もり','guide-settlements':'ガイド精算一覧','guide-management':'ガイド管理',gross:'GROSS / 粗利管理',payment:'入出金管理','credit-card-statements':'クレジットカード明細',accounts:'アカウント管理',logs:'アクセスログ','error-logs':'エラーログ','card-holders':'カード名義人管理'
 ,hotels:'ホテル予約管理',partners:'取引先マスタ',agents:'取引先マスタ(Agent)','bullet-trains':'新幹線手配','invoice-import':'請求書読み取り','email-inbox':'メール受信箱','facility-management':'観光地予約管理',todo:'対応が必要な予約','vendor-email':'手配確定状況'
 };
@@ -3678,6 +3694,7 @@ function go(id){
 
   if(id==='dashboard') loadBookingListGeneric('db');
   if(id==='booking-list') loadBookingListGeneric('bl');
+  if(id==='tour-calendar') initTourCalendar();
   if(id==='invoice') loadInvoicePage();
   if(id==='estimation') loadEstimations();
   if(id==='guide-settlements') loadGuideSettlementsListPage();
@@ -22698,6 +22715,135 @@ function renderHmTourTab(){
     return `<tr><td style="padding:6px 8px;font-size:11px;white-space:nowrap;vertical-align:top;border-bottom:1px solid var(--border);cursor:pointer" onclick="openBookingDetail('${bk.booking_id}')"><div style="font-weight:600;color:var(--blue)">${escHtml(bk.ref_no)}</div><div style="font-size:10px;color:var(--text2)">${escHtml(bk.agent_name)}${paxStr}</div></td><td style="padding:6px 8px;border-bottom:1px solid var(--border)">${segs}</td></tr>`;
   }).join('');
   body.innerHTML=`<table style="border-collapse:collapse;width:100%;font-size:11px">${thead}<tbody>${tbody}</tbody></table>`;
+}
+
+// ===== ツアー運行カレンダー(閲覧専用。フェーズ1) =====
+// ホテル予約管理の「マトリクス」タブ(initHmMatrix/renderHmMatrix)と同じ「月選択→
+// 選択月と運行期間が重なる行を抽出→日別セルに展開」というパターンを踏襲する。
+// ただしhotelManagementCacheのような全件キャッシュは持たず、選択月と重なる予約の
+// booking_idを先に絞り込んでから、その予約に属する明細だけを.in('booking_id',ids)で
+// まとめて取得する(全件取得を避け、月が変わるたびに絞り込み直す)。
+// ロック(排他制御)・手入力機能は無く、あくまで予約データ(bookings/booking_hotels/
+// booking_buses/booking_guides/tour_arrangement_headers)からの自動生成表示のみ。
+// 編集はセルクリックで開くopenBookingDetail(既存の予約詳細モーダル)側で行う
+// (マトリクスタブと同じ設計)。
+
+function initTourCalendar(){
+  const sel = document.getElementById('tc-ym');
+  if(!sel.options.length){
+    // hm-matrixと同じ「今月を基準に-2ヶ月〜+12ヶ月」の範囲を生成しつつ、
+    // このカレンダーの既定表示月(2026年9月)がその範囲に含まれていればそれを選択状態にする
+    // (含まれない場合は今月をフォールバックの既定値にする)。
+    const now = new Date();
+    const months = [];
+    for(let i=-2;i<=12;i++){
+      const d = new Date(now.getFullYear(), now.getMonth()+i, 1);
+      months.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);
+    }
+    const preferredDefault = '2026-09';
+    const defaultYm = months.includes(preferredDefault) ? preferredDefault : `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+    sel.innerHTML = months.map(ym=>`<option value="${ym}" ${ym===defaultYm?'selected':''}>${ym.replace('-','年')}月</option>`).join('');
+  }
+  renderTourCalendar();
+}
+
+// 1つのサブ行(ホテル/バス/ガイドいずれか)を日別セルとして組み立てる。
+// halfOpen=trueなら[dateStartField, dateEndField)の半開区間(ホテル向け)、
+// falseなら[dateStartField, dateEndField]の両端含む区間(バス/ガイド向け)で判定する。
+// 表示月の1日目・末日目のセルで、実際の期間がその月の外にも続いている場合は
+// ◀/▶を添えて「分断されているだけで実際は続いている」ことが分かるようにする
+// (マトリクスタブで月をまたぐツアーが分断されて見える、という既知の教訓を踏まえた配慮)。
+function tcBuildSubRow(icon, label, items, days, ym, monthStart, monthEnd, dateStartField, dateEndField, halfOpen, nameFn){
+  const cells = days.map(d=>{
+    const ds = `${ym}-${String(d).padStart(2,'0')}`;
+    const item = items.find(it=>{
+      if(!it[dateStartField] || !it[dateEndField]) return false;
+      return halfOpen
+        ? (it[dateStartField] <= ds && it[dateEndField] > ds)
+        : (it[dateStartField] <= ds && it[dateEndField] >= ds);
+    });
+    if(!item) return `<td style="border:1px solid var(--border);padding:2px;min-width:34px"></td>`;
+    const arrowL = (d===1 && item[dateStartField] < monthStart) ? '◀' : '';
+    const arrowR = (d===days.length && item[dateEndField] > monthEnd) ? '▶' : '';
+    const name = nameFn(item);
+    return `<td style="border:1px solid var(--border);padding:2px;background:var(--blue-lt);cursor:pointer" onclick="openBookingDetail('${item.booking_id}')" title="${escHtml(name)}"><span style="font-size:9px;color:var(--blue);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;text-align:center">${arrowL}${escHtml(name)}${arrowR}</span></td>`;
+  }).join('');
+  return `<tr><td style="padding:3px 6px;font-size:10px;white-space:nowrap;position:sticky;left:0;background:#fff;border-right:2px solid var(--border);color:var(--text2)">${icon} ${label}</td>${cells}</tr>`;
+}
+
+async function renderTourCalendar(){
+  const ym = document.getElementById('tc-ym')?.value;
+  if(!ym) return;
+  const body = document.getElementById('tc-body');
+  body.innerHTML = '<p style="color:var(--text3);font-size:12px">読み込み中...</p>';
+  const [year, month] = ym.split('-').map(Number);
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const days = Array.from({length:daysInMonth},(_,i)=>i+1);
+  const monthStart = `${ym}-01`;
+  const monthEnd = `${ym}-${String(daysInMonth).padStart(2,'0')}`;
+  const showCancelled = document.getElementById('tc-show-cancelled')?.checked;
+
+  // レーン抽出: 運行期間(in_date〜out_date)が選択月と重なる予約のみをDB側で絞り込む
+  // (全件取得はしない)。キャンセル済みは既定で除外する。
+  let q = sb.from('bookings').select('id,ref_no,tour_code,agent_name,pax,in_date,out_date,status')
+    .lte('in_date', monthEnd).gte('out_date', monthStart).order('in_date',{ascending:true});
+  if(!showCancelled) q = q.neq('status','cancelled');
+  const {data: bookings, error: bErr} = await q;
+  if(bErr){ body.innerHTML = `<p style="color:var(--red);font-size:12px">読み込みエラー: ${escHtml(bErr.message)}</p>`; return; }
+  if(!bookings || bookings.length===0){ body.innerHTML = '<p style="color:var(--text3);font-size:12px">この月に運行中の予約はありません</p>'; return; }
+
+  // 対象booking_idが確定してから、その予約の明細だけをまとめて取得する
+  // (booking_hotels/booking_buses/booking_guides/tour_arrangement_headers全件取得はしない)。
+  const ids = bookings.map(b=>b.id);
+  const [{data: hotelRows, error: hErr}, {data: busRows, error: buErr}, {data: guideRows, error: gErr}, {data: headerRows, error: arrErr}] = await Promise.all([
+    sb.from('booking_hotels').select('booking_id,hotel_name,check_in,check_out').in('booking_id', ids),
+    sb.from('booking_buses').select('booking_id,bus_company,start_date,end_date').in('booking_id', ids),
+    sb.from('booking_guides').select('booking_id,guide_id,guide_name_freetext,start_date,end_date,guides(name)').in('booking_id', ids),
+    sb.from('tour_arrangement_headers').select('booking_id,arr_flight').in('booking_id', ids),
+  ]);
+  const detailErr = hErr||buErr||gErr||arrErr;
+  if(detailErr){ body.innerHTML = `<p style="color:var(--red);font-size:12px">明細の読み込みエラー: ${escHtml(detailErr.message)}</p>`; return; }
+
+  const hotelsByBooking = {}, busesByBooking = {}, guidesByBooking = {}, headerByBooking = {};
+  (hotelRows||[]).filter(r=>r.check_in&&r.check_out).forEach(r=>{
+    if(!hotelsByBooking[r.booking_id]) hotelsByBooking[r.booking_id] = [];
+    hotelsByBooking[r.booking_id].push(r);
+  });
+  (busRows||[]).filter(r=>r.start_date&&r.end_date).forEach(r=>{
+    if(!busesByBooking[r.booking_id]) busesByBooking[r.booking_id] = [];
+    busesByBooking[r.booking_id].push(r);
+  });
+  (guideRows||[]).filter(r=>r.start_date&&r.end_date).forEach(r=>{
+    if(!guidesByBooking[r.booking_id]) guidesByBooking[r.booking_id] = [];
+    guidesByBooking[r.booking_id].push(r);
+  });
+  (headerRows||[]).forEach(r=>{ headerByBooking[r.booking_id] = r; });
+
+  const thead = `<thead><tr>
+    <th style="min-width:180px;padding:4px 6px;text-align:left;position:sticky;left:0;background:#fff;z-index:2;border-right:2px solid var(--border)">レーン</th>
+    ${days.map(d=>{
+      const dt = new Date(year, month-1, d);
+      const dow = ['日','月','火','水','木','金','土'][dt.getDay()];
+      const we = dt.getDay()===0||dt.getDay()===6;
+      return `<th style="min-width:34px;text-align:center;padding:3px 2px;font-size:10px;${we?'color:var(--blue)':''}">${d}<br><span style="font-size:9px">${dow}</span></th>`;
+    }).join('')}
+  </tr></thead>`;
+
+  const tbody = bookings.map(b=>{
+    const header = headerByBooking[b.id];
+    const paxStr = b.pax ? `${b.pax}名` : '';
+    const arrFlight = header && header.arr_flight ? ('到着便: '+header.arr_flight) : '';
+    const headerLine = [b.ref_no, b.tour_code, b.agent_name, paxStr, arrFlight].filter(Boolean).join(' ｜ ');
+    const headerRow = `<tr style="cursor:pointer" onclick="openBookingDetail('${b.id}')">
+      <td colspan="${days.length+1}" style="position:sticky;left:0;background:var(--blue-lt);padding:5px 8px;font-size:11px;font-weight:600;color:var(--blue);border-top:2px solid var(--border)">${escHtml(headerLine)}</td>
+    </tr>`;
+    const hotelRow = tcBuildSubRow('🏨','ホテル', hotelsByBooking[b.id]||[], days, ym, monthStart, monthEnd, 'check_in','check_out', true, it=>it.hotel_name||'(ホテル名未設定)');
+    const busRow = tcBuildSubRow('🚌','バス', busesByBooking[b.id]||[], days, ym, monthStart, monthEnd, 'start_date','end_date', false, it=>it.bus_company||'(バス会社未設定)');
+    const guideRow = tcBuildSubRow('🧑‍✈️','ガイド', guidesByBooking[b.id]||[], days, ym, monthStart, monthEnd, 'start_date','end_date', false, it=>(it.guides&&it.guides.name)||it.guide_name_freetext||'(ガイド未設定)');
+    return headerRow + hotelRow + busRow + guideRow;
+  }).join('');
+
+  body.innerHTML = `<table style="border-collapse:collapse;font-size:11px">${thead}<tbody>${tbody}</tbody></table>`;
 }
 
 async function loadPartners(){
