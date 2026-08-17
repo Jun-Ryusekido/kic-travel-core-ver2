@@ -1060,6 +1060,7 @@ input[type=number]{-moz-appearance:textfield}
     <div class="sb-sec">マスタ管理 <span class="sb-en">/ Master Data</span></div>
     <div class="sb-item" data-pg="partners" onclick="go('partners')">🏢 取引先マスタ<span class="sb-en">/ Partners</span></div>
     <div class="sb-item" data-pg="agents" onclick="go('agents')">🌏 取引先マスタ(Agent)<span class="sb-en">/ Agents</span></div>
+    <div class="sb-item" id="sb-card-holders" data-pg="card-holders" onclick="go('card-holders')" style="display:none">💳 カード名義人管理<span class="sb-en">/ Card Holders</span></div>
     <div class="sb-sec">分析 <span class="sb-en">/ Analytics</span></div>
     <div class="sb-item admin-only" data-pg="gross" onclick="go('gross')">📈 GROSS / 粗利</div>
     <div class="sb-item accounting-only" data-pg="payment" onclick="go('payment')">💱 入出金管理<span class="sb-en">/ Payment</span></div>
@@ -2204,6 +2205,35 @@ input[type=number]{-moz-appearance:textfield}
         </div>
       </div>
 
+      <!-- Card Holders(カード名義人マスタ、admin@kictravel.jp限定。go()側でもガードする) -->
+      <div id="pg-card-holders" class="page" style="display:none">
+        <div class="card">
+          <div class="card-title">カード名義人マスタ
+            <span>
+              <button class="btn btn-p" onclick="openCardHolderAddForm()">＋ 新規追加</button>
+            </span>
+          </div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:8px">
+            クレジットカード明細・仕入明細タブの「名義人を選択」欄の候補元です。無効化した名義人は選択肢から外れますが、既存の明細データ(過去の名義人記録)はそのまま残ります。
+          </div>
+          <div id="ch-add-form" style="display:none;border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:10px;background:var(--bg)">
+            <div class="form-grid" style="--fg-cols:1fr 1fr">
+              <div class="form-field"><label>名前</label><input id="ch-new-name" placeholder="例: RAJESH KUMAR"></div>
+              <div class="form-field"><label>メモ</label><input id="ch-new-notes" placeholder="任意"></div>
+            </div>
+            <div style="margin-top:8px;display:flex;gap:8px">
+              <button class="btn btn-p" onclick="saveNewCardHolder()">保存</button>
+              <button class="btn" onclick="closeCardHolderAddForm()">キャンセル</button>
+            </div>
+          </div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:6px" id="ch-count"></div>
+          <div class="tbl-wrap"><table class="confirm-table" style="font-size:12px">
+            <thead><tr><th>名前</th><th>メモ</th><th style="width:70px">状態</th><th style="width:90px"></th></tr></thead>
+            <tbody id="ch-tbody"><tr><td colspan="4" class="empty">読み込み中...</td></tr></tbody>
+          </table></div>
+        </div>
+      </div>
+
       <!-- Accounts -->
       <div id="pg-accounts" class="page" style="display:none">
         <div class="card">
@@ -2944,10 +2974,16 @@ const ERROR_LOG_VIEWER_EMAILS = ['admin@kictravel.jp','jr@kictravel.jp'];
 // メール受信箱の「対象外にする」は、送信元学習(learned_mappings)にも記録され以後の
 // 新着メールの表示にも影響するため、操作できるアカウントを限定する。
 const EMAIL_EXCLUDE_EMAILS = ['admin@kictravel.jp','jr@kictravel.jp'];
+// カード名義人マスタ(card_holders)の管理(追加・無効化)はadmin@kictravel.jpのみに限定する。
+// UI側(このメニュー項目の表示・go()のガード)に加え、api/table-crud.jsのcard_holders専用
+// チェックでサーバー側でも同じ一覧を使って二重に制限する(有効なセッショントークンさえ
+// あれば誰でも叩けてしまう抜け穴を塞ぐ、error_logsのlistアクションと同じ考え方)。
+const CARD_HOLDER_ADMIN_EMAILS = ['admin@kictravel.jp'];
 function isBackupUser(){ return currentUser && BACKUP_EMAILS.includes(currentUser.email); }
 function isErrorLogViewer(){ return currentUser && ERROR_LOG_VIEWER_EMAILS.includes(currentUser.email); }
 function isEmailExcludeUser(){ return currentUser && EMAIL_EXCLUDE_EMAILS.includes(currentUser.email); }
 function isAccountingUser(){ return currentUser && ACCOUNTING_EMAILS.includes(currentUser.email); }
+function isCardHolderAdmin(){ return currentUser && CARD_HOLDER_ADMIN_EMAILS.includes(currentUser.email); }
 let currentPageId = 'dashboard';
 const SESSION_KEY = 'kic_session_v1';
 const SESSION_TIMEOUT_MS = 15*60*1000; // 15分操作がなければ自動ログアウト
@@ -3437,6 +3473,8 @@ function applyLoggedInUI(data){
   if(backupWrap) backupWrap.style.display = isBackupUser() ? '' : 'none';
   const errLogItem = document.getElementById('sb-error-logs');
   if(errLogItem) errLogItem.style.display = isErrorLogViewer() ? '' : 'none';
+  const cardHolderItem = document.getElementById('sb-card-holders');
+  if(cardHolderItem) cardHolderItem.style.display = isCardHolderAdmin() ? '' : 'none';
 
   refreshGlobalDeadlineBanner();
 }
@@ -3477,6 +3515,74 @@ async function loadErrorLogs(){
       <td data-label="端末">${escHtml(device)}</td>
     </tr>`;
   }).join('');
+}
+
+// ===== カード名義人マスタ管理ページ（admin@kictravel.jp限定） =====
+// 一覧(有効/無効含む全件)はanonにSELECTが許可されているため直接読み取る。
+// 追加(insert)・無効化(updateById、is_active=falseへの更新のみ。物理削除はしない)は
+// /api/table-crud経由のservice_role操作とし、サーバー側でもadmin@kictravel.jpのみに
+// 制限する(このページ自体もgo()側でisCardHolderAdmin()によるガードがある、二重の防御)。
+let cardHoldersAdminCache = [];
+async function loadCardHolders(){
+  const tbody = document.getElementById('ch-tbody');
+  if(!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="4" class="empty">読み込み中...</td></tr>';
+  try{
+    const {data, error} = await sb.from('card_holders').select('*').order('name');
+    if(error) throw error;
+    cardHoldersAdminCache = data||[];
+    renderCardHolders();
+  }catch(e){
+    logError('カード名義人マスタの読み込み', e);
+    tbody.innerHTML = `<tr><td colspan="4" class="empty" style="color:var(--red)">読み込みに失敗しました: ${escHtml(e.message||'')}</td></tr>`;
+  }
+}
+function renderCardHolders(){
+  const tbody = document.getElementById('ch-tbody');
+  if(!tbody) return;
+  const countEl = document.getElementById('ch-count');
+  if(countEl) countEl.textContent = `${cardHoldersAdminCache.length}件`;
+  if(!cardHoldersAdminCache.length){
+    tbody.innerHTML = '<tr><td colspan="4" class="empty">登録されている名義人はありません</td></tr>';
+    return;
+  }
+  tbody.innerHTML = cardHoldersAdminCache.map(h=>`<tr>
+    <td data-label="名前">${escHtml(h.name)}</td>
+    <td data-label="メモ">${escHtml(h.notes||'')}</td>
+    <td data-label="状態">${h.is_active ? '<span style="color:var(--green)">有効</span>' : '<span style="color:var(--text3)">無効</span>'}</td>
+    <td>${h.is_active ? `<button class="btn" style="font-size:10px;color:var(--red)" onclick="deactivateCardHolder('${h.id}')">無効化</button>` : ''}</td>
+  </tr>`).join('');
+}
+function openCardHolderAddForm(){
+  document.getElementById('ch-add-form').style.display = 'block';
+  document.getElementById('ch-new-name').value = '';
+  document.getElementById('ch-new-notes').value = '';
+  document.getElementById('ch-new-name').focus();
+}
+function closeCardHolderAddForm(){
+  document.getElementById('ch-add-form').style.display = 'none';
+}
+async function saveNewCardHolder(){
+  const name = (document.getElementById('ch-new-name').value||'').trim();
+  const notes = (document.getElementById('ch-new-notes').value||'').trim();
+  if(!name){ alert('名前を入力してください'); return; }
+  try{
+    await cardHoldersApiCall('insert', { rows: [{ name, notes: notes||null, is_active: true }] });
+  }catch(e){ alert('保存に失敗しました: '+e.message); return; }
+  await logAction('カード名義人登録', name);
+  ccCardHolderStaffCache = null; // 名義人選択肢のキャッシュを無効化し、次回表示時に新しい名義人を反映させる
+  closeCardHolderAddForm();
+  await loadCardHolders();
+}
+async function deactivateCardHolder(id){
+  const h = cardHoldersAdminCache.find(x=>String(x.id)===String(id));
+  if(!confirm(`「${h?h.name:''}」を無効化しますか？\n以後、名義人の選択肢に表示されなくなります（既存の明細データは残ります）。`)) return;
+  try{
+    await cardHoldersApiCall('updateById', { id, fields: { is_active:false } });
+  }catch(e){ alert('無効化に失敗しました: '+e.message); return; }
+  await logAction('カード名義人無効化', h?h.name:id);
+  ccCardHolderStaffCache = null;
+  await loadCardHolders();
 }
 
 // app_usersへのanonキーからの直接update権限は廃止したため、/api/change-password経由(service_role key)
@@ -3539,7 +3645,7 @@ function restoreSession(){
 // ===== ナビゲーション =====
 const pageNames={
   dashboard:'Dashboard','new-booking':'New Booking','booking-list':'Booking List',
-  invoice:'Invoice',estimation:'見積もり','guide-settlements':'ガイド精算一覧','guide-management':'ガイド管理',gross:'GROSS / 粗利管理',payment:'入出金管理','credit-card-statements':'クレジットカード明細',accounts:'アカウント管理',logs:'アクセスログ','error-logs':'エラーログ'
+  invoice:'Invoice',estimation:'見積もり','guide-settlements':'ガイド精算一覧','guide-management':'ガイド管理',gross:'GROSS / 粗利管理',payment:'入出金管理','credit-card-statements':'クレジットカード明細',accounts:'アカウント管理',logs:'アクセスログ','error-logs':'エラーログ','card-holders':'カード名義人管理'
 ,hotels:'ホテル予約管理',partners:'取引先マスタ',agents:'取引先マスタ(Agent)','bullet-trains':'新幹線手配','invoice-import':'請求書読み取り','email-inbox':'メール受信箱','facility-management':'観光地予約管理',todo:'対応が必要な予約','vendor-email':'手配確定状況'
 };
 function go(id){
@@ -3552,6 +3658,7 @@ function go(id){
   }
   if((id==='accounts'||id==='logs'||id==='gross') && currentUser && currentUser.role!=='admin') return;
   if(id==='error-logs' && !isErrorLogViewer()) return;
+  if(id==='card-holders' && !isCardHolderAdmin()) return;
   if(id==='payment' && !isAccountingUser()) return;
   if(!document.getElementById('pg-'+id)) return;
   currentPageId = id;
@@ -3587,6 +3694,7 @@ function go(id){
   if(id==='todo') renderTodoPage();
   if(id==='logs') loadLogs();
   if(id==='error-logs') loadErrorLogs();
+  if(id==='card-holders') loadCardHolders();
   if(id==='invoice-import') initInvoiceImportPage();
   if(id==='email-inbox') renderEmailInboxList();
   if(id==='vendor-email') loadVendorEmailPage();
@@ -4536,6 +4644,10 @@ async function localExpensesApiCall(action, payload){ return tableCrudApiCall('l
 async function guideSettlementsApiCall(action, payload){ return tableCrudApiCall('guide_settlements', action, payload); }
 async function guideSettlementItemsApiCall(action, payload){ return tableCrudApiCall('guide_settlement_items', action, payload); }
 async function businessPartnersApiCall(action, payload){ return tableCrudApiCall('business_partners', action, payload); }
+// card_holders(カード名義人マスタ)への書き込み(insert/updateById)。admin@kictravel.jp限定の
+// チェックはUI側(isCardHolderAdmin())に加え、api/table-crud.js側でも検証済みセッションの
+// emailを確認してから実行する(二重の防御、error_logsのlistアクションと同じ考え方)。
+async function cardHoldersApiCall(action, payload){ return tableCrudApiCall('card_holders', action, payload); }
 async function agentsApiCall(action, payload){ return tableCrudApiCall('agents', action, payload); }
 async function guidesApiCall(action, payload){ return tableCrudApiCall('guides', action, payload); }
 async function guideBankAccountsApiCall(action, payload){ return tableCrudApiCall('guide_bank_accounts', action, payload); }
@@ -4607,18 +4719,20 @@ async function estimationBookingReflectionsApiCall(action, payload){ return tabl
 async function facilityOperatingInfoApiCall(action, payload){ return tableCrudApiCall('facility_operating_info', action, payload); }
 
 // クレジットカード払いの「名義人」選択肢は、表記ゆれの再発防止のため自由入力にせず、
-// 既存のapp_users(スタッフ一覧)から選ぶ固定リストにする(名義人専用マスタは新設しない)。
-// passwordハッシュ等は不要なためnameのみ取得する。1度取得したら使い回す(頻繁に変わる
-// データではないため)。
+// card_holders(カード名義人マスタ。実際にカードを保有する人物のみを登録)から選ぶ
+// 固定リストにする(is_active=trueのみ、名前昇順)。以前はapp_users(スタッフ一覧)を
+// ソースにしていたが、カードを持たない全スタッフまで選べてしまう問題があったため、
+// カード名義人専用マスタ(card_holders)に切替えた(scripts/create_card_holders_table.sql)。
+// 1度取得したら使い回す(頻繁に変わるデータではないため)。
 let ccCardHolderStaffCache = null;
 async function fetchCcCardHolderStaff(){
   if(ccCardHolderStaffCache) return ccCardHolderStaffCache;
   try{
-    const {data, error} = await sb.from('app_users').select('name').order('name');
+    const {data, error} = await sb.from('card_holders').select('name').eq('is_active', true).order('name');
     if(error) throw error;
     ccCardHolderStaffCache = [...new Set((data||[]).map(u=>u.name).filter(Boolean))];
   }catch(e){
-    logError('スタッフ一覧(名義人選択肢)の読み込み', e, {toast:false});
+    logError('カード名義人マスタ(名義人選択肢)の読み込み', e, {toast:false});
     ccCardHolderStaffCache = [];
   }
   return ccCardHolderStaffCache;
@@ -5924,7 +6038,7 @@ function renderCostTable(){
   if(!tbody) return;
   const dis = bdLocked ? 'disabled' : '';
   const disPayDate = (bdLocked || !isAccountingUser()) ? 'disabled' : '';
-  // 名義人プルダウン(app_usersのスタッフ一覧)は初回のみ非同期取得し、取得完了後に
+  // 名義人プルダウン(card_holdersマスタ)は初回のみ非同期取得し、取得完了後に
   // 再描画する(取得完了までは名義人欄が空の状態で表示される)。
   if(ccCardHolderStaffCache===null){ fetchCcCardHolderStaff().then(()=>renderCostTable()); }
   const staffOptions = ccCardHolderStaffCache || [];
@@ -19626,7 +19740,7 @@ async function autoMatchCcStatement(statement){
   await creditCardStatementsApiCall('updateById', {id: statement.id, fields: {match_status}});
 }
 
-// 名義人(card holder)欄をbooking_costsと同じapp_usersベースの選択肢に統一する
+// 名義人(card holder)欄をbooking_costsと同じcard_holdersマスタベースの選択肢に統一する
 // (自由入力だと表記がブレ、findCcMatchCandidatesの名義人一致判定が機能しなくなるため)。
 // 既存のfetchCcCardHolderStaff()(booking_costsの名義人プルダウンと共通)をそのまま使う。
 async function populateCcCardHolderSelect(){
