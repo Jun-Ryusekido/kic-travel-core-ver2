@@ -2395,8 +2395,6 @@ input[type=number]{-moz-appearance:textfield}
       </div>
     </div>
 
-    <div id="bd-est-ref" style="display:none;background:#EEF6FF;border:1px solid #BDD8FF;border-radius:6px;padding:8px 12px;margin-bottom:8px;font-size:11px;line-height:1.7;color:#004A9F"></div>
-
     <div class="modal-section-title">手配管理</div>
     <div style="display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap">
       <div class="arrtab-bar" style="display:flex;gap:2px;margin-bottom:8px;border-bottom:2px solid var(--border);padding-bottom:0;flex:0 1 auto;min-width:0">
@@ -7532,39 +7530,6 @@ async function openBookingDetail(id){
   originalLocalExpenseCount = bdLocalExpenses.length;
   bdLoadSnapshot.localExpenses = JSON.stringify(buildLocalExpenseRows(id));
   renderLocalExpenses();
-
-  // 見積もり参照ノートを表示。あくまで参考表示のため、取得に失敗しても予約詳細本体の
-  // 表示・保存(仕入明細への反映ボタン等)を巻き込んで止めないよう、ここだけで完結させる
-  // (try/catchで隔離。取得できなければ単に非表示のままにする)。
-  const refDiv = document.getElementById('bd-est-ref');
-  refDiv.style.display = 'none';
-  let estRef = null;
-  try{
-    const res = await sb.from('estimations')
-      .select('title,tour_code,final_pax,final_amount,calculated_tiers_snapshot')
-      .eq('converted_booking_id', id)
-      .maybeSingle();
-    if(res.error) logError('見積もり参照ノートの読み込み(estimations)', res.error, {toast:false});
-    estRef = res.data;
-  }catch(e){ logError('見積もり参照ノートの読み込み(estimations)', e, {toast:false}); }
-  if(_stale()) return;
-  if(estRef){
-    const estLabel = [estRef.title, estRef.tour_code].filter(Boolean).join(' / ') || '(無題)';
-    const snap = estRef.calculated_tiers_snapshot;
-    let html = `📋 見積もり「<strong>${escHtml(estLabel)}</strong>」から変換 ／ 最終決定: <strong>${estRef.final_pax||'-'}名 / ${yen(estRef.final_amount||0)}</strong>`;
-    if(snap && snap.length){
-      const th = s => `<th style="border:1px solid #BDD8FF;padding:3px 6px;background:#D0E8FF;white-space:nowrap">${s}</th>`;
-      const td = (s,right) => `<td style="border:1px solid #BDD8FF;padding:3px 6px${right?';text-align:right':''}">${s}</td>`;
-      html += `<div class="tbl-wrap" style="margin-top:6px"><table style="border-collapse:collapse;font-size:10px">`;
-      html += `<thead><tr>${['PAX帯','人数','Sub Total','ハンドリング','保険','合計','1名あたり'].map(th).join('')}</tr></thead><tbody>`;
-      snap.forEach(r=>{
-        html += `<tr>${td(escHtml(r.tier_label))}${td(r.pax+'名',true)}${td(yen(r.subtotal),true)}${td(yen(r.handling),true)}${td(yen(r.insurance),true)}<td style="border:1px solid #BDD8FF;padding:3px 6px;text-align:right;font-weight:600">${yen(r.total)}</td>${td(yen(r.per_pax),true)}</tr>`;
-      });
-      html += `</tbody></table></div>`;
-    }
-    refDiv.innerHTML = html;
-    refDiv.style.display = '';
-  }
 
   // 反映履歴を表示
   const rhDiv = document.getElementById('bd-reflect-history');
