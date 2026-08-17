@@ -352,6 +352,17 @@ const TABLE_CONFIG = {
     actions: ['insert', 'updateById'],
     label: 'カード名義人マスタ',
   },
+  // booking_edit_presence(予約編集の「編集中表示」用プレゼンス): ロック(排他制御)は行わず、
+  // 誰が今この予約を編集中かの気づきのための記録のみ(scripts/create_booking_edit_presence_table.sql
+  // 参照)。新設テーブルのため最初からservice_role専用とし、anon/authenticatedへのGRANTは
+  // 一切行わない。heartbeat/insert/updateById等の汎用actionではなく、このテーブル専用の
+  // heartbeat/list_active/releaseという3つの非汎用actionのみを許可し、handler側に個別の
+  // 実装(doPresenceHeartbeat/doPresenceListActive/doPresenceRelease)を用意している
+  // (下記の該当action分岐を参照)。
+  booking_edit_presence: {
+    actions: ['heartbeat', 'list_active', 'release'],
+    label: '編集中プレゼンス',
+  },
 };
 
 // learned_mappingsのcategoryはこの4種のみ許可する(bodyの値をそのまま保存しない)。
@@ -428,6 +439,69 @@ function withGrantHint(message, table) {
     return `${message}\n\n（service_roleロールに${table}へのGRANTが付与されていない可能性があります。Supabase SQL Editorで次を再実行してください: grant select, insert, update, delete on public.${table} to service_role; notify pgrst, 'reload schema';）`;
   }
   return message;
+}
+
+// booking_edit_presence(予約編集の「編集中表示」)の3つの専用action実装。
+// ロック(排他制御)ではなく、あくまで「誰が今この予約を見ているか」の気づきのための
+// ハートビート記録。user_emailは検証済みセッション(changedBy)を使い、クライアント申告値は
+// 信用しない(なりすまし防止)。user_nameは表示専用の値であり、誤っていても実害が無い
+// (セキュリティ上重要な識別子はuser_emailのみ)ため、クライアントが送ってきた値をそのまま使う。
+const PRESENCE_STALE_MS = 5 * 60 * 1000; // 5分。list_activeの「編集中」判定・クライアント側の
+// 自動失効表示と揃える基準値(サーバー側の時計を基準にすることで、クライアントの時計ズレの
+// 影響を受けないようにする)。
+
+// heartbeat: (booking_id, user_email)のunique制約を使ったupsert。同じ人が同じ予約を複数タブで
+// 開いても1行に集約される。PostgRESTのon_conflict+resolution=merge-duplicatesによるupsertを使う。
+async function doPresenceHeartbeat(table, bookingId, changedBy, userName) {
+  if (!bookingId) return { status: 400, body: { error: 'bookingIdが指定されていません' } };
+  if (!changedBy) return { status: 401, body: { error: 'ログインセッションが無効です。再度ログインしてください。' } };
+  const r = await sbFetch(table, '?on_conflict=booking_id,user_email', {
+    method: 'POST',
+    prefer: 'resolution=merge-duplicates,return=minimal',
+    body: JSON.stringify([{
+      booking_id: bookingId,
+      user_email: changedBy,
+      user_name: userName ? String(userName).slice(0, 200) : null,
+      last_heartbeat_at: new Date().toISOString(),
+    }]),
+  });
+  if (!r.ok) {
+    const e = await readJsonSafe(r);
+    return { status: 500, body: { error: withGrantHint(e.message, table) || 'ハートビートの送信に失敗しました' } };
+  }
+  return { status: 200, body: { ok: true } };
+}
+
+// list_active: 指定booking_idについて、last_heartbeat_atがPRESENCE_STALE_MS以内(=まだ有効)の
+// 行を取得し、リクエスト元(changedBy)自身の行は結果から除外して返す(「自分以外の編集中」を
+// 知りたいため)。
+async function doPresenceListActive(table, bookingId, changedBy) {
+  if (!bookingId) return { status: 400, body: { error: 'bookingIdが指定されていません' } };
+  const sinceIso = new Date(Date.now() - PRESENCE_STALE_MS).toISOString();
+  const q = `?booking_id=eq.${encodeURIComponent(bookingId)}&last_heartbeat_at=gte.${encodeURIComponent(sinceIso)}&select=user_email,user_name,last_heartbeat_at`;
+  const r = await sbFetch(table, q);
+  if (!r.ok) {
+    const e = await readJsonSafe(r);
+    return { status: 500, body: { error: withGrantHint(e.message, table) || '編集中ユーザーの取得に失敗しました' } };
+  }
+  const rows = await r.json();
+  const others = (rows || []).filter((row) => row.user_email !== changedBy);
+  return { status: 200, body: { rows: others } };
+}
+
+// release: 自分(changedBy)の行のみを削除する(booking_id+user_emailで絞り込み、他人の行を
+// 誤って消せないようにする)。changedByが無い(セッション無効)場合は何もせず正常終了とする
+// (モーダルを閉じる操作自体は妨げたくないため)。
+async function doPresenceRelease(table, bookingId, changedBy) {
+  if (!bookingId) return { status: 400, body: { error: 'bookingIdが指定されていません' } };
+  if (!changedBy) return { status: 200, body: { ok: true } };
+  const q = `?booking_id=eq.${encodeURIComponent(bookingId)}&user_email=eq.${encodeURIComponent(changedBy)}`;
+  const r = await sbFetch(table, q, { method: 'DELETE', prefer: 'return=minimal' });
+  if (!r.ok) {
+    const e = await readJsonSafe(r);
+    return { status: 500, body: { error: withGrantHint(e.message, table) || '編集中表示の解除に失敗しました' } };
+  }
+  return { status: 200, body: { ok: true } };
 }
 
 // audit_logsへの記録(ベストエフォート)。監査ログの記録自体が失敗しても、本来の
@@ -1116,6 +1190,21 @@ export default async function handler(req, res) {
     if (action === 'listByField') {
       const { field, value } = req.body;
       const result = await doListByField(table, config.label, config, field, value);
+      return res.status(result.status).json(result.body);
+    }
+    if (action === 'heartbeat') {
+      const { bookingId, userName } = req.body;
+      const result = await doPresenceHeartbeat(table, bookingId, changedBy, userName);
+      return res.status(result.status).json(result.body);
+    }
+    if (action === 'list_active') {
+      const { bookingId } = req.body;
+      const result = await doPresenceListActive(table, bookingId, changedBy);
+      return res.status(result.status).json(result.body);
+    }
+    if (action === 'release') {
+      const { bookingId } = req.body;
+      const result = await doPresenceRelease(table, bookingId, changedBy);
       return res.status(result.status).json(result.body);
     }
     if (action === 'upsertConfirm') {
