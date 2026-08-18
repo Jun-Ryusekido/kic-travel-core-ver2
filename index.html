@@ -32,7 +32,17 @@ body.has-deadline-banner .app{margin-top:var(--deadline-banner-h,34px)}
 .sb-logo{padding:14px 14px 10px;border-bottom:1px solid var(--border)}
 .sb-logo-main{font-size:13px;font-weight:600;color:var(--blue)}
 .sb-logo-sub{font-size:9px;color:var(--text3);margin-top:1px}
-.sb-sec{padding:16px 10px 5px;font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;font-weight:700}
+.sb-sec{padding:16px 10px 5px;font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;font-weight:700;cursor:pointer;user-select:none;display:flex;align-items:center;justify-content:space-between;border-radius:6px;margin:0 4px}
+.sb-sec:hover{color:var(--text2)}
+.sb-sec-label{min-width:0}
+.sb-sec-arrow{transition:transform .15s;font-size:8px;flex-shrink:0;margin-left:6px}
+.sb-sec.collapsed .sb-sec-arrow{transform:rotate(-90deg)}
+.sb-sec-body.collapsed{display:none}
+/* スマホのドロワー(.sb.open)ではタップ操作になるため、セクション見出しの
+   タップ領域を指で押しやすい高さまで広げる(デスクトップの詰めた表示はそのまま)。 */
+@media(max-width:768px){
+  .sb-sec{padding:13px 10px;min-height:40px;box-sizing:border-box}
+}
 .sb-item{display:flex;flex-wrap:wrap;align-items:center;gap:2px 8px;padding:8px 10px;border-radius:8px;cursor:pointer;font-size:12px;color:var(--text2);margin:1px 6px;white-space:nowrap;line-height:1.35}
 .sb-en{flex-basis:100%;margin-left:24px;font-size:9px;color:var(--text3);font-weight:400;white-space:nowrap}
 /* 新幹線手配ページ */
@@ -1061,7 +1071,16 @@ input[type=number]{-moz-appearance:textfield}
       <div class="sb-logo-main">✈ KIC Travel Core</div>
       <div class="sb-logo-sub">Ver 2.0 · INBOUND</div>
     </div>
-    <div class="sb-sec">予約管理 <span class="sb-en">/ Booking</span></div>
+    <!-- サイドバーのセクション開閉: .sb-secクリックでtoggleSbSection(id)を呼び、対応する
+         .sb-sec-body(id一致)のdisplayを切り替える。開閉状態はlocalStorageに保存し
+         次回アクセス時も復元する(applySbSectionState、起動時にrestoreSession()の側で
+         呼び出し)。admin-only/accounting-only等の権限による表示切替(el.style.display
+         への直接代入、3527行目付近)は各項目自身に対して行われており、このセクション
+         開閉(親である.sb-sec-bodyへのcollapsedクラス付与)とは別要素・別プロパティの
+         ため、互いに干渉しない(閉じたセクションが権限判定で勝手に開くことはなく、
+         開いたセクション内で権限が無い項目は従来通り項目自身の非表示が効く)。 -->
+    <div class="sb-sec" data-sec="booking" onclick="toggleSbSection('booking')" aria-expanded="true"><span class="sb-sec-label">予約管理 <span class="sb-en">/ Booking</span></span><span class="sb-sec-arrow">▾</span></div>
+    <div class="sb-sec-body" data-sec-body="booking">
     <div class="sb-item active" data-pg="dashboard" onclick="go('dashboard')">📊 ダッシュボード<span class="sb-en">/ Dashboard</span></div>
     <div class="sb-item" data-pg="new-booking" onclick="go('new-booking')">➕ New Booking</div>
     <div class="sb-item" data-pg="booking-list" onclick="go('booking-list')">📋 Booking List</div>
@@ -1073,24 +1092,33 @@ input[type=number]{-moz-appearance:textfield}
     <div class="sb-item" data-pg="vendor-email" onclick="go('vendor-email')">📋 手配確定状況<span class="sb-en">/ Arrangement Status</span></div>
     <div class="sb-item" data-pg="restaurant-conflicts" onclick="go('restaurant-conflicts')">🍽️ レストラン重複確認<span class="sb-en">/ Restaurant Conflicts</span></div>
     <div class="sb-item" onclick="openParkingNowModal()">🅿️ 駐車場 今すぐ予約<span class="sb-en">/ Parking Now</span></div>
-    <div class="sb-sec">請求・精算 <span class="sb-en">/ Billing</span></div>
+    </div>
+    <div class="sb-sec" data-sec="billing" onclick="toggleSbSection('billing')" aria-expanded="true"><span class="sb-sec-label">請求・精算 <span class="sb-en">/ Billing</span></span><span class="sb-sec-arrow">▾</span></div>
+    <div class="sb-sec-body" data-sec-body="billing">
     <div class="sb-item" data-pg="invoice" onclick="go('invoice')">🧾 Invoice</div>
     <div class="sb-item" data-pg="estimation" onclick="go('estimation')">📝 見積もり<span class="sb-en">/ Estimation</span></div>
     <div class="sb-item" data-pg="guide-settlements" onclick="go('guide-settlements')">🧾 ガイド精算一覧<span class="sb-en">/ Guide Settlement</span></div>
     <div class="sb-item" data-pg="guide-management" onclick="go('guide-management')">🧑‍✈️ ガイド管理<span class="sb-en">/ Guide Management</span></div>
     <div class="sb-item" data-pg="invoice-import" onclick="go('invoice-import')">📄 請求書読み取り<span class="sb-en">/ Invoice Import</span></div>
-    <div class="sb-sec">マスタ管理 <span class="sb-en">/ Master Data</span></div>
+    </div>
+    <div class="sb-sec" data-sec="master" onclick="toggleSbSection('master')" aria-expanded="true"><span class="sb-sec-label">マスタ管理 <span class="sb-en">/ Master Data</span></span><span class="sb-sec-arrow">▾</span></div>
+    <div class="sb-sec-body" data-sec-body="master">
     <div class="sb-item" data-pg="partners" onclick="go('partners')">🏢 取引先マスタ<span class="sb-en">/ Partners</span></div>
     <div class="sb-item" data-pg="agents" onclick="go('agents')">🌏 取引先マスタ(Agent)<span class="sb-en">/ Agents</span></div>
     <div class="sb-item" id="sb-card-holders" data-pg="card-holders" onclick="go('card-holders')" style="display:none">💳 カード名義人管理<span class="sb-en">/ Card Holders</span></div>
-    <div class="sb-sec">分析 <span class="sb-en">/ Analytics</span></div>
+    </div>
+    <div class="sb-sec" data-sec="analytics" onclick="toggleSbSection('analytics')" aria-expanded="true"><span class="sb-sec-label">分析 <span class="sb-en">/ Analytics</span></span><span class="sb-sec-arrow">▾</span></div>
+    <div class="sb-sec-body" data-sec-body="analytics">
     <div class="sb-item admin-only" data-pg="gross" onclick="go('gross')">📈 GROSS / 粗利</div>
     <div class="sb-item accounting-only" data-pg="payment" onclick="go('payment')">💱 入出金管理<span class="sb-en">/ Payment</span></div>
     <div class="sb-item" data-pg="credit-card-statements" onclick="go('credit-card-statements')">💳 クレジットカード明細<span class="sb-en">/ Credit Card</span></div>
-    <div class="sb-sec admin-only">管理 <span class="sb-en">/ Admin</span></div>
+    </div>
+    <div class="sb-sec admin-only" data-sec="admin" onclick="toggleSbSection('admin')" aria-expanded="true"><span class="sb-sec-label">管理 <span class="sb-en">/ Admin</span></span><span class="sb-sec-arrow">▾</span></div>
+    <div class="sb-sec-body" data-sec-body="admin">
     <div class="sb-item admin-only" data-pg="accounts" onclick="go('accounts')">🔐 アカウント管理<span class="sb-en">/ Accounts</span></div>
     <div class="sb-item admin-only" data-pg="logs" onclick="go('logs')">📜 アクセスログ<span class="sb-en">/ Logs</span></div>
     <div class="sb-item" id="sb-error-logs" data-pg="error-logs" onclick="go('error-logs')" style="display:none">🚨 エラーログ<span class="sb-en">/ Errors</span></div>
+    </div>
     <div class="sb-user">
       <div class="sb-user-info">
         <div class="sb-avatar" id="sb-avatar">AD</div>
@@ -3074,6 +3102,40 @@ function touchSession(){
 
 function clearSession(){
   try{ localStorage.removeItem(SESSION_KEY); }catch(e){}
+}
+
+// ===== サイドバーのセクション開閉状態(localStorageに保存し、次回アクセス時も復元) =====
+// 権限による項目自体の表示切替(admin-only等、el.style.displayへの直接代入)とは
+// 別要素(.sb-sec-bodyへのcollapsedクラス付与)・別プロパティで制御しているため、
+// 互いに干渉しない。ログイン前(restoreSession()側から呼ぶ)から適用してよい。
+const SB_SECTION_STATE_KEY = 'kic_sb_sections_v1';
+function loadSbSectionState(){
+  try{ return JSON.parse(localStorage.getItem(SB_SECTION_STATE_KEY)||'{}'); }catch(e){ return {}; }
+}
+function saveSbSectionState(state){
+  try{ localStorage.setItem(SB_SECTION_STATE_KEY, JSON.stringify(state)); }catch(e){}
+}
+function setSbSectionCollapsed(secEl, collapsed){
+  const id = secEl.dataset.sec;
+  const body = document.querySelector(`.sb-sec-body[data-sec-body="${id}"]`);
+  secEl.classList.toggle('collapsed', collapsed);
+  if(body) body.classList.toggle('collapsed', collapsed);
+  secEl.setAttribute('aria-expanded', String(!collapsed));
+}
+function applySbSectionState(){
+  const state = loadSbSectionState();
+  document.querySelectorAll('.sb-sec[data-sec]').forEach(sec=>{
+    setSbSectionCollapsed(sec, !!state[sec.dataset.sec]);
+  });
+}
+function toggleSbSection(id){
+  const sec = document.querySelector(`.sb-sec[data-sec="${id}"]`);
+  if(!sec) return;
+  const collapsed = !sec.classList.contains('collapsed');
+  setSbSectionCollapsed(sec, collapsed);
+  const state = loadSbSectionState();
+  if(collapsed) state[id] = true; else delete state[id];
+  saveSbSectionState(state);
 }
 
 // ===== ユーティリティ =====
@@ -25650,6 +25712,9 @@ async function saveInvoicePreviewFields(){
 
 // ===== 起動時：ログインセッション復元 =====
 restoreSession();
+
+// ===== 起動時：サイドバーのセクション開閉状態を復元 =====
+applySbSectionState();
 
 // ===== type="date" 全入力欄に autocomplete="off" / min / max を付与 =====
 // max="9999-12-31" を設定することで Chrome の年フィールドが4桁入力後に自動送りされる
