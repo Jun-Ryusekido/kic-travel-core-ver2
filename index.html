@@ -22889,6 +22889,21 @@ function tcBuildSubRow(icon, label, items, days, ym, monthStart, monthEnd, dateS
   return `<tr><td style="padding:2px 4px;font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:${TC_LANE_COL_WIDTH}px;max-width:${TC_LANE_COL_WIDTH}px;position:sticky;left:0;background:${laneBg};border-right:2px solid var(--border);color:${TC_CELL_TEXT_COLOR}" title="${icon} ${label}">${icon} ${label}</td>${cells}</tr>`;
 }
 
+// tcBuildSubRowの日別セル探索(item.find)と同じhalfOpen/closed判定を使い、表示月の
+// いずれかの日にこのサブ行(ホテル/バス/ガイド)のデータが1件でも存在するかを判定する。
+// 手配データが完全に空のレーンを一覧から除外する際に使う(レーン全体の表示可否の判定材料)。
+function tcSubRowHasData(items, days, ym, dateStartField, dateEndField, halfOpen){
+  return days.some(d=>{
+    const ds = `${ym}-${String(d).padStart(2,'0')}`;
+    return items.some(it=>{
+      if(!it[dateStartField] || !it[dateEndField]) return false;
+      return halfOpen
+        ? (it[dateStartField] <= ds && it[dateEndField] > ds)
+        : (it[dateStartField] <= ds && it[dateEndField] >= ds);
+    });
+  });
+}
+
 // レーンヘッダー行(REF#・ツアーコード等が入った1本の横長td)は日別セルに分かれていないため、
 // linear-gradientのハードストップで「レーン名相当のゾーン(常に着色)+実際の運行日の
 // ピクセル範囲(表示月内で交差する部分)」だけを着色し、それ以外は透明にする。
@@ -22960,6 +22975,17 @@ async function renderTourCalendar(){
   });
   (headerRows||[]).forEach(r=>{ headerByBooking[r.booking_id] = r; });
 
+  // 手配データ(ホテル/バス/ガイドいずれか)が表示月内に1件も無いレーンは一覧から除外する
+  // (「キャンセル済みも表示」の状態とは独立に適用する。空のサブ行があっても、他の
+  // サブ行に1件でもデータがあればレーン全体を通常通り表示する)。
+  const visibleBookings = bookings.filter(b=>{
+    const hasHotel = tcSubRowHasData(hotelsByBooking[b.id]||[], days, ym, 'check_in','check_out', true);
+    const hasBus = tcSubRowHasData(busesByBooking[b.id]||[], days, ym, 'start_date','end_date', false);
+    const hasGuide = tcSubRowHasData(guidesByBooking[b.id]||[], days, ym, 'start_date','end_date', false);
+    return hasHotel || hasBus || hasGuide;
+  });
+  if(visibleBookings.length===0){ body.innerHTML = '<p style="color:var(--text3);font-size:12px">この月に手配データがあるツアーはありません</p>'; return; }
+
   // table-layout:fixedにより、この1行目(thead)のth幅がそのまま各列の固定幅になる
   // (tbody側のtd幅指定は保険。TC_DAY_COL_WIDTH/TC_LANE_COL_WIDTH参照)。
   const thead = `<thead><tr>
@@ -22972,7 +22998,7 @@ async function renderTourCalendar(){
     }).join('')}
   </tr></thead>`;
 
-  const tbody = bookings.map(b=>{
+  const tbody = visibleBookings.map(b=>{
     const header = headerByBooking[b.id];
     const paxStr = b.pax ? `${b.pax}名` : '';
     const arrFlight = header && header.arr_flight ? ('到着便: '+header.arr_flight) : '';
