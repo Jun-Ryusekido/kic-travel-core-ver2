@@ -22850,23 +22850,46 @@ function tcAgentColor(agentColorMap, agentName){
 
 // セル内テキスト(ホテル名・バス会社名・ガイド名)は省略表示(ellipsis)にし、
 // title属性で全文を見られるようにする。laneBgはこのレーン(予約)に割り当てられた
-// エージェント配色で、空欄セルも含め全セルの背景に一律適用する(セル単位の個別色分けはしない)。
-function tcBuildSubRow(icon, label, items, days, ym, monthStart, monthEnd, dateStartField, dateEndField, halfOpen, nameFn, laneBg){
+// エージェント配色。色を塗るのは実際の運行日(bookingInDate<=その日<=bookingOutDate)の
+// 列のみで、運行期間外の日は(表示月の範囲内であっても)無色のままにする。
+// レーン名ラベル列は日付ではなく凡例のようなセルのため、運行期間に関わらず常に着色する。
+function tcBuildSubRow(icon, label, items, days, ym, monthStart, monthEnd, dateStartField, dateEndField, halfOpen, nameFn, laneBg, bookingInDate, bookingOutDate){
   const cells = days.map(d=>{
     const ds = `${ym}-${String(d).padStart(2,'0')}`;
+    const inOperatingRange = ds >= bookingInDate && ds <= bookingOutDate;
+    const cellBg = inOperatingRange ? laneBg : '';
     const item = items.find(it=>{
       if(!it[dateStartField] || !it[dateEndField]) return false;
       return halfOpen
         ? (it[dateStartField] <= ds && it[dateEndField] > ds)
         : (it[dateStartField] <= ds && it[dateEndField] >= ds);
     });
-    if(!item) return `<td style="border:1px solid var(--border);padding:1px;width:${TC_DAY_COL_WIDTH}px;background:${laneBg}"></td>`;
+    if(!item) return `<td style="border:1px solid var(--border);padding:1px;width:${TC_DAY_COL_WIDTH}px;background:${cellBg}"></td>`;
     const arrowL = (d===1 && item[dateStartField] < monthStart) ? '◀' : '';
     const arrowR = (d===days.length && item[dateEndField] > monthEnd) ? '▶' : '';
     const name = nameFn(item);
-    return `<td style="border:1px solid var(--border);padding:1px;width:${TC_DAY_COL_WIDTH}px;max-width:${TC_DAY_COL_WIDTH}px;background:${laneBg};cursor:pointer" onclick="openBookingDetail('${item.booking_id}')" title="${escHtml(name)}"><span style="font-size:8px;color:${TC_CELL_TEXT_COLOR};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;text-align:center">${arrowL}${escHtml(name)}${arrowR}</span></td>`;
+    return `<td style="border:1px solid var(--border);padding:1px;width:${TC_DAY_COL_WIDTH}px;max-width:${TC_DAY_COL_WIDTH}px;background:${cellBg};cursor:pointer" onclick="openBookingDetail('${item.booking_id}')" title="${escHtml(name)}"><span style="font-size:8px;color:${TC_CELL_TEXT_COLOR};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;text-align:center">${arrowL}${escHtml(name)}${arrowR}</span></td>`;
   }).join('');
   return `<tr><td style="padding:2px 4px;font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:${TC_LANE_COL_WIDTH}px;max-width:${TC_LANE_COL_WIDTH}px;position:sticky;left:0;background:${laneBg};border-right:2px solid var(--border);color:${TC_CELL_TEXT_COLOR}" title="${icon} ${label}">${icon} ${label}</td>${cells}</tr>`;
+}
+
+// レーンヘッダー行(REF#・ツアーコード等が入った1本の横長td)は日別セルに分かれていないため、
+// linear-gradientのハードストップで「レーン名相当のゾーン(常に着色)+実際の運行日の
+// ピクセル範囲(表示月内で交差する部分)」だけを着色し、それ以外は透明にする。
+// 表示月内に運行日が無いケースは無い想定(呼び出し元で表示月と重なる予約のみ抽出済み)だが、
+// 念のためnullの場合は従来通りレーン全体を塗る(安全側のフォールバック)。
+function tcOperatingDayRange(monthStart, monthEnd, bookingInDate, bookingOutDate){
+  const clampedStart = bookingInDate < monthStart ? monthStart : bookingInDate;
+  const clampedEnd = bookingOutDate > monthEnd ? monthEnd : bookingOutDate;
+  if(clampedStart > clampedEnd) return null;
+  return { startDay: Number(clampedStart.slice(8,10)), endDay: Number(clampedEnd.slice(8,10)) };
+}
+function tcHeaderRowBg(laneBg, monthStart, monthEnd, bookingInDate, bookingOutDate){
+  const range = tcOperatingDayRange(monthStart, monthEnd, bookingInDate, bookingOutDate);
+  if(!range) return laneBg;
+  const rangeStartPx = TC_LANE_COL_WIDTH + (range.startDay-1)*TC_DAY_COL_WIDTH;
+  const rangeEndPx = TC_LANE_COL_WIDTH + range.endDay*TC_DAY_COL_WIDTH;
+  return `linear-gradient(to right, ${laneBg} 0px, ${laneBg} ${TC_LANE_COL_WIDTH}px, transparent ${TC_LANE_COL_WIDTH}px, transparent ${rangeStartPx}px, ${laneBg} ${rangeStartPx}px, ${laneBg} ${rangeEndPx}px, transparent ${rangeEndPx}px, transparent 100%)`;
 }
 
 async function renderTourCalendar(){
@@ -22939,12 +22962,13 @@ async function renderTourCalendar(){
     const arrFlight = header && header.arr_flight ? ('到着便: '+header.arr_flight) : '';
     const headerLine = [b.ref_no, b.tour_code, b.agent_name, paxStr, arrFlight].filter(Boolean).join(' ｜ ');
     const laneBg = tcAgentColor(agentColorMap, b.agent_name);
+    const headerBg = tcHeaderRowBg(laneBg, monthStart, monthEnd, b.in_date, b.out_date);
     const headerRow = `<tr style="cursor:pointer" onclick="openBookingDetail('${b.id}')">
-      <td colspan="${days.length+1}" style="position:sticky;left:0;background:${laneBg};padding:4px 6px;font-size:10px;font-weight:600;color:${TC_CELL_TEXT_COLOR};border-top:2px solid var(--border);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${escHtml(headerLine)}">${escHtml(headerLine)}</td>
+      <td colspan="${days.length+1}" style="position:sticky;left:0;background:${headerBg};padding:4px 6px;font-size:10px;font-weight:600;color:${TC_CELL_TEXT_COLOR};border-top:2px solid var(--border);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${escHtml(headerLine)}">${escHtml(headerLine)}</td>
     </tr>`;
-    const hotelRow = tcBuildSubRow('🏨','ホテル', hotelsByBooking[b.id]||[], days, ym, monthStart, monthEnd, 'check_in','check_out', true, it=>it.hotel_name||'(ホテル名未設定)', laneBg);
-    const busRow = tcBuildSubRow('🚌','バス', busesByBooking[b.id]||[], days, ym, monthStart, monthEnd, 'start_date','end_date', false, it=>it.bus_company||'(バス会社未設定)', laneBg);
-    const guideRow = tcBuildSubRow('🧑‍✈️','ガイド', guidesByBooking[b.id]||[], days, ym, monthStart, monthEnd, 'start_date','end_date', false, it=>(it.guides&&it.guides.name)||it.guide_name_freetext||'(ガイド未設定)', laneBg);
+    const hotelRow = tcBuildSubRow('🏨','ホテル', hotelsByBooking[b.id]||[], days, ym, monthStart, monthEnd, 'check_in','check_out', true, it=>it.hotel_name||'(ホテル名未設定)', laneBg, b.in_date, b.out_date);
+    const busRow = tcBuildSubRow('🚌','バス', busesByBooking[b.id]||[], days, ym, monthStart, monthEnd, 'start_date','end_date', false, it=>it.bus_company||'(バス会社未設定)', laneBg, b.in_date, b.out_date);
+    const guideRow = tcBuildSubRow('🧑‍✈️','ガイド', guidesByBooking[b.id]||[], days, ym, monthStart, monthEnd, 'start_date','end_date', false, it=>(it.guides&&it.guides.name)||it.guide_name_freetext||'(ガイド未設定)', laneBg, b.in_date, b.out_date);
     return headerRow + hotelRow + busRow + guideRow;
   }).join('');
 
