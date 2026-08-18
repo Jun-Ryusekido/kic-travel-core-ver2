@@ -41,6 +41,16 @@ body.has-deadline-banner .app{margin-top:var(--deadline-banner-h,34px)}
 .bt-card:hover{border-color:var(--blue)}
 #bt-tbl-wrap{overflow-x:auto;overflow-y:auto}
 #bt-tbl-wrap thead th{position:sticky;top:0;z-index:2;background:var(--card)}
+/* ツアー運行カレンダー: #bt-tbl-wrapと同じ構成(overflow-x/yを両方明示+JSでmax-heightを
+   与えて自前のスクロール領域にする)。理由: overflow-xだけを指定した要素はoverflow-yも
+   仕様上自動的にauto相当になり、その時点でその要素自身が「最も近いスクロール祖先」と
+   見なされる。ページ全体(html/body)のスクロールを祖先として期待してposition:sticky;top
+   を付けても、実際にスクロールしているのはこの#tc-body自身ではなくページ側のため、
+   thead側のtop固定が効かない(以前報告されていた「入れ子のoverflow-y:autoでstickyが
+   効かない」問題と同系統)。#bt-tbl-wrapで実機動作済みの、max-heightを与えて#tc-body
+   自身を独立したスクロール領域にする方式を採用し、その内部でtop/leftのstickyを完結させる。 */
+#tc-body{overflow:auto}
+#tc-body table thead th{position:sticky;top:0;z-index:2;background:#fff}
 @media(max-width:768px){.bt-desktop-only{display:none !important}.bt-mobile-only{display:block !important}}
 .sb-item:hover{background:var(--bg)}
 .sb-item.active{background:var(--blue-lt);color:var(--blue);font-weight:600;box-shadow:inset 3px 0 0 var(--blue)}
@@ -1298,7 +1308,7 @@ input[type=number]{-moz-appearance:textfield}
             </label>
             <span style="font-size:10px;color:var(--text3)">◀▶ = 表示月の外にも日程が続いています</span>
           </div>
-          <div id="tc-body" style="overflow-x:auto"></div>
+          <div id="tc-body"></div>
         </div>
       </div>
 
@@ -23128,13 +23138,23 @@ function tcSubRowHasData(items, days, ym, dateStartField, dateEndField, halfOpen
 // 別途挿入して運行日範囲を示す。実測ピクセル幅を仮定するlinear-gradient計算は行わない
 // ため、テーブルの実際のレンダリング幅(width:100%で画面幅いっぱいに伸びる場合を含む)
 // に一切依存せず、サブ行(ホテル/バス/ガイド)と常に列単位でズレなく一致する。
+// 表示月の1日目より前からin_dateが始まっている/最終日より後までout_dateが続いている
+// 場合は、月をまたいでいることが色帯だけでは分かりにくいため、サブ行の◀▶と同じ記号を
+// 帯の該当端(表示月内で運行日として着色される最初/最後の日)に重ねて表示する。
+const TC_RANGE_ROW_HEIGHT = 11;
 function tcHeaderRangeRow(laneBg, days, ym, bookingInDate, bookingOutDate){
+  const monthStartDs = `${ym}-01`;
+  const monthEndDs = `${ym}-${String(days.length).padStart(2,'0')}`;
+  const crossesBefore = bookingInDate < monthStartDs;
+  const crossesAfter = bookingOutDate > monthEndDs;
   const cells = days.map(d=>{
     const ds = `${ym}-${String(d).padStart(2,'0')}`;
     const inOperatingRange = ds >= bookingInDate && ds <= bookingOutDate;
-    return `<td style="padding:0;height:9px;width:${TC_DAY_COL_WIDTH}px;max-width:${TC_DAY_COL_WIDTH}px;background:${inOperatingRange?laneBg:'transparent'}"></td>`;
+    if(!inOperatingRange) return `<td style="padding:0;height:${TC_RANGE_ROW_HEIGHT}px;width:${TC_DAY_COL_WIDTH}px;max-width:${TC_DAY_COL_WIDTH}px;background:transparent"></td>`;
+    const arrow = (crossesBefore && d===1) ? '◀' : (crossesAfter && d===days.length) ? '▶' : '';
+    return `<td style="padding:0;height:${TC_RANGE_ROW_HEIGHT}px;width:${TC_DAY_COL_WIDTH}px;max-width:${TC_DAY_COL_WIDTH}px;background:${laneBg}">${arrow?`<span style="font-size:8px;line-height:${TC_RANGE_ROW_HEIGHT}px;color:${TC_CELL_TEXT_COLOR};display:block;text-align:center">${arrow}</span>`:''}</td>`;
   }).join('');
-  return `<tr><td style="padding:0;height:9px;width:${TC_LANE_COL_WIDTH}px;max-width:${TC_LANE_COL_WIDTH}px;position:sticky;left:0;background:${laneBg};border-right:2px solid var(--border)"></td>${cells}</tr>`;
+  return `<tr><td style="padding:0;height:${TC_RANGE_ROW_HEIGHT}px;width:${TC_LANE_COL_WIDTH}px;max-width:${TC_LANE_COL_WIDTH}px;position:sticky;left:0;background:${laneBg};border-right:2px solid var(--border)"></td>${cells}</tr>`;
 }
 
 async function renderTourCalendar(){
@@ -23203,7 +23223,7 @@ async function renderTourCalendar(){
   // table-layout:fixedにより、この1行目(thead)のth幅がそのまま各列の固定幅になる
   // (tbody側のtd幅指定は保険。TC_DAY_COL_WIDTH/TC_LANE_COL_WIDTH参照)。
   const thead = `<thead><tr>
-    <th style="width:${TC_LANE_COL_WIDTH}px;max-width:${TC_LANE_COL_WIDTH}px;padding:3px 4px;text-align:left;position:sticky;left:0;background:#fff;z-index:2;border-right:2px solid var(--border)">レーン</th>
+    <th style="width:${TC_LANE_COL_WIDTH}px;max-width:${TC_LANE_COL_WIDTH}px;padding:3px 4px;text-align:left;position:sticky;left:0;top:0;background:#fff;z-index:3;border-right:2px solid var(--border)">レーン</th>
     ${days.map(d=>{
       const dt = new Date(year, month-1, d);
       const dow = ['日','月','火','水','木','金','土'][dt.getDay()];
@@ -23244,6 +23264,19 @@ async function renderTourCalendar(){
   // 幅がTC_DAY_COL_WIDTH/TC_LANE_COL_WIDTHの通りかどうかに関わらず、同じ列番号は
   // 常に全行で同じ幅になる(=色の境界とセルの境界が常に一致する)。
   body.innerHTML = `<table style="border-collapse:collapse;table-layout:fixed;font-size:11px;width:100%">${thead}<tbody>${tbody}</tbody></table>`;
+  requestAnimationFrame(updateTcBodyHeight);
+}
+
+// #tc-body自身を独立したスクロール領域(縦横とも)にし、日付ヘッダー行のposition:sticky;top
+// がページ全体ではなく#tc-body自身のスクロールに対して機能するようにする(#bt-tbl-wrap/
+// updateBtTableHeight()と同じ方式)。#tc-bodyの上端(カード見出し・月選択行・上部の
+// 対応必須予約バナー等、可変要素をすべて含む)から画面下端までの実測値をそのつどmax-height
+// に反映するため、レイアウトが変わっても個別に調整し直す必要がない。
+function updateTcBodyHeight(){
+  const wrap = document.getElementById('tc-body');
+  if(!wrap) return;
+  const top = wrap.getBoundingClientRect().top;
+  wrap.style.maxHeight = `calc(100vh - ${top}px - 16px)`;
 }
 
 async function loadPartners(){
