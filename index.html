@@ -23243,7 +23243,12 @@ async function renderTourCalendar(){
 
   // table-layout:fixedにより、内容(長いホテル名等)に関わらずTC_DAY_COL_WIDTH/TC_LANE_COL_WIDTH
   // の固定幅で列がレイアウトされる(31列でも横スクロール無しで収まるようにするための変更)。
-  body.innerHTML = `<table style="border-collapse:collapse;table-layout:fixed;font-size:11px">${thead}<tbody>${tbody}</tbody></table>`;
+  // <table>自体にwidthを指定しないと、tableはブロック要素として親要素(#tc-body)の
+  // 幅いっぱいに伸びてしまい、table-layout:fixedが列に均等に余白を配分するため
+  // 列幅がTC_DAY_COL_WIDTH/TC_LANE_COL_WIDTHからズレる(本番で横幅が広い画面ほど顕著)。
+  // 明示的に列幅の合計をwidthに指定し、余白配分による伸長を防ぐ。
+  const tcTableWidth = TC_LANE_COL_WIDTH + days.length*TC_DAY_COL_WIDTH;
+  body.innerHTML = `<table style="border-collapse:collapse;table-layout:fixed;font-size:11px;width:${tcTableWidth}px">${thead}<tbody>${tbody}</tbody></table>`;
 }
 
 async function loadPartners(){
