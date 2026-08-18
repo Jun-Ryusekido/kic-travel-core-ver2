@@ -23031,7 +23031,14 @@ const TC_CELL_TEXT_COLOR = '#3a3a36';
 // 以後は使い回す(月をまたいでも常に同じ色になる)。
 let tcAgentColorCache = null;
 function tcAgentKey(agentName){ return String(agentName||'').trim(); }
-function tcFixedAgentColor(name){ return TC_FIXED_AGENT_COLORS.find(f=>name.includes(f.match)); }
+// 実データでは「M/S. THOMAS COOK (I) LTD.」のように全て大文字で入力されているケースがあり、
+// TC_FIXED_AGENT_COLORSのmatch文字列(大文字小文字混在)とcase-sensitiveな.includes()で
+// 比較すると一致せず、固定色が適用されない不具合があった(#1068・#969・#876・#970等で確認)。
+// 双方を小文字化してから比較することで、大文字小文字の表記ゆれを吸収する。
+function tcFixedAgentColor(name){
+  const lower = name.toLowerCase();
+  return TC_FIXED_AGENT_COLORS.find(f=>lower.includes(f.match.toLowerCase()));
+}
 async function tcBuildAgentColorMap(){
   if(tcAgentColorCache) return tcAgentColorCache;
   let rows = [], from = 0; const PAGE = 1000;
