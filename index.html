@@ -19683,11 +19683,15 @@ function _ccNormTourCode(s){
 // 異なるため、_ccNormTourCode()の単純な文字列一致では絶対に一致しない。数字部分
 // (先頭ゼロを除いた数値)とアルファベット部分(取引先略称)に分解し、構造的に比較する。
 // ref_no("#851"等)にはアルファベット略称が付かないため、alphaは空文字になる。
+// 手書き文字は数字の「0」とアルファベットの「O」が混同されやすい(AIのOCR読み取りでも同様)ため、
+// 数字部分・アルファベット部分のどちらの位置に出現していても吸収できるよう、まず両方の文字を
+// 許容する形でパースしてから、位置に応じて正しい文字(数字部分は0、アルファベット部分はO)に
+// 正規化する。
 function _ccParseTourCode(s){
   let t = String(s||'').trim().toUpperCase().replace(/^#/,'').replace(/^KIC/,'');
-  const m = t.match(/^0*(\d+)[-_ ]?([A-Z]*)$/);
+  const m = t.match(/^[0O]*([0-9O]+)[-_ ]?([A-Z0]*)$/);
   if(!m) return null;
-  return { num: parseInt(m[1],10), alpha: m[2]||'' };
+  return { num: parseInt(m[1].replace(/O/g,'0'),10), alpha: (m[2]||'').replace(/0/g,'O') };
 }
 // 数字部分が一致し、かつ双方にアルファベット略称がある場合はそれも一致することを求める。
 // 片方(通常はref_no側)に略称が無い場合は数字のみで判定する。
@@ -19697,6 +19701,18 @@ function _ccTourCodeMatches(a, b){
   if(pa.num !== pb.num) return false;
   if(!pa.alpha || !pb.alpha) return true;
   return pa.alpha === pb.alpha;
+}
+// hint_tour_codeがbookingのref_no/tour_codeとは一致しないが、tour_nameの中に
+// 「852_KK」のような短縮ツアーコード形式で埋め込まれているケースを拾うフォールバック
+// (請求書読み取り機能側の同種フォールバック(Stage2.5)に合わせて追加。ref_no/tour_codeの
+// 直接比較だけでは、その表記がtour_nameにしか無いツアーを取りこぼしてしまうため)。
+function _ccHintMatchesTourName(hint, tourName){
+  if(!hint || !tourName) return false;
+  const hintParsed = _ccParseTourCode(hint);
+  if(!hintParsed || !hintParsed.alpha) return false;
+  const tNorm = String(tourName).trim().toUpperCase();
+  const codePat = /(\d{3,5})[-_ ]([A-Z]{2,4})\b/g;
+  return [...tNorm.matchAll(codePat)].some(m=>_ccTourCodeMatches(`${m[1]}_${m[2]}`, hint));
 }
 
 // 事前決済・法人カード決済・金額完全一致のbooking_costs候補を検索する。
@@ -19810,7 +19826,7 @@ async function findCcMatchCandidates(statement){
     const diffDays = (txDate && c.payment_date) ? Math.abs((new Date(c.payment_date) - txDate) / 86400000) : Infinity;
     const booking = bookingsById[c.booking_id]||null;
     const hintMatch = !!(hint && booking && (
-      _ccTourCodeMatches(booking.ref_no, hint) || _ccTourCodeMatches(booking.tour_code, hint)
+      _ccTourCodeMatches(booking.ref_no, hint) || _ccTourCodeMatches(booking.tour_code, hint) || _ccHintMatchesTourName(hint, booking.tour_name)
     ));
     const learnedMatch = isLearnedBooking(booking);
     // 名義人一致(支払方法再設計、フェーズ1): 明細のcard_holderと仕入明細のcard_holderが
