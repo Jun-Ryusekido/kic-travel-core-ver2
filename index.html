@@ -23123,24 +23123,46 @@ function tcAgentColor(agentColorMap, agentName){
 // エージェント配色。色を塗るのは実際の運行日(bookingInDate<=その日<=bookingOutDate)の
 // 列のみで、運行期間外の日は(表示範囲内であっても)無色のままにする。
 // レーン名ラベル列は日付ではなく凡例のようなセルのため、運行期間に関わらず常に着色する。
+// 1日に同じレーン(予約)の明細が複数件重なる場合(バスで新幹線区間を挟んで前半/後半
+// 会社が変わる等。tour_day_itineraryのbus_booking_id/bus_booking_id_2と同じ想定)に、
+// セル内に略記で縦に並べて表示する件数の上限。日帰りツアーの往復+観光地間移動程度
+// (最大3件程度)を想定。超える分は「+N」件数バッジにまとめる(実装のシンプルさ優先)。
+const TC_SUBROW_MAX_VISIBLE = 3;
 function tcBuildSubRow(icon, label, items, dateList, rangeStart, rangeEnd, dateStartField, dateEndField, halfOpen, nameFn, laneBg, bookingInDate, bookingOutDate){
   const cells = dateList.map(ds=>{
     const inOperatingRange = ds >= bookingInDate && ds <= bookingOutDate;
     const cellBg = inOperatingRange ? laneBg : '';
-    const item = items.find(it=>{
+    const matches = items.filter(it=>{
       if(!it[dateStartField] || !it[dateEndField]) return false;
       return halfOpen
         ? (it[dateStartField] <= ds && it[dateEndField] > ds)
         : (it[dateStartField] <= ds && it[dateEndField] >= ds);
     });
-    if(!item) return `<td style="border:1px solid var(--border);padding:1px;width:${TC_DAY_COL_WIDTH}px;background:${cellBg}"></td>`;
+    if(matches.length===0) return `<td style="border:1px solid var(--border);padding:1px;width:${TC_DAY_COL_WIDTH}px;background:${cellBg}"></td>`;
     // このマーク(◀▶)は「表示範囲の外にも日程が続いている」ことを示す一般的な表示で、
     // 月選択・期間指定のどちらのモードでも常に有効(月をまたぐかどうかに限らない、
-    // tcHeaderRangeRowの◀▶とは別物)。
-    const arrowL = (ds===rangeStart && item[dateStartField] < rangeStart) ? '◀' : '';
-    const arrowR = (ds===rangeEnd && item[dateEndField] > rangeEnd) ? '▶' : '';
-    const name = nameFn(item);
-    return `<td style="border:1px solid var(--border);padding:1px;width:${TC_DAY_COL_WIDTH}px;max-width:${TC_DAY_COL_WIDTH}px;background:${cellBg};cursor:pointer" onclick="openBookingDetail('${item.booking_id}')" title="${escHtml(name)}"><span style="font-size:8px;color:${TC_CELL_TEXT_COLOR};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;text-align:center">${arrowL}${escHtml(name)}${arrowR}</span></td>`;
+    // tcHeaderRangeRowの◀▶とは別物)。複数件ある日は、そのうちの該当する1件にでも
+    // 表示範囲外への継続があれば付ける。
+    const arrowL = (ds===rangeStart && matches.some(it=>it[dateStartField] < rangeStart)) ? '◀' : '';
+    const arrowR = (ds===rangeEnd && matches.some(it=>it[dateEndField] > rangeEnd)) ? '▶' : '';
+    const clickBookingId = matches[0].booking_id;
+    // 1件のみ(大多数のケース)は、複数件対応を入れる前と全く同じマークアップで
+    // 出力する(見た目・挙動に影響を与えないため)。
+    if(matches.length===1){
+      const name = nameFn(matches[0]);
+      return `<td style="border:1px solid var(--border);padding:1px;width:${TC_DAY_COL_WIDTH}px;max-width:${TC_DAY_COL_WIDTH}px;background:${cellBg};cursor:pointer" onclick="openBookingDetail('${clickBookingId}')" title="${escHtml(name)}"><span style="font-size:8px;color:${TC_CELL_TEXT_COLOR};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;text-align:center">${arrowL}${escHtml(name)}${arrowR}</span></td>`;
+    }
+    const visible = matches.slice(0, TC_SUBROW_MAX_VISIBLE);
+    const extraCount = matches.length - visible.length;
+    const titleText = matches.map(nameFn).join(' / ');
+    const linesHtml = visible.map((it,i)=>{
+      const name = nameFn(it);
+      const lArrow = (i===0) ? arrowL : '';
+      const rArrow = (i===visible.length-1 && extraCount===0) ? arrowR : '';
+      return `<div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${lArrow}${escHtml(name)}${rArrow}</div>`;
+    }).join('');
+    const extraHtml = extraCount>0 ? `<div>+${extraCount}${arrowR}</div>` : '';
+    return `<td style="border:1px solid var(--border);padding:1px;width:${TC_DAY_COL_WIDTH}px;max-width:${TC_DAY_COL_WIDTH}px;background:${cellBg};cursor:pointer" onclick="openBookingDetail('${clickBookingId}')" title="${escHtml(titleText)}"><span style="font-size:7px;line-height:1.2;color:${TC_CELL_TEXT_COLOR};display:block;text-align:center">${linesHtml}${extraHtml}</span></td>`;
   }).join('');
   return `<tr><td style="padding:2px 4px;font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:${TC_LANE_COL_WIDTH}px;max-width:${TC_LANE_COL_WIDTH}px;position:sticky;left:0;background:${laneBg};border-right:2px solid var(--border);color:${TC_CELL_TEXT_COLOR}" title="${icon} ${label}">${icon} ${label}</td>${cells}</tr>`;
 }
@@ -23280,7 +23302,12 @@ async function renderTourCalendar(){
   const ids = bookings.map(b=>b.id);
   const [{data: hotelRows, error: hErr}, {data: busRows, error: buErr}, {data: guideRows, error: gErr}, {data: headerRows, error: arrErr}] = await Promise.all([
     sb.from('booking_hotels').select('booking_id,hotel_name,check_in,check_out').in('booking_id', ids),
-    sb.from('booking_buses').select('booking_id,bus_company,start_date,end_date').in('booking_id', ids),
+    // 同じ日に複数のバス会社が入るケース(新幹線区間を挟んで前半/後半で会社が変わる等。
+    // tour_day_itineraryのbus_booking_id/bus_booking_id_2と同じ想定)があるため、
+    // .order()で順序を安定させる(未指定だとDBが返す順序が不定に近く、セル内の
+    // 表示順が読み込むたびに変わりうる)。booking_busesにtime系の列は無いため、
+    // created_at(入力順)を使う。
+    sb.from('booking_buses').select('booking_id,bus_company,start_date,end_date').in('booking_id', ids).order('created_at'),
     sb.from('booking_guides').select('booking_id,guide_id,guide_name_freetext,start_date,end_date,guides(name)').in('booking_id', ids),
     sb.from('tour_arrangement_headers').select('booking_id,arr_flight').in('booking_id', ids),
   ]);
