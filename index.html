@@ -21980,8 +21980,14 @@ async function generateMealVoucher(){
   const targetRestaurantItems = bdRestaurantItems.filter(r=>r.payment_method!=='現金払い');
   if(targetRestaurantItems.length===0){ alert('バウチャー発行対象のレストランがありません(現地払い以外の手配がありません)'); return; }
 
-  // business_partners.company_name_en を店名（NFKC正規化）で突合し、レストラン英語名として差し込む
-  // (取引先マスタUIが実際に参照しているのは suppliers ではなく business_partners テーブルのため)
+  // business_partners.company_name_en/phone を店名（NFKC正規化・完全一致）で突合し、
+  // レストラン英語名・電話番号として差し込む(取引先マスタUIが実際に参照しているのは
+  // suppliersではなくbusiness_partnersテーブルのため)。マッチ方式はprintArrangementSummaryList/
+  // printRestaurantListと同じNFKC正規化+完全一致を踏襲する(新方式は作らない)。
+  // 電話番号は以前、booking_restaurants.memo(備考欄)の文字列をそのまま転記していたが、
+  // 店名だけ変更されても備考の電話番号が古いまま残り続ける不具合(REF#1153で発覚)の原因
+  // だったため、生成のたびに取引先マスタから店名で検索して取得する方式に変更した
+  // (備考欄は今まで通りスタッフの自由記述専用に戻し、電話番号の代入元としては使わない)。
   const normName = s => String(s||'').normalize('NFKC').trim();
   const restNames = [...new Set(targetRestaurantItems.map(r=>r.restaurant_name).filter(Boolean))];
   let supplierByName = {};
@@ -21989,7 +21995,7 @@ async function generateMealVoucher(){
     let supRows = [], from = 0;
     const PAGE = 1000;
     while(true){
-      const {data: page, error: supErr} = await sb.from('business_partners').select('company_name,company_name_en').range(from, from+PAGE-1);
+      const {data: page, error: supErr} = await sb.from('business_partners').select('company_name,company_name_en,phone').range(from, from+PAGE-1);
       if(supErr){ logError('取引先マスタの読み込み(business_partners)', supErr); break; }
       supRows = supRows.concat(page||[]);
       if(!page || page.length < PAGE) break;
@@ -22030,6 +22036,9 @@ async function generateMealVoucher(){
       payment_method: document.getElementById(`vc-r-payment-${i}`)?.value||'請求書払い',
       memo:        document.getElementById(`vc-r-memo-${i}`)?.value||'',
       restaurant_name_en: sup ? (sup.company_name_en||'') : '',
+      // マッチしなかった場合は無理に埋めず空欄のままにする(printArrangementSummaryList等の
+      // 既存の他印刷機能と同じ安全なフォールバック)。
+      restaurant_phone: sup ? (sup.phone||'') : '',
     };
   });
   // 印刷物一式の最後のページに余白が残る場合、現地での手書き対応用の予備バウチャーで
@@ -22394,6 +22403,11 @@ function _buildVoucherHtml(restaurants, tourName, guideName, guidePhone){
     const nameEn      = isSpare ? '' : eh(r.restaurant_name_en||'');
     const nameJpSize  = fitFontSize(r.restaurant_name, 4.685, 97.597, 1.05).toFixed(3);
     const nameEnSize  = fitFontSize(r.restaurant_name_en, 3.644, 97.597, 0.62).toFixed(3);
+    // レストラン電話番号(取引先マスタから店名で突合した値。マッチしなければ空欄のまま、
+    // 値が無い場合はこの行自体を出力しない)。店名(和文/英文)の下、食事タイプ欄との間の
+    // 余白(約5.9mm)に収まる位置に配置し、店名が長い場合の省略表示(ellipsis)も同様に適用する。
+    const restPhone   = isSpare ? '' : eh(r.restaurant_phone||'');
+    const phoneHtml   = restPhone ? `<div class="restaurant-phone" style="left:35.135mm; width:97.597mm;">TEL：${restPhone}</div>` : '';
     // 「予備」ラベルは、テンプレート内の他の全要素(badge/refbox/hline等)と同じく
     // left基準の絶対配置にする。right基準(right:4.500mm)は、このテンプレート内で
     // ここだけが使っていた特殊なケースで、画面プレビューでは正しく見えても、
@@ -22431,6 +22445,7 @@ function _buildVoucherHtml(restaurants, tourName, guideName, guidePhone){
       <div class="restaurant-label" style="left:10.410mm;">レストラン：</div>
       <div class="restaurant-name" style="font-size:${nameJpSize}mm; left:35.135mm; width:97.597mm;">${nameJp}</div>
       <div class="restaurant-name-en" style="font-size:${nameEnSize}mm; left:35.135mm; width:97.597mm;">${nameEn}</div>
+      ${phoneHtml}
       <div class="mealtype-label" style="left:10.410mm;">食事タイプ：</div>
       <div class="mealtype-value" style="left:35.135mm;">${mealBox('B',mealChar==='B')}　　${mealBox('L',mealChar==='L')}　　${mealBox('D',mealChar==='D')}</div>
       <div class="custlabel" style="left:10.410mm;">お客様人数</div>
@@ -22512,6 +22527,10 @@ body { margin:0; padding:0; font-family:"Noto Sans JP","Hiragino Sans",Arial,san
 .hline { position:absolute; top:33.313mm; left:16.917mm; width:109.308mm; border-top:0.2mm solid #000; }
 .restaurant-name { position:absolute; top:39.689mm; left:41.641mm; width:80.680mm; overflow:hidden; font-weight:700; white-space:nowrap; text-overflow:ellipsis; }
 .restaurant-name-en { position:absolute; top:46.196mm; left:41.641mm; width:80.680mm; overflow:hidden; font-weight:400; font-style:italic; color:#333; white-space:nowrap; text-overflow:ellipsis; }
+/* restaurant-phone(電話番号、取引先マスタから店名で突合)は、和文/英文レストラン名と
+   食事タイプ欄の間の余白(約5.9mm)に収まるよう配置する小さな1行。店名と同じく
+   ellipsisで安全にはみ出しを防ぐ(通常の電話番号の長さなら省略されることはない)。 */
+.restaurant-phone { position:absolute; top:50.700mm; font-size:3.0mm; color:#333; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
 .restaurant-label { position:absolute; top:39.689mm; left:16.917mm; font-size:3.774mm; white-space:nowrap; }
 .mealtype-label { position:absolute; top:56.086mm; left:16.917mm; font-size:3.774mm; white-space:nowrap; }
 .checkbox { position:absolute; top:48.148mm; width:5.075mm; height:5.075mm; border:0.35mm solid #000; }
