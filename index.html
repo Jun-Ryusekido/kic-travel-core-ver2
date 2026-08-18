@@ -23141,8 +23141,10 @@ function tcSubRowHasData(items, days, ym, dateStartField, dateEndField, halfOpen
 // 表示月の1日目より前からin_dateが始まっている/最終日より後までout_dateが続いている
 // 場合は、月をまたいでいることが色帯だけでは分かりにくいため、サブ行の◀▶と同じ記号を
 // 帯の該当端(表示月内で運行日として着色される最初/最後の日)に重ねて表示する。
+// クリックすると、続きのある隣の月へ切り替えた上で同じ予約の行までスクロールする
+// (tcJumpToAdjacentMonth参照)。
 const TC_RANGE_ROW_HEIGHT = 11;
-function tcHeaderRangeRow(laneBg, days, ym, bookingInDate, bookingOutDate){
+function tcHeaderRangeRow(laneBg, days, ym, bookingInDate, bookingOutDate, bookingId){
   const monthStartDs = `${ym}-01`;
   const monthEndDs = `${ym}-${String(days.length).padStart(2,'0')}`;
   const crossesBefore = bookingInDate < monthStartDs;
@@ -23151,10 +23153,28 @@ function tcHeaderRangeRow(laneBg, days, ym, bookingInDate, bookingOutDate){
     const ds = `${ym}-${String(d).padStart(2,'0')}`;
     const inOperatingRange = ds >= bookingInDate && ds <= bookingOutDate;
     if(!inOperatingRange) return `<td style="padding:0;height:${TC_RANGE_ROW_HEIGHT}px;width:${TC_DAY_COL_WIDTH}px;max-width:${TC_DAY_COL_WIDTH}px;background:transparent"></td>`;
-    const arrow = (crossesBefore && d===1) ? '◀' : (crossesAfter && d===days.length) ? '▶' : '';
-    return `<td style="padding:0;height:${TC_RANGE_ROW_HEIGHT}px;width:${TC_DAY_COL_WIDTH}px;max-width:${TC_DAY_COL_WIDTH}px;background:${laneBg}">${arrow?`<span style="font-size:8px;line-height:${TC_RANGE_ROW_HEIGHT}px;color:${TC_CELL_TEXT_COLOR};display:block;text-align:center">${arrow}</span>`:''}</td>`;
+    const isLeftArrow = crossesBefore && d===1;
+    const isRightArrow = crossesAfter && d===days.length;
+    const arrow = isLeftArrow ? '◀' : isRightArrow ? '▶' : '';
+    const arrowOnclick = isLeftArrow ? `tcJumpToAdjacentMonth('${bookingId}',-1)` : isRightArrow ? `tcJumpToAdjacentMonth('${bookingId}',1)` : '';
+    const arrowTitle = isLeftArrow ? '前月へ移動して続きを見る' : isRightArrow ? '翌月へ移動して続きを見る' : '';
+    return `<td style="padding:0;height:${TC_RANGE_ROW_HEIGHT}px;width:${TC_DAY_COL_WIDTH}px;max-width:${TC_DAY_COL_WIDTH}px;background:${laneBg}">${arrow?`<span style="font-size:8px;line-height:${TC_RANGE_ROW_HEIGHT}px;color:${TC_CELL_TEXT_COLOR};display:block;text-align:center;cursor:pointer" onclick="${arrowOnclick}" title="${arrowTitle}">${arrow}</span>`:''}</td>`;
   }).join('');
   return `<tr><td style="padding:0;height:${TC_RANGE_ROW_HEIGHT}px;width:${TC_LANE_COL_WIDTH}px;max-width:${TC_LANE_COL_WIDTH}px;position:sticky;left:0;background:${laneBg};border-right:2px solid var(--border)"></td>${cells}</tr>`;
+}
+// ◀▶クリック時のハンドラ。#tc-ymの選択肢(initTourCalendar()で今月-2ヶ月〜+12ヶ月の
+// 範囲で生成済み)に隣の月が無い場合は何もしない(select.valueへの不正値代入は
+// 無視されるだけで見た目上何も起きないため、安全側の挙動として問題ない)。
+async function tcJumpToAdjacentMonth(bookingId, direction){
+  const sel = document.getElementById('tc-ym');
+  if(!sel || !sel.value) return;
+  const [y, m] = sel.value.split('-').map(Number);
+  const d = new Date(y, m-1+direction, 1);
+  const nextYm = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  if(!Array.from(sel.options).some(o=>o.value===nextYm)) return;
+  sel.value = nextYm;
+  await renderTourCalendar();
+  document.querySelector(`[data-tc-booking-id="${bookingId}"]`)?.scrollIntoView({behavior:'smooth', block:'center'});
 }
 
 async function renderTourCalendar(){
@@ -23246,10 +23266,12 @@ async function renderTourCalendar(){
     const headerHtml = [refHtml, ...restHtml].filter(Boolean).join(' ｜ ');
     const laneBg = tcAgentColor(agentColorMap, b.agent_name);
     // テキスト行自体には運行日範囲の背景色は付けない(直下の帯行が担当する)。
-    const headerRow = `<tr>
+    // data-tc-booking-idは、◀▶クリックで月を切り替えた後に同じ予約の行までスクロール
+    // するための目印(tcJumpToAdjacentMonth参照)。
+    const headerRow = `<tr data-tc-booking-id="${b.id}">
       <td colspan="${days.length+1}" style="position:sticky;left:0;padding:4px 6px;font-size:10px;font-weight:600;color:${TC_CELL_TEXT_COLOR};border-top:2px solid var(--border);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${escHtml(headerTitlePlain)}">${headerHtml}</td>
     </tr>`;
-    const headerRangeRow = tcHeaderRangeRow(laneBg, days, ym, b.in_date, b.out_date);
+    const headerRangeRow = tcHeaderRangeRow(laneBg, days, ym, b.in_date, b.out_date, b.id);
     const hotelRow = tcBuildSubRow('🏨','ホテル', hotelsByBooking[b.id]||[], days, ym, monthStart, monthEnd, 'check_in','check_out', true, it=>it.hotel_name||'(ホテル名未設定)', laneBg, b.in_date, b.out_date);
     const busRow = tcBuildSubRow('🚌','バス', busesByBooking[b.id]||[], days, ym, monthStart, monthEnd, 'start_date','end_date', false, it=>it.bus_company||'(バス会社未設定)', laneBg, b.in_date, b.out_date);
     const guideRow = tcBuildSubRow('🧑‍✈️','ガイド', guidesByBooking[b.id]||[], days, ym, monthStart, monthEnd, 'start_date','end_date', false, it=>(it.guides&&it.guides.name)||it.guide_name_freetext||'(ガイド未設定)', laneBg, b.in_date, b.out_date);
