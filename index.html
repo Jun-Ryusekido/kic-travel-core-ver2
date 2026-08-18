@@ -513,8 +513,8 @@ input[type=number]{-moz-appearance:textfield}
 @media print{ [contenteditable]:empty:before{content:''} [contenteditable]{border-color:#fff !important} }
 @media print{
   body *{visibility:hidden}
-  #inv-preview-card, #inv-preview-card *, #arr-preview-card, #arr-preview-card *, #gs-print-card, #gs-print-card *, #ga-print-card, #ga-print-card *, #gsl-print-card, #gsl-print-card *{visibility:visible}
-  #inv-preview-card, #arr-preview-card, #gs-print-card, #ga-print-card, #gsl-print-card{position:absolute;left:0;top:0;width:100%;border:none;box-shadow:none;padding:0}
+  #inv-preview-card, #inv-preview-card *, #arr-preview-card, #arr-preview-card *, #gs-print-card, #gs-print-card *, #ga-print-card, #ga-print-card *, #gsl-print-card, #gsl-print-card *, #pg-tour-calendar, #pg-tour-calendar *{visibility:visible}
+  #inv-preview-card, #arr-preview-card, #gs-print-card, #ga-print-card, #gsl-print-card, #pg-tour-calendar{position:absolute;left:0;top:0;width:100%;border:none;box-shadow:none;padding:0}
   #inv-preview-card .card-title, #inv-preview-card button,
   #arr-preview-card .card-title, #arr-preview-card button,
   #gs-print-card .card-title, #gs-print-card button,
@@ -523,6 +523,16 @@ input[type=number]{-moz-appearance:textfield}
   #arrangement-modal.open .modal-box{max-height:none !important;overflow:visible !important;box-shadow:none !important;max-width:none !important}
   #guide-advance-modal.open{position:static !important;background:none !important;padding:0 !important;overflow:visible !important;display:block !important}
   #guide-advance-modal.open .modal-box{max-height:none !important;overflow:visible !important;box-shadow:none !important;max-width:none !important}
+  /* ツアー運行カレンダー: 操作UI(月選択・期間指定・印刷ボタン等)一式を非表示にし、
+     カード見出しとカレンダー本体のみを印刷する。#tc-bodyは画面表示専用のmax-height/
+     overflow:auto(独立スクロール領域化)と、日付ヘッダーのposition:stickyを解除し、
+     ブラウザ標準のthead自動繰り返し(複数ページにまたがる場合、各ページ先頭に
+     theadが再度印字される)に任せる通常の表として印刷する。 */
+  #tc-controls-row{display:none !important}
+  #tc-body{max-height:none !important;overflow:visible !important}
+  #tc-body table thead th{position:static !important}
+  #tc-body table, #tc-body table *{-webkit-print-color-adjust:exact;print-color-adjust:exact;color-adjust:exact}
+  #tc-body table tr{page-break-inside:avoid}
 }
 
 /* ── 取引先モーダル：flex列で order 管理（PC・スマホ共通ベース） ── */
@@ -1301,12 +1311,22 @@ input[type=number]{-moz-appearance:textfield}
       <div id="pg-tour-calendar" class="page" style="display:none">
         <div class="card">
           <div class="card-title">ツアー運行カレンダー</div>
-          <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+          <div id="tc-controls-row" style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
             <select id="tc-ym" onchange="renderTourCalendar()" style="padding:6px 10px;border-radius:8px;border:1px solid var(--border);font-size:12px"></select>
             <label style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:4px;cursor:pointer">
               <input type="checkbox" id="tc-show-cancelled" onchange="renderTourCalendar()">キャンセル済みも表示
             </label>
-            <span style="font-size:10px;color:var(--text3)">◀▶ = 表示月の外にも日程が続いています</span>
+            <!-- 期間指定: 両方の日付が入力されている間は月選択より優先して表示する
+                 (詳細はrenderTourCalendar()冒頭のisRangeMode判定を参照)。 -->
+            <span style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:4px">
+              期間指定:
+              <input type="date" id="tc-range-start" onchange="renderTourCalendar()" style="padding:5px 6px;border-radius:8px;border:1px solid var(--border);font-size:12px">
+              〜
+              <input type="date" id="tc-range-end" onchange="renderTourCalendar()" style="padding:5px 6px;border-radius:8px;border:1px solid var(--border);font-size:12px">
+            </span>
+            <button class="btn" onclick="tcClearRange()" style="font-size:11px;padding:5px 9px">✕ 期間指定を解除</button>
+            <button class="btn" onclick="printTourCalendar()" style="font-size:11px;padding:5px 9px">🖨 印刷</button>
+            <span id="tc-range-hint" style="font-size:10px;color:var(--text3)">◀▶ = 表示月の外にも日程が続いています(期間指定中は非表示)</span>
           </div>
           <div id="tc-body"></div>
         </div>
@@ -23092,14 +23112,19 @@ function tcAgentColor(agentColorMap, agentName){
   return agentColorMap[name] || TC_RARE_AGENT_COLOR;
 }
 
+// dateList(表示範囲の日付文字列("YYYY-MM-DD")の配列。月選択モードではその月の全日、
+// 期間指定モードでは指定した開始日〜終了日)を直接受け取る。以前は「日番号(days)+
+// 単一月(ym)」からds=`${ym}-${日番号}`を組み立てていたが、この方式では月をまたぐ
+// 期間を表現できなかったため、実際の日付文字列そのものを渡す方式に統一した
+// (月選択モードもtcBuildDateRange()でその月の全日を生成するだけで、以降のロジックは
+// 完全に共通)。
 // セル内テキスト(ホテル名・バス会社名・ガイド名)は省略表示(ellipsis)にし、
 // title属性で全文を見られるようにする。laneBgはこのレーン(予約)に割り当てられた
 // エージェント配色。色を塗るのは実際の運行日(bookingInDate<=その日<=bookingOutDate)の
-// 列のみで、運行期間外の日は(表示月の範囲内であっても)無色のままにする。
+// 列のみで、運行期間外の日は(表示範囲内であっても)無色のままにする。
 // レーン名ラベル列は日付ではなく凡例のようなセルのため、運行期間に関わらず常に着色する。
-function tcBuildSubRow(icon, label, items, days, ym, monthStart, monthEnd, dateStartField, dateEndField, halfOpen, nameFn, laneBg, bookingInDate, bookingOutDate){
-  const cells = days.map(d=>{
-    const ds = `${ym}-${String(d).padStart(2,'0')}`;
+function tcBuildSubRow(icon, label, items, dateList, rangeStart, rangeEnd, dateStartField, dateEndField, halfOpen, nameFn, laneBg, bookingInDate, bookingOutDate){
+  const cells = dateList.map(ds=>{
     const inOperatingRange = ds >= bookingInDate && ds <= bookingOutDate;
     const cellBg = inOperatingRange ? laneBg : '';
     const item = items.find(it=>{
@@ -23109,20 +23134,22 @@ function tcBuildSubRow(icon, label, items, days, ym, monthStart, monthEnd, dateS
         : (it[dateStartField] <= ds && it[dateEndField] >= ds);
     });
     if(!item) return `<td style="border:1px solid var(--border);padding:1px;width:${TC_DAY_COL_WIDTH}px;background:${cellBg}"></td>`;
-    const arrowL = (d===1 && item[dateStartField] < monthStart) ? '◀' : '';
-    const arrowR = (d===days.length && item[dateEndField] > monthEnd) ? '▶' : '';
+    // このマーク(◀▶)は「表示範囲の外にも日程が続いている」ことを示す一般的な表示で、
+    // 月選択・期間指定のどちらのモードでも常に有効(月をまたぐかどうかに限らない、
+    // tcHeaderRangeRowの◀▶とは別物)。
+    const arrowL = (ds===rangeStart && item[dateStartField] < rangeStart) ? '◀' : '';
+    const arrowR = (ds===rangeEnd && item[dateEndField] > rangeEnd) ? '▶' : '';
     const name = nameFn(item);
     return `<td style="border:1px solid var(--border);padding:1px;width:${TC_DAY_COL_WIDTH}px;max-width:${TC_DAY_COL_WIDTH}px;background:${cellBg};cursor:pointer" onclick="openBookingDetail('${item.booking_id}')" title="${escHtml(name)}"><span style="font-size:8px;color:${TC_CELL_TEXT_COLOR};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;text-align:center">${arrowL}${escHtml(name)}${arrowR}</span></td>`;
   }).join('');
   return `<tr><td style="padding:2px 4px;font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:${TC_LANE_COL_WIDTH}px;max-width:${TC_LANE_COL_WIDTH}px;position:sticky;left:0;background:${laneBg};border-right:2px solid var(--border);color:${TC_CELL_TEXT_COLOR}" title="${icon} ${label}">${icon} ${label}</td>${cells}</tr>`;
 }
 
-// tcBuildSubRowの日別セル探索(item.find)と同じhalfOpen/closed判定を使い、表示月の
+// tcBuildSubRowの日別セル探索(item.find)と同じhalfOpen/closed判定を使い、表示範囲の
 // いずれかの日にこのサブ行(ホテル/バス/ガイド)のデータが1件でも存在するかを判定する。
 // 手配データが完全に空のレーンを一覧から除外する際に使う(レーン全体の表示可否の判定材料)。
-function tcSubRowHasData(items, days, ym, dateStartField, dateEndField, halfOpen){
-  return days.some(d=>{
-    const ds = `${ym}-${String(d).padStart(2,'0')}`;
+function tcSubRowHasData(items, dateList, dateStartField, dateEndField, halfOpen){
+  return dateList.some(ds=>{
     return items.some(it=>{
       if(!it[dateStartField] || !it[dateEndField]) return false;
       return halfOpen
@@ -23132,29 +23159,41 @@ function tcSubRowHasData(items, days, ym, dateStartField, dateEndField, halfOpen
   });
 }
 
+// rangeStart〜rangeEndの日付文字列("YYYY-MM-DD")配列を生成する。月選択モードでは
+// その月の1日〜末日、期間指定モードではユーザー指定の開始日〜終了日を渡す。
+function tcBuildDateRange(rangeStart, rangeEnd){
+  const dates = [];
+  let cur = new Date(rangeStart+'T00:00:00');
+  const end = new Date(rangeEnd+'T00:00:00');
+  while(cur <= end){
+    dates.push(`${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,'0')}-${String(cur.getDate()).padStart(2,'0')}`);
+    cur.setDate(cur.getDate()+1);
+  }
+  return dates;
+}
+
 // レーンヘッダー行(REF#・ツアーコード等が入った1本の横長td)は日別セルに分かれていないため、
 // テキスト自体には運行日範囲の色を付けず、その直下に日別td(tcBuildSubRowと全く同じ
 // 「1日=1td、in_date〜out_dateならlaneBgを直接background指定」方式)の細い帯行を
 // 別途挿入して運行日範囲を示す。実測ピクセル幅を仮定するlinear-gradient計算は行わない
 // ため、テーブルの実際のレンダリング幅(width:100%で画面幅いっぱいに伸びる場合を含む)
 // に一切依存せず、サブ行(ホテル/バス/ガイド)と常に列単位でズレなく一致する。
-// 表示月の1日目より前からin_dateが始まっている/最終日より後までout_dateが続いている
-// 場合は、月をまたいでいることが色帯だけでは分かりにくいため、サブ行の◀▶と同じ記号を
-// 帯の該当端(表示月内で運行日として着色される最初/最後の日)に重ねて表示する。
-// クリックすると、続きのある隣の月へ切り替えた上で同じ予約の行までスクロールする
-// (tcJumpToAdjacentMonth参照)。
+// 表示範囲の1日目より前からin_dateが始まっている/最終日より後までout_dateが続いている
+// 場合、色帯だけでは分かりにくいため◀▶を表示するが、これは「隣の月へ切り替える」という
+// 明確な移動先がある月選択モード限定の機能(isMonthMode=trueの時のみ)。期間指定モードは
+// 任意の開始日・終了日のため「隣の期間」という概念が無く、◀▶自体を出さない
+// (isMonthMode=falseなら常に非表示。JUN確認済み: 2026-08-18のやり取り)。
 const TC_RANGE_ROW_HEIGHT = 11;
-function tcHeaderRangeRow(laneBg, days, ym, bookingInDate, bookingOutDate, bookingId){
-  const monthStartDs = `${ym}-01`;
-  const monthEndDs = `${ym}-${String(days.length).padStart(2,'0')}`;
-  const crossesBefore = bookingInDate < monthStartDs;
-  const crossesAfter = bookingOutDate > monthEndDs;
-  const cells = days.map(d=>{
-    const ds = `${ym}-${String(d).padStart(2,'0')}`;
+function tcHeaderRangeRow(laneBg, dateList, bookingInDate, bookingOutDate, bookingId, isMonthMode){
+  const rangeStart = dateList[0];
+  const rangeEnd = dateList[dateList.length-1];
+  const crossesBefore = isMonthMode && bookingInDate < rangeStart;
+  const crossesAfter = isMonthMode && bookingOutDate > rangeEnd;
+  const cells = dateList.map(ds=>{
     const inOperatingRange = ds >= bookingInDate && ds <= bookingOutDate;
     if(!inOperatingRange) return `<td style="padding:0;height:${TC_RANGE_ROW_HEIGHT}px;width:${TC_DAY_COL_WIDTH}px;max-width:${TC_DAY_COL_WIDTH}px;background:transparent"></td>`;
-    const isLeftArrow = crossesBefore && d===1;
-    const isRightArrow = crossesAfter && d===days.length;
+    const isLeftArrow = crossesBefore && ds===rangeStart;
+    const isRightArrow = crossesAfter && ds===rangeEnd;
     const arrow = isLeftArrow ? '◀' : isRightArrow ? '▶' : '';
     const arrowOnclick = isLeftArrow ? `tcJumpToAdjacentMonth('${bookingId}',-1)` : isRightArrow ? `tcJumpToAdjacentMonth('${bookingId}',1)` : '';
     const arrowTitle = isLeftArrow ? '前月へ移動して続きを見る' : isRightArrow ? '翌月へ移動して続きを見る' : '';
@@ -23162,9 +23201,9 @@ function tcHeaderRangeRow(laneBg, days, ym, bookingInDate, bookingOutDate, booki
   }).join('');
   return `<tr><td style="padding:0;height:${TC_RANGE_ROW_HEIGHT}px;width:${TC_LANE_COL_WIDTH}px;max-width:${TC_LANE_COL_WIDTH}px;position:sticky;left:0;background:${laneBg};border-right:2px solid var(--border)"></td>${cells}</tr>`;
 }
-// ◀▶クリック時のハンドラ。#tc-ymの選択肢(initTourCalendar()で今月-2ヶ月〜+12ヶ月の
-// 範囲で生成済み)に隣の月が無い場合は何もしない(select.valueへの不正値代入は
-// 無視されるだけで見た目上何も起きないため、安全側の挙動として問題ない)。
+// ◀▶クリック時のハンドラ(月選択モード限定)。#tc-ymの選択肢(initTourCalendar()で
+// 今月-2ヶ月〜+12ヶ月の範囲で生成済み)に隣の月が無い場合は何もしない(select.valueへの
+// 不正値代入は無視されるだけで見た目上何も起きないため、安全側の挙動として問題ない)。
 async function tcJumpToAdjacentMonth(bookingId, direction){
   const sel = document.getElementById('tc-ym');
   if(!sel || !sel.value) return;
@@ -23176,27 +23215,65 @@ async function tcJumpToAdjacentMonth(bookingId, direction){
   await renderTourCalendar();
   document.querySelector(`[data-tc-booking-id="${bookingId}"]`)?.scrollIntoView({behavior:'smooth', block:'center'});
 }
+// 期間指定欄をクリアして月選択表示に戻す。
+function tcClearRange(){
+  const s = document.getElementById('tc-range-start');
+  const e = document.getElementById('tc-range-end');
+  if(s) s.value = '';
+  if(e) e.value = '';
+  renderTourCalendar();
+}
 
+// 期間指定モードの上限日数。1ヶ月(最大31列)は現状デスクトップ幅で横スクロール
+// 無しに収まる設計だが、期間指定はユーザーが自由に選べるため無制限だとDOM量や
+// 横スクロールの使い勝手が悪化する。JUNさん確認済みの上限として92日(約3ヶ月)を
+// 設定し、超える場合はエラー表示にとどめて描画しない。
+const TC_RANGE_MAX_DAYS = 92;
 async function renderTourCalendar(){
-  const ym = document.getElementById('tc-ym')?.value;
-  if(!ym) return;
   const body = document.getElementById('tc-body');
+  const rangeStartInput = document.getElementById('tc-range-start')?.value;
+  const rangeEndInput = document.getElementById('tc-range-end')?.value;
+  // 期間指定(開始日・終了日とも入力済み)は月選択より優先する。どちらか片方だけ
+  // 入力されている状態は「未確定」として扱い、月選択表示のままにする。
+  const isRangeMode = !!(rangeStartInput && rangeEndInput);
+  const rangeHint = document.getElementById('tc-range-hint');
+
+  let rangeStart, rangeEnd;
+  if(isRangeMode){
+    if(rangeHint) rangeHint.style.display = 'none';
+    if(rangeStartInput > rangeEndInput){
+      body.innerHTML = '<p style="color:var(--red);font-size:12px">期間指定: 開始日は終了日より前の日付にしてください</p>';
+      return;
+    }
+    const dayCount = Math.round((new Date(rangeEndInput+'T00:00:00') - new Date(rangeStartInput+'T00:00:00')) / 86400000) + 1;
+    if(dayCount > TC_RANGE_MAX_DAYS){
+      body.innerHTML = `<p style="color:var(--red);font-size:12px">期間指定は最大${TC_RANGE_MAX_DAYS}日までです(現在${dayCount}日)。期間を短くするか、月選択に切り替えてください。</p>`;
+      return;
+    }
+    rangeStart = rangeStartInput;
+    rangeEnd = rangeEndInput;
+  }else{
+    if(rangeHint) rangeHint.style.display = '';
+    const ym = document.getElementById('tc-ym')?.value;
+    if(!ym) return;
+    const [year, month] = ym.split('-').map(Number);
+    const daysInMonth = new Date(year, month, 0).getDate();
+    rangeStart = `${ym}-01`;
+    rangeEnd = `${ym}-${String(daysInMonth).padStart(2,'0')}`;
+  }
+  const dateList = tcBuildDateRange(rangeStart, rangeEnd);
+
   body.innerHTML = '<p style="color:var(--text3);font-size:12px">読み込み中...</p>';
-  const [year, month] = ym.split('-').map(Number);
-  const daysInMonth = new Date(year, month, 0).getDate();
-  const days = Array.from({length:daysInMonth},(_,i)=>i+1);
-  const monthStart = `${ym}-01`;
-  const monthEnd = `${ym}-${String(daysInMonth).padStart(2,'0')}`;
   const showCancelled = document.getElementById('tc-show-cancelled')?.checked;
 
-  // レーン抽出: 運行期間(in_date〜out_date)が選択月と重なる予約のみをDB側で絞り込む
+  // レーン抽出: 運行期間(in_date〜out_date)が表示範囲と重なる予約のみをDB側で絞り込む
   // (全件取得はしない)。キャンセル済みは既定で除外する。
   let q = sb.from('bookings').select('id,ref_no,tour_code,agent_name,pax,in_date,out_date,status')
-    .lte('in_date', monthEnd).gte('out_date', monthStart).order('in_date',{ascending:true});
+    .lte('in_date', rangeEnd).gte('out_date', rangeStart).order('in_date',{ascending:true});
   if(!showCancelled) q = q.neq('status','cancelled');
   const {data: bookings, error: bErr} = await q;
   if(bErr){ body.innerHTML = `<p style="color:var(--red);font-size:12px">読み込みエラー: ${escHtml(bErr.message)}</p>`; return; }
-  if(!bookings || bookings.length===0){ body.innerHTML = '<p style="color:var(--text3);font-size:12px">この月に運行中の予約はありません</p>'; return; }
+  if(!bookings || bookings.length===0){ body.innerHTML = '<p style="color:var(--text3);font-size:12px">この範囲に運行中の予約はありません</p>'; return; }
 
   // 対象booking_idが確定してから、その予約の明細だけをまとめて取得する
   // (booking_hotels/booking_buses/booking_guides/tour_arrangement_headers全件取得はしない)。
@@ -23229,26 +23306,29 @@ async function renderTourCalendar(){
   });
   (headerRows||[]).forEach(r=>{ headerByBooking[r.booking_id] = r; });
 
-  // 手配データ(ホテル/バス/ガイドいずれか)が表示月内に1件も無いレーンは一覧から除外する
+  // 手配データ(ホテル/バス/ガイドいずれか)が表示範囲内に1件も無いレーンは一覧から除外する
   // (「キャンセル済みも表示」の状態とは独立に適用する。空のサブ行があっても、他の
   // サブ行に1件でもデータがあればレーン全体を通常通り表示する)。
   const visibleBookings = bookings.filter(b=>{
-    const hasHotel = tcSubRowHasData(hotelsByBooking[b.id]||[], days, ym, 'check_in','check_out', true);
-    const hasBus = tcSubRowHasData(busesByBooking[b.id]||[], days, ym, 'start_date','end_date', false);
-    const hasGuide = tcSubRowHasData(guidesByBooking[b.id]||[], days, ym, 'start_date','end_date', false);
+    const hasHotel = tcSubRowHasData(hotelsByBooking[b.id]||[], dateList, 'check_in','check_out', true);
+    const hasBus = tcSubRowHasData(busesByBooking[b.id]||[], dateList, 'start_date','end_date', false);
+    const hasGuide = tcSubRowHasData(guidesByBooking[b.id]||[], dateList, 'start_date','end_date', false);
     return hasHotel || hasBus || hasGuide;
   });
-  if(visibleBookings.length===0){ body.innerHTML = '<p style="color:var(--text3);font-size:12px">この月に手配データがあるツアーはありません</p>'; return; }
+  if(visibleBookings.length===0){ body.innerHTML = '<p style="color:var(--text3);font-size:12px">この範囲に手配データがあるツアーはありません</p>'; return; }
 
   // table-layout:fixedにより、この1行目(thead)のth幅がそのまま各列の固定幅になる
   // (tbody側のtd幅指定は保険。TC_DAY_COL_WIDTH/TC_LANE_COL_WIDTH参照)。
+  // 月をまたぐ期間指定の場合に「今何月の何日か」を見失わないよう、月初(1日)には
+  // 日番号だけでなく月も併記する(例: "9/1")。月内の他の日は従来通り日番号のみ。
   const thead = `<thead><tr>
     <th style="width:${TC_LANE_COL_WIDTH}px;max-width:${TC_LANE_COL_WIDTH}px;padding:3px 4px;text-align:left;position:sticky;left:0;top:0;background:#fff;z-index:3;border-right:2px solid var(--border)">レーン</th>
-    ${days.map(d=>{
-      const dt = new Date(year, month-1, d);
+    ${dateList.map(ds=>{
+      const dt = new Date(ds+'T00:00:00');
       const dow = ['日','月','火','水','木','金','土'][dt.getDay()];
       const we = dt.getDay()===0||dt.getDay()===6;
-      return `<th style="width:${TC_DAY_COL_WIDTH}px;max-width:${TC_DAY_COL_WIDTH}px;text-align:center;padding:2px 1px;font-size:9px;${we?'color:var(--blue)':''}">${d}<br><span style="font-size:8px">${dow}</span></th>`;
+      const dayLabel = dt.getDate()===1 ? `${dt.getMonth()+1}/${dt.getDate()}` : String(dt.getDate());
+      return `<th style="width:${TC_DAY_COL_WIDTH}px;max-width:${TC_DAY_COL_WIDTH}px;text-align:center;padding:2px 1px;font-size:9px;${we?'color:var(--blue)':''}">${dayLabel}<br><span style="font-size:8px">${dow}</span></th>`;
     }).join('')}
   </tr></thead>`;
 
@@ -23269,12 +23349,12 @@ async function renderTourCalendar(){
     // data-tc-booking-idは、◀▶クリックで月を切り替えた後に同じ予約の行までスクロール
     // するための目印(tcJumpToAdjacentMonth参照)。
     const headerRow = `<tr data-tc-booking-id="${b.id}">
-      <td colspan="${days.length+1}" style="position:sticky;left:0;padding:4px 6px;font-size:10px;font-weight:600;color:${TC_CELL_TEXT_COLOR};border-top:2px solid var(--border);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${escHtml(headerTitlePlain)}">${headerHtml}</td>
+      <td colspan="${dateList.length+1}" style="position:sticky;left:0;padding:4px 6px;font-size:10px;font-weight:600;color:${TC_CELL_TEXT_COLOR};border-top:2px solid var(--border);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${escHtml(headerTitlePlain)}">${headerHtml}</td>
     </tr>`;
-    const headerRangeRow = tcHeaderRangeRow(laneBg, days, ym, b.in_date, b.out_date, b.id);
-    const hotelRow = tcBuildSubRow('🏨','ホテル', hotelsByBooking[b.id]||[], days, ym, monthStart, monthEnd, 'check_in','check_out', true, it=>it.hotel_name||'(ホテル名未設定)', laneBg, b.in_date, b.out_date);
-    const busRow = tcBuildSubRow('🚌','バス', busesByBooking[b.id]||[], days, ym, monthStart, monthEnd, 'start_date','end_date', false, it=>it.bus_company||'(バス会社未設定)', laneBg, b.in_date, b.out_date);
-    const guideRow = tcBuildSubRow('🧑‍✈️','ガイド', guidesByBooking[b.id]||[], days, ym, monthStart, monthEnd, 'start_date','end_date', false, it=>(it.guides&&it.guides.name)||it.guide_name_freetext||'(ガイド未設定)', laneBg, b.in_date, b.out_date);
+    const headerRangeRow = tcHeaderRangeRow(laneBg, dateList, b.in_date, b.out_date, b.id, !isRangeMode);
+    const hotelRow = tcBuildSubRow('🏨','ホテル', hotelsByBooking[b.id]||[], dateList, rangeStart, rangeEnd, 'check_in','check_out', true, it=>it.hotel_name||'(ホテル名未設定)', laneBg, b.in_date, b.out_date);
+    const busRow = tcBuildSubRow('🚌','バス', busesByBooking[b.id]||[], dateList, rangeStart, rangeEnd, 'start_date','end_date', false, it=>it.bus_company||'(バス会社未設定)', laneBg, b.in_date, b.out_date);
+    const guideRow = tcBuildSubRow('🧑‍✈️','ガイド', guidesByBooking[b.id]||[], dateList, rangeStart, rangeEnd, 'start_date','end_date', false, it=>(it.guides&&it.guides.name)||it.guide_name_freetext||'(ガイド未設定)', laneBg, b.in_date, b.out_date);
     return headerRow + headerRangeRow + hotelRow + busRow + guideRow;
   }).join('');
 
@@ -23299,6 +23379,45 @@ function updateTcBodyHeight(){
   if(!wrap) return;
   const top = wrap.getBoundingClientRect().top;
   wrap.style.maxHeight = `calc(100vh - ${top}px - 16px)`;
+}
+
+// ブラウザのネイティブ印刷機能をそのまま使う(Invoice/手配書/精算書プレビュー等の
+// 既存の印刷方式と同じ、別ウィンドウを開かないインページ印刷)。印刷対象の指定と
+// サイドバー等の非表示化は#pg-tour-calendarを対象にしたCSSの@media print側で行う
+// (index.html内の共通の可視化ブロックに合わせている)。
+// A4横向きの指定は、印刷ボタンを押したこの操作の間だけ@pageを上書きし、印刷後に
+// 取り消す(printGuideAdvanceList()と同じ手法。ページ全体で共有している既定の
+// @page{size:A4;margin:0}をここで恒久的に上書きすると、Invoice等の他画面の印刷にも
+// 影響してしまうため、一時的な上書きにとどめる)。
+// 列数が多い期間指定表示でA4横1ページの印刷可能幅(概算1070px、margin6mm込み)を
+// 超える場合は、table全体にtransform:scaleを掛けて用紙幅に収める。table-layout:fixed
+// はそのまま維持されるため、縮小しても列の色分けと罫線の対応(揃い)は崩れない。
+// 文字サイズも比例して縮小されるため、別途フォントサイズ調整は不要。縦方向(レーン数が
+// 多い場合)は複数ページにまたがる前提とし、pageのCSS側でtr単位の改ページ制御を行う。
+function printTourCalendar(){
+  let style = document.getElementById('tc-print-style');
+  if(!style){
+    style = document.createElement('style');
+    style.id = 'tc-print-style';
+    document.head.appendChild(style);
+  }
+  const table = document.querySelector('#tc-body table');
+  let scaleRule = '';
+  if(table){
+    const PRINTABLE_WIDTH_PX = 1070;
+    const tableWidth = table.scrollWidth;
+    if(tableWidth > PRINTABLE_WIDTH_PX){
+      const scale = PRINTABLE_WIDTH_PX / tableWidth;
+      scaleRule = `#tc-body table{transform:scale(${scale.toFixed(3)});transform-origin:top left}`;
+    }
+  }
+  style.textContent = `@page{size:A4 landscape;margin:6mm}${scaleRule}`;
+  window.onafterprint = ()=>{
+    const st = document.getElementById('tc-print-style');
+    if(st) st.remove();
+    window.onafterprint = null;
+  };
+  window.print();
 }
 
 async function loadPartners(){
