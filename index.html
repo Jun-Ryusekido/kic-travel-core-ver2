@@ -23123,22 +23123,18 @@ function tcSubRowHasData(items, days, ym, dateStartField, dateEndField, halfOpen
 }
 
 // レーンヘッダー行(REF#・ツアーコード等が入った1本の横長td)は日別セルに分かれていないため、
-// linear-gradientのハードストップで「レーン名相当のゾーン(常に着色)+実際の運行日の
-// ピクセル範囲(表示月内で交差する部分)」だけを着色し、それ以外は透明にする。
-// 表示月内に運行日が無いケースは無い想定(呼び出し元で表示月と重なる予約のみ抽出済み)だが、
-// 念のためnullの場合は従来通りレーン全体を塗る(安全側のフォールバック)。
-function tcOperatingDayRange(monthStart, monthEnd, bookingInDate, bookingOutDate){
-  const clampedStart = bookingInDate < monthStart ? monthStart : bookingInDate;
-  const clampedEnd = bookingOutDate > monthEnd ? monthEnd : bookingOutDate;
-  if(clampedStart > clampedEnd) return null;
-  return { startDay: Number(clampedStart.slice(8,10)), endDay: Number(clampedEnd.slice(8,10)) };
-}
-function tcHeaderRowBg(laneBg, monthStart, monthEnd, bookingInDate, bookingOutDate){
-  const range = tcOperatingDayRange(monthStart, monthEnd, bookingInDate, bookingOutDate);
-  if(!range) return laneBg;
-  const rangeStartPx = TC_LANE_COL_WIDTH + (range.startDay-1)*TC_DAY_COL_WIDTH;
-  const rangeEndPx = TC_LANE_COL_WIDTH + range.endDay*TC_DAY_COL_WIDTH;
-  return `linear-gradient(to right, ${laneBg} 0px, ${laneBg} ${TC_LANE_COL_WIDTH}px, transparent ${TC_LANE_COL_WIDTH}px, transparent ${rangeStartPx}px, ${laneBg} ${rangeStartPx}px, ${laneBg} ${rangeEndPx}px, transparent ${rangeEndPx}px, transparent 100%)`;
+// テキスト自体には運行日範囲の色を付けず、その直下に日別td(tcBuildSubRowと全く同じ
+// 「1日=1td、in_date〜out_dateならlaneBgを直接background指定」方式)の細い帯行を
+// 別途挿入して運行日範囲を示す。実測ピクセル幅を仮定するlinear-gradient計算は行わない
+// ため、テーブルの実際のレンダリング幅(width:100%で画面幅いっぱいに伸びる場合を含む)
+// に一切依存せず、サブ行(ホテル/バス/ガイド)と常に列単位でズレなく一致する。
+function tcHeaderRangeRow(laneBg, days, ym, bookingInDate, bookingOutDate){
+  const cells = days.map(d=>{
+    const ds = `${ym}-${String(d).padStart(2,'0')}`;
+    const inOperatingRange = ds >= bookingInDate && ds <= bookingOutDate;
+    return `<td style="padding:0;height:9px;width:${TC_DAY_COL_WIDTH}px;max-width:${TC_DAY_COL_WIDTH}px;background:${inOperatingRange?laneBg:'transparent'}"></td>`;
+  }).join('');
+  return `<tr><td style="padding:0;height:9px;width:${TC_LANE_COL_WIDTH}px;max-width:${TC_LANE_COL_WIDTH}px;position:sticky;left:0;background:${laneBg};border-right:2px solid var(--border)"></td>${cells}</tr>`;
 }
 
 async function renderTourCalendar(){
@@ -23229,26 +23225,25 @@ async function renderTourCalendar(){
     const restHtml = [b.tour_code, b.agent_name, paxStr, arrFlight].filter(Boolean).map(escHtml);
     const headerHtml = [refHtml, ...restHtml].filter(Boolean).join(' ｜ ');
     const laneBg = tcAgentColor(agentColorMap, b.agent_name);
-    const headerBg = tcHeaderRowBg(laneBg, monthStart, monthEnd, b.in_date, b.out_date);
-    // REF#の.lnkスパンは色(--blue)・カーソルのみを指定し、背景色は一切指定しないため、
-    // 親td(background:${headerBg})のgradientを覆い隠すことはない。
+    // テキスト行自体には運行日範囲の背景色は付けない(直下の帯行が担当する)。
     const headerRow = `<tr>
-      <td colspan="${days.length+1}" style="position:sticky;left:0;background:${headerBg};padding:4px 6px;font-size:10px;font-weight:600;color:${TC_CELL_TEXT_COLOR};border-top:2px solid var(--border);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${escHtml(headerTitlePlain)}">${headerHtml}</td>
+      <td colspan="${days.length+1}" style="position:sticky;left:0;padding:4px 6px;font-size:10px;font-weight:600;color:${TC_CELL_TEXT_COLOR};border-top:2px solid var(--border);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${escHtml(headerTitlePlain)}">${headerHtml}</td>
     </tr>`;
+    const headerRangeRow = tcHeaderRangeRow(laneBg, days, ym, b.in_date, b.out_date);
     const hotelRow = tcBuildSubRow('🏨','ホテル', hotelsByBooking[b.id]||[], days, ym, monthStart, monthEnd, 'check_in','check_out', true, it=>it.hotel_name||'(ホテル名未設定)', laneBg, b.in_date, b.out_date);
     const busRow = tcBuildSubRow('🚌','バス', busesByBooking[b.id]||[], days, ym, monthStart, monthEnd, 'start_date','end_date', false, it=>it.bus_company||'(バス会社未設定)', laneBg, b.in_date, b.out_date);
     const guideRow = tcBuildSubRow('🧑‍✈️','ガイド', guidesByBooking[b.id]||[], days, ym, monthStart, monthEnd, 'start_date','end_date', false, it=>(it.guides&&it.guides.name)||it.guide_name_freetext||'(ガイド未設定)', laneBg, b.in_date, b.out_date);
-    return headerRow + hotelRow + busRow + guideRow;
+    return headerRow + headerRangeRow + hotelRow + busRow + guideRow;
   }).join('');
 
   // table-layout:fixedにより、内容(長いホテル名等)に関わらずTC_DAY_COL_WIDTH/TC_LANE_COL_WIDTH
   // の固定幅で列がレイアウトされる(31列でも横スクロール無しで収まるようにするための変更)。
-  // <table>自体にwidthを指定しないと、tableはブロック要素として親要素(#tc-body)の
-  // 幅いっぱいに伸びてしまい、table-layout:fixedが列に均等に余白を配分するため
-  // 列幅がTC_DAY_COL_WIDTH/TC_LANE_COL_WIDTHからズレる(本番で横幅が広い画面ほど顕著)。
-  // 明示的に列幅の合計をwidthに指定し、余白配分による伸長を防ぐ。
-  const tcTableWidth = TC_LANE_COL_WIDTH + days.length*TC_DAY_COL_WIDTH;
-  body.innerHTML = `<table style="border-collapse:collapse;table-layout:fixed;font-size:11px;width:${tcTableWidth}px">${thead}<tbody>${tbody}</tbody></table>`;
+  // <table>のwidthはpxで固定せずwidth:100%のまま画面幅いっぱいに使う。列の色分けは
+  // 全行(ヘッダー帯行/ホテル/バス/ガイド)ともtcBuildSubRowと同じ「1日=1td、直接
+  // background指定」方式のみを使うため、table-layout:fixedが実際に各列へ配分する
+  // 幅がTC_DAY_COL_WIDTH/TC_LANE_COL_WIDTHの通りかどうかに関わらず、同じ列番号は
+  // 常に全行で同じ幅になる(=色の境界とセルの境界が常に一致する)。
+  body.innerHTML = `<table style="border-collapse:collapse;table-layout:fixed;font-size:11px;width:100%">${thead}<tbody>${tbody}</tbody></table>`;
 }
 
 async function loadPartners(){
