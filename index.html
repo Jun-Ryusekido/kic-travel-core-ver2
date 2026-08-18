@@ -22782,9 +22782,72 @@ function initTourCalendar(){
 // (レーン名列76px + 日付列24px×31列 ≒ 820px)。
 const TC_DAY_COL_WIDTH = 24;
 const TC_LANE_COL_WIDTH = 76;
+
+// ===== レーン配色(エージェント(現地の元請け会社)ごとにレーン全体を色分け) =====
+// セル単位の個別色分けはしない。レーンヘッダー行+ホテル/バス/ガイドの3サブ行、
+// レーン全体(空欄セルも含む)に同じ背景色を適用する。
+// 固定3社(会話で確認済み、agent_nameの部分一致で判定)。
+const TC_FIXED_AGENT_COLORS = [
+  { match:'Thomas Cook', bg:'#FFF3C4' }, // 薄黄色
+  { match:'Kulin Kumar', bg:'#DCEFD1' }, // 薄緑
+  { match:'Kesari',      bg:'#FBDCE7' }, // 薄ピンク
+];
+// 上記3社以外で頻度が高いエージェントに追加で割り当てる固定パレット(5色)。
+// 上の固定3色(黄・緑・ピンク)と被らない色味を選んでいる。
+const TC_EXTRA_AGENT_PALETTE = ['#D6E8F7','#E5DDF5','#FBE3D0','#D6F0EA','#F9DCD5'];
+// 稀にしか出てこないエージェントは全てこの色にまとめる(既存の--grey-ltを流用。
+// 空欄セルと紛らわしくならないよう、白は使わない)。
+const TC_RARE_AGENT_COLOR = 'var(--grey-lt)';
+// セル文字色はレーンの背景色(全てパステル調の淡い色)によらず読みやすいよう、
+// 濃いグレー系の1色に統一する(背景色ごとに文字色を出し分けない)。
+const TC_CELL_TEXT_COLOR = '#3a3a36';
+
+// エージェントの色マップ(agent_name→背景色)。表示月を切り替えるたびに作り直すと、
+// その月だけの頻度でランキングが変わり「同じエージェントなのに月によって色が違う」
+// ことになってしまうため、bookings全体(全期間)の頻度で1度だけ計算してキャッシュし、
+// 以後は使い回す(月をまたいでも常に同じ色になる)。
+let tcAgentColorCache = null;
+function tcAgentKey(agentName){ return String(agentName||'').trim(); }
+function tcFixedAgentColor(name){ return TC_FIXED_AGENT_COLORS.find(f=>name.includes(f.match)); }
+async function tcBuildAgentColorMap(){
+  if(tcAgentColorCache) return tcAgentColorCache;
+  let rows = [], from = 0; const PAGE = 1000;
+  while(true){
+    const {data, error} = await sb.from('bookings').select('agent_name').range(from, from+PAGE-1);
+    if(error){ logError('カレンダー配色用の予約データ読み込み', error); break; }
+    rows = rows.concat(data||[]);
+    if(!data || data.length < PAGE) break;
+    from += PAGE;
+  }
+  const freq = {};
+  rows.forEach(r=>{
+    const name = tcAgentKey(r.agent_name);
+    if(!name) return;
+    freq[name] = (freq[name]||0) + 1;
+  });
+  // 頻度順(多い順)に並べ、固定3社以外の上位からTC_EXTRA_AGENT_PALETTEを割り当てる。
+  const sortedNames = Object.keys(freq).sort((a,b)=>freq[b]-freq[a]);
+  const map = {};
+  let extraIdx = 0;
+  sortedNames.forEach(name=>{
+    if(tcFixedAgentColor(name)) return; // 固定3社はtcAgentColor()側で判定するのでここでは何もしない
+    map[name] = extraIdx < TC_EXTRA_AGENT_PALETTE.length ? TC_EXTRA_AGENT_PALETTE[extraIdx++] : TC_RARE_AGENT_COLOR;
+  });
+  tcAgentColorCache = map;
+  return tcAgentColorCache;
+}
+function tcAgentColor(agentColorMap, agentName){
+  const name = tcAgentKey(agentName);
+  if(!name) return TC_RARE_AGENT_COLOR;
+  const fixed = tcFixedAgentColor(name);
+  if(fixed) return fixed.bg;
+  return agentColorMap[name] || TC_RARE_AGENT_COLOR;
+}
+
 // セル内テキスト(ホテル名・バス会社名・ガイド名)は省略表示(ellipsis)にし、
-// title属性で全文を見られるようにする。
-function tcBuildSubRow(icon, label, items, days, ym, monthStart, monthEnd, dateStartField, dateEndField, halfOpen, nameFn){
+// title属性で全文を見られるようにする。laneBgはこのレーン(予約)に割り当てられた
+// エージェント配色で、空欄セルも含め全セルの背景に一律適用する(セル単位の個別色分けはしない)。
+function tcBuildSubRow(icon, label, items, days, ym, monthStart, monthEnd, dateStartField, dateEndField, halfOpen, nameFn, laneBg){
   const cells = days.map(d=>{
     const ds = `${ym}-${String(d).padStart(2,'0')}`;
     const item = items.find(it=>{
@@ -22793,13 +22856,13 @@ function tcBuildSubRow(icon, label, items, days, ym, monthStart, monthEnd, dateS
         ? (it[dateStartField] <= ds && it[dateEndField] > ds)
         : (it[dateStartField] <= ds && it[dateEndField] >= ds);
     });
-    if(!item) return `<td style="border:1px solid var(--border);padding:1px;width:${TC_DAY_COL_WIDTH}px"></td>`;
+    if(!item) return `<td style="border:1px solid var(--border);padding:1px;width:${TC_DAY_COL_WIDTH}px;background:${laneBg}"></td>`;
     const arrowL = (d===1 && item[dateStartField] < monthStart) ? '◀' : '';
     const arrowR = (d===days.length && item[dateEndField] > monthEnd) ? '▶' : '';
     const name = nameFn(item);
-    return `<td style="border:1px solid var(--border);padding:1px;width:${TC_DAY_COL_WIDTH}px;max-width:${TC_DAY_COL_WIDTH}px;background:var(--blue-lt);cursor:pointer" onclick="openBookingDetail('${item.booking_id}')" title="${escHtml(name)}"><span style="font-size:8px;color:var(--blue);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;text-align:center">${arrowL}${escHtml(name)}${arrowR}</span></td>`;
+    return `<td style="border:1px solid var(--border);padding:1px;width:${TC_DAY_COL_WIDTH}px;max-width:${TC_DAY_COL_WIDTH}px;background:${laneBg};cursor:pointer" onclick="openBookingDetail('${item.booking_id}')" title="${escHtml(name)}"><span style="font-size:8px;color:${TC_CELL_TEXT_COLOR};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;text-align:center">${arrowL}${escHtml(name)}${arrowR}</span></td>`;
   }).join('');
-  return `<tr><td style="padding:2px 4px;font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:${TC_LANE_COL_WIDTH}px;max-width:${TC_LANE_COL_WIDTH}px;position:sticky;left:0;background:#fff;border-right:2px solid var(--border);color:var(--text2)" title="${icon} ${label}">${icon} ${label}</td>${cells}</tr>`;
+  return `<tr><td style="padding:2px 4px;font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:${TC_LANE_COL_WIDTH}px;max-width:${TC_LANE_COL_WIDTH}px;position:sticky;left:0;background:${laneBg};border-right:2px solid var(--border);color:${TC_CELL_TEXT_COLOR}" title="${icon} ${label}">${icon} ${label}</td>${cells}</tr>`;
 }
 
 async function renderTourCalendar(){
@@ -22835,6 +22898,10 @@ async function renderTourCalendar(){
   const detailErr = hErr||buErr||gErr||arrErr;
   if(detailErr){ body.innerHTML = `<p style="color:var(--red);font-size:12px">明細の読み込みエラー: ${escHtml(detailErr.message)}</p>`; return; }
 
+  // レーン配色(エージェントごと)。表示月を切り替えても同じ色になるよう、
+  // bookings全体の頻度で1度だけ計算したキャッシュを使い回す。
+  const agentColorMap = await tcBuildAgentColorMap();
+
   const hotelsByBooking = {}, busesByBooking = {}, guidesByBooking = {}, headerByBooking = {};
   (hotelRows||[]).filter(r=>r.check_in&&r.check_out).forEach(r=>{
     if(!hotelsByBooking[r.booking_id]) hotelsByBooking[r.booking_id] = [];
@@ -22867,12 +22934,13 @@ async function renderTourCalendar(){
     const paxStr = b.pax ? `${b.pax}名` : '';
     const arrFlight = header && header.arr_flight ? ('到着便: '+header.arr_flight) : '';
     const headerLine = [b.ref_no, b.tour_code, b.agent_name, paxStr, arrFlight].filter(Boolean).join(' ｜ ');
+    const laneBg = tcAgentColor(agentColorMap, b.agent_name);
     const headerRow = `<tr style="cursor:pointer" onclick="openBookingDetail('${b.id}')">
-      <td colspan="${days.length+1}" style="position:sticky;left:0;background:var(--blue-lt);padding:4px 6px;font-size:10px;font-weight:600;color:var(--blue);border-top:2px solid var(--border);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${escHtml(headerLine)}">${escHtml(headerLine)}</td>
+      <td colspan="${days.length+1}" style="position:sticky;left:0;background:${laneBg};padding:4px 6px;font-size:10px;font-weight:600;color:${TC_CELL_TEXT_COLOR};border-top:2px solid var(--border);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${escHtml(headerLine)}">${escHtml(headerLine)}</td>
     </tr>`;
-    const hotelRow = tcBuildSubRow('🏨','ホテル', hotelsByBooking[b.id]||[], days, ym, monthStart, monthEnd, 'check_in','check_out', true, it=>it.hotel_name||'(ホテル名未設定)');
-    const busRow = tcBuildSubRow('🚌','バス', busesByBooking[b.id]||[], days, ym, monthStart, monthEnd, 'start_date','end_date', false, it=>it.bus_company||'(バス会社未設定)');
-    const guideRow = tcBuildSubRow('🧑‍✈️','ガイド', guidesByBooking[b.id]||[], days, ym, monthStart, monthEnd, 'start_date','end_date', false, it=>(it.guides&&it.guides.name)||it.guide_name_freetext||'(ガイド未設定)');
+    const hotelRow = tcBuildSubRow('🏨','ホテル', hotelsByBooking[b.id]||[], days, ym, monthStart, monthEnd, 'check_in','check_out', true, it=>it.hotel_name||'(ホテル名未設定)', laneBg);
+    const busRow = tcBuildSubRow('🚌','バス', busesByBooking[b.id]||[], days, ym, monthStart, monthEnd, 'start_date','end_date', false, it=>it.bus_company||'(バス会社未設定)', laneBg);
+    const guideRow = tcBuildSubRow('🧑‍✈️','ガイド', guidesByBooking[b.id]||[], days, ym, monthStart, monthEnd, 'start_date','end_date', false, it=>(it.guides&&it.guides.name)||it.guide_name_freetext||'(ガイド未設定)', laneBg);
     return headerRow + hotelRow + busRow + guideRow;
   }).join('');
 
