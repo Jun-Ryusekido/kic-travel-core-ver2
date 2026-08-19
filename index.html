@@ -2859,6 +2859,7 @@ input[type=number]{-moz-appearance:textfield}
       <span><span class="bd-section-caret" style="display:inline-block;margin-right:4px;transition:transform .15s">▸</span>仮払い一覧表</span>
       <span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end" onclick="event.stopPropagation()">
         <button class="btn" style="font-size:10px" onclick="printLocalExpenses()">🖨 仮払い一覧を印刷</button>
+        <button class="btn" style="font-size:10px" onclick="openInvoiceImportForBooking()">🤖 請求書AI読み取り</button>
         <span id="bd-local-voucher-btns" style="display:flex;gap:6px;flex-wrap:wrap"></span>
       </span>
     </div>
@@ -3177,8 +3178,6 @@ function statusFg(s){
   if(s==='予約不要') return 'var(--purple)';
   return 'var(--amber)'; // 回答待ち・問い合わせ中
 }
-function statusSelectStyle(s){ return `background:${statusBg(s)};color:${statusFg(s)}`; }
-
 // ステータスのカスタムドロップダウン。ネイティブ<select>のoptionごとの背景色指定は
 // ブラウザ/OS(特にWindows版Chrome)の制約で無視され、開いた一覧全体が<select>自身の
 // 背景色一色になってしまう不具合があったため、button+リストのカスタムUIに置き換える。
@@ -3346,10 +3345,6 @@ function enablePasteUpload(containerEl, onFile){
     const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
     if(file) onFile(file);
   });
-}
-// 貼り付け対応エリアの共通見た目（点線枠＋案内文）を生成する。formats例: "画像・PDF・Excel・Word"
-function pasteDropZoneHtml(id, formats){
-  return `<div id="${id}" class="paste-drop-zone" tabindex="-1">📋 ここをクリックしてCtrl+Vで${formats}ファイルを貼り付け（ドラッグ&ドロップも可）</div>`;
 }
 // AI応答のJSON配列を寛容にパースする共通ヘルパー。AIが値中の改行・制御文字を正しく
 // エスケープせずに返してしまいJSON.parseが失敗するケースへの対策。
@@ -8922,14 +8917,6 @@ async function resetGuideAdvanceOverride(id, idx){
   else renderGuideSettlements();
 }
 
-async function updateGuideSettlementField(id, field, value){
-  const numFields = ['advance_payment','additional_advance_payment','guide_fee'];
-  const v = numFields.includes(field) ? (Number(value)||0) : value;
-  await guideSettlementsApiCall('updateById', { id, fields: {[field]:v} });
-  const s = guideSettlementsCache.find(x=>x.id===id);
-  if(s) s[field]=v;
-}
-
 // 仕入明細の「仮払金」行をガイド精算の仮払金欄へ自動反映する
 // 各行の担当者名は、item_name内の「仮払金（名前）」表記があればそれを優先し、
 // なければ備考(memo)欄の内容を担当者名として扱う。名前情報があるのに
@@ -9721,53 +9708,6 @@ async function reflectVoucherToCost(settlementId, guideIndex){
   alert('仕入明細に反映しました。');
 }
 
-async function reflectCheckedGuideItems(settlementId){
-  if(bdLocked){ alert('この予約の仕入明細は確定済みです。'); return; }
-  const checks = document.querySelectorAll('.gs-check:checked');
-  if(checks.length===0){ alert('反映する項目を選択してください'); return; }
-  const ids = Array.from(checks).map(c=>c.dataset.id);
-  const s = guideSettlementsCache.find(x=>x.id===settlementId);
-  if(!s) return;
-  const targets = (s.items||[]).filter(it=>ids.includes(it.id) && !it.reflected);
-  if(targets.length===0){ alert('選択した項目は既に反映済みか、対象外です'); return; }
-  if(!confirm(`${targets.length}件を仕入明細に追加します。よろしいですか？`)) return;
-  const b = findBookingById(currentDetailId);
-  if(!b) return;
-  const rows = targets.map(it=>({
-    booking_id: b.id,
-    item_name: `${it.category||''}${it.description?(' / '+it.description):''}（ガイド精算: ${s.guide_name||''}）`,
-    amount: Number(it.amount||0),
-    payment_date: it.expense_date||null,
-    memo: 'ガイド精算より自動反映'
-  }));
-  let error;
-  try { await bookingCostsApiCall('insert', { rows }); } catch(e) { error = e; }
-  if(error){ alert('反映に失敗しました: '+error.message); return; }
-  await guideSettlementItemsApiCall('updateByIds', { ids: targets.map(it=>it.id), fields: {reflected:true} });
-  const {data: allCosts} = await sb.from('booking_costs').select('amount').eq('booking_id', b.id);
-  const newGrossCost = (allCosts||[]).reduce((sum,c)=>sum+Number(c.amount||0),0);
-  await bookingsApiCall('updateById', { id: b.id, fields: {gross_cost:newGrossCost, updated_at: new Date().toISOString()} });
-  b.gross_cost = newGrossCost;
-  await logAction('ガイド精算→仕入明細反映（選択）', b.ref_no+' / '+targets.length+'件');
-  // 全件再取得しての丸ごと差し替えによる未保存編集の消失を防ぐため、追加したrowsを
-  // ローカル配列に追記するだけにする(reflectLocalExpensesToCostと同じ対応)。
-  rows.forEach(r=>{
-    bdCostItems.push({
-      item_name: r.item_name, amount: r.amount, payment_date: r.payment_date,
-      payment_method: '', memo: r.memo, status: 'pending',
-      card_holder: '', personal_reimbursement_status: '', personal_reimbursed_at: null,
-      source_table: null, source_id: null, source_snapshot: null
-    });
-  });
-  renderCostTable();
-  await loadGuideSettlements();
-}
-
-async function reviewGuideItem(itemId, status){
-  await guideSettlementItemsApiCall('updateById', { id: itemId, fields: {status, reviewed_at: new Date().toISOString()} });
-  await loadGuideSettlements();
-}
-
 async function reopenGuideSettlement(settlementId){
   if(!isAccountingUser()){ alert('経理担当者のみ解除できます。'); return; }
   if(!confirm('この精算の締めを解除しますか？')) return;
@@ -9798,52 +9738,6 @@ async function deleteGuideSettlement(settlementId){
   }catch(e){ alert('削除に失敗しました: '+e.message); return; }
 
   await logAction('ガイド精算リンク削除', s.booking_ref + (s.guide_name?(' / '+s.guide_name):''));
-  await loadGuideSettlements();
-}
-
-async function reflectGuideItems(settlementId){
-  if(bdLocked){ alert('この予約の仕入明細は確定済みです。反映するには管理者がロックを解除してください。'); return; }
-  const s = guideSettlementsCache.find(x=>x.id===settlementId);
-  if(!s) return;
-  const targets = (s.items||[]).filter(it=>it.status==='approved' && !it.reflected);
-  if(targets.length===0) return;
-  if(!confirm(`${targets.length}件を仕入明細に追加します。よろしいですか？`)) return;
-
-  const b = findBookingById(currentDetailId);
-  if(!b) return;
-
-  const rows = targets.map(it=>({
-    booking_id: b.id,
-    item_name: `${it.category||''}${it.description?(' / '+it.description):''}（ガイド精算: ${s.guide_name||''}）`,
-    amount: Number(it.amount||0),
-    payment_date: it.expense_date || null,
-    memo: 'ガイド精算より自動反映'
-  }));
-  let error;
-  try { await bookingCostsApiCall('insert', { rows }); } catch(e) { error = e; }
-  if(error){ alert('仕入明細への反映に失敗しました: '+error.message); return; }
-
-  await guideSettlementItemsApiCall('updateByIds', { ids: targets.map(it=>it.id), fields: {reflected:true} });
-
-  // gross_costを再計算
-  const {data: allCosts} = await sb.from('booking_costs').select('amount').eq('booking_id', b.id);
-  const newGrossCost = (allCosts||[]).reduce((sum,c)=>sum+Number(c.amount||0),0);
-  await bookingsApiCall('updateById', { id: b.id, fields: {gross_cost:newGrossCost, updated_at: new Date().toISOString()} });
-  b.gross_cost = newGrossCost;
-
-  await logAction('ガイド精算→仕入明細反映', b.ref_no + ' / ' + targets.length + '件');
-
-  // 全件再取得しての丸ごと差し替えによる未保存編集の消失を防ぐため、追加したrowsを
-  // ローカル配列に追記するだけにする(reflectLocalExpensesToCostと同じ対応)。
-  rows.forEach(r=>{
-    bdCostItems.push({
-      item_name: r.item_name, amount: r.amount, payment_date: r.payment_date,
-      payment_method: '', memo: r.memo, status: 'pending',
-      card_holder: '', personal_reimbursement_status: '', personal_reimbursed_at: null,
-      source_table: null, source_id: null, source_snapshot: null
-    });
-  });
-  renderCostTable();
   await loadGuideSettlements();
 }
 
@@ -17748,23 +17642,6 @@ async function extractHotelFromText(){
     hideGlobalOcrBanner();
     statusEl.style.color = 'var(--red)';
   }
-}
-async function reflectHotelsToCost(){
-  if(bdLocked){ alert('仕入明細は確定済みです。'); return; }
-  const targets = bdHotelItems.filter(it=>it.hotel_name && it.amount>0);
-  if(targets.length===0){ alert('転記するホテルデータがありません'); return; }
-  if(!confirm(`${targets.length}件のホテル費用を仕入明細に追加します。よろしいですか？`)) return;
-  targets.forEach(it=>{
-    const nights = calcHotelNights(it.check_in, it.check_out);
-    bdCostItems.push({
-      item_name: it.hotel_name + (it.room_type?' ('+it.room_type+')':'') + (it.breakfast?' 朝食付':''),
-      amount: it.amount,
-      payment_date: null,
-      memo: `${it.check_in}〜${it.check_out} ${it.rooms}室×${nights}泊` + (it.confirmation_no?' 確認番号:'+it.confirmation_no:'')
-    });
-  });
-  renderCostTable();
-  alert('仕入明細に転記しました。保存ボタンで確定してください。');
 }
 // 予約情報タブ(bookings本体)の差分比較用フィールド。gross_sales/gross_cost/
 // deposit_amount/updated_atは売上・仕入明細から都度再計算/更新される派生値のため、
