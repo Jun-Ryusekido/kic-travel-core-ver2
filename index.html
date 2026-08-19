@@ -2425,8 +2425,8 @@ input[type=number]{-moz-appearance:textfield}
       <div style="display:flex;gap:8px;align-items:center">
         <span class="msg-ok" id="bd-msg-top" style="margin-top:0">✓ 保存しました</span>
         <button class="btn btn-p bd-save-btn" onclick="saveBookingDetail()">💾 保存</button>
-        <button class="btn" onclick="closeBookingDetail()">閉じる</button>
-        <div class="modal-close" onclick="closeBookingDetail()">✕</div>
+        <button class="btn" onclick="closeBookingDetailWithConfirm()">閉じる</button>
+        <div class="modal-close" onclick="closeBookingDetailWithConfirm()">✕</div>
       </div>
     </div>
 
@@ -2928,7 +2928,7 @@ input[type=number]{-moz-appearance:textfield}
 
     <div style="margin-top:16px;display:flex;gap:8px;align-items:center;border-top:1px solid var(--border);padding-top:12px">
       <button class="btn btn-p bd-save-btn" onclick="saveBookingDetail()">💾 保存</button>
-      <button class="btn" onclick="closeBookingDetail()">閉じる</button>
+      <button class="btn" onclick="closeBookingDetailWithConfirm()">閉じる</button>
       <button class="btn" onclick="openAuditHistory('bookings', currentDetailId, document.getElementById('bd-ref').textContent)">🕓 変更履歴</button>
       <span class="msg-ok" id="bd-msg">✓ 保存しました</span>
       <span style="margin-left:auto;font-size:10px;color:var(--text3)" id="bd-updated"></span>
@@ -5155,7 +5155,7 @@ function updateVendorEmailBulkBar(){
 
 // ページ離脱(ブラウザの閉じる/リロード)時、未保存の変更があれば警告する。
 window.addEventListener('beforeunload', (e)=>{
-  if(vendorEmailPendingCount()>0){ e.preventDefault(); e.returnValue = ''; }
+  if(vendorEmailPendingCount()>0 || isBookingDetailDirty()){ e.preventDefault(); e.returnValue = ''; }
 });
 
 async function bulkSaveVendorEmailStatuses(){
@@ -7456,6 +7456,13 @@ function mapCostRowsToBdCostItems(rows){
 }
 
 async function openBookingDetail(id){
+  // 既に別の予約(または同じ予約)がモーダルで開いていて未保存の変更が残っている場合、
+  // ここで警告せずに進むと保存せず内容が上書きされて消えてしまう(closeBookingDetail()を
+  // 経由しない、REF#リンククリック等30箇所以上ある呼び出し元すべてに共通するリスクのため、
+  // 個別の呼び出し元ではなくここ1箇所でまとめてガードする)。
+  if(currentDetailId && isBookingDetailDirty()){
+    if(!confirm('保存されていない変更があります。保存せずに別の予約を開きますか？')) return;
+  }
   const _myCallSeq = ++_bookingDetailCallSeq;
   const _stale = () => _myCallSeq !== _bookingDetailCallSeq;
   let b = findBookingById(id);
@@ -7789,12 +7796,49 @@ async function openBookingDetail(id){
   document.getElementById('detail-modal').classList.add('open');
 }
 
+// 予約詳細モーダルに未保存の変更が残っているかどうかを判定する(保存は一切行わない)。
+// saveBookingDetail()内の差分検知ロジック(bdLoadSnapshot.xxx vs buildXxxRows(id)の比較、
+// 17899-17927行目付近)と同じ比較を、保存を伴わず行うだけ。closeBookingDetailWithConfirm()・
+// openBookingDetail()・beforeunloadから呼ばれ、未保存のまま予約が切り替わる/画面が閉じるのを
+// 警告するために使う。
+function isBookingDetailDirty(){
+  if(!currentDetailId) return false;
+  const bookingId = currentDetailId;
+  if(bdLoadSnapshot.booking !== JSON.stringify(buildBookingCompareFields())) return true;
+  if(bdLoadSnapshot.sales !== JSON.stringify(buildSalesRows(bookingId))) return true;
+  if(bdLoadSnapshot.costs !== JSON.stringify(buildCostRows(bookingId))) return true;
+  if(bdLoadSnapshot.localExpenses !== JSON.stringify(buildLocalExpenseRows(bookingId))) return true;
+  if(bdLoadSnapshot.hotels !== JSON.stringify(buildHotelRows(bookingId))) return true;
+  if(bdLoadSnapshot.buses !== JSON.stringify(buildBusRows(bookingId))) return true;
+  if(bdLoadSnapshot.restaurants !== JSON.stringify(buildRestaurantRows(bookingId))) return true;
+  if(bdLoadSnapshot.facilities !== JSON.stringify(buildFacilityRows(bookingId))) return true;
+  if(bdLoadSnapshot.water !== JSON.stringify(buildWaterRows(bookingId))) return true;
+  const bulletTrainRows = bdCurrentRefNo ? buildBulletTrainRows(bdCurrentRefNo) : [];
+  if(bdLoadSnapshot.bulletTrain !== JSON.stringify(bulletTrainRows)) return true;
+  if(bdLoadSnapshot.guides !== JSON.stringify(buildGuideRows(bookingId))) return true;
+  const arrDocCurrentJson = JSON.stringify({
+    header: buildArrHeaderCompareFields(bdArrHeader), guides: buildArrGuideRows(bookingId),
+    days: buildArrDayRows(bookingId), notes: buildArrNoteRows(bookingId)
+  });
+  if(bdLoadSnapshot.arrDoc !== arrDocCurrentJson) return true;
+  return false;
+}
+
 function closeBookingDetail(){
   document.getElementById('detail-modal').classList.remove('open');
   document.getElementById('bd-invoices-modal')?.classList.remove('open');
   currentDetailId = null;
   hideFacilitySuggest();
   stopBdPresenceHeartbeat(); // 「編集中表示」のハートビート停止+release(呼び出し箇所が複数あってもここ1箇所に集約されているため、他の呼び出し元を個別に変更する必要はない)
+}
+
+// ユーザーが能動的に閉じるボタン(✕・閉じる)を押した場合専用。未保存の変更があれば
+// 手配確定状況画面(vendorEmailPendingCount)と同じconfirm()パターンで警告する。
+// プログラム側の内部クローズ(削除直後・保存直後)は、これを経由せず従来通り
+// closeBookingDetail()を直接呼ぶ(警告する意味が無いため)。
+function closeBookingDetailWithConfirm(){
+  if(isBookingDetailDirty() && !confirm('保存されていない変更があります。保存せずに閉じますか？')) return;
+  closeBookingDetail();
 }
 
 function updateReflectionDecidedPrice(reflId, tierIdx, val){
