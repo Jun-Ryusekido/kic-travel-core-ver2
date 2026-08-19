@@ -11668,19 +11668,33 @@ function emailInboxSenderAddress(sender){
   return m ? m[0] : '';
 }
 
-// 広告・メルマガ判定(isAutoPromo)、自社ドメイン送信(isOwnDomain)、またはAIによる
-// 「手配業務と無関係」判定(aiIrrelevant)のいずれかに該当すれば自動除外扱いとする。
-// ユーザーが「これは予約メールです」で戻した行は除く。
+// 広告・メルマガ判定(isAutoPromo)、自社ドメイン送信(isOwnDomain)のいずれかに該当すれば
+// 自動除外扱いとする。ユーザーが「これは予約メールです」で戻した行は除く。
+// AIによる「手配業務と無関係」判定(aiIrrelevant)は、2026-08-19の調査で、観光施設の
+// オンラインチケット購入完了通知のようにREF#/ツアーコードが本文に無いのが通常のメールが
+// AI判定だけで一覧から完全に隠れてしまい、入力漏れに気づけない原因になっていたことが判明
+// したため、ここには含めない(隠さず業務メール一覧にバッジ付きで残す。isRowAiFlagged参照)。
 function isRowAutoExcluded(row){
   if(emailInboxAutoFilterOverrides.has(emailInboxOverrideKey(row))) return false;
-  return !!row.isAutoPromo || !!row.isOwnDomain || !!row.aiIrrelevant;
+  return !!row.isAutoPromo || !!row.isOwnDomain;
+}
+
+// AI判定:無関係のメールを、隠さず業務メール一覧にバッジ表示するためのフラグ。
+// isRowAutoExcludedと同じくemailInboxAutoFilterOverrides(「これは予約メールです」で
+// 戻した行)を考慮する。
+function isRowAiFlagged(row){
+  if(emailInboxAutoFilterOverrides.has(emailInboxOverrideKey(row))) return false;
+  return !!row.aiIrrelevant;
 }
 
 function emailInboxExcludeReason(row){
   if(row.isAutoPromo) return '広告・メルマガ/システム通知判定';
   if(row.isOwnDomain) return '自社送信(@'+EMAIL_INBOX_OWN_DOMAIN+')';
-  if(row.aiIrrelevant) return row.autoExcludeReason || 'REF#/ツアーコードなし、AI判定：無関係';
   return '';
+}
+
+function emailInboxAiFlagReason(row){
+  return row.autoExcludeReason || 'REF#/ツアーコードなし、AI判定：無関係';
 }
 
 function isRowVisibleForMode(row, mode){
@@ -11691,6 +11705,8 @@ function isRowVisibleForMode(row, mode){
   const excluded = isRowAutoExcluded(row);
   if(mode === 'autofiltered') return excluded;
   if(excluded) return false;
+  // AI判定:無関係(aiIrrelevant)は自動除外扱いにしないため、normal/postponedどちらの
+  // モードでも他の行と同じ条件(保留状態)だけで表示・非表示を決める。
   return mode === 'postponed' ? !!row.postponed : !row.postponed;
 }
 
@@ -11762,6 +11778,20 @@ function emailHasRefOrTourCode(subject, body, knownRefNumbers){
   return emailHasKicCode(subject, body) || emailHasKnownRefNumber(subject, body, knownRefNumbers);
 }
 
+// 案2(2026-08-19): 観光施設のオンラインチケット購入完了通知等、REF#/ツアーコードを
+// 本文に含まないのが通常のメールを、AI判定(段階2)を経由せず即座に「予約関連」と
+// 扱うための既知パターン。実例: info@mail.dmm.com からのチームラボプラネッツ
+// チケット購入完了通知がREF#無しのためAI判定に回り「無関係」と誤判定されていた。
+// 将来知見が増えた場合はこのリストにのみ追加すればよい(判定ロジック側は変更不要)。
+const EMAIL_KNOWN_FACILITY_TICKET_SENDER_DOMAINS = ['mail.dmm.com'];
+const EMAIL_KNOWN_FACILITY_TICKET_SUBJECT_KEYWORDS = ['チケット購入完了'];
+function emailHasKnownFacilityTicketPattern(subject, sender){
+  const domain = emailInboxSenderDomain(sender);
+  if(EMAIL_KNOWN_FACILITY_TICKET_SENDER_DOMAINS.includes(domain)) return true;
+  const s = String(subject||'');
+  return EMAIL_KNOWN_FACILITY_TICKET_SUBJECT_KEYWORDS.some(k=>s.includes(k));
+}
+
 // v3: REF#実在チェック追加(海外パートナーの自社参照番号による誤マッチ修正)に伴い、
 // 過去の判定結果を引き継がないようキーを更新
 const EMAIL_RELEVANCE_CACHE_KEY = 'kicEmailRelevanceCache_v3';
@@ -11825,6 +11855,10 @@ async function classifyEmailRelevanceForRows(rows){
     if(isRowAutoPromo(m)) continue;                 // 広告判定済みの行は二重に判定しない
     if(m.isOwnDomain) continue;                      // 自社送信は既に自動除外対象のためAI判定不要
     if(emailHasRefOrTourCode(m.subject, m.body, knownRefNumbers)){   // 実在するREF#/ツアーコードあり→予約関連と即断
+      m.aiIrrelevant = false;
+      continue;
+    }
+    if(emailHasKnownFacilityTicketPattern(m.subject, m.sender)){   // 案2: 既知の観光施設チケット送信元/件名パターン→予約関連と即断
       m.aiIrrelevant = false;
       continue;
     }
@@ -12713,13 +12747,13 @@ async function renderEmailInboxPage(){
 
   const summaryEl = document.getElementById('email-inbox-autofilter-summary');
   if(summaryEl){
+    // AI判定:無関係(aiIrrelevant)はisRowAutoExcludedの対象から外れた(業務メール一覧に
+    // バッジ付きで残るため)ため、ここでの集計も広告・メルマガ/自社送信の2種類のみになる。
     const excludedRows = emailInboxRawList.filter(m=>isRowAutoExcluded(m));
     const promoCount = excludedRows.filter(m=>m.isAutoPromo).length;
     const ownDomainCount = excludedRows.filter(m=>!m.isAutoPromo && m.isOwnDomain).length;
-    const aiCount = excludedRows.length - promoCount - ownDomainCount;
     const parts = [];
     if(promoCount>0) parts.push(`広告・メルマガ ${promoCount}件`);
-    if(aiCount>0) parts.push(`業務無関係(AI判定) ${aiCount}件`);
     if(ownDomainCount>0) parts.push(`自社送信 ${ownDomainCount}件`);
     summaryEl.textContent = excludedRows.length>0 ? `🚫 ${excludedRows.length}件のメールを自動的に除外しています（${parts.join('、')}）` : '';
   }
@@ -12819,6 +12853,16 @@ async function renderEmailInboxPage(){
     const registeredBadge = savedState && savedState.done
       ? `<span style="font-size:10px;font-weight:700;color:var(--green,#1a7f37);background:var(--green-lt,#e6f4ea);border-radius:8px;padding:2px 8px">✓ 登録済み</span>`
       : '';
+    // AI判定:無関係(aiIrrelevant)は隠さず一覧に残すため、その旨がひと目で分かるバッジと、
+    // 誤判定だった場合にその場で戻せる「これは予約メールです」ボタンを表示する
+    // (自動除外タブのmarkEmailInboxNotPromoをそのまま再利用。aiIrrelevant=falseになり
+    // バッジも消える)。
+    const aiFlaggedHtml = isRowAiFlagged(m)
+      ? `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:4px">
+          <span style="font-size:10px;font-weight:700;color:var(--amber,#9a6700);background:var(--amber-lt,#fff3cd);border-radius:8px;padding:2px 8px">🔎 ${escHtml(emailInboxAiFlagReason(m))}(要確認)</span>
+          <button class="btn" style="font-size:11px" onclick="markEmailInboxNotPromo('${m.id}')">✅ これは予約メールです</button>
+        </div>`
+      : '';
     const postponeBtn = emailInboxViewMode==='postponed'
       ? `<button class="btn" style="font-size:11px" onclick="unpostponeEmailInboxItem('${m.id}')">▶ 保留を解除</button>`
       : `<button class="btn" style="font-size:11px" onclick="postponeEmailInboxItem('${m.id}')">⏸ 保留</button>`;
@@ -12827,6 +12871,7 @@ async function renderEmailInboxPage(){
       <div style="flex:1;min-width:0">
         <div style="font-size:12px;font-weight:600;margin-bottom:2px">${escHtml(m.subject||'(件名なし)')}</div>
         <div style="font-size:11px;color:var(--text3);margin-bottom:4px">${escHtml(m.sender||'')} ・ ${escHtml(received)}</div>
+        ${aiFlaggedHtml}
         <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:4px">
           <input id="email-inbox-ref-${m.id}" value="${savedRef}" oninput="saveEmailInboxRowState('${m.id}');setEmailInboxRefWarn('${m.id}',false)" placeholder="REF# 例: #1374" style="font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px;width:140px">
           <select id="email-inbox-cat-${m.id}" onchange="saveEmailInboxRowState('${m.id}');toggleEmailInboxRefForCategory('${m.id}')" style="font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px">${catOptions}</select>
@@ -12849,8 +12894,7 @@ async function renderEmailInboxPage(){
   setEmailInboxPagerHtml(emailInboxPagerHtml(emailInboxPage, totalPages, total));
 
   // 表示したページのメールについて「手配業務関連かどうか」を後追いで判定し、
-  // 無関係と判定されたメールがあれば一覧から自動除外枠へ移す(通常表示のときのみ)。
-  // 除外で空いた分は次の行が繰り上がり、その行も次回の再描画時に判定される。
+  // 無関係と判定されたメールには要確認バッジを付ける(一覧からは隠さない、通常表示のときのみ)。
   if(emailInboxViewMode==='normal'){
     classifyEmailRelevanceForRows(pageItems).then(async changed=>{
       if(changed && emailInboxViewMode==='normal'){
