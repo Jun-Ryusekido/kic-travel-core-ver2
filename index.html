@@ -329,6 +329,11 @@ th.sortable:hover{color:var(--blue)}
      (横並び・折り返し可)に積む形に変更する(他画面には影響させない)。 */
   #pg-partners .card-title,#pg-agents .card-title{flex-direction:column;align-items:flex-start;gap:8px}
   #pg-partners .card-title>span,#pg-agents .card-title>span{display:flex;flex-wrap:wrap;gap:6px;width:100%}
+  /* Invoiceプレビュー: 見出し+ボタン3つ(保存/印刷/閉じる)が横並びのままだと
+     ボタン群が窮屈に詰まり見出しと重なって見えるため、取引先マスタ画面と同じ
+     「見出しを上・ボタン群をその下の行(横並び・折り返し可)に積む」形にする。 */
+  #inv-preview-card .card-title{flex-direction:column;align-items:flex-start;gap:8px}
+  #inv-preview-card .card-title>span{display:flex;flex-wrap:wrap;gap:6px;width:100%}
 
   /* ダッシュボードの検索・絞り込みを下部固定バー+ボトムシート方式にする(モバイルのみ)。
      PC(768px以上)では従来通り一覧の上に横並びグリッドで常時表示する(下のCSSは一切効かない)。 */
@@ -1433,7 +1438,11 @@ input[type=number]{-moz-appearance:textfield}
               <button class="btn" onclick="document.getElementById('inv-preview-card').style.display='none'">閉じる</button>
             </span>
           </div>
-          <div id="inv-preview-body"></div>
+          <!-- Invoiceプレビューは印刷用にA4実寸(210mm)で組んでいるため(CLAUDE.md記載の
+               印刷プレビュー例外パターン)、.tbl-wrapで囲んで画面幅が210mmより狭い場合は
+               このプレビュー領域内だけで横スクロールさせ、ページ全体の横スクロールを
+               発生させないようにする(手配書プレビュー#arr-preview-body等と同じ方式)。 -->
+          <div class="tbl-wrap"><div id="inv-preview-body"></div></div>
         </div>
       </div>
 
@@ -25614,9 +25623,9 @@ async function showInvoicePreview(inv, booking){
 
   const html = `
     <div style="background:#fff;width:210mm;max-width:100%;min-height:297mm;margin:0 auto;padding:15mm;font-size:11px;color:#222;box-sizing:border-box;font-family:Arial,'Hiragino Kaku Gothic ProN',sans-serif">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px;gap:20px">
-        <div style="flex:1;min-width:0;padding-top:34px">
-          <div style="font-size:18px;font-weight:700;overflow-wrap:break-word;word-break:break-word">${(billToName||'').replace(/</g,'&lt;')}</div>
+      <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-start;margin-bottom:18px;gap:20px">
+        <div style="flex:1;min-width:200px;padding-top:34px">
+          <div style="font-size:18px;font-weight:700;overflow-wrap:break-word">${(billToName||'').replace(/</g,'&lt;')}</div>
           <div contenteditable="true" data-placeholder="住所を入力..." style="margin-top:10px;line-height:1.5">${(agentAddress||'').replace(/</g,'&lt;').replace(/\n/g,'<br>')}</div>
         </div>
         <div style="text-align:right;flex-shrink:0">
