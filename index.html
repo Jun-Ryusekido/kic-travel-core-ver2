@@ -6556,7 +6556,11 @@ async function loadFacilityPartnersCache(){
     .order('company_name');
   facilityPartnersCache = data||[];
 }
-async function showFacilitySuggest(inputEl, idx){
+// onSelect省略時は従来通りbdFacilityItems[idx]を直接書き換える(保存済み一覧テーブル向け)。
+// AI読み取り確認モーダル(showFacilityConfirmDialog)は別配列(window._pendingFacilities)を
+// DOMの.valueから保存時に読み取る設計のため、onSelectに空関数を渡してbdFacilityItemsへの
+// 誤書き込み(無関係な行の上書き)を避ける。
+async function showFacilitySuggest(inputEl, idx, onSelect){
   hideFacilitySuggest();
   await loadFacilityPartnersCache();
   const q = inputEl.value.trim().toLowerCase();
@@ -6575,7 +6579,13 @@ async function showFacilitySuggest(inputEl, idx){
   box.innerHTML = matches.map(p=>`<div class="facility-item" style="padding:4px 8px;cursor:pointer" data-name="${escAttr(p.company_name)}">${escHtml(p.company_name)}${p.phone?`<span style="color:var(--text3);margin-left:6px;font-size:10px">${escHtml(p.phone)}</span>`:''}</div>`).join('');
   document.body.appendChild(box);
   box.querySelectorAll('.facility-item').forEach(item=>{
-    item.addEventListener('mousedown',e=>{ e.preventDefault(); const n=item.getAttribute('data-name'); inputEl.value=n; bdFacilityItems[idx].facility_name=n; hideFacilitySuggest(); });
+    item.addEventListener('mousedown',e=>{
+      e.preventDefault();
+      const n=item.getAttribute('data-name');
+      inputEl.value=n;
+      if(onSelect){ onSelect(n); } else { bdFacilityItems[idx].facility_name=n; }
+      hideFacilitySuggest();
+    });
     item.addEventListener('mouseenter',()=>{ item.style.background='var(--bg)'; });
     item.addEventListener('mouseleave',()=>{ item.style.background=''; });
   });
@@ -15192,7 +15202,7 @@ function showFacilityConfirmDialog(facilities){
   window._pendingFacilities=facilities;
   const rows=facilities.map((f,i)=>`<tr style="border-bottom:1px solid var(--border)">
     <td data-label="追加" style="padding:5px 4px;text-align:center"><input type="checkbox" id="fac-c-sel-${i}" checked></td>
-    <td data-label="施設名" style="padding:5px 4px"><input value="${escAttr(f.facility_name||'')}" id="fac-c-name-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
+    <td data-label="施設名" style="padding:5px 4px;position:relative"><input value="${escAttr(f.facility_name||'')}" id="fac-c-name-${i}" oninput="showFacilitySuggest(this,${i},()=>{})" onfocus="showFacilitySuggest(this,${i},()=>{})" onblur="setTimeout(hideFacilitySuggest,150)" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
     <td data-label="日付" style="padding:5px 4px"><input type="date" min="1900-01-01" max="9999-12-31" value="${f.date||''}" id="fac-c-date-${i}" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
     <td data-label="人数" style="padding:5px 4px"><input type="number" value="${f.pax||0}" id="fac-c-pax-${i}" style="width:55px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;text-align:right"></td>
     <td data-label="金額" style="padding:5px 4px"><input type="number" value="${f.amount||0}" id="fac-c-amount-${i}" style="width:90px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;text-align:right"></td>
