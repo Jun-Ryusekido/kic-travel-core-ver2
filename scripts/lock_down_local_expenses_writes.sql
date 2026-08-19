@@ -3,21 +3,19 @@
 --
 -- 背景: booking_sales/booking_costs(scripts/lock_down_booking_sales_writes.sql、
 -- lock_down_booking_costs_writes.sql参照)と同様、local_expensesもこれまで
--- anonキーからinsert/update/deleteが直接可能な状態だった。書き込み経路のうち
+-- anonキーからinsert/update/deleteが直接可能な状態だった。書き込み経路は
 -- saveLocalExpenses()(予約詳細の仮払い一覧表エディタ、localExpensesApiCall('replace',...))と
--- 予約削除処理(localExpensesApiCall('deleteByBooking',...))は既に/api/table-crud
--- (service_role key使用)経由に移行済みだったが、saveInvoiceConfirm()(請求書AI読み取り→
--- 仮払いインポートの💾保存ボタン)だけがanonキーでの直接insertのまま取り残されていた
--- (2026-08-19点検で発見)。これをlocalExpensesApiCall('insert',...)経由に切り替えるコード
--- 修正と合わせて、anon/authenticatedロールからの直接書き込みを禁止する。
+-- 予約削除処理(localExpensesApiCall('deleteByBooking',...))の2つのみで、
+-- いずれも既に/api/table-crud(service_role key使用)経由に移行済み(2026-08-19確認)。
+-- (以前は請求書AI読み取り機能からのanon直接insertも存在したが、その機能自体を
+-- 業務フローと噛み合わないとの判断で削除したため、insertアクション自体が不要になった)
 --
 -- 読み取り(select)は今回変更しない。予約詳細モーダルの「仮払い一覧表」表示・PDF印刷等、
 -- 既存の閲覧系機能は従来通りanonキー+RLSのまま動作する。
 --
 -- 【実行タイミング】
--- 必ず、コード側の切り替え(saveInvoiceConfirm()をlocalExpensesApiCall('insert',...)経由に
--- 変更したコミット、api/table-crud.jsのlocal_expensesにinsertアクションを追加したコミット)を
--- 本番デプロイし、実際に請求書AI読み取り→仮払いインポートの💾保存ボタンが正常に動作する
+-- 必ず、上記の書き込み経路が全てservice_role経由になっているコード(現在の本番)を
+-- デプロイした状態で、実際に予約詳細の仮払い一覧表の保存・予約削除が正常に動作する
 -- ことを確認してから実行すること(error_logsロックダウン時と同じ注意点。先にこのSQLを
 -- 実行すると、古いJSを開いたままのタブからの保存が失敗する)。
 --
