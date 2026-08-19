@@ -13649,22 +13649,35 @@ function onEmailSplitRefInput(i, el){
 // 誤ったデータが自動的に確定してしまうリスクを避けつつ、複数の予約にまたがって送信しても
 // 各予約ごとに抜粋が確実に残るようにする（OCR貼り付け欄は共有DOMのため、次の予約を開くと
 // 消えてしまうことを実際のバグとして確認済み。この保存が本当の転記手段）。
+// 同じメールに対して「送る」操作が複数回行われた場合(誤操作・二重クリック・再送信等)の
+// 重複防止。emailSplitCandidates(呼び出し元のsubmitEmailSplit)は毎回使い捨てで
+// 作り直される一時配列で「このメールは処理済み」を覚えていないため、ここで対象タブの
+// 配列に「名前欄が空欄」かつ「memoが同じexcerpt」の行が既にあれば重複とみなしスキップする。
+// 名前欄が入力済み(AI読み取り等で正式な行に育っている)行は対象外とする(それは別種の
+// 重複であり、ここでは扱わない)。
+function hasBlankDraftRowWithExcerpt(items, nameField, excerpt){
+  return items.some(it => !it[nameField] && it.memo === excerpt);
+}
 async function appendEmailExcerptAsDraftRow(tab, excerpt){
   if(!excerpt) return;
   const bookingId = currentDetailId;
   if(tab==='hotel'){
+    if(hasBlankDraftRowWithExcerpt(bdHotelItems, 'hotel_name', excerpt)) return;
     bdHotelItems.push({hotel_name:'', check_in:'', check_out:'', room_type:'', rooms:1, breakfast:false, unit_price:0, amount:0, confirmation_no:'', memo:excerpt});
     renderHotelTable();
     await saveHotelItems();
   }else if(tab==='bus'){
+    if(hasBlankDraftRowWithExcerpt(bdBusItems, 'bus_company', excerpt)) return;
     bdBusItems.push({bus_company:'', bus_type:'', buses:1, start_date:'', end_date:'', amount:0, status:'問い合わせ中', confirmation_no:'', driver_hotel_name:'', driver_hotel_phone:'', driver_hotel_address:'', driver_check_in:'', driver_check_out:'', driver_hotel_amount:0, memo:excerpt});
     renderBusTable();
     await saveBusItems();
   }else if(tab==='rest'){
+    if(hasBlankDraftRowWithExcerpt(bdRestaurantItems, 'restaurant_name', excerpt)) return;
     bdRestaurantItems.push({restaurant_name:'', meal_type:'昼食', date:'', reservation_time:'', pax:0, amount:0, status:'問い合わせ中', payment_method:'', memo:excerpt, guide_id:null, guide_name_freetext:''});
     renderRestaurantTable();
     await saveRestaurantItems();
   }else if(tab==='fac'){
+    if(hasBlankDraftRowWithExcerpt(bdFacilityItems, 'facility_name', excerpt)) return;
     bdFacilityItems.push({facility_name:'', date:'', pax:0, amount:0, status:'問い合わせ中', confirmation_no:'', deadline_date:'', payment_method:'', memo:excerpt});
     renderFacilityTable();
     await saveFacilityItems();
@@ -13672,6 +13685,7 @@ async function appendEmailExcerptAsDraftRow(tab, excerpt){
     // ミネラルウォータータブ用。EMAIL_INBOX_CATEGORY_MAPにミネラルウォーターを追加した際、
     // ここへの対応が漏れており、複数REF#分割振り分けでミネラルウォーターを選択すると
     // 抜粋がどこにも保存されず消えてしまう不具合があったため追加。
+    if(hasBlankDraftRowWithExcerpt(bdWaterItems, 'item_name', excerpt)) return;
     bdWaterItems.push({item_name:'', date:'', qty:0, unit_price:0, amount:0, status:'問い合わせ中', memo:excerpt, payment_method:''});
     renderWaterTable();
     await saveWaterItems();
