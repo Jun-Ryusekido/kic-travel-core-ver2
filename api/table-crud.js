@@ -25,6 +25,12 @@ const ERROR_LOG_VIEWER_EMAILS = ['admin@kictravel.jp', 'jr@kictravel.jp'];
 // ガード)だけでなく、有効なセッションさえあれば誰でも叩けてしまわないよう、サーバー側でも
 // ここに含まれるemailのみに制限する(error_logsのlistアクションと同じ考え方)。
 const CARD_HOLDER_ADMIN_EMAILS = ['admin@kictravel.jp'];
+// bookings(予約本体)のdeleteByIdのみに適用する制限。予約詳細モーダルの削除ボタンは
+// admin-onlyクラスでUI表示を制御しているだけで、有効なセッションさえあればstaff等の
+// 他ロールでも直接APIを叩けてしまう抜け穴があった(2026-08-19点検で発見)。card_holders
+// と同じ考え方でサーバー側にも二重の防御を追加する。insert/updateByIdは従来通り
+// 全ロールで利用できる必要があるため対象外(deleteByIdのみ)。
+const BOOKING_DELETE_ADMIN_EMAILS = ['admin@kictravel.jp'];
 
 // テーブルごとに許可するactionをホワイトリスト化する。ここに無い(table, action)の
 // 組み合わせは400で拒否する。
@@ -1173,6 +1179,9 @@ export default async function handler(req, res) {
       return res.status(result.status).json(result.body);
     }
     if (action === 'deleteById') {
+      if (table === 'bookings' && (!changedBy || !BOOKING_DELETE_ADMIN_EMAILS.includes(changedBy))) {
+        return res.status(403).json({ error: '予約データの削除はadmin@kictravel.jpのみ操作できます' });
+      }
       const { id } = req.body;
       const result = await doDeleteById(table, config.label, id, config, changedBy);
       return res.status(result.status).json(result.body);
