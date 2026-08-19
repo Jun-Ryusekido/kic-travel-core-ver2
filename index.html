@@ -2859,7 +2859,6 @@ input[type=number]{-moz-appearance:textfield}
       <span><span class="bd-section-caret" style="display:inline-block;margin-right:4px;transition:transform .15s">▸</span>仮払い一覧表</span>
       <span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end" onclick="event.stopPropagation()">
         <button class="btn" style="font-size:10px" onclick="printLocalExpenses()">🖨 仮払い一覧を印刷</button>
-        <button class="btn" style="font-size:10px" onclick="openInvoiceImportForBooking()">🤖 請求書AI読み取り</button>
         <span id="bd-local-voucher-btns" style="display:flex;gap:6px;flex-wrap:wrap"></span>
       </span>
     </div>
@@ -20628,7 +20627,7 @@ async function processInvoiceImportFile(file){
     statusEl.style.color = 'var(--green)';
     statusEl.textContent += checkInvoiceTotalMismatch(expenses, invoiceTotal);
     if(checkInvoiceTotalMismatch(expenses, invoiceTotal)) statusEl.style.color = 'var(--orange, #d97706)';
-    showInvoiceConfirmDialog(expenses, null, invoiceTotal);
+    showInvoiceConfirmDialog(expenses, invoiceTotal);
   }catch(e){
     logError('AI読み取り(OCR)', e, {toast:false});
     statusEl.textContent = '読み取り失敗: '+e.message;
@@ -20684,7 +20683,7 @@ async function extractInvoiceFromText(){
     statusEl.style.color = 'var(--green)';
     statusEl.textContent += checkInvoiceTotalMismatch(expenses, invoiceTotal);
     if(checkInvoiceTotalMismatch(expenses, invoiceTotal)) statusEl.style.color = 'var(--orange, #d97706)';
-    showInvoiceConfirmDialog(expenses, null, invoiceTotal);
+    showInvoiceConfirmDialog(expenses, invoiceTotal);
   }catch(e){
     logError('AI読み取り(OCR)', e, {toast:false});
     statusEl.textContent = '読み取り失敗: '+e.message;
@@ -20739,7 +20738,7 @@ async function extractInvoiceFromFile(event, mode){
     statusEl.style.color = 'var(--green)';
     statusEl.textContent += checkInvoiceTotalMismatch(expenses, invoiceTotal);
     if(checkInvoiceTotalMismatch(expenses, invoiceTotal)) statusEl.style.color = 'var(--orange, #d97706)';
-    showInvoiceConfirmDialog(expenses, null, invoiceTotal);
+    showInvoiceConfirmDialog(expenses, invoiceTotal);
   }catch(e){
     logError('AI読み取り(OCR)', e, {toast:false});
     statusEl.textContent = '読み取り失敗: '+e.message;
@@ -20748,37 +20747,6 @@ async function extractInvoiceFromFile(event, mode){
     statusEl.style.color = 'var(--red)';
   }
   event.target.value = '';
-}
-
-// 予約詳細内の仕入明細セクションから呼び出す簡易リーダー（特定予約に直接追加）
-function openInvoiceImportForBooking(){
-  if(!currentDetailId){ alert('予約詳細を開いてください'); return; }
-  const b = findBookingById(currentDetailId)||{};
-  document.getElementById('inv-booking-modal')?.remove();
-  const modal = document.createElement('div');
-  modal.id = 'inv-booking-modal';
-  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:300;display:flex;align-items:center;justify-content:center;padding:20px';
-  modal.innerHTML = `
-    <div style="background:#fff;border-radius:12px;padding:20px;width:100%;max-width:600px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-        <div style="font-size:13px;font-weight:700">請求書AI読み取り（${escHtml(b.ref_no||b.tour_name||'')} に追加）</div>
-        <button class="btn" onclick="document.getElementById('inv-booking-modal').remove()">✕</button>
-      </div>
-      <div style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap">
-        <button class="btn" style="font-size:11px" onclick="document.getElementById('inv-bk-area').style.display=''">📧 テキスト</button>
-        <label class="btn" style="font-size:11px;cursor:pointer">📎 PDF<input type="file" accept=".pdf" style="display:none" onchange="extractInvoiceForBooking(event,'pdf')"></label>
-        <label class="btn" style="font-size:11px;cursor:pointer">🖼 画像<input type="file" accept="image/*" style="display:none" onchange="extractInvoiceForBooking(event,'image')"></label>
-        <span id="inv-bk-file-status" style="font-size:11px;color:var(--text3)"></span>
-      </div>
-      <div id="inv-bk-area" style="display:none">
-        <textarea id="inv-bk-text" rows="5" style="width:100%;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:11px;font-family:inherit;resize:vertical" placeholder="請求書の内容を貼り付け..."></textarea>
-        <div style="margin-top:6px;display:flex;gap:6px;align-items:center">
-          <button class="btn btn-p" style="font-size:11px" onclick="extractInvoiceTextForBooking()">🤖 AIで読み取り</button>
-          <span id="inv-bk-text-status" style="font-size:11px;color:var(--text3)"></span>
-        </div>
-      </div>
-    </div>`;
-  document.body.appendChild(modal);
 }
 
 async function _callInvoiceApi(bodyData){
@@ -20800,58 +20768,6 @@ async function _callInvoiceApi(bodyData){
     invoiceTotal = Number(parsed.invoice_total_amount)||0;
   }
   return { expenses, invoiceTotal };
-}
-
-async function extractInvoiceTextForBooking(){
-  const text = document.getElementById('inv-bk-text').value.trim();
-  if(!text){ alert('テキストを入力してください'); return; }
-  const statusEl = document.getElementById('inv-bk-text-status');
-  statusEl.textContent = '⏳ 読み取り中...'; statusEl.classList.add('ocr-loading'); statusEl.style.color = '';
-  showGlobalOcrBanner();
-  try{
-    const {expenses, invoiceTotal} = await _callInvoiceApi({ invoiceText: text });
-    statusEl.textContent = '✓ '+expenses.length+'件読み取り完了';
-    statusEl.classList.remove('ocr-loading');
-    hideGlobalOcrBanner();
-    statusEl.style.color = 'var(--green)';
-    statusEl.textContent += checkInvoiceTotalMismatch(expenses, invoiceTotal);
-    if(checkInvoiceTotalMismatch(expenses, invoiceTotal)) statusEl.style.color = 'var(--orange, #d97706)';
-    document.getElementById('inv-booking-modal')?.remove();
-    showInvoiceConfirmDialog(expenses, currentDetailId, invoiceTotal);
-  }catch(e){
-    logError('AI読み取り(OCR)', e, {toast:false});
-    statusEl.textContent = '読み取り失敗: '+e.message; statusEl.classList.remove('ocr-loading'); statusEl.style.color = 'var(--red)';
-    hideGlobalOcrBanner();
-  }
-}
-
-async function extractInvoiceForBooking(event, mode){
-  const file = event.target.files[0];
-  if(!file) return;
-  if(!checkOcrUploadSize(file)) return;
-  const statusEl = document.getElementById('inv-bk-file-status');
-  statusEl.textContent = '⏳ 読み取り中...'; statusEl.classList.add('ocr-loading'); statusEl.style.color = '';
-  showGlobalOcrBanner();
-  try{
-    const base64 = await new Promise((resolve,reject)=>{
-      const r = new FileReader(); r.onload = ()=>resolve(r.result.split(',')[1]); r.onerror = reject; r.readAsDataURL(file);
-    });
-    const bodyData = mode==='pdf' ? { invoicePdfBase64: base64 } : { invoiceImageBase64: base64, invoiceImageMediaType: file.type||'image/jpeg' };
-    const {expenses, invoiceTotal} = await _callInvoiceApi(bodyData);
-    statusEl.textContent = '✓ '+expenses.length+'件読み取り完了';
-    statusEl.classList.remove('ocr-loading');
-    hideGlobalOcrBanner();
-    statusEl.style.color = 'var(--green)';
-    statusEl.textContent += checkInvoiceTotalMismatch(expenses, invoiceTotal);
-    if(checkInvoiceTotalMismatch(expenses, invoiceTotal)) statusEl.style.color = 'var(--orange, #d97706)';
-    document.getElementById('inv-booking-modal')?.remove();
-    showInvoiceConfirmDialog(expenses, currentDetailId, invoiceTotal);
-  }catch(e){
-    logError('AI読み取り(OCR)', e, {toast:false});
-    statusEl.textContent = '読み取り失敗: '+e.message; statusEl.classList.remove('ocr-loading'); statusEl.style.color = 'var(--red)';
-    hideGlobalOcrBanner();
-  }
-  event.target.value = '';
 }
 
 // 仕入明細セクションのAI読み取り（booking_costs に直接追加）
@@ -21085,9 +21001,8 @@ async function saveCostFromOcr(count){
   setTimeout(()=>{ document.getElementById('cost-confirm-modal')?.remove(); }, 2000);
 }
 
-async function showInvoiceConfirmDialog(expenses, presetBookingId, invoiceTotal){
+async function showInvoiceConfirmDialog(expenses, invoiceTotal){
   window._pendingInvoiceExpenses = expenses;
-  window._invPresetBookingId = presetBookingId || null;
   window._invConfirmInvoiceTotal = Number(invoiceTotal)||0;
   // 金額確認(請求書記載の合計金額 vs 読み取った明細の合計)を、REF#選択・行編集より先に
   // 必ず目に入る確認画面の最上部に固定表示する(優先順位1〜3)。行を編集すると
@@ -21106,26 +21021,21 @@ async function showInvoiceConfirmDialog(expenses, presetBookingId, invoiceTotal)
   window._invConfirmBookings = sortedBookings;
 
   const rows = expenses.map((e,i)=>{
-    let matchedBooking = null;
     let pendingCandidates = [];
-    if(presetBookingId){
-      matchedBooking = sortedBookings.find(b=>b.id===presetBookingId);
-    } else {
-      // REF#自動マッチ候補の算出(共通関数、2026-08統合)。請求書には対応する日程項目が
-      // 無いため、dateFields:nullで日程による絞り込みは行わない。
-      const candidates = computeRefMatchCandidates(e, sortedBookings, {
-        textFields: ['ref_no','content','supplier_name'],
-        dateFields: null,
-      });
-      const strong = candidates.filter(c=>c.confidence==='strong');
-      matchedBooking = strong.length===1 ? strong[0].booking : null;
-      if(!matchedBooking) pendingCandidates = candidates;
-    }
+    // REF#自動マッチ候補の算出(共通関数、2026-08統合)。請求書には対応する日程項目が
+    // 無いため、dateFields:nullで日程による絞り込みは行わない。
+    const candidates = computeRefMatchCandidates(e, sortedBookings, {
+      textFields: ['ref_no','content','supplier_name'],
+      dateFields: null,
+    });
+    const strong = candidates.filter(c=>c.confidence==='strong');
+    let matchedBooking = strong.length===1 ? strong[0].booking : null;
+    if(!matchedBooking) pendingCandidates = candidates;
     expenses[i]._bookingId = matchedBooking ? matchedBooking.id : null;
     const inputVal = matchedBooking ? escHtml(matchedBooking.ref_no||'(REF#なし)') : '';
     const hiddenVal = matchedBooking ? String(matchedBooking.id) : '';
     const candidateNoteHtml = matchedBooking
-      ? `<div style="font-size:9px;color:var(--green);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:2px">✓ ${presetBookingId?'現在の予約':'自動マッチ'}: ${escHtml(matchedBooking.ref_no||'')}</div>`
+      ? `<div style="font-size:9px;color:var(--green);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:2px">✓ 自動マッチ: ${escHtml(matchedBooking.ref_no||'')}</div>`
       : (pendingCandidates.length>0
         ? `<div id="inv-confirm-note-${i}" style="font-size:9px;color:var(--amber,#854F0B);margin-bottom:2px">⚠ 候補（要確認）:
              ${pendingCandidates.slice(0,6).map(c=>`<span class="lnk" style="margin-left:4px;font-weight:600" onclick="pickInvConfirmCandidate(${i},'${c.booking.id}')">#${escHtml(c.booking.ref_no||'')}</span>`).join('')}
@@ -21269,7 +21179,6 @@ function pickInvConfirmCandidate(i, bookingId){
 
 async function saveInvoiceConfirm(){
   const expenses = window._pendingInvoiceExpenses;
-  const presetBookingId = window._invPresetBookingId;
   if(!expenses) return;
   const statusEl = document.getElementById('invoice-confirm-status');
   statusEl.textContent = ''; statusEl.style.color = 'var(--text3)';
@@ -21356,64 +21265,41 @@ async function saveInvoiceConfirm(){
 
   const savedIds = new Set(validRows.map(r=>r.booking_id).filter(Boolean));
 
-  if(presetBookingId){
-    // 仮払い一覧表セクション（openInvoiceImportForBooking）からの呼び出し
-    // → local_expenses（仮払い一覧表）に保存
-    const leRows = validRows.map(r=>({
-      booking_id: r.booking_id, expense_date: r.expense_date, content: r.content,
-      category: r.category, unit_price: r.unit_price, qty: r.qty,
-      amount: r.amount, payment_method: r.payment_method, sort_order: r.sort_order
-    }));
-    let error;
-    try { await localExpensesApiCall('insert', { rows: leRows }); } catch(e) { error = e; }
-    if(error){
-      alert('保存エラー:\n'+error.message);
-      statusEl.textContent = '保存エラー: '+error.message; statusEl.style.color = 'var(--red)';
-      return;
-    }
-    if(currentDetailId && savedIds.has(currentDetailId)){
-      const {data} = await sb.from('local_expenses').select('*').eq('booking_id',currentDetailId).order('sort_order',{ascending:true});
-      bdLocalExpenses = data||[];
-      renderLocalExpenses();
-    }
-  } else {
-    // スタンドアローン「請求書読み取り」ページからの呼び出し
-    // → booking_costs（仕入明細）にのみ保存
-    const costRows = validRows.map(r=>({
-      booking_id: r.booking_id,
-      item_name: r._supplier || r._content || '',
-      amount: r.amount,
-      payment_date: r.expense_date,
-      memo: r._supplier ? r._content : ''
-    })).filter(r=>r.item_name||r.amount);
-    if(!costRows.length){
-      statusEl.textContent = '保存できる行がありません'; statusEl.style.color = 'var(--red)'; return;
-    }
-    let error;
-    try { await bookingCostsApiCall('insert', { rows: costRows }); } catch(e) { error = e; }
-    if(error){
-      alert('保存エラー:\n'+error.message);
-      statusEl.textContent = '保存エラー: '+error.message; statusEl.style.color = 'var(--red)';
-      return;
-    }
-    if(currentDetailId && savedIds.has(currentDetailId)){
-      // 全件再取得しての丸ごと差し替えによる未保存編集の消失を防ぐため、追加した
-      // costRowsのうちcurrentDetailId分をローカル配列に追記するだけにする
-      // (reflectLocalExpensesToCostと同じ対応)。
-      costRows.filter(r=>r.booking_id===currentDetailId).forEach(r=>{
-        bdCostItems.push({
-          item_name: r.item_name, amount: r.amount, payment_date: r.payment_date,
-          payment_method: '', memo: r.memo, status: 'pending',
-          card_holder: '', personal_reimbursement_status: '', personal_reimbursed_at: null,
-          source_table: null, source_id: null, source_snapshot: null
-        });
+  // 「請求書読み取り」ページからの呼び出し → booking_costs（仕入明細）にのみ保存
+  const costRows = validRows.map(r=>({
+    booking_id: r.booking_id,
+    item_name: r._supplier || r._content || '',
+    amount: r.amount,
+    payment_date: r.expense_date,
+    memo: r._supplier ? r._content : ''
+  })).filter(r=>r.item_name||r.amount);
+  if(!costRows.length){
+    statusEl.textContent = '保存できる行がありません'; statusEl.style.color = 'var(--red)'; return;
+  }
+  let error;
+  try { await bookingCostsApiCall('insert', { rows: costRows }); } catch(e) { error = e; }
+  if(error){
+    alert('保存エラー:\n'+error.message);
+    statusEl.textContent = '保存エラー: '+error.message; statusEl.style.color = 'var(--red)';
+    return;
+  }
+  if(currentDetailId && savedIds.has(currentDetailId)){
+    // 全件再取得しての丸ごと差し替えによる未保存編集の消失を防ぐため、追加した
+    // costRowsのうちcurrentDetailId分をローカル配列に追記するだけにする
+    // (reflectLocalExpensesToCostと同じ対応)。
+    costRows.filter(r=>r.booking_id===currentDetailId).forEach(r=>{
+      bdCostItems.push({
+        item_name: r.item_name, amount: r.amount, payment_date: r.payment_date,
+        payment_method: '', memo: r.memo, status: 'pending',
+        card_holder: '', personal_reimbursement_status: '', personal_reimbursed_at: null,
+        source_table: null, source_id: null, source_snapshot: null
       });
-      renderCostTable();
-      updateDetailGrossPreview();
-      const newGross = bdCostItems.reduce((s,it)=>s+Number(it.amount||0),0);
-      await bookingsApiCall('updateById', { id: currentDetailId, fields: {gross_cost:newGross, updated_at:new Date().toISOString()} });
-      const bk=findBookingById(currentDetailId); if(bk) bk.gross_cost=newGross;
-    }
+    });
+    renderCostTable();
+    updateDetailGrossPreview();
+    const newGross = bdCostItems.reduce((s,it)=>s+Number(it.amount||0),0);
+    await bookingsApiCall('updateById', { id: currentDetailId, fields: {gross_cost:newGross, updated_at:new Date().toISOString()} });
+    const bk=findBookingById(currentDetailId); if(bk) bk.gross_cost=newGross;
   }
 
   // 保存後、REF#を検索して予約詳細を開き直す手間を無くすため、REF#ごとの保存件数と
