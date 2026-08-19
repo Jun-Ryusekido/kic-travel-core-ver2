@@ -25077,11 +25077,12 @@ async function loadAccounts(){
       <div class="u-avatar">${(u.name||'U').slice(0,2)}</div>
       <div><div style="font-weight:600">${escHtml(u.name||'')}${isSelf?' <span style="font-size:10px;color:var(--text3)">(自分)</span>':''}</div><div class="u-meta">${escHtml(u.email)}　|　最終ログイン: ${last}</div></div>
       <div style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-        <select onchange="changeUserRole('${u.id}','${escAttr(u.email)}',this)" style="font-size:11px;padding:3px 6px;border:1px solid var(--border);border-radius:6px" ${isSelf?'title="自分自身は管理者から変更できません"':''}>
+        <select onchange="changeUserRole('${u.id}','${escAttr(u.email)}',this)" style="font-size:11px;padding:3px 6px;border:1px solid var(--border);border-radius:6px" ${isSelf?'disabled title="自分自身のロールは変更できません（管理者が誰もいなくなる事故を防ぐため、サーバー側でも変更を拒否する仕様。誤操作防止のため選択自体を無効にしています）"':''}>
           <option value="admin" ${u.role==='admin'?'selected':''}>管理者</option>
           <option value="staff" ${u.role==='staff'?'selected':''}>スタッフ</option>
           <option value="view" ${u.role==='view'?'selected':''}>閲覧のみ</option>
         </select>
+        ${isSelf?'<span style="font-size:10px;color:var(--text3)">自分のロールは変更不可</span>':''}
         <button class="btn" style="font-size:10px" onclick="resetUserPassword('${u.id}','${escAttr(u.email)}')">🔑 PW再設定</button>
         ${isSelf?'':`<button class="btn" style="font-size:10px;color:var(--red)" onclick="deleteUserAccount('${u.id}','${escAttr(u.email)}')">🗑 削除</button>`}
       </div>
