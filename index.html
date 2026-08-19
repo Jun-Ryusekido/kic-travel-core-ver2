@@ -6813,7 +6813,7 @@ async function processDashboardBankbookFile(file){
     const cleaned = (data.text||'').replace(/```json|```/g,'').trim();
     const parsed = JSON.parse(cleaned);
     dbBankbookExtracted = Array.isArray(parsed) ? parsed : [parsed];
-    allBookingsCache = await fetchAllBookings();
+    bookingsListCache = await fetchBookingsListLight();
     // F16: 振込人名等(bank欄のテキスト)とREF#の学習(bankbook_payer)を、行ごとに都度
     // 問い合わせるのではなく一括取得してマップ化する(cc_merchantの学習参照と同じ考え方)。
     window._bbLearnedMap = {};
@@ -6839,7 +6839,7 @@ function renderDashboardBankbookResults(){
   if(!el || dbBankbookExtracted.length === 0){ if(el) el.innerHTML = ''; return; }
 
   const _numOf = ref => { const n=parseInt((ref||'').replace(/^#/,''),10); return isNaN(n)?Infinity:n; };
-  const sortedBookings = [...allBookingsCache]
+  const sortedBookings = [...bookingsListCache]
     .filter(b => b.ref_no || b.agent_name || b.tour_name)
     .sort((a,b) => _numOf(a.ref_no) - _numOf(b.ref_no));
   window._dbBbConfirmBookings = sortedBookings;
@@ -6997,7 +6997,7 @@ async function applyDashboardBankbookEntry(k){
   const btn = document.getElementById('db-bb-btn-'+k);
   if(!hidden || !hidden.value){ alert('ツアーを選択してください'); return; }
   const bookingId = Number(hidden.value);
-  const booking = allBookingsCache.find(b=>b.id===bookingId);
+  const booking = bookingsListCache.find(b=>b.id===bookingId);
   const refNo = booking ? (booking.ref_no||`ID:${bookingId}`) : `ID:${bookingId}`;
   let dateStr = p.date||'日付不明';
   if(p.date && /^\d{4}-\d{2}-\d{2}$/.test(p.date)){
@@ -10809,7 +10809,6 @@ async function reflectEstimationToBookings(){
   msg.style.display = 'inline';
 
   await logAction('見積もりをツアーに反映', ids.map(id=>_reflectSelected[id].ref_no).join(', '));
-  allBookingsCache = await fetchAllBookings();
   await loadEstimations();
 
   const convMsg = document.getElementById('est-convert-msg');
@@ -19174,8 +19173,8 @@ function pickHmConfirmCandidate(i, bookingId){
 
 async function showHotelConfirmDialog(hotels){
   window._pendingHotels = hotels;
-  allBookingsCache = await fetchAllBookings();
-  const bookings2 = allBookingsCache;
+  bookingsListCache = await fetchBookingsListLight();
+  const bookings2 = bookingsListCache;
   // #を除去して数値順ソート（ref_noが #1154 形式を前提）
   const _hmNumOf = ref => { const n=parseInt((ref||'').replace(/^#/,''),10); return isNaN(n)?Infinity:n; };
   const sortedBookings = bookings2
@@ -21026,9 +21025,9 @@ async function showInvoiceConfirmDialog(expenses, invoiceTotal){
     <div id="inv-confirm-match-display" style="margin-top:6px;font-size:13px"></div>
   </div>`;
 
-  allBookingsCache = await fetchAllBookings();
+  bookingsListCache = await fetchBookingsListLight();
   const _numOf = ref => { const n=parseInt((ref||'').replace(/^#/,''),10); return isNaN(n)?Infinity:n; };
-  const sortedBookings = allBookingsCache
+  const sortedBookings = bookingsListCache
     .filter(b => b.ref_no || b.agent_name || b.tour_name)
     .sort((a,b) => _numOf(a.ref_no) - _numOf(b.ref_no));
   window._invConfirmBookings = sortedBookings;
@@ -21321,7 +21320,7 @@ async function saveInvoiceConfirm(){
   const countByBooking = {};
   validRows.forEach(r=>{ if(r.booking_id) countByBooking[r.booking_id] = (countByBooking[r.booking_id]||0)+1; });
   const resultRows = Object.keys(countByBooking).map(bid=>{
-    const b = (allBookingsCache||[]).find(x=>x.id===bid);
+    const b = (bookingsListCache||[]).find(x=>x.id===bid);
     const label = b ? (b.ref_no || b.tour_name || '(REF#なし)') : '(不明)';
     const n = countByBooking[bid];
     // 予約詳細モーダル(z-index:100)がこのモーダル(z-index:300)の下に隠れないよう、
@@ -21346,7 +21345,7 @@ async function saveInvoiceConfirm(){
   } else {
     // フォールバック(万一invoice-confirm-bodyが見つからない場合のみ)
     const savedRefs = Object.keys(countByBooking).map(bid=>{
-      const b=(allBookingsCache||[]).find(b=>b.id===bid);
+      const b=(bookingsListCache||[]).find(b=>b.id===bid);
       return b?(b.ref_no||b.tour_name||'(REF#なし)'):'(不明)';
     }).join(', ');
     statusEl.textContent = `✓ ${validRows.length}件を保存しました（${savedRefs}）`;
