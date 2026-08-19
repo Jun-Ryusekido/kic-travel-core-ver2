@@ -6475,7 +6475,12 @@ async function loadBusCompaniesCache(){
     .order('company_name');
   busCompaniesCache = data||[];
 }
-async function showBusCompanySuggest(inputEl, idx){
+// onSelect省略時は従来通り: idx>=0ならbdBusItems[idx]を直接書き換え(保存済み一覧テーブル向け)、
+// idx<0なら何もしない(取引先マスタ・駐車場予約モーダル等の単独欄向け、既存動作)。
+// AI読み取り確認モーダル(showBusConfirmDialog)は別配列(window._pendingBuses)をDOMの.valueから
+// 保存時に読み取る設計のため、onSelectに空関数を渡してbdBusItemsへの誤書き込み(無関係な行の
+// 上書き)を避ける(観光施設のshowFacilitySuggestと同じパターン)。
+async function showBusCompanySuggest(inputEl, idx, onSelect){
   hideBusCompanySuggest();
   await loadBusCompaniesCache();
   const q = inputEl.value.trim().toLowerCase();
@@ -6496,7 +6501,13 @@ async function showBusCompanySuggest(inputEl, idx){
   box.querySelectorAll('.bus-co-item').forEach(item=>{
     // idx<0は明細行に属さない単独欄(駐車場予約モーダルのバス会社名等)からの呼び出しで、
     // 配列への反映を行わず入力欄の値を書き換えるだけにする(showSupplierSuggestionsと同じ考え方)。
-    item.addEventListener('mousedown',e=>{ e.preventDefault(); const n=item.getAttribute('data-name'); inputEl.value=n; if(idx>=0) bdBusItems[idx].bus_company=n; hideBusCompanySuggest(); });
+    item.addEventListener('mousedown',e=>{
+      e.preventDefault();
+      const n=item.getAttribute('data-name');
+      inputEl.value=n;
+      if(onSelect){ onSelect(n); } else if(idx>=0){ bdBusItems[idx].bus_company=n; }
+      hideBusCompanySuggest();
+    });
     item.addEventListener('mouseenter',()=>{ item.style.background='var(--bg)'; });
     item.addEventListener('mouseleave',()=>{ item.style.background=''; });
   });
@@ -14294,7 +14305,7 @@ function showBusConfirmDialog(buses){
   window._pendingBuses=buses;
   const rows=buses.map((b,i)=>`<tr style="border-bottom:1px solid var(--border)">
     <td data-label="追加" style="padding:5px 4px;text-align:center"><input type="checkbox" id="bus-c-sel-${i}" checked></td>
-    <td data-label="バス会社" style="padding:5px 4px"><input value="${escAttr(b.bus_company||'')}" id="bus-c-company-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
+    <td data-label="バス会社" style="padding:5px 4px;position:relative"><input value="${escAttr(b.bus_company||'')}" id="bus-c-company-${i}" oninput="showBusCompanySuggest(this,${i},()=>{})" onfocus="showBusCompanySuggest(this,${i},()=>{})" onblur="setTimeout(hideBusCompanySuggest,150)" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
     <td data-label="バスタイプ" style="padding:5px 4px"><input value="${escAttr(b.bus_type||'')}" id="bus-c-type-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
     <td data-label="台数" style="padding:5px 4px"><input type="number" value="${b.buses||1}" id="bus-c-buses-${i}" style="width:50px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;text-align:right"></td>
     <td data-label="開始日" style="padding:5px 4px"><input type="date" min="1900-01-01" max="9999-12-31" value="${b.start_date||''}" id="bus-c-start-${i}" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
