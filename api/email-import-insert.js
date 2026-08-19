@@ -75,16 +75,24 @@ export default async function handler(req, res) {
   }
 
   try {
-    const insRes = await fetch(`${SB_URL}/rest/v1/email_import_queue`, {
-      method: 'POST',
-      headers: {
-        apikey: serviceKey,
-        Authorization: `Bearer ${serviceKey}`,
-        'Content-Type': 'application/json',
-        Prefer: 'return=minimal',
-      },
-      body: JSON.stringify(sanitized),
-    });
+    // subject+sender+received_atの一意制約(email_import_queue_subject_sender_received_at_key)
+    // にon_conflictでupsertする。catchup-missed-mail.ps1がLastCheck更新前に中断される等で
+    // 同じメールが二重送信された場合でも、ここでDB側が最終防衛線として重複INSERTを弾く。
+    // resolution=ignore-duplicatesを使うのは、衝突した既存行(imported/ignored等の運用フラグが
+    // 既に乗っている可能性がある)を誤って上書きしないため(merge-duplicatesは使わない)。
+    const insRes = await fetch(
+      `${SB_URL}/rest/v1/email_import_queue?on_conflict=subject,sender,received_at`,
+      {
+        method: 'POST',
+        headers: {
+          apikey: serviceKey,
+          Authorization: `Bearer ${serviceKey}`,
+          'Content-Type': 'application/json',
+          Prefer: 'return=minimal, resolution=ignore-duplicates',
+        },
+        body: JSON.stringify(sanitized),
+      }
+    );
     if (!insRes.ok) {
       const text = await insRes.text().catch(() => '');
       return res.status(502).json({ error: `Supabaseへの書き込みに失敗しました: ${insRes.status} ${text}` });
