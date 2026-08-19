@@ -21487,7 +21487,8 @@ async function saveInvoiceConfirm(){
       category: r.category, unit_price: r.unit_price, qty: r.qty,
       amount: r.amount, payment_method: r.payment_method, sort_order: r.sort_order
     }));
-    const {error} = await sb.from('local_expenses').insert(leRows);
+    let error;
+    try { await localExpensesApiCall('insert', { rows: leRows }); } catch(e) { error = e; }
     if(error){
       alert('保存エラー:\n'+error.message);
       statusEl.textContent = '保存エラー: '+error.message; statusEl.style.color = 'var(--red)';
