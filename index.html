@@ -8534,7 +8534,14 @@ Object.keys(itemsBySettlement).forEach(k=>{ itemsBySettlement[k].sort((a,b)=>{ c
 }
 
 async function deleteGuideItem(id){
-  if(!confirm('この項目を削除しますか？')) return;
+  // 削除対象の具体的内容(日付・内容・金額)を確認ダイアログに含める
+  // (removeCostRow等、他画面の削除確認ダイアログと同水準)。
+  const allItems = guideSettlementsCache.flatMap(s=>s.items||[]);
+  const item = allItems.find(it=>it.id===id);
+  const msg = item
+    ? `この項目を削除しますか？\n\n日付: ${item.expense_date||'(日付不明)'}\n内容: ${item.description||'(内容未入力)'}\n金額: ¥${Number(item.amount||0).toLocaleString()}`
+    : 'この項目を削除しますか？';
+  if(!confirm(msg)) return;
   await guideSettlementItemsApiCall('deleteById', { id });
   await loadGuideSettlements();
 }
@@ -8580,9 +8587,14 @@ async function deleteCheckedGuideItems(){
   const ids = Array.from(checks).map(c=>c.dataset.id);
   const allItems = guideSettlementsCache.flatMap(s=>s.items||[]);
   const targets = ids.map(id=>allItems.find(it=>it.id===id)).filter(Boolean);
-  const preview = targets.slice(0,5).map(it=>`・${it.expense_date||'(日付不明)'} / ${it.category||'(カテゴリ未設定)'} / ${it.description||'(内容未入力)'} / ¥${Number(it.amount||0).toLocaleString()}`).join('\n');
-  const more = targets.length>5 ? `\n…他${targets.length-5}件` : '';
-  if(!confirm(`以下の${ids.length}件を削除しますか？\n\n${preview}${more}`)) return;
+  // タイトル行に件数+合計金額を明示し、各件は日付・内容のみの簡潔な表示にする
+  // (カテゴリ・金額は個別表示せず省略。5件→3件までに絞り、他画面と同水準の
+  // シンプルさにする)。
+  const totalAmount = targets.reduce((sum,it)=>sum+Number(it.amount||0), 0);
+  const MAX_PREVIEW = 3;
+  const preview = targets.slice(0,MAX_PREVIEW).map(it=>`・${it.expense_date||'(日付不明)'}　${it.description||'(内容未入力)'}`).join('\n');
+  const more = targets.length>MAX_PREVIEW ? `\n…他${targets.length-MAX_PREVIEW}件` : '';
+  if(!confirm(`${ids.length}件を削除しますか？（合計 ¥${totalAmount.toLocaleString()}）\n\n${preview}${more}`)) return;
   await guideSettlementItemsApiCall('deleteByIds', { ids });
   await loadGuideSettlements();
 }
@@ -8757,7 +8769,9 @@ function renderGuideSettlements(){
   const renderItemRow = it => {
     const pillClass = it.reflected ? 'reflected' : it.status;
     const pillLabel = it.reflected ? '反映済' : (it.status==='approved'?'承認済':it.status==='rejected'?'却下':'未確認');
-    const actions = '';
+    // 行内削除ボタン。他画面(removeCostRow/arrDelBtnHtml等)の削除ボタンと同じ
+    // スタイル(赤文字の✕、font-size:10px;padding:1px 6px)に統一する。
+    const actions = `<button class="btn" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="deleteGuideItem('${it.id}')" title="この項目を削除">✕</button>`;
     const selectCats = GS_CATEGORIES.filter(c => c !== '自由記載');
     const isFreeText = !selectCats.includes(it.category);
     const catHtml = isFreeText
