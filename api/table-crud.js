@@ -36,8 +36,11 @@ const TABLE_CONFIG = {
   // 毎時バックアップの差分化のためupdated_at列を追加し(scripts/add_updated_at_to_booking_costs.sql)、
   // booking_buses/booking_restaurantsと同じ方式でサーバー側に確実にスタンプする。
   booking_costs: { actions: ['replace', 'insert', 'deleteByBooking'], label: '仕入明細', stampIdentity: true, stampUpdatedAt: true, auditLog: true },
-  // deleteByBookingは予約削除(deleteBookingData)用(2026-08-12点検で追加。それまで予約削除の削除対象から漏れていた)
-  local_expenses: { actions: ['replace', 'deleteByBooking'], label: '現地費用明細' },
+  // deleteByBookingは予約削除(deleteBookingData)用(2026-08-12点検で追加。それまで予約削除の削除対象から漏れていた)。
+  // insertは請求書AI読み取り(仮払いインポート)のsaveInvoiceConfirm()用に追加(2026-08-19点検で、
+  // このsave経路だけがanonキーでの直接insertのまま取り残されていたことが判明したため)。
+  // booking_costsのinsertと同じく汎用doInsertをそのまま使うため、テーブル固有の追加バリデーションは無い。
+  local_expenses: { actions: ['replace', 'insert', 'deleteByBooking'], label: '現地費用明細' },
   parking_reservations: { actions: ['list', 'save', 'delete'], label: '駐車場予約' },
   // error_logsはRLS無効・anonにSELECT/INSERT/UPDATE/DELETE/TRUNCATE全権限が付与されたまま
   // 放置されており、公開anonキーだけで全ユーザーのエラーログ(スタックトレース含む)を
