@@ -1423,7 +1423,7 @@ input[type=number]{-moz-appearance:textfield}
 
         <div class="card">
           <div class="card-title">Invoice一覧</div>
-          <div class="tbl-wrap"><table class="iv-table">
+          <div class="tbl-wrap"><table class="iv-table confirm-table">
             <thead id="iv-thead"></thead>
             <tbody id="iv-tbody"><tr><td colspan="9" class="empty">読み込み中...</td></tr></tbody>
           </table></div>
@@ -25308,15 +25308,15 @@ function filterInvoiceUnified(){
         <button class="btn" style="font-size:11px" onclick="event.stopPropagation();generateInvoice('${row.id}','USD')">USD発行</button>`;
     }
     return `<tr class="row-link" onclick="openBookingDetail('${row.id}')">
-      <td class="lnk">${row.ref_no}</td>
-      <td style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${row.agent_name||''}</td>
-      <td style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${row.tour_name||''}</td>
-      <td>${row.in_date||'-'}</td>
-      <td>${row.out_date||'-'}</td>
-      <td>${yen(row.gross_sales)}</td>
-      <td>${row.issue_date||'-'}</td>
-      <td>${statusCell}</td>
-      <td style="white-space:nowrap">${actionCell}</td>
+      <td class="lnk" data-label="REF#">${row.ref_no}</td>
+      <td data-label="Agent" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${row.agent_name||''}</td>
+      <td data-label="Tour" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${row.tour_name||''}</td>
+      <td data-label="IN">${row.in_date||'-'}</td>
+      <td data-label="OUT">${row.out_date||'-'}</td>
+      <td data-label="売上">${yen(row.gross_sales)}</td>
+      <td data-label="発行日">${row.issue_date||'-'}</td>
+      <td data-label="Status">${statusCell}</td>
+      <td data-label="操作" style="white-space:nowrap">${actionCell}</td>
     </tr>`;
   }).join('') + pagerRow(ivState, totalPages, 9, 'ivGoPage');
 }
