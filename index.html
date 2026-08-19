@@ -11672,28 +11672,35 @@ function emailInboxSenderAddress(sender){
   return m ? m[0] : '';
 }
 
-// 広告・メルマガ判定(isAutoPromo)、自社ドメイン送信(isOwnDomain)のいずれかに該当すれば
+// 広告・メルマガ判定(isAutoPromo)、自社ドメイン送信(isOwnDomain)、AIによる
+// 「なりすまし/フィッシングの疑い」判定(aiCategory==='phishing_spam')のいずれかに該当すれば
 // 自動除外扱いとする。ユーザーが「これは予約メールです」で戻した行は除く。
-// AIによる「手配業務と無関係」判定(aiIrrelevant)は、2026-08-19の調査で、観光施設の
+// AIによる「単に無関係」判定(aiCategory==='other_irrelevant')は、2026-08-19の調査で、観光施設の
 // オンラインチケット購入完了通知のようにREF#/ツアーコードが本文に無いのが通常のメールが
 // AI判定だけで一覧から完全に隠れてしまい、入力漏れに気づけない原因になっていたことが判明
 // したため、ここには含めない(隠さず業務メール一覧にバッジ付きで残す。isRowAiFlagged参照)。
+// なお当初はaiIrrelevant(boolean)の2値でphishing_spamもother_irrelevantも一括りにしていたが、
+// Amazon等のブランドを騙るフィッシングメールまで一覧に表示されてしまう問題が発生したため、
+// row.aiCategory('related'|'other_irrelevant'|'phishing_spam')の3値に分離した。
 function isRowAutoExcluded(row){
   if(emailInboxAutoFilterOverrides.has(emailInboxOverrideKey(row))) return false;
-  return !!row.isAutoPromo || !!row.isOwnDomain;
+  return !!row.isAutoPromo || !!row.isOwnDomain || row.aiCategory === 'phishing_spam';
 }
 
-// AI判定:無関係のメールを、隠さず業務メール一覧にバッジ表示するためのフラグ。
-// isRowAutoExcludedと同じくemailInboxAutoFilterOverrides(「これは予約メールです」で
-// 戻した行)を考慮する。
+// AI判定:単に無関係(other_irrelevant)のメールを、隠さず業務メール一覧にバッジ表示する
+// ためのフラグ。isRowAutoExcludedと同じくemailInboxAutoFilterOverrides(「これは予約メール
+// です」で戻した行)を考慮する。
 function isRowAiFlagged(row){
   if(emailInboxAutoFilterOverrides.has(emailInboxOverrideKey(row))) return false;
-  return !!row.aiIrrelevant;
+  return row.aiCategory === 'other_irrelevant';
 }
+
+const EMAIL_AI_PHISHING_REASON = 'なりすまし/フィッシングの疑い、AI判定';
 
 function emailInboxExcludeReason(row){
   if(row.isAutoPromo) return '広告・メルマガ/システム通知判定';
   if(row.isOwnDomain) return '自社送信(@'+EMAIL_INBOX_OWN_DOMAIN+')';
+  if(row.aiCategory === 'phishing_spam') return row.autoExcludeReason || EMAIL_AI_PHISHING_REASON;
   return '';
 }
 
@@ -11728,10 +11735,11 @@ function markEmailInboxNotPromo(emailId){
   const row = emailInboxRawList.find(m=>m.id===emailId);
   if(!row) return;
   emailInboxAutoFilterOverrides.add(emailInboxOverrideKey(row));
-  // AI判定による除外を戻した場合は、次回以降も除外されないようキャッシュにも「関連あり」を記録する
-  if(row.aiIrrelevant){
-    row.aiIrrelevant = false;
-    setEmailRelevanceCacheEntry(row.id, true);
+  // AI判定(phishing_spam/other_irrelevantどちらでも)による除外を戻した場合は、次回以降も
+  // 除外されないようキャッシュにも「関連あり」を記録する。
+  if(row.aiCategory === 'phishing_spam' || row.aiCategory === 'other_irrelevant'){
+    row.aiCategory = 'related';
+    setEmailRelevanceCacheEntry(row.id, 'related');
   }
   const searchEl = document.getElementById('email-inbox-search');
   applyEmailInboxSearch(searchEl ? searchEl.value.trim() : '');
@@ -11796,9 +11804,10 @@ function emailHasKnownFacilityTicketPattern(subject, sender){
   return EMAIL_KNOWN_FACILITY_TICKET_SUBJECT_KEYWORDS.some(k=>s.includes(k));
 }
 
-// v3: REF#実在チェック追加(海外パートナーの自社参照番号による誤マッチ修正)に伴い、
-// 過去の判定結果を引き継がないようキーを更新
-const EMAIL_RELEVANCE_CACHE_KEY = 'kicEmailRelevanceCache_v3';
+// v4: AI判定を related/phishing_spam/other_irrelevant の3値に変更(2026-08-19)したのに伴い、
+// キャッシュの値の型が0/1(boolean相当)からcategory文字列に変わったため、v3の型と
+// 不整合を起こさないよう過去の判定結果を引き継がずキーを更新(v3導入時と同じ方針)。
+const EMAIL_RELEVANCE_CACHE_KEY = 'kicEmailRelevanceCache_v4';
 function loadEmailRelevanceCache(){
   try{
     return JSON.parse(localStorage.getItem(EMAIL_RELEVANCE_CACHE_KEY)||'{}') || {};
@@ -11812,9 +11821,10 @@ function saveEmailRelevanceCache(cache){
     localStorage.setItem(EMAIL_RELEVANCE_CACHE_KEY, JSON.stringify(cache));
   }catch(e){ /* localStorage不可の環境では毎回AI判定になるだけで動作は継続する */ }
 }
-function setEmailRelevanceCacheEntry(emailId, related){
+// category: 'related'|'phishing_spam'|'other_irrelevant'
+function setEmailRelevanceCacheEntry(emailId, category){
   const cache = loadEmailRelevanceCache();
-  cache[emailId] = related ? 1 : 0;
+  cache[emailId] = category;
   saveEmailRelevanceCache(cache);
 }
 
@@ -11855,20 +11865,21 @@ async function classifyEmailRelevanceForRows(rows){
   let changed = false;
   const needAI = [];
   for(const m of rows){
-    if(m.aiIrrelevant !== undefined) continue;      // このセッションで判定済み
+    if(m.aiCategory !== undefined) continue;         // このセッションで判定済み
     if(isRowAutoPromo(m)) continue;                 // 広告判定済みの行は二重に判定しない
     if(m.isOwnDomain) continue;                      // 自社送信は既に自動除外対象のためAI判定不要
     if(emailHasRefOrTourCode(m.subject, m.body, knownRefNumbers)){   // 実在するREF#/ツアーコードあり→予約関連と即断
-      m.aiIrrelevant = false;
+      m.aiCategory = 'related';
       continue;
     }
     if(emailHasKnownFacilityTicketPattern(m.subject, m.sender)){   // 案2: 既知の観光施設チケット送信元/件名パターン→予約関連と即断
-      m.aiIrrelevant = false;
+      m.aiCategory = 'related';
       continue;
     }
     if(cache[m.id] !== undefined){
-      m.aiIrrelevant = (cache[m.id] === 0);
-      if(m.aiIrrelevant){ m.autoExcludeReason = EMAIL_AI_EXCLUDE_REASON; changed = true; }
+      m.aiCategory = cache[m.id];
+      if(m.aiCategory === 'other_irrelevant'){ m.autoExcludeReason = EMAIL_AI_EXCLUDE_REASON; changed = true; }
+      else if(m.aiCategory === 'phishing_spam'){ m.autoExcludeReason = EMAIL_AI_PHISHING_REASON; changed = true; }
       continue;
     }
     if(!emailRelevanceInFlight.has(m.id)) needAI.push(m);
@@ -11882,13 +11893,14 @@ async function classifyEmailRelevanceForRows(rows){
       });
       const data = await parseJsonResponseSafe(resp);
       if(resp.ok && Array.isArray(data.results)){
-        const resultMap = new Map(data.results.map(r=>[String(r.id), !!r.related]));
+        const resultMap = new Map(data.results.map(r=>[String(r.id), r.category]));
         for(const m of needAI){
           if(!resultMap.has(String(m.id))) continue; // AIが返さなかった行は未判定のまま(次回再判定)
-          const related = resultMap.get(String(m.id));
-          cache[m.id] = related ? 1 : 0;
-          m.aiIrrelevant = !related;
-          if(!related){ m.autoExcludeReason = EMAIL_AI_EXCLUDE_REASON; changed = true; }
+          const category = resultMap.get(String(m.id));
+          cache[m.id] = category;
+          m.aiCategory = category;
+          if(category === 'other_irrelevant'){ m.autoExcludeReason = EMAIL_AI_EXCLUDE_REASON; changed = true; }
+          else if(category === 'phishing_spam'){ m.autoExcludeReason = EMAIL_AI_PHISHING_REASON; changed = true; }
         }
         saveEmailRelevanceCache(cache);
       }
@@ -12751,14 +12763,18 @@ async function renderEmailInboxPage(){
 
   const summaryEl = document.getElementById('email-inbox-autofilter-summary');
   if(summaryEl){
-    // AI判定:無関係(aiIrrelevant)はisRowAutoExcludedの対象から外れた(業務メール一覧に
-    // バッジ付きで残るため)ため、ここでの集計も広告・メルマガ/自社送信の2種類のみになる。
+    // AI判定:単に無関係(other_irrelevant)はisRowAutoExcludedの対象から外れた(業務メール
+    // 一覧にバッジ付きで残るため)が、AI判定:なりすまし/フィッシング(phishing_spam)は
+    // 引き続きisRowAutoExcludedに含まれる(隠す)ため、広告・メルマガ/自社送信に加えて
+    // 集計に表示する。
     const excludedRows = emailInboxRawList.filter(m=>isRowAutoExcluded(m));
     const promoCount = excludedRows.filter(m=>m.isAutoPromo).length;
     const ownDomainCount = excludedRows.filter(m=>!m.isAutoPromo && m.isOwnDomain).length;
+    const phishingCount = excludedRows.length - promoCount - ownDomainCount;
     const parts = [];
     if(promoCount>0) parts.push(`広告・メルマガ ${promoCount}件`);
     if(ownDomainCount>0) parts.push(`自社送信 ${ownDomainCount}件`);
+    if(phishingCount>0) parts.push(`なりすまし/フィッシング ${phishingCount}件`);
     summaryEl.textContent = excludedRows.length>0 ? `🚫 ${excludedRows.length}件のメールを自動的に除外しています（${parts.join('、')}）` : '';
   }
 
