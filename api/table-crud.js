@@ -819,20 +819,29 @@ async function doUpdateByIds(table, label, ids, fields, config, changedBy) {
 async function doDeleteById(table, label, id, config, changedBy) {
   if (!id) return { status: 400, body: { error: 'idが指定されていません' } };
   const needAudit = !!(config && config.auditLog);
+  const beforeRes = await sbFetch(table, `?id=eq.${encodeURIComponent(id)}&select=*`);
   let beforeRow = null;
-  if (needAudit) {
-    const beforeRes = await sbFetch(table, `?id=eq.${encodeURIComponent(id)}&select=*`);
-    if (beforeRes.ok) {
-      const beforeRows = await beforeRes.json();
-      beforeRow = beforeRows && beforeRows[0] ? beforeRows[0] : null;
-    }
+  if (beforeRes.ok) {
+    const beforeRows = await beforeRes.json();
+    beforeRow = beforeRows && beforeRows[0] ? beforeRows[0] : null;
   }
-  const r = await sbFetch(table, `?id=eq.${encodeURIComponent(id)}`, { method: 'DELETE', prefer: 'return=minimal' });
+  if (!beforeRow) {
+    return { status: 404, body: { error: `${label}が見つかりません（既に削除されている可能性があります）` } };
+  }
+  // return=representationで実際に削除された行を受け取り、0件だった場合は
+  // (直前のSELECTと削除実行の間に対象が消えた等)成功扱いにせずエラーを返す。
+  // PostgRESTはWHERE句が0件にマッチしてもHTTP 2xxを返すため、この確認が無いと
+  // 削除できていないのに「削除しました」と表示されてしまう。
+  const r = await sbFetch(table, `?id=eq.${encodeURIComponent(id)}`, { method: 'DELETE', prefer: 'return=representation' });
   if (!r.ok) {
     const e = await readJsonSafe(r);
     return { status: 500, body: { error: withGrantHint(e.message, table) || `${label}の削除に失敗しました` } };
   }
-  if (needAudit && beforeRow) {
+  const deletedRows = await readJsonSafe(r);
+  if (!Array.isArray(deletedRows) || deletedRows.length === 0) {
+    return { status: 409, body: { error: `${label}の削除対象が見つかりませんでした（0件削除）。既に削除されている可能性があります。` } };
+  }
+  if (needAudit) {
     await writeAuditLogs(table, [{ recordId: id, action: 'delete', before: beforeRow, after: null }], changedBy);
   }
   return { status: 200, body: { ok: true } };

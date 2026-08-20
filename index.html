@@ -22446,8 +22446,11 @@ async function printFacilityList(){
 
 // 手配書セクション用：ホテル・バス・観光施設/バス駐車場等・新幹線の手配内容をまとめてA4一枚のPDFに出力する
 async function printArrangementSummaryList(){
-  const hasAny = (bdHotelItems&&bdHotelItems.length) || (bdBusItems&&bdBusItems.length) || (bdFacilityItems&&bdFacilityItems.length) || (bdBulletTrainItems&&bdBulletTrainItems.length);
-  if(!hasAny){ alert('ホテル・バス・観光施設・新幹線のいずれの手配データもありません'); return; }
+  // レストランは期間分の空行(restaurant_nameが未入力のテンプレート行)が自動生成されるため、
+  // 他セクション同様「実データがある」と扱えるのは店名が入力済みの行のみ。
+  const arrRestaurantItems = (bdRestaurantItems||[]).filter(r=>r.restaurant_name);
+  const hasAny = (bdHotelItems&&bdHotelItems.length) || (bdBusItems&&bdBusItems.length) || (bdFacilityItems&&bdFacilityItems.length) || arrRestaurantItems.length || (bdBulletTrainItems&&bdBulletTrainItems.length);
+  if(!hasAny){ alert('ホテル・バス・観光施設・レストラン・新幹線のいずれの手配データもありません'); return; }
   const b = findBookingById(currentDetailId)||{};
   const guideName = document.getElementById('arr-guide-name')?.value.trim()||'';
   const guidePhone = document.getElementById('arr-guide-phone')?.value.trim()||'';
@@ -22468,6 +22471,7 @@ async function printArrangementSummaryList(){
     ...(bdHotelItems||[]).map(h=>h.hotel_name),
     ...(bdBusItems||[]).map(bu=>bu.bus_company),
     ...(bdFacilityItems||[]).map(f=>f.facility_name),
+    ...arrRestaurantItems.map(r=>r.restaurant_name),
   ].filter(Boolean))];
   let arrPartnerByName = {};
   if(arrPartnerNames.length){
@@ -22542,6 +22546,23 @@ async function printArrangementSummaryList(){
       <thead><tr>
         <th ${thS('width:70px')}>日付</th><th ${thS()}>施設名</th><th ${thS('width:95px')}>電話番号</th><th ${thS('width:45px')}>人数</th>
         <th ${thS('width:70px')}>確認番号</th><th ${thS('width:78px')}>支払方法</th>
+      </tr></thead><tbody>${rows}</tbody></table>`;
+  }
+
+  if(arrRestaurantItems.length){
+    const sorted = [...arrRestaurantItems].sort((a,c)=>(a.date||'').localeCompare(c.date||'')||(a.reservation_time||'').localeCompare(c.reservation_time||''));
+    const rows = sorted.map(r=>`<tr>
+      <td ${tdS()}>${escHtml(r.date||'')}</td>
+      <td ${tdS()}>${escHtml(r.restaurant_name||'')}</td>
+      <td ${tdS('white-space:nowrap')}>${escHtml(arrPartnerPhone(r.restaurant_name))}</td>
+      <td ${tdS()}>${escHtml(r.meal_type||'')}${r.reservation_time?(' '+escHtml(r.reservation_time.slice(0,5))):''}</td>
+      <td ${tdS('text-align:right')}>${r.pax?Number(r.pax)+'名':''}</td>
+      <td ${tdS('white-space:nowrap;font-size:7.5px')}>${escHtml(r.memo||'')}</td>
+    </tr>`).join('');
+    sections += sectionTitle('🍽 レストラン / Restaurants') + `<table style="width:100%;border-collapse:collapse;margin-bottom:6px">
+      <thead><tr>
+        <th ${thS('width:70px')}>日付</th><th ${thS()}>レストラン名</th><th ${thS('width:95px')}>電話番号</th><th ${thS('width:70px')}>区分</th>
+        <th ${thS('width:45px')}>人数</th><th ${thS('width:100px')}>メモ</th>
       </tr></thead><tbody>${rows}</tbody></table>`;
   }
 
