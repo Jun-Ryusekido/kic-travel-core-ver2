@@ -1087,7 +1087,6 @@ input[type=number]{-moz-appearance:textfield}
     <div class="sb-sec" data-sec="booking" onclick="toggleSbSection('booking')" aria-expanded="true"><span class="sb-sec-label">予約管理 <span class="sb-en">/ Booking</span></span><span class="sb-sec-arrow">▾</span></div>
     <div class="sb-sec-body" data-sec-body="booking">
     <div class="sb-item active" data-pg="dashboard" onclick="go('dashboard')">📊 ダッシュボード<span class="sb-en">/ Dashboard</span></div>
-    <div class="sb-item" data-pg="new-booking" onclick="go('new-booking')">➕ New Booking</div>
     <div class="sb-item" data-pg="booking-list" onclick="go('booking-list')">📋 Booking List</div>
     <div class="sb-item" data-pg="tour-calendar" onclick="go('tour-calendar')">🗓 ツアー運行カレンダー<span class="sb-en">/ Calendar</span></div>
     <div class="sb-item" data-pg="hotels" onclick="go('hotels')">🏨 ホテル予約管理<span class="sb-en">/ Hotels</span></div>
@@ -1143,7 +1142,7 @@ input[type=number]{-moz-appearance:textfield}
       </div>
       <div class="tb-actions" style="display:flex;align-items:center;gap:8px;flex-shrink:0">
         <span id="backup-btn-wrap" style="display:none"><button class="btn" onclick="exportFullBackup()">📦<span class="tb-label"> バックアップ</span></button></span>
-        <button class="btn btn-p" onclick="go('new-booking')">＋<span class="tb-label"> New Booking</span></button>
+        <span id="nb-topbar-btn-wrap"><button class="btn btn-p" onclick="go('new-booking')">＋<span class="tb-label"> New Booking</span></button></span>
       </div>
     </div>
 
@@ -3789,6 +3788,9 @@ const pageNames={
   invoice:'Invoice',estimation:'見積もり','guide-settlements':'ガイド精算一覧','guide-management':'ガイド管理',gross:'GROSS / 粗利管理',payment:'入出金管理','credit-card-statements':'クレジットカード明細',accounts:'アカウント管理',logs:'アクセスログ','error-logs':'エラーログ','card-holders':'カード名義人管理'
 ,hotels:'ホテル予約管理',partners:'取引先マスタ',agents:'取引先マスタ(Agent)','bullet-trains':'新幹線手配','invoice-import':'請求書読み取り','email-inbox':'メール受信箱','facility-management':'観光地予約管理',todo:'対応が必要な予約','vendor-email':'手配確定状況','restaurant-conflicts':'レストラン重複確認'
 };
+// トップバーの「+ New Booking」ボタンを表示する画面(予約管理の主要4画面のみ)。
+// go(id)内でNEW_BOOKING_BTN_VISIBLE_PAGES.has(id)により表示/非表示を切り替える。
+const NEW_BOOKING_BTN_VISIBLE_PAGES = new Set(['dashboard','new-booking','booking-list','tour-calendar']);
 function go(id){
   // 手配確定状況画面に未保存の変更(一括保存前のステータス変更)が残っている場合、
   // 他の画面へ移動すると破棄されることを警告する(SPA内遷移はbeforeunloadでは
@@ -3811,6 +3813,13 @@ function go(id){
   document.body.scrollTop = 0;
   document.querySelectorAll('.sb-item').forEach(n=>n.classList.remove('active'));
   document.querySelectorAll('.sb-item[data-pg="'+id+'"]').forEach(n=>n.classList.add('active'));
+  // トップバーの「+ New Booking」ボタンは、予約管理の主要4画面(ダッシュボード・
+  // New Booking自身・Booking List・ツアー運行カレンダー)以外では文脈的に不要かつ
+  // 紛らわしいため非表示にする(例: アカウント管理画面で表示されていた不具合の対応)。
+  // サイドバーの独立した「New Booking」メニュー項目は削除したため、new-bookingページへの
+  // 導線はこのボタンのみ(Booking List画面を開いている間も表示される)に一本化されている。
+  const nbBtnWrap = document.getElementById('nb-topbar-btn-wrap');
+  if(nbBtnWrap) nbBtnWrap.style.display = NEW_BOOKING_BTN_VISIBLE_PAGES.has(id) ? '' : 'none';
   document.getElementById('pg-title').textContent = pageNames[id]||id;
   document.getElementById('sidebar').classList.remove('open');
   updateGlobalDeadlineBannerAction();
