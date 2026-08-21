@@ -10720,7 +10720,7 @@ function previewEstimation(){
   const _estDayColPct = estDays.length > 0 ? (100 - _EST_LABEL_COL_PCT - _EST_TOTAL_COL_PCT) / estDays.length : 0;
 
   const html = `
-    <div style="background:#fff;border:1px solid #ddd;width:100%;margin:0 auto;padding:14px;font-size:11px;color:#222;box-sizing:border-box">
+    <div id="pv-print-root" style="background:#fff;border:1px solid #ddd;width:100%;margin:0 auto;padding:14px;font-size:11px;color:#222;box-sizing:border-box">
       <div style="position:relative;text-align:center;margin-bottom:6px">
         <div style="font-size:16px;font-weight:700;letter-spacing:2px;color:var(--blue)">${currentEstType==='fit'?'FIT見積書':'見積書 (Estimation)'}</div>
         <div style="position:absolute;right:0;top:0;font-size:9px;color:#888">印刷日: ${printDate}</div>
@@ -10763,7 +10763,14 @@ body{margin:0;font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Meiryo",s
      一致する%幅レイアウトのため、印刷時だけ別途縮小し直す必要はない)。 */
   td,th{border:1px solid #999 !important;padding:3px 5px !important;line-height:1.4 !important;vertical-align:top !important;white-space:nowrap !important;overflow:hidden !important;text-overflow:ellipsis !important}
   .tbl-wrap{overflow:visible !important;margin-bottom:6px !important}
-  .tbl-wrap+.tbl-wrap{page-break-inside:avoid}
+  /* 以前は.tbl-wrap+.tbl-wrap{page-break-inside:avoid}で結果表全体を分割禁止のブロックに
+     していたが、DAY表+結果表の合計高さが1ページをわずかに超えただけでも、結果表を
+     丸ごと2ページ目へ送ってしまい(1ページ目に大きな空白+2ページ目に小さな表だけ)、
+     実際のはみ出し量以上に目立つ症状になっていた。pvAutoFitPageScale()の縮小で大半は
+     1ページに収まるようになったため、これは縮小の下限に達しても収まらない極端なケース
+     (行数が非常に多い等)のための保険としてtr単位に留める(行の途中で分割されるのは
+     避けるが、表全体を丸ごと次ページへ送ることはしない)。 */
+  .pv-body table tr{page-break-inside:avoid}
   .pv-body{padding:0}
   .pv-body > div{padding:4px !important;border:none !important}
 }
@@ -10792,8 +10799,42 @@ body{margin:0;font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Meiryo",s
         }
       });
     }
+    // DAY表+結果表の合計の高さがA4横1ページに収まらないと、2ページ目に一部がはみ出す
+    // (印刷ボタンは「A4横・1枚」を謳っているのに実際は2ページになっていた不具合)。
+    // ツアー運行カレンダー印刷(printTourCalendar())で既に実績のある「印刷可能領域を
+    // 超える場合はtransform:scaleで縮小する」手法を、横方向ではなく縦方向に適用する。
+    // PRINTABLE_HEIGHT_PXはA4横(210mm)からmargin 6mm×2を引いた印刷可能高さの概算値
+    // (210mm-12mm=198mm、96dpiで約748px。ツアー運行カレンダー側のPRINTABLE_WIDTH_PX=1070
+    // と同じ考え方の近似値)。縮小率はMIN_SCALEを下限とし、それでも収まらない極端な
+    // ケース(行数が非常に多い等)は自然な2ページ分割を許容する(tr{page-break-inside:avoid}
+    // により行の途中では割れない)。
+    var PRINTABLE_HEIGHT_PX = 748;
+    var MIN_SCALE = 0.6;
+    function pvAutoFitPageScale(){
+      var root = document.getElementById('pv-print-root');
+      if(!root) return;
+      root.style.transform = '';
+      root.style.transformOrigin = '';
+      var height = root.scrollHeight;
+      if(height <= PRINTABLE_HEIGHT_PX) return;
+      var scale = Math.max(MIN_SCALE, PRINTABLE_HEIGHT_PX / height);
+      root.style.transformOrigin = 'top left';
+      root.style.transform = 'scale(' + scale.toFixed(3) + ')';
+    }
+    function pvResetPageScale(){
+      var root = document.getElementById('pv-print-root');
+      if(root){ root.style.transform = ''; root.style.transformOrigin = ''; }
+    }
     window.addEventListener('load', pvAutoFitCellFonts);
     window.addEventListener('beforeprint', pvAutoFitCellFonts);
+    // pvAutoFitPageScaleは印刷(beforeprint)時のみ適用する。画面プレビューは通常の
+    // スクロールで内容を確認できるため、1ページ分の高さに収める必要が無く、
+    // loadでも縮小してしまうと画面上でかえって読みにくくなる。印刷ダイアログを
+    // 閉じた後(afterprint)は画面プレビューに戻れるよう縮小を解除する。
+    // 高さの縮小判定はセルのフォント縮小(横方向)が確定した後の実測高さで行う必要が
+    // あるため、同じbeforeprintイベント内でpvAutoFitCellFontsの後に呼ぶ(登録順で保証)。
+    window.addEventListener('beforeprint', pvAutoFitPageScale);
+    window.addEventListener('afterprint', pvResetPageScale);
   <\/script>`;
   const winFoot = `</div>${autoFitScript}</body></html>`;
   const w = window.open('', '_blank');
