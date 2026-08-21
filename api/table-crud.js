@@ -436,6 +436,33 @@ async function readJsonSafe(resp) {
   try { return await resp.json(); } catch (e) { return {}; }
 }
 
+// business_partners(取引先マスタ)への新規insert時、正規化後の会社名が既存の有効な
+// (is_deleted=false)取引先と完全一致する場合はブロックする、サーバー側の最終防波堤。
+// あいまい一致(表記ゆれ吸収)まではクライアント側(findDuplicatePartner)の役割のままとし、
+// ここでは「同じ文字列の二重登録」だけを防ぐ軽量チェックに留める。取引先マスタ画面の
+// 新規登録フォーム(savePartner)にクライアント側チェックを追加しても、将来別の呼び出し元
+// (登録経路の追加・改修漏れ)が同じ穴を再現しうるため、APIレイヤーにも入れておく
+// (2026-08-21、チームラボの旧表記が新規idで繰り返し再作成された実害への対応)。
+function normalizeCompanyNameForExactMatch(s) {
+  return String(s || '').normalize('NFKC').trim().replace(/\s+/g, '').toLowerCase();
+}
+async function findExactDuplicateBusinessPartner(rows) {
+  const keys = rows.map((r) => normalizeCompanyNameForExactMatch(r && r.company_name)).filter(Boolean);
+  if (!keys.length) return null;
+  const existRes = await sbFetch('business_partners', '?select=id,company_name&is_deleted=eq.false', { method: 'GET' });
+  if (!existRes.ok) return null; // 取得に失敗した場合はチェックをスキップし、既存の保存動作を壊さない
+  const existing = await readJsonSafe(existRes);
+  if (!Array.isArray(existing)) return null;
+  const existingByKey = new Map(existing.map((p) => [normalizeCompanyNameForExactMatch(p.company_name), p]));
+  for (const r of rows) {
+    const key = normalizeCompanyNameForExactMatch(r && r.company_name);
+    if (key && existingByKey.has(key)) {
+      return { newName: r.company_name, existing: existingByKey.get(key) };
+    }
+  }
+  return null;
+}
+
 // PostgRESTが"permission denied for table xxx"を返す典型的な原因は、RLS/GRANTの
 // ロックダウンSQL実行時にservice_roleへのGRANT文が反映されていないケース
 // (service_roleはRLSはバイパスするが、テーブル自体へのGRANTが無ければ書き込めない)。
@@ -1119,6 +1146,12 @@ export default async function handler(req, res) {
         return res.status(403).json({ error: 'カード名義人マスタの追加はadmin@kictravel.jpのみ操作できます' });
       }
       const { rows } = req.body;
+      if (table === 'business_partners' && Array.isArray(rows)) {
+        const dup = await findExactDuplicateBusinessPartner(rows);
+        if (dup) {
+          return res.status(409).json({ error: `会社名「${dup.newName}」は既存の取引先「${dup.existing.company_name}」と完全に同じ表記のため、重複登録としてブロックしました。既存データを編集するか、表記を変えて登録してください。` });
+        }
+      }
       const result = await doInsert(table, config.label, stampNewRows(rows), config, changedBy);
       return res.status(result.status).json(result.body);
     }

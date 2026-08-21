@@ -6681,6 +6681,15 @@ async function registerNewSupplier(name){
   name = (name||'').trim();
   if(!name) return;
   if(suppliersCache.includes(name)) return;
+  // 完全一致(suppliersCache.includes)だけでは表記ゆれを持つ重複を防げないため、
+  // findDuplicatePartnerによるあいまい一致もチェックする。この関数はダイアログを
+  // 出さない背後処理(仕入明細保存時に自動的に呼ばれる)のため、一致候補が見つかった
+  // 場合は新規登録をスキップするのみに留める(マージ等のUIはここでは出さない)。
+  if(findDuplicatePartner({ companyName: name, companyNameEn: '', phone: '', email: '' }, partnersCache, null)){
+    suppliersCache.push(name);
+    renderSuppliersDatalist();
+    return;
+  }
   try{
     await businessPartnersApiCall('insert', { rows: [{company_name:name, category:'その他'}] });
     suppliersCache.push(name);
@@ -23885,6 +23894,31 @@ function findDuplicatePartner(candidate, partnersCacheArr, excludeId){
   }) || null;
 }
 
+// 会社名(日本語欄)と会社名英語欄の言語混在を仕分ける共通ヘルパー。名刺OCR(processCardFile)
+// 専用だったが、複数拠点まとめて読み取り(batchSaveAndNext)でも同じ問題(AIの抽出結果が
+// 完全に逆の言語欄に入る)が起こりうるため、両方から呼べるようここに切り出した。
+const containsJapanese = s => /[぀-ヿ゠-ヿ一-鿿]/.test(String(s||''));
+function splitByLanguage(jaVal, enVal){
+  jaVal = jaVal || ''; enVal = enVal || '';
+  if(jaVal && !containsJapanese(jaVal)){ if(!enVal) enVal = jaVal; jaVal = ''; }
+  if(enVal && containsJapanese(enVal)){ if(!jaVal) jaVal = enVal; enVal = ''; }
+  return {ja: jaVal, en: enVal};
+}
+// splitByLanguageは「欄まるごと言語が逆」なケースのみを扱うため、1つの欄の中に
+// 「チームラボ（Team Lab Borderless)」のように日本語名と英語名(括弧書き)が混在した
+// ケースは救えない(containsJapaneseがtrueのまま素通りする)。findDuplicatePartnerの
+// 日本語名正規化は括弧記号を除去するだけで中の英語文字列自体は除去しないため、
+// この混在パターンのまま残ると重複判定が効かず、チームラボの旧表記が新規idで再作成
+// され続けていた実害があった(2026-08-21)。company_name_enが空の場合に限り、末尾の
+// 括弧書き英語部分を切り出してcompany_name_enへ分離する。
+function splitParentheticalEnglishName(jaVal, enVal){
+  jaVal = jaVal || ''; enVal = enVal || '';
+  if(enVal) return {ja: jaVal, en: enVal};
+  const m = jaVal.match(/^(.*?)[（(]\s*([A-Za-z][A-Za-z0-9 .,'&\-]*)\s*[)）]\s*$/);
+  if(m && m[1].trim()){ return {ja: m[1].trim(), en: m[2].trim()}; }
+  return {ja: jaVal, en: enVal};
+}
+
 // 選択肢を1つ選ぶまで待つ汎用モーダル(名刺マージ判定の3択「マージ/新規/保留」等で使用)。
 // choices: [{label, value, primary}]。resolveされる値はクリックされた選択肢のvalue。
 function showChoiceModal(title, messageHtml, choices){
@@ -24021,13 +24055,6 @@ const rotateImage = (b64, mt, deg) => new Promise((resolve)=>{
     // いれば正しい側に振り分ける。以前はcompany_name（日本語欄）が空の場合にcompany_name_en
     // を代わりに入れるフォールバックがあり、これが1枚目=英語面のケースで日本語欄を英語で
     // 埋めてしまい、2枚目(日本語面)がその後「既に値がある」として弾かれる原因になっていた。
-    const containsJapanese = s => /[぀-ヿ゠-ヿ一-鿿]/.test(String(s||''));
-    const splitByLanguage = (jaVal, enVal) => {
-      jaVal = jaVal || ''; enVal = enVal || '';
-      if(jaVal && !containsJapanese(jaVal)){ if(!enVal) enVal = jaVal; jaVal = ''; }
-      if(enVal && containsJapanese(enVal)){ if(!jaVal) jaVal = enVal; enVal = ''; }
-      return {ja: jaVal, en: enVal};
-    };
     const _company  = splitByLanguage(parsed.company_name, parsed.company_name_en);
     const _branch   = splitByLanguage(parsed.branch_name, parsed.branch_name_en);
     const _contact  = splitByLanguage(parsed.contact_person, parsed.contact_person_en);
@@ -24297,7 +24324,16 @@ async function handleMultiLocBatchUpload(event){
       statusEl.style.color = 'var(--red)';
       return;
     }
-    statusEl.textContent = `✓ ${locations.length}件を検出しました。1件ずつ確認して登録します。`;
+    // company_name/company_name_enの言語混在を仕分ける(理由はsplitByLanguage/
+    // splitParentheticalEnglishNameのコメント参照)。ここで正規化しておくことで、
+    // startMultiLocBatch→batchSaveAndNextのfindDuplicatePartnerが日本語名同士で
+    // 正しく比較でき、和英併記表記による重複検知漏れ(チームラボの旧表記の再発)を防ぐ。
+    const normalizedLocations = locations.map(loc=>{
+      let {ja, en} = splitByLanguage(loc.company_name, loc.company_name_en);
+      ({ja, en} = splitParentheticalEnglishName(ja, en));
+      return {...loc, company_name: ja, company_name_en: en};
+    });
+    statusEl.textContent = `✓ ${normalizedLocations.length}件を検出しました。1件ずつ確認して登録します。`;
     statusEl.classList.remove('ocr-loading');
     hideGlobalOcrBanner();
     statusEl.style.color = 'var(--green)';
@@ -24306,7 +24342,7 @@ async function handleMultiLocBatchUpload(event){
       const {data: freshPartners} = await sb.from('business_partners').select('*').order('company_name');
       if(freshPartners) partnersCache = freshPartners;
     }catch(e){ logError('取引先キャッシュの再読込(一括登録)', e, {toast:false}); }
-    startMultiLocBatch(locations, category);
+    startMultiLocBatch(normalizedLocations, category);
   }catch(e){
     logError('AI読み取り(OCR)', e, {toast:false});
     statusEl.textContent = '読み取り失敗: ' + e.message;
@@ -24575,13 +24611,19 @@ const fmtPhone = s => {
   document.getElementById('pt-phone').value = fmtPhone(document.getElementById('pt-phone').value);
   document.getElementById('pt-department-phone').value = fmtPhone(document.getElementById('pt-department-phone').value);
   document.getElementById('pt-fax').value = fmtPhone(document.getElementById('pt-fax').value);
-  const company = document.getElementById('pt-company').value.trim();
-  const companyEn = document.getElementById('pt-company-en').value.trim();
+  let company = document.getElementById('pt-company').value.trim();
+  let companyEn = document.getElementById('pt-company-en').value.trim();
   if(!company && !companyEn){ alert('会社名（日本語）または会社名（英語）のいずれかを入力してください'); return; }
+  // 「チームラボ（Team Lab Borderless)」のように会社名(日本語)欄に和英併記のまま手入力
+  // されるケースの対策。分離しておかないと、findDuplicatePartnerの日本語名正規化が
+  // 英語部分を除去しないため重複判定が効かず、かつcompany_name_enも空のまま保存されて
+  // しまう(取引先マスタ画面の新規登録フォームには元々このケースの仕分けが無かった)。
+  ({ja: company, en: companyEn} = splitByLanguage(company, companyEn));
+  ({ja: company, en: companyEn} = splitParentheticalEnglishName(company, companyEn));
   const payload = {
     category: document.getElementById('pt-category').value,
     company_name: company || companyEn,
-    company_name_en: document.getElementById('pt-company-en').value.trim() || null,
+    company_name_en: companyEn || null,
     branch_name: document.getElementById('pt-branch').value.trim() || null,
     branch_name_en: document.getElementById('pt-branch-en').value.trim() || null,
     contact_person: document.getElementById('pt-contact').value.trim() || null,
@@ -24601,6 +24643,64 @@ const fmtPhone = s => {
     notes: document.getElementById('pt-notes').value.trim() || null,
     updated_at: new Date().toISOString()
   };
+
+  // 新規登録時のみ重複チェックを行う(編集時は自分自身との照合になってしまうため対象外)。
+  // 取引先マスタ画面からの手入力による「新規登録」ボタンには従来チェックが一切無く、
+  // チームラボの旧表記(「チームラボ（Team Lab Borderless)」等)が完全一致で新規insertされ続けて
+  // いた実害があったため、名刺OCR/一括登録と同じfindDuplicatePartner+選択モーダルのパターンを
+  // ここにも適用する(2026-08-21)。
+  if(!currentPartnerEditId){
+    const dup = findDuplicatePartner({
+      companyName: company, companyNameEn: companyEn,
+      phone: document.getElementById('pt-company-phone').value, email: document.getElementById('pt-email').value,
+    }, partnersCache, null);
+    if(dup){
+      const choice = await showChoiceModal(
+        '類似する取引先が見つかりました',
+        `類似する取引先「${escHtml(dup.company_name)}」が既に登録されています。`,
+        [
+          {label:'✓ 既存データにマージする（空欄のみ上書き）', value:'merge', primary:true},
+          {label:'＋ このまま新規登録する', value:'new'},
+          {label:'⏸ 後で確認する（保留にする）', value:'postpone'},
+        ]
+      );
+      if(choice==='merge'){
+        // openPartnerEditorでフォームを既存データで初期化してから、いま入力していた内容を
+        // 空欄のみ補完する(processCardFileの名刺マージ判定と同じ流れ)。ここではまだ保存せず、
+        // 内容確認の上で改めて保存ボタンを押してもらう。
+        const typed = payload;
+        openPartnerEditor(dup.id);
+        document.getElementById('partner-modal-title').textContent = '取引先編集（マージ）';
+        const _mif = (id, val) => { const el = document.getElementById(id); if(el && !el.value && val) el.value = val; };
+        _mif('pt-company',       typed.company_name || '');
+        _mif('pt-company-en',    typed.company_name_en || '');
+        _mif('pt-branch',        typed.branch_name || '');
+        _mif('pt-branch-en',     typed.branch_name_en || '');
+        _mif('pt-contact',       typed.contact_person || '');
+        _mif('pt-contact-en',    typed.contact_person_en || '');
+        _mif('pt-position',      typed.position || '');
+        _mif('pt-position-en',   typed.position_en || '');
+        _mif('pt-company-phone', typed.company_phone || '');
+        _mif('pt-phone',         typed.phone || '');
+        _mif('pt-department-phone', typed.department_phone || '');
+        _mif('pt-fax',           typed.fax || '');
+        _mif('pt-email',         typed.email || '');
+        _mif('pt-address',       typed.address || '');
+        _mif('pt-address-en',    typed.address_en || '');
+        _mif('pt-notes',         typed.notes || '');
+        alert('既存の取引先にマージしました。内容を確認して保存してください。');
+        return;
+      }
+      if(choice==='postpone'){
+        const {category, notes, updated_at, ...ocrPayload} = payload;
+        await postponePartnerMergeCandidate(ocrPayload, dup.id);
+        closePartnerEditor();
+        return;
+      }
+      // choice==='new' はこのまま下の新規登録処理に進む
+    }
+  }
+
   const saveBtn = document.getElementById('pt-save-btn');
   const saveBtnOrigHtml = saveBtn ? saveBtn.innerHTML : null;
   if(saveBtn){ saveBtn.disabled = true; saveBtn.innerHTML = '⏳ 保存中...'; }

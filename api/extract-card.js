@@ -347,9 +347,12 @@ export default async function handler(req, res) {
       const multiLocPrompt = multiLocReturnJson
         ? `この画像には複数の拠点（ホテル・バス会社・レストラン等の各支店や施設）の連絡先情報が記載されています。
 各拠点の情報を抽出してJSON配列で返してください。
-フィールド：company_name（会社名・拠点名）, branch_name（支店名・フロア名等、なければ空文字）, address（住所）, company_phone（電話番号）, fax（FAX番号）
+フィールド：company_name（会社名・拠点名。日本語表記）, company_name_en（会社名・拠点名の英語表記、なければ空文字）, branch_name（支店名・フロア名等、なければ空文字）, address（住所）, company_phone（電話番号）, fax（FAX番号）
 ・記載がない項目は空文字にしてください
-・日本語で出力してください
+・company_nameは日本語表記のみを入れてください。「チームラボ（Team Lab Borderless)」のように日本語名の後ろに
+  英語名が括弧書きで併記されている場合は、括弧内の英語部分をcompany_nameに含めず、company_name_enへ分離してください
+  （例：company_name「チームラボボーダレス」、company_name_en「teamLab Borderless」）
+・英語表記しか記載が無い場合はcompany_nameを空文字にし、company_name_enに入れてください
 ・JSONのみ返し、コードブロック記号・説明文は不要です`
         : `この画像には複数の拠点（ホテル・バス会社・レストラン等の各支店や施設）の連絡先情報が記載されています。
 各拠点の情報を1件ずつ読み取り、以下の形式でまとめてください。
