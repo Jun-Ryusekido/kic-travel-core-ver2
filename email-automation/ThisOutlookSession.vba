@@ -59,28 +59,53 @@ VBAコードが置かれていましたが、これは実機の内容と一致�
      直接POSTしていた（html_bodyは含まず、subject/body/sender/received_at/
      attachmentsのみ）。同日中に、送信先を/api/email-import-insert.js
      （x-import-keyヘッダーによる共有シークレット認証）経由に切り替え、
-     html_body（StripEmbeddedImages適用・50,000文字上限）も含めるよう更新した
+     html_body（StripEmbeddedImages適用・50,000文字上限）も含めるよう更新した。
+     2026/08/21：内部で呼ぶIsDuplicateInQueue/UploadAttachmentsAndGetJsonへ渡す
+     引数も、anonキー(apiKey)からimportApiKeyに置き換えた（詳細は下記3・6参照）。
      （詳細はModule1_updated.bas参照）。
 
-  3. IsDuplicateInQueue(senderAddr, receivedAtStr, apiKey) As Boolean
-     送信者＋受信日時の組み合わせが既にemail_import_queueに存在するか、
-     Supabase anonキーでのGET(SELECT)で確認する。書き込みではないため、
-     2026/08/14の変更後もanonキーのまま維持。
+  3. IsDuplicateInQueue(senderAddr, receivedAtStr, importApiKey) As Boolean
+     送信者＋受信日時の組み合わせが既にemail_import_queueに存在するか確認する。
+     2026/08/14時点はSupabase anonキーでのGET(SELECT)直接問い合わせだったが、
+     2026/08/21に/api/email-import-insert.jsの新設アクション(action:"checkDuplicate"、
+     x-import-keyヘッダー認証・service_role経由)へ切り替えた。読み取り専用のため
+     書き込みリスクは元々無かったが、VBAソースにanonキーを残さないための対応。
 
   4. JsonEscape(s As String) As String
      文字列をJSON文字列リテラルとしてエスケープする（バックスラッシュ・
      ダブルクォート・改行・タブ）。
 
   5. UrlEncode(s As String) As String
-     クエリパラメータ・Storageパス用の簡易URLエンコード。
+     クエリパラメータ用の簡易URLエンコード。2026/08/21のStorage直接POST廃止に
+     伴い、Storageパスの組み立てには使わなくなった（用途は残存するため関数自体は維持）。
 
-  6. UploadAttachmentsAndGetJson(objMail, apiKey) As String
+  6. ExtractJsonStringField(json As String, fieldName As String) As String 【2026/08/21新設】
+     単純なJSON文字列から"fieldName":"value"形式の値だけを取り出す簡易パーサー。
+     UploadFileToStorageが/api/email-attachment-upload.jsの応答からpublicUrlを
+     取り出すために使う（このファイル群は他のJSON応答も同様にパーサーを使わず
+     簡易的に扱っているため同じ方針。ネストしたJSON・エスケープされたダブル
+     クォートを含む値には対応しない）。
+
+  7. Base64EncodeBytes(bytes() As Byte) As String 【2026/08/21新設】
+     VBAには標準のBase64エンコード関数が無いため、MSXML2.DOMDocumentの
+     bin.base64型ノードを利用する定番の手法でエンコードする。添付ファイルの
+     中身を/api/email-attachment-upload.jsへJSONで送るために使う。
+
+  8. UploadAttachmentsAndGetJson(objMail, importApiKey) As String
      メールの添付ファイル(埋め込み画像を除く)をSupabase Storageの
      email-attachmentsバケットへアップロードし、[{"filename":...,"url":...}, ...]
-     形式のJSON文字列を返す。2026/08/14の変更でもスコープ外・anonキーのまま維持。
+     形式のJSON文字列を返す。2026/08/14時点はスコープ外・anonキーのまま維持していたが、
+     2026/08/21にUploadFileToStorage経由でx-import-key方式へ切り替えた。
 
-  7. UploadFileToStorage(localPath, storagePath, apiKey) As Boolean
-     1ファイルをSupabase Storageへバイナリアップロードする（6から呼ばれる）。
+  9. UploadFileToStorage(localPath, storagePath, importApiKey) As String 【2026/08/21更新】
+     1ファイルをSupabase Storageへアップロードする（8から呼ばれる）。
+     2026/08/14時点はanonキーでSupabase Storage APIへ直接バイナリPOSTしていたが、
+     2026/08/21に新設の/api/email-attachment-upload.js（x-import-keyヘッダー認証、
+     service_role経由）へ切り替えた。ファイル内容をBase64EncodeBytesでBase64化し
+     JSONで送信する方式に変わったため、戻り値もBoolean(成功/失敗)から、実際に
+     保存されたファイルの公開URL(String。失敗時は空文字)に変更した。
+     ファイルサイズが約3MBを超える場合は、アップロード自体を試みずスキップする
+     （Base64化による約1.33倍の膨張とVercelのリクエストボディ上限を考慮した事前チェック）。
 
 ■このファイルの位置づけ
 上記の通り、このファイルは実装コードの代替ではなく、実機の構造を正確に記録した

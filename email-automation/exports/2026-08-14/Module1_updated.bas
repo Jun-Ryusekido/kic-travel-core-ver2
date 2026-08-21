@@ -34,20 +34,20 @@ End Sub
 
 ' ===== 実際の送信処理本体（手動・自動どちらからも呼ばれる） =====
 ' 重複チェック付き：送信者＋受信日時の組み合わせが既に存在する場合は送信をスキップする
-' 2026-08-14以降：本体の送信先は /api/email-import-insert.js（x-import-keyヘッダーによる
+' 2026-08-14：本体の送信先を /api/email-import-insert.js（x-import-keyヘッダーによる
 ' 共有シークレット認証、service_role経由でSupabaseへ書き込み）に統一した。
 ' email_import_queueへのanon直接INSERTは既に権限剥奪済み(scripts/lock_down_
 ' email_import_queue_writes.sql)のため、この変更前の実装(旧Supabase直接POST)は
 ' 実際には失敗していた可能性が高い。
-' 重複チェック(IsDuplicateInQueue)・添付ファイルのSupabase Storageアップロード
-' (UploadAttachmentsAndGetJson/UploadFileToStorage)は、いずれもINSERTではなく
-' 読み取り専用SELECTまたはStorageバケットへの直接アップロードのため、今回もanonキー
-' (下記apiKey)のまま変更していない。
+' 2026-08-21：重複チェック(IsDuplicateInQueue)・添付ファイルのSupabase Storageアップロード
+' (UploadAttachmentsAndGetJson/UploadFileToStorage)も、anonキーの直接使用をやめ、同じ
+' x-import-key共有シークレット(importApiKey)経由に統一した(前者は/api/email-import-insert.js
+' のcheckDuplicateアクション、後者は新設の/api/email-attachment-upload.js)。これにより
+' このファイル内にanonキー・service_roleキーのいずれも直書きされない状態になった。
 Function SendMailItemToKICQueue(objMail As Outlook.mailItem) As Boolean
     Dim http As Object
     Dim shell As Object
     Dim url As String
-    Dim apiKey As String
     Dim importApiKey As String
     Dim jsonBody As String
     Dim receivedAtStr As String
@@ -55,8 +55,6 @@ Function SendMailItemToKICQueue(objMail As Outlook.mailItem) As Boolean
     Dim attachmentsJson As String
 
     On Error GoTo ErrHandler
-
-    apiKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56ZHlnamxuenZ0ZGV6c2xudW95Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwODY0NzcsImV4cCI6MjA5NjY2MjQ3N30.eE0lAuWzf-NFHcNNcU1Lk-ubs7K6rKpaMVMoBfML_Aw" ' anon公開鍵（IsDuplicateInQueue・添付アップロード専用。email_import_queueへのINSERTには使わない）
 
     ' ----- /api/email-import-insert.js 用の共有シークレットをレジストリから読み取る -----
     ' catchup-missed-mail.ps1と全く同じレジストリキー・値名を使うことで、鍵を二重管理せず
@@ -75,7 +73,7 @@ Function SendMailItemToKICQueue(objMail As Outlook.mailItem) As Boolean
     receivedAtStr = Format(objMail.ReceivedTime, "yyyy-mm-ddThh:mm:ss") & "+09:00"
 
     ' ----- 重複チェック -----
-    If IsDuplicateInQueue(objMail.SenderEmailAddress, receivedAtStr, apiKey) Then
+    If IsDuplicateInQueue(objMail.SenderEmailAddress, receivedAtStr, importApiKey) Then
         Debug.Print "重複のためスキップ: " & objMail.Subject
         SendMailItemToKICQueue = False
         Exit Function
@@ -92,7 +90,7 @@ Function SendMailItemToKICQueue(objMail As Outlook.mailItem) As Boolean
     If Len(htmlBody) > 50000 Then htmlBody = Left(htmlBody, 50000)
 
     If objMail.Attachments.Count > 0 Then
-        attachmentsJson = UploadAttachmentsAndGetJson(objMail, apiKey)
+        attachmentsJson = UploadAttachmentsAndGetJson(objMail, importApiKey)
     Else
         attachmentsJson = "[]"
     End If
@@ -127,30 +125,33 @@ ErrHandler:
     SendMailItemToKICQueue = False
 End Function
 
-' 送信者＋受信日時の組み合わせが既にテーブルに存在するか確認する
-Function IsDuplicateInQueue(senderAddr As String, receivedAtStr As String, apiKey As String) As Boolean
+' 送信者＋受信日時の組み合わせが既にテーブルに存在するか確認する。以前はanonキーで
+' Supabaseへ直接GETしていたが、他のVBA→Supabase書き込み経路と同じくx-import-key経由の
+' /api/email-import-insert.js(action:"checkDuplicate")に統一した(2026-08-21)。
+Function IsDuplicateInQueue(senderAddr As String, receivedAtStr As String, importApiKey As String) As Boolean
     Dim http As Object
     Dim url As String
+    Dim jsonBody As String
 
     On Error GoTo ErrHandler
 
-    url = "https://nzdygjlnzvtdezslnuoy.supabase.co/rest/v1/email_import_queue" & _
-          "?select=id" & _
-          "&sender=eq." & UrlEncode(senderAddr) & _
-          "&received_at=eq." & UrlEncode(receivedAtStr)
+    url = "https://kic-travel-core-ver2.vercel.app/api/email-import-insert"
+    jsonBody = "{""action"":""checkDuplicate"",""sender"":" & JsonEscape(senderAddr) & _
+               ",""receivedAt"":" & JsonEscape(receivedAtStr) & "}"
 
     Set http = CreateObject("WinHttp.WinHttpRequest.5.1")
-    http.Open "GET", url, False
-    http.setRequestHeader "apikey", apiKey
-    http.setRequestHeader "Authorization", "Bearer " & apiKey
-    http.Send
+    http.Open "POST", url, False
+    http.setRequestHeader "x-import-key", importApiKey
+    http.setRequestHeader "Content-Type", "application/json"
+    http.Send jsonBody
 
     If http.Status = 200 Then
-        ' レスポンスが "[]" なら重複なし、それ以外（何か件数がある）なら重複あり
-        IsDuplicateInQueue = (Trim(http.responseText) <> "[]")
+        ' 簡易パーサー: レスポンスJSONに "duplicate":true が含まれるかだけを見る
+        ' (このファイルは他のJSON応答も同様にパーサーを使わず簡易的に扱っている)
+        IsDuplicateInQueue = (InStr(http.responseText, """duplicate"":true") > 0)
     Else
         ' 確認に失敗した場合は「重複なし」として扱う（送信自体は継続する）
-        Debug.Print "重複チェック失敗 ステータス:" & http.Status
+        Debug.Print "重複チェック失敗 ステータス:" & http.Status & " / " & http.responseText
         IsDuplicateInQueue = False
     End If
     Exit Function
@@ -190,16 +191,52 @@ Function UrlEncode(s As String) As String
     UrlEncode = result
 End Function
 
+' 単純なJSON文字列から "fieldName":"value" 形式の値だけを取り出す簡易パーサー。
+' このファイルは他のJSON応答も同様にパーサーを使わず簡易的に扱っているため同じ方針を
+' 踏襲する(ネストしたJSON・エスケープされたダブルクォートを含む値には対応しない。
+' publicUrl等、この用途で実際に返る値はいずれも単純な文字列のため問題ない)。
+Function ExtractJsonStringField(json As String, fieldName As String) As String
+    Dim marker As String
+    Dim valStart As Long, valEnd As Long
+    marker = """" & fieldName & """:"""
+    valStart = InStr(json, marker)
+    If valStart = 0 Then
+        ExtractJsonStringField = ""
+        Exit Function
+    End If
+    valStart = valStart + Len(marker)
+    valEnd = InStr(valStart, json, """")
+    If valEnd = 0 Then
+        ExtractJsonStringField = ""
+        Exit Function
+    End If
+    ExtractJsonStringField = Mid(json, valStart, valEnd - valStart)
+End Function
+
+' VBAには標準のBase64エンコード関数が無いため、MSXML2.DOMDocumentのbin.base64型ノードを
+' 利用する定番の手法でエンコードする(Windows標準搭載のMSXMLで動作し、追加のライブラリ
+' 参照登録は不要)。/api/email-attachment-upload.jsへ添付ファイルの中身を送るために使う。
+Function Base64EncodeBytes(bytes() As Byte) As String
+    Dim objXML As Object
+    Dim objNode As Object
+    Set objXML = CreateObject("MSXML2.DOMDocument")
+    Set objNode = objXML.createElement("b64")
+    objNode.DataType = "bin.base64"
+    objNode.nodeTypedValue = bytes
+    Base64EncodeBytes = objNode.Text
+    Set objNode = Nothing
+    Set objXML = Nothing
+End Function
+
 ' メールの添付ファイルをSupabase Storageにアップロードし、
 ' [{"filename":"xxx","url":"yyy"}, ...] という形式のJSON文字列を返す
-Function UploadAttachmentsAndGetJson(objMail As Outlook.mailItem, apiKey As String) As String
+Function UploadAttachmentsAndGetJson(objMail As Outlook.mailItem, importApiKey As String) As String
     Dim att As Outlook.Attachment
     Dim jsonArr As String
     Dim isFirst As Boolean
     Dim tempPath As String
     Dim safeFileName As String
     Dim storagePath As String
-    Dim uploadUrl As String
     Dim publicUrl As String
 
     jsonArr = "["
@@ -215,11 +252,9 @@ Function UploadAttachmentsAndGetJson(objMail As Outlook.mailItem, apiKey As Stri
             safeFileName = Format(Now, "yyyymmddhhmmss") & "_" & att.FileName
             storagePath = safeFileName
 
-            Dim result As Boolean
-            result = UploadFileToStorage(tempPath, storagePath, apiKey)
+            publicUrl = UploadFileToStorage(tempPath, storagePath, importApiKey)
 
-            If result Then
-                publicUrl = "https://nzdygjlnzvtdezslnuoy.supabase.co/storage/v1/object/public/email-attachments/" & UrlEncode(storagePath)
+            If Len(publicUrl) > 0 Then
                 If Not isFirst Then jsonArr = jsonArr & ","
                 jsonArr = jsonArr & "{""filename"":" & JsonEscape(att.FileName) & ",""url"":" & JsonEscape(publicUrl) & "}"
                 isFirst = False
@@ -237,39 +272,62 @@ Function UploadAttachmentsAndGetJson(objMail As Outlook.mailItem, apiKey As Stri
     UploadAttachmentsAndGetJson = jsonArr
 End Function
 
-' ファイルをSupabase Storageにバイナリアップロードする
-Function UploadFileToStorage(localPath As String, storagePath As String, apiKey As String) As Boolean
+' ファイル1件あたりのサイズ上限(バイト)。/api/email-attachment-upload.js側の上限(15MB)より
+' 手前で、かつBase64化による約1.33倍の膨張後もVercelのリクエストボディ上限(約4.5MB)に
+' 収まるよう、実ファイルで約3MBを上限として事前チェックする(サーバー側の413を待たず、
+' ここで分かりやすいログを出してこの添付だけスキップする)。
+Const MAX_ATTACHMENT_BYTES As Long = 3 * 1024 * 1024
+
+' ファイルをSupabase Storageにアップロードする。以前はanonキーでSupabase Storage APIへ
+' 直接POSTしていたが、他のVBA→Supabase書き込み経路と同じくx-import-key経由の
+' service_role backedエンドポイント(/api/email-attachment-upload)に統一した(2026-08-21)。
+' ファイル内容をBase64化してJSONで送信する方式に変わったため、返り値もBoolean(成功/失敗)
+' ではなく、実際に保存されたファイルの公開URL(String。失敗時は空文字)に変更した。
+Function UploadFileToStorage(localPath As String, storagePath As String, importApiKey As String) As String
     Dim http As Object
     Dim url As String
     Dim stream As Object
+    Dim fileBytes() As Byte
+    Dim base64Content As String
+    Dim jsonBody As String
 
     On Error GoTo ErrHandler
 
-    url = "https://nzdygjlnzvtdezslnuoy.supabase.co/storage/v1/object/email-attachments/" & UrlEncode(storagePath)
+    If FileLen(localPath) > MAX_ATTACHMENT_BYTES Then
+        Debug.Print "ストレージアップロードをスキップ(サイズ上限" & (MAX_ATTACHMENT_BYTES \ 1024 \ 1024) & "MB超過): " & localPath
+        UploadFileToStorage = ""
+        Exit Function
+    End If
+
+    url = "https://kic-travel-core-ver2.vercel.app/api/email-attachment-upload"
 
     Set stream = CreateObject("ADODB.Stream")
     stream.Type = 1 ' バイナリモード
     stream.Open
     stream.LoadFromFile localPath
+    fileBytes = stream.Read
+    stream.Close
+
+    base64Content = Base64EncodeBytes(fileBytes)
+
+    jsonBody = "{""storagePath"":" & JsonEscape(storagePath) & _
+               ",""contentBase64"":""" & base64Content & """}"
 
     Set http = CreateObject("WinHttp.WinHttpRequest.5.1")
     http.Open "POST", url, False
-    http.setRequestHeader "apikey", apiKey
-    http.setRequestHeader "Authorization", "Bearer " & apiKey
-    http.setRequestHeader "Content-Type", "application/octet-stream"
-    http.Send stream.Read
-
-    stream.Close
+    http.setRequestHeader "x-import-key", importApiKey
+    http.setRequestHeader "Content-Type", "application/json"
+    http.Send jsonBody
 
     If http.Status = 200 Or http.Status = 201 Then
-        UploadFileToStorage = True
+        UploadFileToStorage = ExtractJsonStringField(http.responseText, "publicUrl")
     Else
         Debug.Print "ストレージアップロード失敗 ステータス:" & http.Status & " / " & http.responseText
-        UploadFileToStorage = False
+        UploadFileToStorage = ""
     End If
     Exit Function
 
 ErrHandler:
     Debug.Print "ストレージアップロードエラー: " & Err.Description
-    UploadFileToStorage = False
+    UploadFileToStorage = ""
 End Function

@@ -45,6 +45,33 @@ export default async function handler(req, res) {
   }
 
   const body = req.body || {};
+
+  // 重複チェック(VBA Module1_updated.basのIsDuplicateInQueue用)。従来anonキーで直接
+  // Supabaseへ問い合わせていたが、他のVBA→Supabase書き込み経路と同様にx-import-key
+  // 経由へ統一する(2026-08-21)。読み取り専用のSELECTだが、anonキーをVBAソースに
+  // 残さないための対応。email_import_queueへの実際のINSERTはsubject+sender+received_at
+  // のUNIQUE制約+resolution=ignore-duplicatesで最終的に二重防衛されているため、この
+  // チェック自体は事前の早期リターン(不要なアップロード処理等を避ける)が主目的。
+  if (body.action === 'checkDuplicate') {
+    const { sender, receivedAt } = body;
+    if (typeof sender !== 'string' || !sender) return res.status(400).json({ error: 'senderは必須です' });
+    if (typeof receivedAt !== 'string' || !receivedAt) return res.status(400).json({ error: 'receivedAtは必須です' });
+    try {
+      const selRes = await fetch(
+        `${SB_URL}/rest/v1/email_import_queue?select=id&sender=eq.${encodeURIComponent(sender)}&received_at=eq.${encodeURIComponent(receivedAt)}`,
+        { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } }
+      );
+      if (!selRes.ok) {
+        const text = await selRes.text().catch(() => '');
+        return res.status(502).json({ error: `重複チェックに失敗しました: ${selRes.status} ${text}` });
+      }
+      const rows = await selRes.json();
+      return res.status(200).json({ ok: true, duplicate: Array.isArray(rows) && rows.length > 0 });
+    } catch (e) {
+      return res.status(500).json({ error: e.message || String(e) });
+    }
+  }
+
   const rows = Array.isArray(body.rows) ? body.rows : null;
   if (!rows || rows.length === 0) return res.status(400).json({ error: 'rowsが空です' });
   if (rows.length > MAX_ROWS_PER_REQUEST) {
