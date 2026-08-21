@@ -44,17 +44,39 @@ function buildRefNoExtractionRule(includeShortCode) {
   return `${base}${shortCode}見つからない場合は空文字にしてください。`;
 }
 
+// YYYY-MM-DD文字列に日数を加減算する(タイムゾーンのズレを避けるためUTCの年月日で計算する)。
+function addDaysToDateStr(dateStr, days) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  const yy = dt.getUTCFullYear();
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getUTCDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
+}
+
 // targetCheckIn/targetCheckOut（今開いている予約のIn-Date/Out-Date）が渡された場合、
 // プロンプトに追記する絞り込み指示を組み立てる。どちらも空ならフィルタなし（従来通り全件抽出）。
+//
+// 以前は基準日(targetCheckIn優先の1点)からの前後DATE_FILTER_TOLERANCE_DAYS日の「近さ」でしか
+// 判定しておらず、長期ツアー(例:8日間)の後半区間だけを扱うメール(IN-DATEから離れた日程)が
+// 「対象日程に一致しない」として誤って除外され、読み取り自体が失敗する不具合があった
+// (2026-08-21、バスタブのテキスト読み取りで実際に発生。ホテル/観光施設/レストランの各
+// テキスト読み取りも同じ関数を使っているため同様に影響していた)。targetCheckIn〜
+// targetCheckOutの期間そのもの(前後にDATE_FILTER_TOLERANCE_DAYS日の遊びを持たせる)を
+// 範囲として明示することで、区間ごとに手配・確認が分かれる長期ツアーにも対応する。
+// 片方しか無い場合は、rangeStart/rangeEndの計算式が両方ともtargetCheckIn||targetCheckOutを
+// 使うため、自然に「その1点の前後◯日」(従来の点判定)に縮退する。
 function buildDateFilterInstruction(fieldLabel, targetCheckIn, targetCheckOut) {
   if (!targetCheckIn && !targetCheckOut) return '';
-  const refDate = targetCheckIn || targetCheckOut;
+  const rangeStart = addDaysToDateStr(targetCheckIn || targetCheckOut, -DATE_FILTER_TOLERANCE_DAYS);
+  const rangeEnd = addDaysToDateStr(targetCheckOut || targetCheckIn, DATE_FILTER_TOLERANCE_DAYS);
   const periodNote = (targetCheckIn && targetCheckOut && targetCheckIn !== targetCheckOut)
-    ? `（参考：この予約の対象期間は ${targetCheckIn} 〜 ${targetCheckOut} です）`
+    ? `（この予約自体の対象期間は ${targetCheckIn} 〜 ${targetCheckOut} です。長期ツアーの一部区間だけを扱うメールも対象に含めるため、前後に${DATE_FILTER_TOLERANCE_DAYS}日の余裕を持たせた範囲で判定してください）`
     : '';
   return `
 
-重要（日程の絞り込み）: メール本文に複数の日程・複数の予約情報が含まれる場合、${fieldLabel}が${refDate}の前後${DATE_FILTER_TOLERANCE_DAYS}日以内に該当する行のみを抽出してください。それ以外の日程の行は無視してください。${periodNote}該当する行が1件も見つからない場合は、空のJSON配列 [] だけを返してください。`;
+重要（日程の絞り込み）: メール本文に複数の日程・複数の予約情報が含まれる場合、${fieldLabel}が${rangeStart} 〜 ${rangeEnd}の範囲に該当する行のみを抽出してください。${periodNote}それ以外の日程の行は無視してください。該当する行が1件も見つからない場合は、空のJSON配列 [] だけを返してください。`;
 }
 
 // ホテル・バス(ドライバー宿泊)のcheck_in/check_outのような「チェックイン・チェックアウトの
