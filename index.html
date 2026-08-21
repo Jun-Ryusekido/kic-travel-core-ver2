@@ -13733,6 +13733,15 @@ function onEmailSplitRefInput(i, el){
 function hasBlankDraftRowWithExcerpt(items, nameField, excerpt){
   return items.some(it => !it[nameField] && it.memo === excerpt);
 }
+// AI読み取り(テキスト貼り付け)の結果を書き込む直前に、appendEmailExcerptAsDraftRowが
+// 作成したプレースホルダー行(名前欄が空欄・備考欄に抜粋そのものが入っているだけの行)が
+// 既に存在しないか探す(判定基準はhasBlankDraftRowWithExcerpt()と同じ完全一致)。見つかった
+// 場合はそれを再利用(上書き)することで、メール分割時に作られた空行と、AI読み取りで作られた
+// 本データ行の2行に分裂するのを防ぐ(案A)。
+function findReusableDraftRow(items, nameField, excerpt){
+  if(!excerpt) return null;
+  return items.find(it => !it[nameField] && it.memo === excerpt) || null;
+}
 async function appendEmailExcerptAsDraftRow(tab, excerpt){
   if(!excerpt) return;
   const bookingId = currentDetailId;
@@ -14088,6 +14097,10 @@ async function extractBusFromText(){
     hideGlobalOcrBanner();
     statusEl.style.color='var(--green)';
     if(!checkBulkReadSanity(buses, 'start_date')){ statusEl.textContent='読み取りをキャンセルしました（件数・日付範囲が不自然なため）'; statusEl.classList.remove('ocr-loading'); hideGlobalOcrBanner(); statusEl.style.color='var(--text3)'; return; }
+    // プレースホルダー行の再利用(案A)。確認モーダルを開いた直後に貼り付け欄を空にするため、
+    // 「明細に追加」を押す時点ではtextの値が失われている。ここ(貼り付け欄がまだ残っている時点)で
+    // 判定し、結果をsaveBusConfirm()に引き継ぐ。
+    window._pendingBusReuseTarget = findReusableDraftRow(bdBusItems, 'bus_company', text.trim());
     showBusConfirmDialog(buses);
     document.getElementById('bus-ocr-text').value='';
   }catch(e){
@@ -14286,6 +14299,9 @@ async function extractBusFromFile(event, mode){
     const parsed=JSON.parse(cleaned);
     const buses=Array.isArray(parsed)?parsed:[parsed];
     if(!checkBulkReadSanity(buses, 'start_date')){ statusEl.textContent='読み取りをキャンセルしました（件数・日付範囲が不自然なため）'; statusEl.classList.remove('ocr-loading'); hideGlobalOcrBanner(); statusEl.style.color='var(--text3)'; return; }
+    // ファイル/画像添付経由は案A(プレースホルダー行の再利用)の対象外。テキスト貼り付け
+    // (extractBusFromText)からの古い判定結果が残っていた場合に誤って引き継がないようクリアする。
+    window._pendingBusReuseTarget = null;
     showBusConfirmDialog(buses);
     statusEl.textContent=`✓ ${buses.length}件を読み取りました`;
     statusEl.classList.remove('ocr-loading');
@@ -14352,9 +14368,10 @@ function showBusConfirmDialog(buses){
 function saveBusConfirm(){
   const buses=window._pendingBuses;
   if(!buses) return;
+  let reuseTarget = window._pendingBusReuseTarget;
   buses.forEach((b,i)=>{
     if(!document.getElementById(`bus-c-sel-${i}`)?.checked) return;
-    bdBusItems.push({
+    const fields = {
       bus_company: document.getElementById(`bus-c-company-${i}`)?.value||'',
       bus_type: document.getElementById(`bus-c-type-${i}`)?.value||'',
       buses: Number(document.getElementById(`bus-c-buses-${i}`)?.value)||1,
@@ -14364,10 +14381,13 @@ function saveBusConfirm(){
       status: document.getElementById(`bus-c-status-${i}`)?.value||'問い合わせ中',
       confirmation_no: document.getElementById(`bus-c-conf-${i}`)?.value||'',
       memo: document.getElementById(`bus-c-memo-${i}`)?.value||''
-    });
+    };
+    if(reuseTarget){ Object.assign(reuseTarget, fields); reuseTarget = null; }
+    else bdBusItems.push(fields);
   });
   renderBusTable();
   document.getElementById('bus-confirm-modal').remove();
+  window._pendingBusReuseTarget = null;
 }
 
 // ─── レストラン ──────────────────────────────────────────────────────────────
@@ -14705,6 +14725,8 @@ async function extractRestaurantFromText(){
     hideGlobalOcrBanner();
     statusEl.style.color='var(--green)';
     if(!checkBulkReadSanity(restaurants, 'date')){ statusEl.textContent='読み取りをキャンセルしました（件数・日付範囲が不自然なため）'; statusEl.classList.remove('ocr-loading'); hideGlobalOcrBanner(); statusEl.style.color='var(--text3)'; return; }
+    // プレースホルダー行の再利用(案A)。理由はextractBusFromText内の同種コメント参照。
+    window._pendingRestaurantReuseTarget = findReusableDraftRow(bdRestaurantItems, 'restaurant_name', text.trim());
     showRestaurantConfirmDialog(restaurants);
     document.getElementById('rest-ocr-text').value='';
   }catch(e){
@@ -14752,6 +14774,8 @@ async function extractRestaurantFromFile(event, mode){
     const parsed=JSON.parse(cleaned);
     const restaurants=Array.isArray(parsed)?parsed:[parsed];
     if(!checkBulkReadSanity(restaurants, 'date')){ statusEl.textContent='読み取りをキャンセルしました（件数・日付範囲が不自然なため）'; statusEl.classList.remove('ocr-loading'); hideGlobalOcrBanner(); statusEl.style.color='var(--text3)'; return; }
+    // ファイル/画像添付経由は案A(プレースホルダー行の再利用)の対象外。理由はextractBusFromFile内の同種コメント参照。
+    window._pendingRestaurantReuseTarget = null;
     showRestaurantConfirmDialog(restaurants);
     statusEl.textContent=`✓ ${restaurants.length}件を読み取りました`;
     statusEl.classList.remove('ocr-loading');
@@ -14817,9 +14841,10 @@ function saveRestaurantConfirm(){
   const restaurants=window._pendingRestaurants;
   if(!restaurants) return;
   const b=findBookingById(currentDetailId);
+  let reuseTarget = window._pendingRestaurantReuseTarget;
   restaurants.forEach((r,i)=>{
     if(!document.getElementById(`rest-c-sel-${i}`)?.checked) return;
-    bdRestaurantItems.push({
+    const fields = {
       restaurant_name: document.getElementById(`rest-c-name-${i}`)?.value||'',
       meal_type: document.getElementById(`rest-c-meal-${i}`)?.value||'昼食',
       date: document.getElementById(`rest-c-date-${i}`)?.value||'',
@@ -14829,10 +14854,13 @@ function saveRestaurantConfirm(){
       status: document.getElementById(`rest-c-status-${i}`)?.value||'問い合わせ中',
       memo: document.getElementById(`rest-c-memo-${i}`)?.value||'',
       guide_id: null, guide_name_freetext: ''
-    });
+    };
+    if(reuseTarget){ Object.assign(reuseTarget, fields); reuseTarget = null; }
+    else bdRestaurantItems.push(fields);
   });
   renderRestaurantTable();
   document.getElementById('rest-confirm-modal').remove();
+  window._pendingRestaurantReuseTarget = null;
 }
 
 // ─── 観光施設 ─────────────────────────────────────────────────────────────────
@@ -15269,6 +15297,8 @@ async function extractFacilityFromText(){
     hideGlobalOcrBanner();
     statusEl.style.color='var(--green)';
     if(!checkBulkReadSanity(facilities, 'date')){ statusEl.textContent='読み取りをキャンセルしました（件数・日付範囲が不自然なため）'; statusEl.classList.remove('ocr-loading'); hideGlobalOcrBanner(); statusEl.style.color='var(--text3)'; return; }
+    // プレースホルダー行の再利用(案A)。理由はextractBusFromText内の同種コメント参照。
+    window._pendingFacilityReuseTarget = findReusableDraftRow(bdFacilityItems, 'facility_name', text.trim());
     showFacilityConfirmDialog(facilities);
     document.getElementById('fac-ocr-text').value='';
   }catch(e){
@@ -15316,6 +15346,8 @@ async function extractFacilityFromFile(event, mode){
     const parsed=JSON.parse(cleaned);
     const facilities=Array.isArray(parsed)?parsed:[parsed];
     if(!checkBulkReadSanity(facilities, 'date')){ statusEl.textContent='読み取りをキャンセルしました（件数・日付範囲が不自然なため）'; statusEl.classList.remove('ocr-loading'); hideGlobalOcrBanner(); statusEl.style.color='var(--text3)'; return; }
+    // ファイル/画像添付経由は案A(プレースホルダー行の再利用)の対象外。理由はextractBusFromFile内の同種コメント参照。
+    window._pendingFacilityReuseTarget = null;
     showFacilityConfirmDialog(facilities);
     statusEl.textContent=`✓ ${facilities.length}件を読み取りました`;
     statusEl.classList.remove('ocr-loading');
@@ -15378,9 +15410,10 @@ function showFacilityConfirmDialog(facilities){
 function saveFacilityConfirm(){
   const facilities=window._pendingFacilities;
   if(!facilities) return;
+  let reuseTarget = window._pendingFacilityReuseTarget;
   facilities.forEach((f,i)=>{
     if(!document.getElementById(`fac-c-sel-${i}`)?.checked) return;
-    bdFacilityItems.push({
+    const fields = {
       facility_name: document.getElementById(`fac-c-name-${i}`)?.value||'',
       date: document.getElementById(`fac-c-date-${i}`)?.value||'',
       pax: Number(document.getElementById(`fac-c-pax-${i}`)?.value)||0,
@@ -15388,8 +15421,11 @@ function saveFacilityConfirm(){
       status: document.getElementById(`fac-c-status-${i}`)?.value||'問い合わせ中',
       confirmation_no: document.getElementById(`fac-c-conf-${i}`)?.value||'',
       memo: document.getElementById(`fac-c-memo-${i}`)?.value||''
-    });
+    };
+    if(reuseTarget){ Object.assign(reuseTarget, fields); reuseTarget = null; }
+    else bdFacilityItems.push(fields);
   });
+  window._pendingFacilityReuseTarget = null;
   renderFacilityTable();
   document.getElementById('fac-confirm-modal').remove();
 }
@@ -17769,15 +17805,21 @@ async function extractHotelFromText(){
       statusEl.style.color = 'var(--text3)';
       return;
     }
+    // プレースホルダー行(名前欄が空欄・備考欄が貼り付け文章そのもの)が既にあれば、
+    // 新規追加ではなくその行を上書きする(案A)。1回のAI読み取りで複数件抽出された
+    // 場合も、再利用対象は最初の1件のみとする(元は1つの抜粋=1つのプレースホルダー行のため)。
+    let reuseTarget = findReusableDraftRow(bdHotelItems, 'hotel_name', text);
     hotels.forEach(h=>{
       const nights = calcHotelNights(h.check_in||'', h.check_out||'');
       const amount = Number(h.unit_price||0) * Number(h.rooms||1) * nights;
-      bdHotelItems.push({
+      const fields = {
         hotel_name: h.hotel_name||'', check_in: h.check_in||'', check_out: h.check_out||'',
         room_type: h.room_type||'', rooms: Number(h.rooms)||1, breakfast: !!h.breakfast,
         unit_price: Number(h.unit_price)||0, amount: amount,
         confirmation_no: h.confirmation_no||'', memo: h.memo||''
-      });
+      };
+      if(reuseTarget){ Object.assign(reuseTarget, fields); reuseTarget = null; }
+      else bdHotelItems.push(fields);
     });
     renderHotelTable();
     statusEl.textContent = '✓ '+hotels.length+'件を読み取りました';
