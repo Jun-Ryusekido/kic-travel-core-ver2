@@ -1087,7 +1087,6 @@ input[type=number]{-moz-appearance:textfield}
     <div class="sb-sec" data-sec="booking" onclick="toggleSbSection('booking')" aria-expanded="true"><span class="sb-sec-label">予約管理 <span class="sb-en">/ Booking</span></span><span class="sb-sec-arrow">▾</span></div>
     <div class="sb-sec-body" data-sec-body="booking">
     <div class="sb-item active" data-pg="dashboard" onclick="go('dashboard')">📊 ダッシュボード<span class="sb-en">/ Dashboard</span></div>
-    <div class="sb-item" data-pg="new-booking" onclick="go('new-booking')">➕ New Booking</div>
     <div class="sb-item" data-pg="booking-list" onclick="go('booking-list')">📋 Booking List</div>
     <div class="sb-item" data-pg="tour-calendar" onclick="go('tour-calendar')">🗓 ツアー運行カレンダー<span class="sb-en">/ Calendar</span></div>
     <div class="sb-item" data-pg="hotels" onclick="go('hotels')">🏨 ホテル予約管理<span class="sb-en">/ Hotels</span></div>
@@ -1143,7 +1142,7 @@ input[type=number]{-moz-appearance:textfield}
       </div>
       <div class="tb-actions" style="display:flex;align-items:center;gap:8px;flex-shrink:0">
         <span id="backup-btn-wrap" style="display:none"><button class="btn" onclick="exportFullBackup()">📦<span class="tb-label"> バックアップ</span></button></span>
-        <button class="btn btn-p" onclick="go('new-booking')">＋<span class="tb-label"> New Booking</span></button>
+        <span id="nb-topbar-btn-wrap"><button class="btn btn-p" onclick="go('new-booking')">＋<span class="tb-label"> New Booking</span></button></span>
       </div>
     </div>
 
@@ -3789,6 +3788,9 @@ const pageNames={
   invoice:'Invoice',estimation:'見積もり','guide-settlements':'ガイド精算一覧','guide-management':'ガイド管理',gross:'GROSS / 粗利管理',payment:'入出金管理','credit-card-statements':'クレジットカード明細',accounts:'アカウント管理',logs:'アクセスログ','error-logs':'エラーログ','card-holders':'カード名義人管理'
 ,hotels:'ホテル予約管理',partners:'取引先マスタ',agents:'取引先マスタ(Agent)','bullet-trains':'新幹線手配','invoice-import':'請求書読み取り','email-inbox':'メール受信箱','facility-management':'観光地予約管理',todo:'対応が必要な予約','vendor-email':'手配確定状況','restaurant-conflicts':'レストラン重複確認'
 };
+// トップバーの「+ New Booking」ボタンを表示する画面(予約管理の主要4画面のみ)。
+// go(id)内でNEW_BOOKING_BTN_VISIBLE_PAGES.has(id)により表示/非表示を切り替える。
+const NEW_BOOKING_BTN_VISIBLE_PAGES = new Set(['dashboard','new-booking','booking-list','tour-calendar']);
 function go(id){
   // 手配確定状況画面に未保存の変更(一括保存前のステータス変更)が残っている場合、
   // 他の画面へ移動すると破棄されることを警告する(SPA内遷移はbeforeunloadでは
@@ -3811,6 +3813,13 @@ function go(id){
   document.body.scrollTop = 0;
   document.querySelectorAll('.sb-item').forEach(n=>n.classList.remove('active'));
   document.querySelectorAll('.sb-item[data-pg="'+id+'"]').forEach(n=>n.classList.add('active'));
+  // トップバーの「+ New Booking」ボタンは、予約管理の主要4画面(ダッシュボード・
+  // New Booking自身・Booking List・ツアー運行カレンダー)以外では文脈的に不要かつ
+  // 紛らわしいため非表示にする(例: アカウント管理画面で表示されていた不具合の対応)。
+  // サイドバーの独立した「New Booking」メニュー項目は削除したため、new-bookingページへの
+  // 導線はこのボタンのみ(Booking List画面を開いている間も表示される)に一本化されている。
+  const nbBtnWrap = document.getElementById('nb-topbar-btn-wrap');
+  if(nbBtnWrap) nbBtnWrap.style.display = NEW_BOOKING_BTN_VISIBLE_PAGES.has(id) ? '' : 'none';
   document.getElementById('pg-title').textContent = pageNames[id]||id;
   document.getElementById('sidebar').classList.remove('open');
   updateGlobalDeadlineBannerAction();
@@ -10598,7 +10607,21 @@ function previewEstimation(){
   const _p2 = n => String(n).padStart(2,'0');
   const printDate = `${_now.getFullYear()}/${_p2(_now.getMonth()+1)}/${_p2(_now.getDate())} ${_p2(_now.getHours())}:${_p2(_now.getMinutes())}`;
 
-  const dayHead = estDays.map((d,i)=>`<th style="border:1px solid #999;padding:4px;background:#f5f7fa;white-space:nowrap">DAY${i+1}</th>`).join('') +
+  // DAY見出しに日付(M/D形式)を併記する。day_dateは日付のみのフィールド(YYYY-MM-DD)なので
+  // タイムゾーンずれを避けるためnew Date()変換はせず、文字列のsplitで月日を取り出す
+  // (ツアー運行カレンダーの日付ヘッダー表記と揃えた。day_date未入力のDAYは従来通りDAY番号のみ)。
+  const _dayDateLabel = dateStr => {
+    if(!dateStr) return '';
+    const parts = String(dateStr).split('-');
+    if(parts.length !== 3) return '';
+    const m = parseInt(parts[1],10), d = parseInt(parts[2],10);
+    if(!m || !d) return '';
+    return `${m}/${d}`;
+  };
+  const dayHead = estDays.map((d,i)=>{
+    const dl = _dayDateLabel(d.day_date);
+    return `<th style="border:1px solid #999;padding:4px;background:#f5f7fa;white-space:nowrap">DAY${i+1}${dl?`<br><span style="font-size:8px;font-weight:400;color:#666">${dl}</span>`:''}</th>`;
+  }).join('') +
     (currentEstType==='fit'
       ? `<th style="border:1px solid #999;padding:4px;background:#f5f7fa;white-space:nowrap">合計<br><span style="font-size:8px;font-weight:400;color:#888">1名あたり</span></th>`
       : `<th style="border:1px solid #999;padding:4px;background:#f5f7fa;white-space:nowrap">合計</th>`);
@@ -10687,6 +10710,15 @@ function previewEstimation(){
       </tbody></table></div>`;
   }
 
+  // colgroupの列幅は、日数(DAY数)によらず必ず合計100%になるよう%指定にする。
+  // 以前はラベル100px・DAY列62px・合計70pxという固定px指定をwidth:100%のテーブルに
+  // 混在させており、px合計が実際の描画幅と一致しないと、ブラウザが余った幅を列間で
+  // 予測不能に再配分する(予約一覧テーブルのREF#/Agent列で過去に実際に発生した不具合と
+  // 同じ原因)。DAY9・DAY10だけ極端に狭く潰れる不具合はこれが原因だった。
+  // ラベル列14%・合計列9%を固定とし、残り77%をDAY数で均等割りする(元のpx比率100:62:70に近い配分)。
+  const _EST_LABEL_COL_PCT = 14, _EST_TOTAL_COL_PCT = 9;
+  const _estDayColPct = estDays.length > 0 ? (100 - _EST_LABEL_COL_PCT - _EST_TOTAL_COL_PCT) / estDays.length : 0;
+
   const html = `
     <div style="background:#fff;border:1px solid #ddd;width:100%;margin:0 auto;padding:14px;font-size:11px;color:#222;box-sizing:border-box">
       <div style="position:relative;text-align:center;margin-bottom:6px">
@@ -10695,7 +10727,7 @@ function previewEstimation(){
       </div>
       ${currentEstType==='fit'&&customerName?`<div style="font-size:13px;font-weight:700;margin-bottom:6px">${escHtml(customerName)} 様</div>`:''}
       <div style="margin-bottom:10px;font-size:12px"><strong>${escHtml(title)}</strong>${tourCode?(' / '+escHtml(tourCode)):''}</div>
-      <div class="tbl-wrap"><table style="width:100%;border-collapse:collapse;font-size:10px;margin-bottom:14px;table-layout:fixed"><colgroup><col style="width:100px">${'<col style="width:62px">'.repeat(estDays.length)}<col style="width:70px"></colgroup>
+      <div class="tbl-wrap"><table style="width:100%;border-collapse:collapse;font-size:10px;margin-bottom:14px;table-layout:fixed"><colgroup><col style="width:${_EST_LABEL_COL_PCT}%">${`<col style="width:${_estDayColPct}%">`.repeat(estDays.length)}<col style="width:${_EST_TOTAL_COL_PCT}%"></colgroup>
         <thead><tr><th style="border:1px solid #999;padding:4px;background:#f5f7fa"></th>${dayHead}</tr></thead>
         <tbody>${bodyRows}</tbody>
       </table></div>
@@ -10720,10 +10752,15 @@ body{margin:0;font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Meiryo",s
 @media print{
   .pv-hd{display:none}
   body{background:#fff}
-  table{border-collapse:collapse !important;table-layout:fixed !important;width:auto !important}
+  /* 以前はwidth:auto !importantで、table-layout:fixedの列幅(colgroup)の合計値どおりの
+     幅で描画させていたが、この合計値が実際のA4横ページ幅と一致する保証が無く、画面
+     プレビュー(width:100%)と印刷とで列幅の基準がずれる原因になっていた。colgroupを
+     %指定(必ず合計100%)に変更したことに合わせ、印刷時もwidth:100%(A4横の印刷可能幅
+     いっぱい)を維持し、画面と印刷で同じ基準の列幅計算になるようにする。 */
+  table{border-collapse:collapse !important;table-layout:fixed !important;width:100% !important}
   /* font-sizeは強制せず、pvAutoFitCellFonts()がセル単位で計算したinline指定(1行に収まる
      よう段階的に縮小したもの)をそのまま印刷にも反映させる(画面と印刷でセルの実サイズが
-     一致する固定px幅レイアウトのため、印刷時だけ別途縮小し直す必要はない)。 */
+     一致する%幅レイアウトのため、印刷時だけ別途縮小し直す必要はない)。 */
   td,th{border:1px solid #999 !important;padding:3px 5px !important;line-height:1.4 !important;vertical-align:top !important;white-space:nowrap !important;overflow:hidden !important;text-overflow:ellipsis !important}
   .tbl-wrap{overflow:visible !important;margin-bottom:6px !important}
   .tbl-wrap+.tbl-wrap{page-break-inside:avoid}
