@@ -10801,29 +10801,33 @@ body{margin:0;font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Meiryo",s
     }
     // DAY表+結果表の合計の高さがA4横1ページに収まらないと、2ページ目に一部がはみ出す
     // (印刷ボタンは「A4横・1枚」を謳っているのに実際は2ページになっていた不具合)。
-    // ツアー運行カレンダー印刷(printTourCalendar())で既に実績のある「印刷可能領域を
-    // 超える場合はtransform:scaleで縮小する」手法を、横方向ではなく縦方向に適用する。
     // PRINTABLE_HEIGHT_PXはA4横(210mm)からmargin 6mm×2を引いた印刷可能高さの概算値
     // (210mm-12mm=198mm、96dpiで約748px。ツアー運行カレンダー側のPRINTABLE_WIDTH_PX=1070
     // と同じ考え方の近似値)。縮小率はMIN_SCALEを下限とし、それでも収まらない極端な
     // ケース(行数が非常に多い等)は自然な2ページ分割を許容する(tr{page-break-inside:avoid}
     // により行の途中では割れない)。
+    // 縮小には transform:scale ではなく zoom を使う。Chromiumの印刷ページ分割は、
+    // 対象要素の「レイアウト上の(スケール前の)高さ」で改ページ位置を決めており、
+    // transform:scaleは見た目だけを縮小してレイアウト高さを変えないため、視覚的には
+    // 1ページに収まって見えても実際の改ページ判定はスケール前の高さのまま行われ、
+    // ページ境界より後ろにある要素(Total/Paxサマリー表・フッター等)が2ページ目へ
+    // 分離されてしまう不具合があった(実機のヘッドレスChromeでの印刷PDFで確認済み)。
+    // zoomはtransformと異なりレイアウト自体のサイズを変更するため、改ページ判定にも
+    // 正しく反映される。
     var PRINTABLE_HEIGHT_PX = 748;
     var MIN_SCALE = 0.6;
     function pvAutoFitPageScale(){
       var root = document.getElementById('pv-print-root');
       if(!root) return;
-      root.style.transform = '';
-      root.style.transformOrigin = '';
+      root.style.zoom = '';
       var height = root.scrollHeight;
       if(height <= PRINTABLE_HEIGHT_PX) return;
       var scale = Math.max(MIN_SCALE, PRINTABLE_HEIGHT_PX / height);
-      root.style.transformOrigin = 'top left';
-      root.style.transform = 'scale(' + scale.toFixed(3) + ')';
+      root.style.zoom = scale.toFixed(3);
     }
     function pvResetPageScale(){
       var root = document.getElementById('pv-print-root');
-      if(root){ root.style.transform = ''; root.style.transformOrigin = ''; }
+      if(root){ root.style.zoom = ''; }
     }
     window.addEventListener('load', pvAutoFitCellFonts);
     window.addEventListener('beforeprint', pvAutoFitCellFonts);
