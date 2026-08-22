@@ -9,8 +9,8 @@
   ],
   "routes": [
     { "src": "/api/extract-card", "dest": "/api/extract-card.js" },
-    { "src": "/api/extract-email-refs", "dest": "/api/extract-email-refs.js" },
-    { "src": "/api/classify-email-relevance", "dest": "/api/classify-email-relevance.js" },
+    { "src": "/api/extract-email-refs", "dest": "/api/ai-inbox.js?legacyMode=extractRefs" },
+    { "src": "/api/classify-email-relevance", "dest": "/api/ai-inbox.js?legacyMode=classify" },
     { "src": "/api/login", "dest": "/api/login.js" },
     { "src": "/api/change-password", "dest": "/api/change-password.js" },
     { "src": "/api/list-users", "dest": "/api/list-users.js" },
