@@ -6,9 +6,24 @@
 // (index.html全体を確認済み。html_bodyを読む箇所はsendEmailToBooking()の1箇所のみで、
 // これはimported=trueを立てる前にしか呼ばれない)。
 //
-// このスクリプトは、imported=true かつ received_at が指定日数(既定30日)より古い行の
-// html_body列だけをNULLに更新する。body(プレーンテキスト本文)・attachments・
-// REF#候補等、他の列には一切触れない。
+// このスクリプトは、以下の条件を全て満たす行のhtml_body列だけをNULLに更新する。
+// body(プレーンテキスト本文)・attachments・REF#候補等、他の列には一切触れない。
+//
+//   (imported=true OR ignored=true OR is_excluded=true)
+//   かつ postponed=false
+//   かつ received_at が指定日数(既定30日)より古い
+//
+// 2026-08-22の追加調査で、imported=trueは「予約への紐付けが完了した」という
+// 狭い意味しか持たず、無視(ignored=true)・対象外判定(is_excluded=true)された
+// メールはimportedがfalseのまま変わらないことが判明した(当初の
+// imported=trueのみを対象とする条件では、対象がほぼ0件のままになってしまう
+// ことが実データで確認された)。html_bodyが実際に使われるのは受信箱の送信フロー
+// (sendEmailToBooking()がis_flagged判定のためAIに渡す)のみで、「無視」
+// 「対象外」「予約紐付け完了」いずれかになったメールはこのフローに戻らないため
+// html_bodyは不要になる。
+// postponed=true(保留、「後で見る」という明示的な意思表示)の行は、他の3条件の
+// 状態に関わらず必ず除外する(最優先の安全条件。ignored/is_excludedがtrueでも
+// postponedが同時にtrueなら対象にしない)。
 //
 // 安全策(scripts/dedupe_email_import_queue.jsと同じ方針):
 //   1. 既定はレポートのみ(--apply を付けない限り実際の更新は一切行わない)。
@@ -52,17 +67,19 @@ function ask(question) {
   return new Promise((resolve) => rl.question(question, (ans) => { rl.close(); resolve(ans); }));
 }
 
-// imported=true かつ received_at < cutoff かつ html_body が既にNULLでない行のみを対象にする
-// (未取り込みの行・30日以内の行・既にNULL済みの行はそもそも対象に含めない=安全側)。
+// (imported=true OR ignored=true OR is_excluded=true) かつ postponed=false かつ
+// received_at < cutoff かつ html_body が既にNULLでない行のみを対象にする
+// (真に未対応の行・保留中の行・30日以内の行・既にNULL済みの行はそもそも対象に
+// 含めない=安全側)。PostgRESTのor=(...)は他のトップレベル条件とAND結合される。
 function buildFilterQS(cutoffIso) {
-  return `imported=eq.true&received_at=lt.${encodeURIComponent(cutoffIso)}&html_body=not.is.null`;
+  return `postponed=eq.false&received_at=lt.${encodeURIComponent(cutoffIso)}&html_body=not.is.null&or=(imported.eq.true,ignored.eq.true,is_excluded.eq.true)`;
 }
 
 async function fetchTargetRows(cutoffIso) {
   const rows = [];
   let from = 0;
   for (;;) {
-    const url = `${SB_URL}/rest/v1/email_import_queue?${buildFilterQS(cutoffIso)}&select=id,subject,sender,received_at,html_body&order=received_at.asc`;
+    const url = `${SB_URL}/rest/v1/email_import_queue?${buildFilterQS(cutoffIso)}&select=id,subject,sender,received_at,imported,ignored,is_excluded,postponed,html_body&order=received_at.asc`;
     const res = await fetch(url, {
       headers: {
         apikey: SERVICE_KEY,
@@ -117,9 +134,20 @@ async function main() {
   cutoff.setDate(cutoff.getDate() - args.days);
   const cutoffIso = cutoff.toISOString();
 
-  console.log(`対象条件: imported=true かつ received_at < ${cutoffIso}(${args.days}日以前) かつ html_bodyが未クリア`);
+  console.log(`対象条件: (imported=true OR ignored=true OR is_excluded=true) かつ postponed=false かつ received_at < ${cutoffIso}(${args.days}日以前) かつ html_bodyが未クリア`);
   console.log('対象行を取得中...');
   const rows = await fetchTargetRows(cutoffIso);
+
+  // サーバー側フィルタ(buildFilterQS)を信用しきらず、クライアント側でも二重チェックする
+  // (postponed=trueの行が万一混入していないか・「真に未対応」行が混入していないか)。
+  const postponedLeak = rows.filter((r) => r.postponed === true);
+  if (postponedLeak.length) {
+    throw new Error(`安全チェック失敗: postponed=trueの行が${postponedLeak.length}件対象に混入しています(id: ${postponedLeak.map((r) => r.id).join(',')})。フィルタ条件を確認してください。`);
+  }
+  const trulyPendingLeak = rows.filter((r) => !r.imported && !r.ignored && !r.is_excluded);
+  if (trulyPendingLeak.length) {
+    throw new Error(`安全チェック失敗: imported/ignored/is_excludedが全てfalseの行が${trulyPendingLeak.length}件対象に混入しています(id: ${trulyPendingLeak.map((r) => r.id).join(',')})。フィルタ条件を確認してください。`);
+  }
 
   const totalBytes = rows.reduce((s, r) => s + Buffer.byteLength(r.html_body || '', 'utf8'), 0);
   console.log(`\n===== 事前レポート =====`);
@@ -128,7 +156,7 @@ async function main() {
   if (rows.length) {
     console.log('\n対象サンプル(先頭5件):');
     for (const r of rows.slice(0, 5)) {
-      console.log(`  id=${r.id} subject="${(r.subject || '').slice(0, 40)}" received_at=${r.received_at} html_body_bytes=${Buffer.byteLength(r.html_body || '', 'utf8')}`);
+      console.log(`  id=${r.id} subject="${(r.subject || '').slice(0, 40)}" received_at=${r.received_at} imported=${!!r.imported} ignored=${!!r.ignored} is_excluded=${!!r.is_excluded} html_body_bytes=${Buffer.byteLength(r.html_body || '', 'utf8')}`);
     }
   }
 
