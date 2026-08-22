@@ -1,4 +1,4 @@
-# KIC_Clear_Email_HtmlBody タスクをWindowsタスクスケジューラに登録するスクリプト
+﻿# KIC_Clear_Email_HtmlBody タスクをWindowsタスクスケジューラに登録するスクリプト
 # (scripts/register_backup_daily_task.ps1と同じ方式)。
 # GUIでの手動登録は不要。PowerShellで実行するだけで登録が完了する:
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\register_clear_email_html_body_task.ps1
