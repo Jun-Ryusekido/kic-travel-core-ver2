@@ -1,4 +1,4 @@
-# KIC Travel Core - Outlook email catch-up (scheduled).
+﻿# KIC Travel Core - Outlook email catch-up (scheduled).
 # Replaces the old VBS + "/autorun" approach, which never worked:
 #   - /autorun was removed from Outlook after 2003 and silently does nothing on
 #     Office16; it just launched a second Outlook window.
