@@ -8,7 +8,6 @@
     { "src": "api/*.js", "use": "@vercel/node" }
   ],
   "routes": [
-    { "src": "/api/generate-haichisho", "dest": "/api/generate-haichisho.js" },
     { "src": "/api/extract-card", "dest": "/api/extract-card.js" },
     { "src": "/api/extract-email-refs", "dest": "/api/extract-email-refs.js" },
     { "src": "/api/classify-email-relevance", "dest": "/api/classify-email-relevance.js" },
