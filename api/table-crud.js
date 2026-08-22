@@ -41,7 +41,14 @@ const TABLE_CONFIG = {
   // booking_costsは書き込みが全てこのAPI経由であることを確認済み(直接anon書き込み0件)。
   // 毎時バックアップの差分化のためupdated_at列を追加し(scripts/add_updated_at_to_booking_costs.sql)、
   // booking_buses/booking_restaurantsと同じ方式でサーバー側に確実にスタンプする。
-  booking_costs: { actions: ['replace', 'insert', 'deleteByBooking'], label: '仕入明細', stampIdentity: true, stampUpdatedAt: true, auditLog: true },
+  // auditDiffIgnoreFields: source_idはremapCostSourceIds()(index.html)により、この行自体の
+  // 内容とは無関係な理由(連携元のホテル/バス/レストラン/観光施設タブが別に保存され、
+  // それらのidが変わった)で書き換わる。この列だけを理由に「内容が変わった」と audit_logs に
+  // 記録してしまうと、他のタブの保存のたびにbooking_costs全行がdelete+insertとして記録され
+  // 続けてしまう(2026-08-22点検で判明した肥大化の主因)。doReplace()の新旧内容比較から
+  // この列を除外することで、実際にitem_name/amount等が変わった行だけを記録する。
+  // source_table/source_snapshotは追加時点で1回だけセットされ以後変化しないため除外しない。
+  booking_costs: { actions: ['replace', 'insert', 'deleteByBooking'], label: '仕入明細', stampIdentity: true, stampUpdatedAt: true, auditLog: true, auditDiffIgnoreFields: ['source_id'] },
   // deleteByBookingは予約削除(deleteBookingData)用(2026-08-12点検で追加。それまで予約削除の削除対象から漏れていた)
   local_expenses: { actions: ['replace', 'deleteByBooking'], label: '現地費用明細' },
   parking_reservations: { actions: ['list', 'save', 'delete'], label: '駐車場予約' },
@@ -561,10 +568,54 @@ async function writeAuditLogs(table, entries, changedBy) {
   }
 }
 
+// doReplace()の新旧内容比較で無視する共通列(replaceのたびに必ず変わる/持ち回りされない
+// メタ情報のため、これらだけが異なる行を「内容が変わった」とは扱わない)。
+const AUDIT_DIFF_IGNORE_COMMON = ['id', 'booking_id', 'created_at', 'updated_at', 'created_by', 'updated_by'];
+
+// 行の「内容シグネチャ」。ignoreFieldsに挙げた列を除いた全カラムをkeyソートしてJSON化する
+// (部分キーではなく全カラム一致にすることで、別内容の行を誤って同一と判定するリスクを
+// 無くす)。同一シグネチャの行同士は、どの具体的な行同士が対応するかを問わず「変更なし」
+// として扱ってよい(1対1のID同定が必要な既存のremapCreditCardStatementSourceIds等とは
+// 異なり、ここでは「変更があったか」の判定のみが目的のため、多重集合としての一致で十分)。
+function rowContentSignature(row, ignoreFields) {
+  const clean = {};
+  Object.keys(row).sort().forEach((k) => {
+    if (!ignoreFields.includes(k)) clean[k] = row[k];
+  });
+  return JSON.stringify(clean);
+}
+
+// existing(保存前の全行)とinsertedRows(保存後の全行)を内容シグネチャで多重集合マッチングし、
+// 「実際に変更・追加された行(unmatchedInserted)」「実際に削除された行(unmatchedExisting)」
+// だけを返す。内容が完全一致する行同士は消し込まれ、audit_logsへの記録対象から外れる。
+function diffReplaceRowsForAudit(existing, insertedRows, ignoreFields) {
+  const pool = new Map();
+  (existing || []).forEach((r) => {
+    const sig = rowContentSignature(r, ignoreFields);
+    if (!pool.has(sig)) pool.set(sig, []);
+    pool.get(sig).push(r);
+  });
+  const unmatchedInserted = [];
+  (insertedRows || []).forEach((r) => {
+    const sig = rowContentSignature(r, ignoreFields);
+    const queue = pool.get(sig);
+    if (queue && queue.length) {
+      queue.shift(); // 内容一致する旧行を1つ消費 = この新行は「変更なし」
+    } else {
+      unmatchedInserted.push(r);
+    }
+  });
+  const unmatchedExisting = [...pool.values()].flat();
+  return { unmatchedExisting, unmatchedInserted };
+}
+
 // 「新規INSERTに成功してから、既存の旧行だけをidで指定してDELETEする」安全な差分置き換え。
 // クライアント側のsafeReplaceBookingRowsと同じ考え方(#782の全削除→再挿入事故の再発防止)。
-// config.auditLogが有効な場合、削除される旧行はaction:'delete'、新規挿入した行は
-// action:'insert'として、それぞれ行単位でaudit_logsに記録する。
+// config.auditLogが有効な場合、旧行・新行を内容シグネチャで突き合わせ、実際に内容が
+// 変わった行だけを記録する(削除される旧行はaction:'delete'、新規/変更後の行は
+// action:'insert')。replaceは毎回全行を作り直すため、内容が完全に同一の行(=変更なし)まで
+// 毎回delete+insertとして記録すると、明細行数の多い予約ほどaudit_logsが際限なく
+// 肥大化してしまう(2026-08-22点検、booking_costsで実際に発生していた問題への対策)。
 async function doReplace(table, label, bookingId, rows, config, changedBy) {
   if (!bookingId) return { status: 400, body: { error: 'bookingIdが指定されていません' } };
   const needAudit = !!(config && config.auditLog);
@@ -591,9 +642,11 @@ async function doReplace(table, label, bookingId, rows, config, changedBy) {
     }
   }
   if (needAudit) {
+    const ignoreFields = [...AUDIT_DIFF_IGNORE_COMMON, ...((config && config.auditDiffIgnoreFields) || [])];
+    const { unmatchedExisting, unmatchedInserted } = diffReplaceRowsForAudit(existing, insertedRows, ignoreFields);
     const entries = [
-      ...(existing || []).map((r) => ({ recordId: r.id, action: 'delete', before: r, after: null })),
-      ...insertedRows.map((r) => ({ recordId: r.id, action: 'insert', before: null, after: r })),
+      ...unmatchedExisting.map((r) => ({ recordId: r.id, action: 'delete', before: r, after: null })),
+      ...unmatchedInserted.map((r) => ({ recordId: r.id, action: 'insert', before: null, after: r })),
     ];
     await writeAuditLogs(table, entries, changedBy);
   }
