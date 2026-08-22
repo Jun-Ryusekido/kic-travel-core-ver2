@@ -10,6 +10,8 @@
     "bcryptjs": "^2.4.3",
     "mupdf": "^1.28.0",
     "officecrypto-tool": "^0.0.19",
+    "otplib": "^13.5.0",
+    "qrcode": "^1.5.4",
     "xlsx": "^0.18.5"
   }
 }
