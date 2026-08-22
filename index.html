@@ -1052,7 +1052,7 @@ input[type=number]{-moz-appearance:textfield}
 
 <!-- ===== LOGIN ===== -->
 <div id="screen-login">
-  <div class="login-box" id="login-box-pw">
+  <div class="login-box">
     <div class="login-logo">✈ KIC Travel Core</div>
     <div class="login-sub">Ver 2.0 · INBOUND · マルチデバイス対応</div>
     <form onsubmit="doLogin(); return false;">
@@ -1061,20 +1061,6 @@ input[type=number]{-moz-appearance:textfield}
       <div class="login-err" id="login-err">IDまたはパスワードが正しくありません</div>
       <button class="btn-login" type="submit">ログイン</button>
     </form>
-  </div>
-  <!-- admin@kictravel.jp(JUNさんと他1名で共有利用)のみ、パスワード認証成功後にこの
-       画面へ遷移し、共有のTOTPシークレットから生成される6桁コードの入力を求める
-       (doLogin()がサーバーからtotpRequired:trueを受け取った時にshowLoginTotpStep()を
-       呼んで切り替える)。他のアカウントはこの画面を経由せず従来通り即ログインする。 -->
-  <div class="login-box" id="login-box-totp" style="display:none">
-    <div class="login-logo">✈ KIC Travel Core</div>
-    <div class="login-sub">2段階認証コードを入力してください</div>
-    <form onsubmit="doLoginTotp(); return false;">
-      <div class="fld"><label>認証コード（6桁）</label><input id="login-totp-code" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="one-time-code" placeholder="123456"></div>
-      <div class="login-err" id="login-totp-err">認証コードが正しくありません</div>
-      <button class="btn-login" type="submit">認証する</button>
-    </form>
-    <div style="text-align:center;margin-top:12px"><a href="#" onclick="cancelLoginTotp();return false;" style="font-size:12px;color:#888">← パスワード入力に戻る</a></div>
   </div>
 </div>
 
@@ -1143,7 +1129,6 @@ input[type=number]{-moz-appearance:textfield}
         <div><div class="sb-uname" id="sb-uname">Admin</div><div class="sb-urole" id="sb-urole">管理者</div></div>
       </div>
       <div class="sb-logout" onclick="changePassword()" style="margin-bottom:4px">🔑 パスワード変更</div>
-      <div class="sb-logout" id="sb-totp-setup" onclick="openTotpSetupModal()" style="display:none;margin-bottom:4px">🔐 2段階認証QR表示</div>
       <div class="sb-logout" onclick="doLogout()">ログアウト</div>
     </div>
   </div>
@@ -2048,23 +2033,6 @@ input[type=number]{-moz-appearance:textfield}
       </div>
 
       <!-- 駐車場 今すぐ予約モーダル -->
-      <!-- admin@kictravel.jp(JUNさんと他1名で共有利用)専用の2段階認証(TOTP)設定モーダル。
-           サイドバーの「🔐 2段階認証QR表示」(admin@でログイン中のみ表示)から開く。
-           QRコード・シークレット文字列とも、既にtotp_secretが設定済みなら同じ値を
-           返す(/api/totp-setup、admin@自身のセッションでのみ呼び出し可能)ため、
-           もう1名にも同じQRを再度共有したい場合はいつでもこの画面を開けばよい。 -->
-      <div class="modal-overlay" id="totp-setup-modal">
-        <div class="modal-box" style="max-width:420px">
-          <div class="modal-header">
-            <div class="modal-title">🔐 2段階認証(TOTP)設定</div>
-            <div class="modal-close" onclick="closeTotpSetupModal()">✕</div>
-          </div>
-          <div style="font-size:11px;color:var(--text3);margin:8px 0 12px">admin@kictravel.jpアカウント共有用のQRコードです。Google Authenticator等の認証アプリでスキャンしてください。もう1名にも同じ画像を安全な方法（画面のスクリーンショット等）で共有してください。</div>
-          <div id="totp-setup-body" style="text-align:center">
-            <div class="empty">読み込み中...</div>
-          </div>
-        </div>
-      </div>
       <div class="modal-overlay" id="parking-now-modal">
         <div class="modal-box" style="max-width:560px">
           <div class="modal-header">
@@ -3108,17 +3076,11 @@ const EMAIL_EXCLUDE_EMAILS = ['admin@kictravel.jp','jr@kictravel.jp'];
 // チェックでサーバー側でも同じ一覧を使って二重に制限する(有効なセッショントークンさえ
 // あれば誰でも叩けてしまう抜け穴を塞ぐ、error_logsのlistアクションと同じ考え方)。
 const CARD_HOLDER_ADMIN_EMAILS = ['admin@kictravel.jp'];
-// 2段階認証(TOTP)のQR/シークレット表示メニューはadmin@kictravel.jp(JUNさんと他1名で
-// 共有利用するアカウント)専用。他のアカウント(jr@/joshua@/yoshida@/kanri@/bando@)には
-// このメニュー自体を表示しない(サーバー側/api/totp-setupでもemail==='admin@kictravel.jp'
-// を要求しており、UI側の表示制御と二重にガードしている)。
-const TOTP_SETUP_EMAILS = ['admin@kictravel.jp'];
 function isBackupUser(){ return currentUser && BACKUP_EMAILS.includes(currentUser.email); }
 function isErrorLogViewer(){ return currentUser && ERROR_LOG_VIEWER_EMAILS.includes(currentUser.email); }
 function isEmailExcludeUser(){ return currentUser && EMAIL_EXCLUDE_EMAILS.includes(currentUser.email); }
 function isAccountingUser(){ return currentUser && ACCOUNTING_EMAILS.includes(currentUser.email); }
 function isCardHolderAdmin(){ return currentUser && CARD_HOLDER_ADMIN_EMAILS.includes(currentUser.email); }
-function isTotpSetupUser(){ return currentUser && TOTP_SETUP_EMAILS.includes(currentUser.email); }
 let currentPageId = 'dashboard';
 const SESSION_KEY = 'kic_session_v1';
 const SESSION_TIMEOUT_MS = 15*60*1000; // 15分操作がなければ自動ログアウト
@@ -3594,14 +3556,6 @@ window.addEventListener('unhandledrejection', (ev)=>{
 // ===== ログイン =====
 // app_usersへのanonキーからの直接アクセスは廃止したため、照合は/api/login経由(service_role key)
 // で行う。last_login更新・平文パスワードの自動ハッシュ化移行もサーバー側で完結する。
-//
-// admin@kictravel.jp(JUNさんと他1名で共有利用)のみ、パスワード認証成功後にTOTP
-// (6桁コード)による2段階認証を追加で要求する。/api/loginはパスワードが合っていて
-// totp_secret設定済みのユーザーの場合、totpCode省略時に{totpRequired:true}を返す
-// ため、それを受けてコード入力画面(login-box-totp)に切り替える。パスワード自体は
-// 再送信せずに済むよう、コード確認までの間だけ_pendingLoginCredsに保持しておく
-// (ログイン完了・キャンセルいずれのタイミングでも必ずクリアする)。
-let _pendingLoginCreds = null;
 async function doLogin(){
   const id = document.getElementById('login-id').value.trim();
   const pw = document.getElementById('login-pw').value;
@@ -3612,20 +3566,13 @@ async function doLogin(){
   // 原理的に一致しない。ハッシュとの照合はservice_role key経由のサーバー側API(/api/login、
   // bcrypt.compareを使用)で行う。/api/loginは旧・平文保存ユーザーとの後方互換(平文比較→
   // 成功時にbcryptへ自動移行)にも対応済み。
-  let data = null, error = null, totpRequired = false;
+  let data = null, error = null;
   try{
     const resp = await fetch('/api/login', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({email:id, password:pw})});
     const body = await resp.json();
-    if(resp.ok && body.totpRequired) totpRequired = true;
-    else if(resp.ok) data = body.user;
+    if(resp.ok) data = body.user;
     else error = new Error(body.error || 'ログインに失敗しました');
   }catch(e){ error = e; }
-
-  if(totpRequired){
-    _pendingLoginCreds = {id, pw};
-    showLoginTotpStep();
-    return;
-  }
 
   if(error || !data){
     document.getElementById('login-err').style.display='block';
@@ -3645,53 +3592,6 @@ async function doLogin(){
   go('dashboard');
 }
 document.getElementById('login-id').addEventListener('keydown', e=>{if(e.key==='Enter')doLogin()});
-
-function showLoginTotpStep(){
-  document.getElementById('login-box-pw').style.display = 'none';
-  document.getElementById('login-box-totp').style.display = '';
-  document.getElementById('login-totp-err').style.display = 'none';
-  const code = document.getElementById('login-totp-code');
-  code.value = '';
-  code.focus();
-}
-function cancelLoginTotp(){
-  _pendingLoginCreds = null;
-  document.getElementById('login-totp-code').value = '';
-  document.getElementById('login-totp-err').style.display = 'none';
-  document.getElementById('login-box-totp').style.display = 'none';
-  document.getElementById('login-box-pw').style.display = '';
-}
-async function doLoginTotp(){
-  if(!_pendingLoginCreds){ cancelLoginTotp(); return; }
-  const { id, pw } = _pendingLoginCreds;
-  const code = document.getElementById('login-totp-code').value.trim();
-  document.getElementById('login-totp-err').style.display = 'none';
-
-  let data = null, error = null;
-  try{
-    const resp = await fetch('/api/login', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({email:id, password:pw, totpCode:code})});
-    const body = await resp.json();
-    if(resp.ok) data = body.user;
-    else error = new Error(body.error || '認証コードが正しくありません');
-  }catch(e){ error = e; }
-
-  if(error || !data){
-    document.getElementById('login-totp-err').style.display = 'block';
-    try{
-      await sb.from('access_logs').insert({user_email:id||'unknown',action:'ログイン試行(2段階認証)',target:'—',device:deviceLabel(),ip_address:'—',result:'failed'});
-    }catch(e){}
-    return;
-  }
-
-  _pendingLoginCreds = null;
-  currentUser = data;
-
-  await logAction('ログイン','—');
-
-  applyLoggedInUI(data);
-  saveSession();
-  go('dashboard');
-}
 document.getElementById('login-pw').addEventListener('keydown', e=>{if(e.key==='Enter')doLogin()});
 
 function applyLoggedInUI(data){
@@ -3715,8 +3615,6 @@ function applyLoggedInUI(data){
   if(errLogItem) errLogItem.style.display = isErrorLogViewer() ? '' : 'none';
   const cardHolderItem = document.getElementById('sb-card-holders');
   if(cardHolderItem) cardHolderItem.style.display = isCardHolderAdmin() ? '' : 'none';
-  const totpSetupItem = document.getElementById('sb-totp-setup');
-  if(totpSetupItem) totpSetupItem.style.display = isTotpSetupUser() ? '' : 'none';
 
   refreshGlobalDeadlineBanner();
 }
@@ -3838,31 +3736,6 @@ async function changePassword(){
   alert('パスワードを変更しました。次回ログインから新しいパスワードをご使用ください。');
 }
 
-// admin@kictravel.jp専用の2段階認証(TOTP)QR/シークレット表示。/api/totp-setupは
-// セッションtokenのemailがadmin@kictravel.jp自身であることをサーバー側でも検証する
-// (currentUser.tokenは/api/login成功時に発行済み)。既にtotp_secretが設定済みなら
-// 新規生成せず同じ値からQRを再生成して返すため、この画面は初回設定後も
-// もう1名への再共有用として何度でも開ける。
-async function openTotpSetupModal(){
-  document.getElementById('totp-setup-modal').classList.add('open');
-  const body = document.getElementById('totp-setup-body');
-  body.innerHTML = '<div class="empty">読み込み中...</div>';
-  try{
-    const resp = await fetch('/api/totp-setup', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({token: currentUser.token})});
-    const data = await resp.json();
-    if(!resp.ok) throw new Error(data.error || 'QRコードの取得に失敗しました');
-    body.innerHTML = `
-      <img src="${data.qrDataUrl}" alt="TOTP QR" style="width:200px;height:200px;border:1px solid var(--border)">
-      <div style="font-size:10px;color:var(--text3);margin-top:10px">QRコードが読み取れない場合は、以下のシークレットキーを認証アプリに手動入力してください</div>
-      <div style="font-family:monospace;font-size:13px;font-weight:700;letter-spacing:1px;margin-top:4px;user-select:all">${escHtml(data.secret)}</div>`;
-  }catch(e){
-    body.innerHTML = `<div class="empty" style="color:var(--red)">${escHtml(e.message)}</div>`;
-  }
-}
-function closeTotpSetupModal(){
-  document.getElementById('totp-setup-modal').classList.remove('open');
-}
-
 function doLogout(){
   logAction('ログアウト','—');
   currentUser=null;
@@ -3870,7 +3743,6 @@ function doLogout(){
   document.getElementById('screen-app').style.display='none';
   document.getElementById('screen-login').style.display='flex';
   document.getElementById('login-pw').value='';
-  cancelLoginTotp();
 }
 
 // 操作があるたびにセッションの有効期限を延長（頻発しすぎないよう間引き）
