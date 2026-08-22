@@ -8,10 +8,9 @@
     { "src": "api/*.js", "use": "@vercel/node" }
   ],
   "routes": [
-    { "src": "/api/generate-haichisho", "dest": "/api/generate-haichisho.js" },
     { "src": "/api/extract-card", "dest": "/api/extract-card.js" },
-    { "src": "/api/extract-email-refs", "dest": "/api/extract-email-refs.js" },
-    { "src": "/api/classify-email-relevance", "dest": "/api/classify-email-relevance.js" },
+    { "src": "/api/extract-email-refs", "dest": "/api/ai-inbox.js?legacyMode=extractRefs" },
+    { "src": "/api/classify-email-relevance", "dest": "/api/ai-inbox.js?legacyMode=classify" },
     { "src": "/api/login", "dest": "/api/login.js" },
     { "src": "/api/change-password", "dest": "/api/change-password.js" },
     { "src": "/api/list-users", "dest": "/api/list-users.js" },
@@ -21,7 +20,8 @@
     { "src": "/api/booking-costs", "dest": "/api/table-crud.js?legacyTable=booking_costs" },
     { "src": "/api/local-expenses", "dest": "/api/table-crud.js?legacyTable=local_expenses" },
     { "src": "/api/parking-reservations", "dest": "/api/table-crud.js?legacyTable=parking_reservations" },
-    { "src": "/api/email-import-insert", "dest": "/api/email-import-insert.js" },
+    { "src": "/api/email-import-insert", "dest": "/api/email-import.js?legacyMode=insert" },
+    { "src": "/api/email-attachment-upload", "dest": "/api/email-import.js?legacyMode=attachment" },
     { "src": "/guide_settlement_jp.pdf", "dest": "/public/guide_settlement_jp.pdf" },
     { "src": "/guide_settlement_en.pdf", "dest": "/public/guide_settlement_en.pdf" },
     { "src": "/kic-logo.png", "dest": "/public/kic-logo.png" },

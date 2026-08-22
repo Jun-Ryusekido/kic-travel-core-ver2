@@ -1,3 +1,13 @@
+// 2026-08-22、Vercel Hobbyプランの関数数上限(12本)対策(フェーズ0)のため、
+// api/からarchive/へ退避した。index.html・guide.html・arrangement_excel.js・
+// VBAマクロ・PowerShellスクリプトのいずれからも呼び出し元が見つからず(調査済み)、
+// 現時点で使われていないと判断したため。
+//
+// 削除はせず、必要になった場合はこのファイルをapi/generate-haichisho.jsへ戻し、
+// vercel.jsonのroutesに以下を追加するだけで復活できる:
+//   { "src": "/api/generate-haichisho", "dest": "/api/generate-haichisho.js" },
+//
+// 以下は退避前のコード本体（無変更）。
 import XLSX from 'xlsx';
 import { readFileSync } from 'fs';
 import { join } from 'path';
