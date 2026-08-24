@@ -311,6 +311,28 @@ const TABLE_CONFIG = {
     stampIdentity: true,
     auditLog: true,
   },
+  // invoices(請求書): 金銭データを扱う最重要テーブルの一つだが、tour_arrangement_headers等
+  // 似た名前の別テーブルとの取り違えでservice_role移行対象から漏れ、anonキーからの直接
+  // insert/update/deleteが残ったまま放置されていた(2026-08点検で判明)。
+  // booking_hotels等と同じ手順(service_role API化→フロント切替→検証→REVOKE)で対応する。
+  // このコミットではREVOKE(anon/authenticatedからの実際の権限剥奪)は行わない
+  // (scripts/lock_down_invoices_writes.sql参照。作成のみで未実行)。
+  // created_by/updated_by列がinvoicesにはまだ無いため(booking_costs等と異なり、この
+  // 移行以前に追加された形跡が無い)、他テーブルと違いstampIdentityは有効化しない
+  // (列が無い状態でstampすると insert/update 自体がDBエラーで失敗するため)。将来
+  // 監査で作成者/更新者を追う必要が出た場合は、別途created_by/updated_by列を追加する
+  // マイグレーションを先に実行してから有効化すること。
+  // auditLogはstampIdentityと独立して機能する(通常カラムの前後比較のみで動作する)ため
+  // 有効化する。insertReturningではなくinsertを使うのは、doInsert()内のコメントの通り
+  // auditLog:true時はどのみちreturn=representationで挿入後の行(採番id含む)を取得して
+  // いるため、それをそのままrowsとして呼び出し元に返せる(insertReturningはauditLog非対応)。
+  // ステータス変更(pending→void、void→pendingのロールバック)はfields:{status:...}を渡す
+  // updateById/updateByIds(複数件の一括void)で表現できるため、専用actionは不要と判断した。
+  invoices: {
+    actions: ['insert', 'updateById', 'updateByIds', 'deleteByBooking'],
+    label: '請求書',
+    auditLog: true,
+  },
   // F1(見積もりのservice_role移行)。created_by/updated_by列追加・service_roleへの
   // GRANTを実施済み(SQL実行済み)。無停止移行のため、anon直接書き込み権限は当面維持する
   // (フェーズB相当のREVOKEは別途実施)。estimation_fit_itemsは実データ0件・書き込み経路が

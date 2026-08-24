@@ -4926,6 +4926,11 @@ async function bookingFacilitiesApiCall(action, payload){ return tableCrudApiCal
 // メールマッチング等、影響範囲が広いためロールアウトのリスクを最小化する)。
 async function bookingsApiCall(action, payload){ return tableCrudApiCall('bookings', action, payload); }
 async function bookingCostsApiCall(action, payload){ return tableCrudApiCall('booking_costs', action, payload); }
+// invoices(請求書)。金銭データを扱う最重要テーブルの一つだが、似た名前の他テーブルとの
+// 取り違えでservice_role移行対象から漏れ、anonキーからの直接insert/update/deleteが
+// 残っていた(2026-08点検で判明)。他テーブルと同じ形式でservice_role API化する
+// (api/table-crud.jsのTABLE_CONFIG.invoices参照。REVOKEはこの時点では未実行)。
+async function invoicesApiCall(action, payload){ return tableCrudApiCall('invoices', action, payload); }
 // booking_hotels/booking_buses/booking_restaurants(セキュリティ移行バッチA)。
 // safeReplaceBookingRowsが行っていたselect→insert→deleteの差分置き換えは、
 // 既存のbooking_sales/booking_costs/local_expensesと同じdoReplace(action:'replace')に
@@ -8670,7 +8675,7 @@ async function deleteBookingData(){
     }
 
     // Invoice・売上明細・仕入明細
-    await sb.from('invoices').delete().eq('booking_id', b.id);
+    await invoicesApiCall('deleteByBooking', { bookingId: b.id });
     await bookingSalesApiCall('deleteByBooking', { bookingId: b.id });
     await bookingCostsApiCall('deleteByBooking', { bookingId: b.id });
 
@@ -18412,7 +18417,7 @@ async function saveBookingDetail(){
       if(!invAgent) continue; // agent_name未設定のInvoiceは自動判定をスキップ(要手動確認)
       const agg = salesTotalsByAgent[invAgent];
       if(agg && agg.paid>0 && agg.paid>=agg.sales){
-        await sb.from('invoices').update({status:'paid'}).eq('id', inv.id);
+        await invoicesApiCall('updateById', { id: inv.id, fields: {status:'paid'} });
       }
     }
   } catch(e) {
@@ -25832,8 +25837,9 @@ async function generateInvoice(bookingId, currency, agentFilter){
   }
 
   if(voidIds.length){
-    const {error: voidErr} = await sb.from('invoices').update({status:'void'}).in('id', voidIds);
-    if(voidErr){ alert('請求書の失効処理に失敗したため、新規発行を中止しました: '+voidErr.message); return; }
+    try{
+      await invoicesApiCall('updateByIds', { ids: voidIds, fields: {status:'void'} });
+    }catch(e){ alert('請求書の失効処理に失敗したため、新規発行を中止しました: '+e.message); return; }
     for(const id of voidIds){
       const target = existingPending.find(i=>i.id===id);
       await logAction('請求書を失効', (target?target.invoice_no:id) + (voidMemo?(' / 理由: '+voidMemo):''));
@@ -25866,27 +25872,32 @@ async function generateInvoice(bookingId, currency, agentFilter){
   }
   if(currency==='USD') amount = Math.round((amount/USD_RATE)*100)/100;
 
-  const {data, error} = await sb.from('invoices').insert({
-    invoice_no: invoiceNo,
-    booking_id: bookingId,
-    currency: currency,
-    amount: amount,
-    issue_date: issue,
-    due_date: due,
-    status: 'pending',
-    agent_name: agentFilter || booking.agent_name || null,
-    agent_id: agentId,
-    person_in_charge: booking.staff_in_charge || null
-  }).select().single();
-
-  if(error){
+  let data;
+  try{
+    const result = await invoicesApiCall('insert', { rows: [{
+      invoice_no: invoiceNo,
+      booking_id: bookingId,
+      currency: currency,
+      amount: amount,
+      issue_date: issue,
+      due_date: due,
+      status: 'pending',
+      agent_name: agentFilter || booking.agent_name || null,
+      agent_id: agentId,
+      person_in_charge: booking.staff_in_charge || null
+    }] });
+    data = (result.rows||[])[0];
+  }catch(e){
     // 新規発行に失敗した場合、直前に失効させた分は元に戻す(両方成功して初めて完了とする)。
     if(voidIds.length){
-      const {error: rollbackErr} = await sb.from('invoices').update({status:'pending'}).in('id', voidIds);
-      if(rollbackErr) alert('Invoice発行に失敗し、さらに失効の取り消しにも失敗しました。手動で確認してください。\n発行エラー: '+error.message+'\n取り消しエラー: '+rollbackErr.message);
-      else alert('Invoice発行に失敗したため、失効させた請求書は元(Pending)に戻しました: '+error.message);
+      try{
+        await invoicesApiCall('updateByIds', { ids: voidIds, fields: {status:'pending'} });
+        alert('Invoice発行に失敗したため、失効させた請求書は元(Pending)に戻しました: '+e.message);
+      }catch(e2){
+        alert('Invoice発行に失敗し、さらに失効の取り消しにも失敗しました。手動で確認してください。\n発行エラー: '+e.message+'\n取り消しエラー: '+e2.message);
+      }
     }else{
-      alert('Invoice発行に失敗しました: '+error.message);
+      alert('Invoice発行に失敗しました: '+e.message);
     }
     return;
   }
@@ -25954,6 +25965,13 @@ async function showInvoicePreview(inv, booking){
     const {data: agentRows} = await sb.from('agents').select('address').eq('company_name', billToName).or('is_deleted.is.null,is_deleted.eq.false');
     if(agentRows && agentRows.length===1) agentAddress = agentRows[0].address || '';
   }
+  // 住所欄はcontenteditableで手動編集できるが、以前はid属性が無く保存対象(payload)にも
+  // 含まれていなかったため、「保存しました」と表示されるのに実際は保存されておらず、
+  // 再表示のたびに取引先マスタ由来のagentAddressへ差し戻ってしまう不具合があった
+  // (2026-08、PR #77の実機検証で発見)。inv.address(このInvoice固有の手動上書き値)を
+  // 優先表示し、保存されていない(未編集)場合のみagentAddress(マスタ由来の既定値)を
+  // 表示する。
+  const displayAddress = (inv.address!=null && inv.address!=='') ? inv.address : agentAddress;
 
   const itemRows = items.map(it=>`
     <tr>
@@ -25973,7 +25991,7 @@ async function showInvoicePreview(inv, booking){
       <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-start;margin-bottom:18px;gap:20px">
         <div style="flex:1;min-width:200px;padding-top:34px">
           <div style="font-size:18px;font-weight:700;overflow-wrap:break-word">${(billToName||'').replace(/</g,'&lt;')}</div>
-          <div contenteditable="true" data-placeholder="住所を入力..." style="margin-top:10px;line-height:1.5">${(agentAddress||'').replace(/</g,'&lt;').replace(/\n/g,'<br>')}</div>
+          <div contenteditable="true" id="inv-address" data-placeholder="住所を入力..." style="margin-top:10px;line-height:1.5">${(displayAddress||'').replace(/</g,'&lt;').replace(/\n/g,'<br>')}</div>
         </div>
         <div style="text-align:right;flex-shrink:0">
           <div style="font-size:20px;font-weight:700;margin-bottom:10px">INVOICE/請求書</div>
@@ -26041,12 +26059,24 @@ async function showInvoicePreview(inv, booking){
   document.getElementById('inv-preview-card').scrollIntoView({behavior:'smooth'});
 }
 
-// Name/Group・Itinerary・Note・Person in Chargeはプレビュー画面での自由入力のため、
+// Name/Group・Itinerary・Note・Person in Charge・住所はプレビュー画面での自由入力のため、
 // 「保存」を押すまではDBに反映されない(印刷はDOMの現在値をそのまま出力する)。
+// 住所欄(#inv-address)はcontenteditableのid属性・保存対象への追加が漏れていたため、
+// 「保存しました」と表示されるのに実際は保存されず、再表示のたびに取引先マスタ由来の
+// 既定値へ差し戻ってしまう不具合があった(2026-08、PR #77の実機検証で発見。showInvoicePreview
+// 側のdisplayAddress/inv.addressの扱いも参照)。address列はこのタスク時点でまだ
+// invoicesテーブルに存在しない可能性があるため(scripts/add_invoice_address_column.sql、
+// JUNさんの実行待ち)、他4項目とは別のupdateById呼び出しに分離した。こうすることで、
+// 仮にaddress列がまだ存在せずこの呼び出しがDBエラーで失敗しても、name_group等の
+// 既存4項目の保存は引き続き成功する(1回のPATCHにまとめていた場合、address列が
+// 無いだけで4項目とも道連れで保存失敗してしまう)。
 async function saveInvoicePreviewFields(){
   const inv = window._currentInvoicePreview;
   if(!inv || !inv.id){ alert('保存対象のInvoiceが見つかりません'); return; }
   const getVal = id => (document.getElementById(id)?.textContent || '').trim();
+  // 住所欄は複数行入力(改行)を許可する表示(\n→<br>)になっているため、textContentでは
+  // 改行が失われる。innerTextは表示上の改行を\nとして拾えるため、こちらを使う。
+  const addressVal = (document.getElementById('inv-address')?.innerText || '').trim();
   const payload = {
     name_group: getVal('inv-name-group'),
     itinerary: getVal('inv-itinerary'),
@@ -26057,10 +26087,20 @@ async function saveInvoicePreviewFields(){
   const saveBtnOrigHtml = saveBtn ? saveBtn.innerHTML : null;
   if(saveBtn){ saveBtn.disabled = true; saveBtn.innerHTML = '⏳ 保存中...'; }
   try{
-    const {error} = await sb.from('invoices').update(payload).eq('id', inv.id);
-    if(error){ logError('Invoiceプレビュー項目の保存', error, {toast:false}); alert('保存に失敗しました: '+error.message); return; }
+    await invoicesApiCall('updateById', { id: inv.id, fields: payload });
     Object.assign(inv, payload);
-    alert('✓ 保存しました');
+    let addressWarning = '';
+    try{
+      await invoicesApiCall('updateById', { id: inv.id, fields: {address: addressVal} });
+      inv.address = addressVal;
+    }catch(addrErr){
+      logError('Invoiceプレビュー住所欄の保存', addrErr, {toast:false});
+      addressWarning = '\n\n⚠ 住所欄の保存には失敗しました: '+addrErr.message;
+    }
+    alert('✓ 保存しました'+addressWarning);
+  }catch(e){
+    logError('Invoiceプレビュー項目の保存', e, {toast:false});
+    alert('保存に失敗しました: '+e.message);
   }finally{
     if(saveBtn){ saveBtn.disabled = false; saveBtn.innerHTML = saveBtnOrigHtml; }
   }
