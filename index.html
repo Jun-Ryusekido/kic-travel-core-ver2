@@ -20100,6 +20100,34 @@ let ccExtracted = [];
 // クリアしない。明示的にクリアするのはbulkDeleteCcStatements成功時のみ)。
 let ccSelectedIds = new Set();
 
+// クレカ明細OCRの日付組み立て(純粋関数)。AIには「見えた数字をそのまま報告する」ことだけを
+// 求め(era_type/era_year_raw/month/day/date_confidence)、和暦→西暦の算術(+2018等)は
+// 一切AIにやらせず、ここで機械的に計算する。従来はAI自身が変換まで行ってYYYY-MM-DD形式の
+// "date"を直接返していたが、和暦の年数を月と取り違える等の誤読(2026-08、REF#967等で複数回
+// 再発報告)が繰り返されたため、「数字の特定(AI)」と「変換の算術(コード)」を分離し、
+// 算術部分については常に正しい結果を保証できるようにした(数字の読み取り自体の誤りは
+// この関数では防げない。それはAIの読み取り精度そのものの限界であり、date_confidence='low'
+// またはneeds_review=trueとして運用者確認に回す設計で対応する)。
+function ccAssembleTransactionDate(p){
+  p = p || {};
+  const month = Number(p.month), day = Number(p.day);
+  const yearRaw = Number(p.era_year_raw);
+  let year = null;
+  if(p.era_type === 'reiwa' && Number.isInteger(yearRaw) && yearRaw > 0){
+    year = yearRaw + 2018; // 令和の年数 + 2018 = 西暦
+  } else if(p.era_type === 'western' && Number.isInteger(yearRaw) && yearRaw > 0){
+    year = yearRaw < 100 ? yearRaw + 2000 : yearRaw; // 2桁表記(例:"26")は2000年代として補完
+  }
+  const validParts = year !== null && year >= 2000 && year <= 2100
+    && Number.isInteger(month) && month >= 1 && month <= 12
+    && Number.isInteger(day) && day >= 1 && day <= 31;
+  // date_confidence==='low'は、era_type/月日が(見かけ上)特定できていても、AIが読み取りに
+  // 迷いがあったと申告したケース。era_typeの判定結果に関わらず必ずneeds_reviewに回す。
+  const needsReview = !!p.needs_review || p.date_confidence === 'low' || !validParts;
+  if(needsReview) return { date: null, needs_review: true };
+  return { date: `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`, needs_review: false };
+}
+
 async function extractCcStatementFromFile(event, mode){
   const file = event.target.files[0];
   if(file) await processCcStatementFile(file, mode);
@@ -20160,8 +20188,9 @@ async function processCcStatementFile(file, mode){
         memo = memo ? `${memo} ${hint}` : hint;
         hint = '';
       }
+      const assembled = ccAssembleTransactionDate(p);
       return {
-        transaction_date: p.date||'', date_raw: p.date_raw||'', needs_review: !!p.needs_review || !p.date,
+        transaction_date: assembled.date||'', date_raw: p.date_raw||'', needs_review: assembled.needs_review,
         year_supplemented: !!p.year_supplemented,
         merchant_name: p.merchant||'', amount: Number(p.amount)||0, hint_tour_code: hint,
         memo, raw_ocr_text: cleaned
