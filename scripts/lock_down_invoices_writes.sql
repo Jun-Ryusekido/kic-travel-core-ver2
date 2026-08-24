@@ -1,3 +1,5 @@
+-- 【2026-08-24 本番実行済み】
+--
 -- セキュリティ中長期対応: invoices(請求書)への書き込みをservice_role経由に限定する。
 --
 -- 背景: invoicesは金銭データを扱う最重要テーブルの一つだが、tour_arrangement_headers等

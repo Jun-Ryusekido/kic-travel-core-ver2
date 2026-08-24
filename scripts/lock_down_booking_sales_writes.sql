@@ -1,3 +1,5 @@
+-- 【2026-08-24 本番実行済み】
+--
 -- セキュリティ中長期対応 フェーズ1: booking_sales(売上明細)への書き込みをservice_role経由に限定する。
 --
 -- 背景: app_users(scripts/lock_down_app_users.sql参照)と同様、booking_salesもこれまで
