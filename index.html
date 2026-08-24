@@ -25398,9 +25398,15 @@ async function loadAccounts(){
   // app_usersへの直接select(パスワード列を含む全列がクライアントに渡ってしまう)は
   // 使わず、password列を返さないサーバーAPI(/api/list-users)経由で取得する
   // (2026-08-12点検で修正。APIは以前から用意されていたがUI側が未切替だった)。
+  // /api/list-usersはadd-user.jsと同じくtoken検証(admin限定)を必須にしたため、POSTで
+  // currentUser.tokenを送る(2026-08-24修正。それまでは未認証の第三者でも
+  // スタッフ一覧を取得できてしまっていた)。
   let data;
   try{
-    const resp = await fetch('/api/list-users');
+    const resp = await fetch('/api/list-users', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ token: currentUser ? currentUser.token : null })
+    });
     const json = await parseJsonResponseSafe(resp);
     if(!resp.ok || json.error) throw new Error(json.error||'読み込みエラー');
     data = json.users;
