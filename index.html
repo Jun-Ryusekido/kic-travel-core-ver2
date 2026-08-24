@@ -4047,12 +4047,21 @@ function filterFacilityManagement(){
     if(facilityManagementStatusFilter && f.status !== facilityManagementStatusFilter) return false;
     return true;
   });
+  // 利用日(f.date)が過去の行は、何も絞り込み条件(検索・出発日From/To・ステータス)が
+  // 指定されていない場合のみデフォルトで一覧から除外する。ホテル予約管理
+  // (search_hotel_management RPC)の「絞り込み中は過去分も表示する」という既存パターンに
+  // 揃えた(ステータスボタンでの絞り込みも、hotel側のp_cancel_tierと同じ扱いで
+  // 「絞り込み中」に含める)。date未設定の行は判定不能のため除外しない。
+  if(!q && !from && !to && !facilityManagementStatusFilter){
+    const todayStr = localDateStr();
+    filtered = filtered.filter(f=>!f.date || f.date>=todayStr);
+  }
   renderFacilityManagementTable(filtered);
 }
 
 function renderFacilityManagementTable(rows){
   const tbody = document.getElementById('fm-tbody');
-  document.getElementById('fm-count').textContent = `${rows.length}件`;
+  document.getElementById('fm-count').textContent = `${rows.length}件 / 全${facilityManagementCache.length}件`;
   if(rows.length===0){ tbody.innerHTML = '<tr><td colspan="8" class="empty">該当するデータがありません</td></tr>'; return; }
   tbody.innerHTML = rows.map(f=>{
     const bk = f._booking || {};
@@ -21973,6 +21982,14 @@ function filterBulletTrains(){
   );
   if(from) filtered = filtered.filter(r=>r.ride_date && r.ride_date>=from);
   if(to)   filtered = filtered.filter(r=>r.ride_date && r.ride_date<=to);
+  // 乗車日が過去の行は、絞り込み条件(検索・FROM・TO)が何も指定されていない場合のみ
+  // デフォルトで一覧から除外する。ホテル予約管理(search_hotel_management RPC)の
+  // 「チェックアウト日が過去でも、検索/日付で絞り込み中は表示する」という既存パターンに揃えた。
+  // ride_date未設定の行は判定不能のため除外しない(見落としより過検出の方が実害が小さい方針)。
+  if(!q && !from && !to){
+    const todayStr = localDateStr();
+    filtered = filtered.filter(r=>!r.ride_date || r.ride_date>=todayStr);
+  }
   document.getElementById('bt-count').textContent = `${filtered.length}件 / 全${bulletTrainCache.length}件`;
   filtered.sort((a,b)=>{
     let av=a[btSortKey]??'', bv=b[btSortKey]??'';
