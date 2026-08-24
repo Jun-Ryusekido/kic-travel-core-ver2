@@ -1128,7 +1128,7 @@ input[type=number]{-moz-appearance:textfield}
         <div class="sb-avatar" id="sb-avatar">AD</div>
         <div><div class="sb-uname" id="sb-uname">Admin</div><div class="sb-urole" id="sb-urole">管理者</div></div>
       </div>
-      <div class="sb-logout" onclick="changePassword()" style="margin-bottom:4px">🔑 パスワード変更</div>
+      <div class="sb-logout" onclick="openChangePasswordModal()" style="margin-bottom:4px">🔑 パスワード変更</div>
       <div class="sb-logout" onclick="doLogout()">ログアウト</div>
     </div>
   </div>
@@ -2143,6 +2143,34 @@ input[type=number]{-moz-appearance:textfield}
             <button class="btn" onclick="closeArrCopyModal()">キャンセル</button>
           </div>
           <div id="arr-copy-err" style="display:none;color:var(--red);font-size:11px;margin-top:8px"></div>
+        </div>
+      </div>
+
+      <!-- パスワード変更モーダル -->
+      <div class="modal-overlay" id="change-password-modal">
+        <div class="modal-box" style="max-width:420px">
+          <div class="modal-header">
+            <div class="modal-title">🔑 パスワード変更</div>
+            <div class="modal-close" onclick="closeChangePasswordModal()">✕</div>
+          </div>
+          <div class="form-field" style="margin-bottom:8px">
+            <label>現在のパスワード</label>
+            <input id="cp-old" type="password" autocomplete="current-password" placeholder="••••••••">
+          </div>
+          <div class="form-field" style="margin-bottom:8px">
+            <label>新しいパスワード（8文字以上）</label>
+            <input id="cp-new" type="password" autocomplete="new-password" placeholder="••••••••">
+          </div>
+          <div class="form-field">
+            <label>新しいパスワード（確認用）</label>
+            <input id="cp-confirm" type="password" autocomplete="new-password" placeholder="••••••••">
+          </div>
+          <div style="margin-top:14px;display:flex;gap:8px;align-items:center">
+            <button class="btn btn-p" id="cp-submit-btn" onclick="submitChangePassword()">🔑 変更する</button>
+            <button class="btn" onclick="closeChangePasswordModal()">キャンセル</button>
+          </div>
+          <div class="msg-ok" id="cp-modal-msg" style="display:none">✓ パスワードを変更しました。次回ログインから新しいパスワードをご使用ください。</div>
+          <div id="cp-modal-err" style="display:none;color:var(--red);font-size:11px;margin-top:8px"></div>
         </div>
       </div>
 
@@ -3727,13 +3755,62 @@ async function deactivateCardHolder(id){
 
 // app_usersへのanonキーからの直接update権限は廃止したため、/api/change-password経由(service_role key)
 // で行う。現在のパスワードの照合をサーバー側で必須にすることで、userIdさえ分かれば他人の
-// パスワードを書き換えられてしまう状態を防いでいる。
-async function changePassword(){
-  const newPw = prompt('新しいパスワードを入力してください（8文字以上）');
-  if(!newPw || newPw.length<8){ alert('8文字以上のパスワードを入力してください'); return; }
-  const { error } = await sb.from('app_users').update({password:newPw}).eq('id', currentUser.id);
-  if(error){ alert('変更に失敗しました: '+error.message); return; }
-  alert('パスワードを変更しました。次回ログインから新しいパスワードをご使用ください。');
+// パスワードを書き換えられてしまう状態を防いでいる(以前はここがコメントだけ先行して直っており、
+// 実装がsb.from('app_users').update()直呼びのまま取り残されていたため、権限revoke後は
+// 常にpermission deniedで失敗していた。2026-08-24修正)。
+function openChangePasswordModal(){
+  document.getElementById('cp-old').value = '';
+  document.getElementById('cp-new').value = '';
+  document.getElementById('cp-confirm').value = '';
+  document.getElementById('cp-modal-err').style.display = 'none';
+  document.getElementById('cp-modal-msg').style.display = 'none';
+  document.getElementById('change-password-modal').classList.add('open');
+  setTimeout(()=>{ const el=document.getElementById('cp-old'); if(el) el.focus(); }, 50);
+}
+function closeChangePasswordModal(){
+  document.getElementById('change-password-modal').classList.remove('open');
+}
+async function submitChangePassword(){
+  const errEl = document.getElementById('cp-modal-err');
+  const msgEl = document.getElementById('cp-modal-msg');
+  errEl.style.display='none'; msgEl.style.display='none';
+
+  const oldPw = document.getElementById('cp-old').value;
+  const newPw = document.getElementById('cp-new').value;
+  const confirmPw = document.getElementById('cp-confirm').value;
+
+  if(!oldPw){ errEl.textContent='現在のパスワードを入力してください'; errEl.style.display='block'; return; }
+  if(!newPw || newPw.length<8){ errEl.textContent='新しいパスワードは8文字以上で入力してください'; errEl.style.display='block'; return; }
+  if(newPw !== confirmPw){ errEl.textContent='新しいパスワード（確認用）が一致しません'; errEl.style.display='block'; return; }
+
+  const btn = document.getElementById('cp-submit-btn');
+  const origHtml = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '変更中...';
+  try{
+    const resp = await fetch('/api/change-password', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ userId: currentUser.id, oldPassword: oldPw, newPassword: newPw })
+    });
+    const body = await resp.json();
+    if(!resp.ok){
+      errEl.textContent = body.error || '変更に失敗しました';
+      errEl.style.display = 'block';
+      return;
+    }
+    // パスワードの値自体は記録せず、「変更した」という事実のみをaccess_logsに残す。
+    await logAction('パスワード変更', currentUser.name || currentUser.email);
+    document.getElementById('cp-old').value = '';
+    document.getElementById('cp-new').value = '';
+    document.getElementById('cp-confirm').value = '';
+    msgEl.style.display = 'block';
+    setTimeout(()=>{ closeChangePasswordModal(); msgEl.style.display='none'; }, 1500);
+  }catch(e){
+    errEl.textContent = e.message || '変更に失敗しました';
+    errEl.style.display = 'block';
+  }finally{
+    btn.disabled = false; btn.innerHTML = origHtml;
+  }
 }
 
 function doLogout(){
