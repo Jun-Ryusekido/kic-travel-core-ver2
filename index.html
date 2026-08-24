@@ -4926,6 +4926,11 @@ async function bookingFacilitiesApiCall(action, payload){ return tableCrudApiCal
 // メールマッチング等、影響範囲が広いためロールアウトのリスクを最小化する)。
 async function bookingsApiCall(action, payload){ return tableCrudApiCall('bookings', action, payload); }
 async function bookingCostsApiCall(action, payload){ return tableCrudApiCall('booking_costs', action, payload); }
+// invoices(請求書)。金銭データを扱う最重要テーブルの一つだが、似た名前の他テーブルとの
+// 取り違えでservice_role移行対象から漏れ、anonキーからの直接insert/update/deleteが
+// 残っていた(2026-08点検で判明)。他テーブルと同じ形式でservice_role API化する
+// (api/table-crud.jsのTABLE_CONFIG.invoices参照。REVOKEはこの時点では未実行)。
+async function invoicesApiCall(action, payload){ return tableCrudApiCall('invoices', action, payload); }
 // booking_hotels/booking_buses/booking_restaurants(セキュリティ移行バッチA)。
 // safeReplaceBookingRowsが行っていたselect→insert→deleteの差分置き換えは、
 // 既存のbooking_sales/booking_costs/local_expensesと同じdoReplace(action:'replace')に
@@ -8670,7 +8675,7 @@ async function deleteBookingData(){
     }
 
     // Invoice・売上明細・仕入明細
-    await sb.from('invoices').delete().eq('booking_id', b.id);
+    await invoicesApiCall('deleteByBooking', { bookingId: b.id });
     await bookingSalesApiCall('deleteByBooking', { bookingId: b.id });
     await bookingCostsApiCall('deleteByBooking', { bookingId: b.id });
 
@@ -18412,7 +18417,7 @@ async function saveBookingDetail(){
       if(!invAgent) continue; // agent_name未設定のInvoiceは自動判定をスキップ(要手動確認)
       const agg = salesTotalsByAgent[invAgent];
       if(agg && agg.paid>0 && agg.paid>=agg.sales){
-        await sb.from('invoices').update({status:'paid'}).eq('id', inv.id);
+        await invoicesApiCall('updateById', { id: inv.id, fields: {status:'paid'} });
       }
     }
   } catch(e) {
@@ -25826,8 +25831,9 @@ async function generateInvoice(bookingId, currency, agentFilter){
   }
 
   if(voidIds.length){
-    const {error: voidErr} = await sb.from('invoices').update({status:'void'}).in('id', voidIds);
-    if(voidErr){ alert('請求書の失効処理に失敗したため、新規発行を中止しました: '+voidErr.message); return; }
+    try{
+      await invoicesApiCall('updateByIds', { ids: voidIds, fields: {status:'void'} });
+    }catch(e){ alert('請求書の失効処理に失敗したため、新規発行を中止しました: '+e.message); return; }
     for(const id of voidIds){
       const target = existingPending.find(i=>i.id===id);
       await logAction('請求書を失効', (target?target.invoice_no:id) + (voidMemo?(' / 理由: '+voidMemo):''));
@@ -25860,27 +25866,32 @@ async function generateInvoice(bookingId, currency, agentFilter){
   }
   if(currency==='USD') amount = Math.round((amount/USD_RATE)*100)/100;
 
-  const {data, error} = await sb.from('invoices').insert({
-    invoice_no: invoiceNo,
-    booking_id: bookingId,
-    currency: currency,
-    amount: amount,
-    issue_date: issue,
-    due_date: due,
-    status: 'pending',
-    agent_name: agentFilter || booking.agent_name || null,
-    agent_id: agentId,
-    person_in_charge: booking.staff_in_charge || null
-  }).select().single();
-
-  if(error){
+  let data;
+  try{
+    const result = await invoicesApiCall('insert', { rows: [{
+      invoice_no: invoiceNo,
+      booking_id: bookingId,
+      currency: currency,
+      amount: amount,
+      issue_date: issue,
+      due_date: due,
+      status: 'pending',
+      agent_name: agentFilter || booking.agent_name || null,
+      agent_id: agentId,
+      person_in_charge: booking.staff_in_charge || null
+    }] });
+    data = (result.rows||[])[0];
+  }catch(e){
     // 新規発行に失敗した場合、直前に失効させた分は元に戻す(両方成功して初めて完了とする)。
     if(voidIds.length){
-      const {error: rollbackErr} = await sb.from('invoices').update({status:'pending'}).in('id', voidIds);
-      if(rollbackErr) alert('Invoice発行に失敗し、さらに失効の取り消しにも失敗しました。手動で確認してください。\n発行エラー: '+error.message+'\n取り消しエラー: '+rollbackErr.message);
-      else alert('Invoice発行に失敗したため、失効させた請求書は元(Pending)に戻しました: '+error.message);
+      try{
+        await invoicesApiCall('updateByIds', { ids: voidIds, fields: {status:'pending'} });
+        alert('Invoice発行に失敗したため、失効させた請求書は元(Pending)に戻しました: '+e.message);
+      }catch(e2){
+        alert('Invoice発行に失敗し、さらに失効の取り消しにも失敗しました。手動で確認してください。\n発行エラー: '+e.message+'\n取り消しエラー: '+e2.message);
+      }
     }else{
-      alert('Invoice発行に失敗しました: '+error.message);
+      alert('Invoice発行に失敗しました: '+e.message);
     }
     return;
   }
@@ -26051,10 +26062,12 @@ async function saveInvoicePreviewFields(){
   const saveBtnOrigHtml = saveBtn ? saveBtn.innerHTML : null;
   if(saveBtn){ saveBtn.disabled = true; saveBtn.innerHTML = '⏳ 保存中...'; }
   try{
-    const {error} = await sb.from('invoices').update(payload).eq('id', inv.id);
-    if(error){ logError('Invoiceプレビュー項目の保存', error, {toast:false}); alert('保存に失敗しました: '+error.message); return; }
+    await invoicesApiCall('updateById', { id: inv.id, fields: payload });
     Object.assign(inv, payload);
     alert('✓ 保存しました');
+  }catch(e){
+    logError('Invoiceプレビュー項目の保存', e, {toast:false});
+    alert('保存に失敗しました: '+e.message);
   }finally{
     if(saveBtn){ saveBtn.disabled = false; saveBtn.innerHTML = saveBtnOrigHtml; }
   }
