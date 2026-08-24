@@ -6517,7 +6517,7 @@ function showSupplierSuggestions(inputEl, idx){
       e.preventDefault();
       const name = item.getAttribute('data-name');
       inputEl.value = name;
-      if(idx>=0) bdCostItems[idx].item_name = name;
+      if(idx>=0 && bdCostItems[idx]) bdCostItems[idx].item_name = name;
       hideSupplierSuggestions();
     });
     item.addEventListener('mouseenter', ()=>{ item.style.background='var(--bg)'; });
@@ -6585,7 +6585,7 @@ function showItemNameSuggestionsForSales(inputEl, idx){
       e.preventDefault();
       const name = item.getAttribute('data-name');
       inputEl.value = name;
-      if(idx>=0) bdSalesItems[idx].item_name = name;
+      if(idx>=0 && bdSalesItems[idx]) bdSalesItems[idx].item_name = name;
       hideItemNameSuggestionsForSales();
     });
     item.addEventListener('mouseenter', ()=>{ item.style.background='var(--bg)'; });
@@ -6637,7 +6637,11 @@ async function showBusCompanySuggest(inputEl, idx, onSelect){
       e.preventDefault();
       const n=item.getAttribute('data-name');
       inputEl.value=n;
-      if(onSelect){ onSelect(n); } else if(idx>=0){ bdBusItems[idx].bus_company=n; }
+      // 候補表示中(await loadBusCompaniesCache()の間)に行が削除される等でbdBusItems[idx]が
+      // 既に存在しなくなっているケースがあり、ガード無しだと「Cannot set properties of
+      // undefined」で未捕捉例外になっていた(2026-08、REF#1103で発生確認)。ホテルタブの
+      // showHotelSuggest(if(arr && arr[idx]))と同じガードを追加し、行が無ければ何もしない。
+      if(onSelect){ onSelect(n); } else if(idx>=0 && bdBusItems[idx]){ bdBusItems[idx].bus_company=n; }
       hideBusCompanySuggest();
     });
     item.addEventListener('mouseenter',()=>{ item.style.background='var(--bg)'; });
@@ -6726,7 +6730,8 @@ async function showFacilitySuggest(inputEl, idx, onSelect){
       e.preventDefault();
       const n=item.getAttribute('data-name');
       inputEl.value=n;
-      if(onSelect){ onSelect(n); } else { bdFacilityItems[idx].facility_name=n; }
+      // showBusCompanySuggestと同じ理由(候補表示中に行が削除される等)のガード。
+      if(onSelect){ onSelect(n); } else if(bdFacilityItems[idx]){ bdFacilityItems[idx].facility_name=n; }
       hideFacilitySuggest();
     });
     item.addEventListener('mouseenter',()=>{ item.style.background='var(--bg)'; });
@@ -6799,7 +6804,8 @@ async function showRestaurantSuggest(inputEl, idx){
   box.innerHTML = matches.map(p=>`<div class="rest-suggest-item" style="padding:4px 8px;cursor:pointer" data-name="${escAttr(p.company_name)}">${escHtml(restaurantBilingualLabel(p.company_name, p.company_name_en))}${p.phone?`<span style="color:var(--text3);margin-left:6px;font-size:10px">${escHtml(p.phone)}</span>`:''}</div>`).join('');
   document.body.appendChild(box);
   box.querySelectorAll('.rest-suggest-item').forEach(item=>{
-    item.addEventListener('mousedown',e=>{ e.preventDefault(); const n=item.getAttribute('data-name'); inputEl.value=n; bdRestaurantItems[idx].restaurant_name=n; hideRestaurantSuggest(); renderRestaurantTable(); });
+    // showBusCompanySuggestと同じ理由(候補表示中に行が削除される等)のガード。
+    item.addEventListener('mousedown',e=>{ e.preventDefault(); const n=item.getAttribute('data-name'); inputEl.value=n; if(bdRestaurantItems[idx]){ bdRestaurantItems[idx].restaurant_name=n; renderRestaurantTable(); } hideRestaurantSuggest(); });
     item.addEventListener('mouseenter',()=>{ item.style.background='var(--bg)'; });
     item.addEventListener('mouseleave',()=>{ item.style.background=''; });
   });
