@@ -2502,8 +2502,8 @@ input[type=number]{-moz-appearance:textfield}
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;margin-top:6px">
             <div class="form-field" style="flex:0 0 148px"><label>ツアー担当者（社内）</label><input id="bd-staff" placeholder="例: 熊谷" style="width:100%;box-sizing:border-box"></div>
-            <div class="form-field" style="flex:0 0 100px"><label>In-Date</label><input id="bd-in" type="date" min="1900-01-01" max="9999-12-31" autocomplete="off" onchange="updateBdNightsDays()" style="width:100%;box-sizing:border-box"></div>
-            <div class="form-field" style="flex:0 0 100px"><label>Out-Date</label><input id="bd-out" type="date" min="1900-01-01" max="9999-12-31" autocomplete="off" onchange="updateBdNightsDays()" style="width:100%;box-sizing:border-box"></div>
+            <div class="form-field" style="flex:0 0 130px"><label>In-Date</label><input id="bd-in" type="date" min="1900-01-01" max="9999-12-31" autocomplete="off" onchange="updateBdNightsDays()" style="width:100%;box-sizing:border-box"></div>
+            <div class="form-field" style="flex:0 0 130px"><label>Out-Date</label><input id="bd-out" type="date" min="1900-01-01" max="9999-12-31" autocomplete="off" onchange="updateBdNightsDays()" style="width:100%;box-sizing:border-box"></div>
             <div class="form-field" style="flex:0 1 145px"><label>宿泊日数</label><input id="bd-nights-days" type="text" disabled style="background:var(--bg);color:var(--text);width:100%;box-sizing:border-box"></div>
             <div class="form-field" style="flex:0 0 120px"><label>入金合計 (Deposit, JPY)</label><input id="bd-deposit" type="number" disabled style="background:var(--bg);color:var(--text);width:100%;box-sizing:border-box"></div>
           </div>
@@ -2857,12 +2857,14 @@ input[type=number]{-moz-appearance:textfield}
           <button class="btn" style="font-size:10px" onclick="openBdInvoicesModal()">関連Invoice(<span id="bd-inv-count">0</span>件)</button>
           <span id="bd-inv-empty-hint" style="display:none;font-size:10px;color:var(--text3)">関連するInvoiceはありません</span>
         </div>
-        <div class="tbl-wrap"><table class="li-table confirm-table">
-          <thead><tr><th style="width:11%">項目名</th><th style="width:24%">追記事項</th><th style="width:7%;text-align:right">単価</th><th style="width:4%;text-align:right">人数</th><th style="width:4%;text-align:right">数量</th><th class="li-amt" style="width:7%;text-align:right">金額</th><th style="width:7%">入金日</th><th style="width:8%" class="li-amt">入金金額</th><th style="width:9%">入金先銀行</th><th style="width:10%">入金備考</th><th style="width:6%" class="li-amt">未収</th><th class="bd-agent-col" style="width:120px">請求先</th><th class="li-del" style="width:3%"></th></tr></thead>
+        <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:1080px">
+          <thead><tr><th style="width:11%">項目名</th><th style="width:24%">追記事項</th><th style="width:7%;text-align:right">単価</th><th style="width:4%;text-align:right">人数</th><th style="width:4%;text-align:right">数量</th><th class="li-amt" style="width:7%;text-align:right">金額</th><th style="width:120px">入金日</th><th style="width:8%" class="li-amt">入金金額</th><th style="width:9%">入金先銀行</th><th style="width:10%">入金備考</th><th style="width:6%" class="li-amt">未収</th><th class="bd-agent-col" style="width:120px">請求先</th><th class="li-del" style="width:3%"></th></tr></thead>
           <tbody id="bd-sales-tbody"></tbody>
         </table></div>
         <button class="btn" id="bd-sales-add-btn" style="font-size:10px;margin-top:4px" onclick="addSalesRow()">＋ 行追加</button>
 <div class="li-total">売上合計: <span id="bd-sales-total">¥0</span></div>
+<div class="li-total">入金合計: <span id="bd-sales-paid-total">¥0</span></div>
+<div class="li-total">差額（未収）: <span id="bd-sales-diff-total">¥0</span></div>
       </div>
       <div>
         <h4 class="red">仕入明細</h4>
@@ -5901,6 +5903,14 @@ function updateDetailGrossPreview(){
   const unpaidEl = document.getElementById('bd-sum-unpaid');
   if(paidEl) paidEl.textContent = yen(totalPaid);
   const depositElInput = document.getElementById('bd-deposit'); if(depositElInput) depositElInput.value = totalPaid;
+  // 売上明細セクション内(売上合計の直下)にも入金合計・差額を表示する。上のbd-sum-paid/
+  // bd-sum-unpaid(画面上部のKPIタイル)と同じtotalPaid/unpaidをそのまま再利用し、
+  // 別計算にしない(2箇所で計算がずれるのを防ぐため)。配色も行ごとの「未収」列
+  // (renderSalesTable内)と同じ基準(unpaid>0が赤、それ以外は緑)に揃える。
+  const salesPaidTotalEl = document.getElementById('bd-sales-paid-total');
+  if(salesPaidTotalEl) salesPaidTotalEl.textContent = yen(totalPaid);
+  const salesDiffTotalEl = document.getElementById('bd-sales-diff-total');
+  if(salesDiffTotalEl){ salesDiffTotalEl.textContent = yen(unpaid); salesDiffTotalEl.style.color = unpaid>0 ? 'var(--red)' : 'var(--green)'; }
   if(unpaidEl){ unpaidEl.textContent = yen(unpaid); unpaidEl.className = 'kpi-val '+(unpaid>0?'red':'green'); }
   const cost = bdCostTotal();
   const gross = sales-cost;
@@ -6391,7 +6401,7 @@ function renderCostTable(){
   if(searchEl && searchEl.value !== bdCostSearch) searchEl.value = bdCostSearch;
 
   const searchHtml = `<tr class="cost-sort-row">
-    ${[['item_name','仕入先','24%',''],['amount','仕入額','9%','text-align:right'],['payment_date','出金日','8%','text-align:center'],['payment_method','支払方法','10%',''],['memo','備考','','']].map(([f,l,w,a])=>{
+    ${[['item_name','仕入先','24%',''],['amount','仕入額','9%','text-align:right'],['payment_date','出金日','120px','text-align:center'],['payment_method','支払方法','10%',''],['memo','備考','','']].map(([f,l,w,a])=>{
       const arrow = bdCostSortField===f ? (bdCostSortDir===1?'▲':'▼') : '';
       return `<th class="sortable" onclick="bdCostSortField=bdCostSortField==='${f}'?(bdCostSortDir*=-1,'${f}'):(bdCostSortDir=1,'${f}');renderCostTable()" style="cursor:pointer;user-select:none;${w?'width:'+w+';':''}${a}">${l}${arrow?` <span class="sort-arrow">${arrow}</span>`:''}</th>`;
     }).join('')}
