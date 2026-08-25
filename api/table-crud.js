@@ -333,6 +333,59 @@ const TABLE_CONFIG = {
     label: '請求書',
     auditLog: true,
   },
+  // tour_arrangements(手配書ヘッダー・共通ドラフト)/tour_arrangement_days(同日毎明細)/
+  // bullet_train_arrangements(新幹線手配)/arrangement_documents(ガイド別手配書ヘッダー):
+  // 4テーブルとも、tour_arrangement_headers等似た名前の別テーブルとの取り違えで
+  // service_role移行対象から漏れ、anonキーからの直接insert/update/delete/upsertが
+  // 残ったまま放置されていた(2026-08点検で判明。bullet_train_arrangementsには
+  // 「anon全権限」のRLSポリシーも残存)。invoicesと同じ手順(service_role API化→
+  // フロント切替→検証→REVOKE)で対応する。このコミットではREVOKE(anon/authenticatedからの
+  // 実際の権限剥奪)は行わない(scripts/lock_down_tour_arrangements_writes.sql参照。
+  // 作成のみで未実行)。
+  // created_by/updated_by列の存在がコード上確認できない(tour_arrangementsのみ
+  // 新規作成insert時にcreated_byを送っている実績があるが、updated_by列はいずれの
+  // テーブルにも使用実績が無い)ため、invoicesと同じ考え方でstampIdentityは
+  // 有効化しない(列が無い状態で有効化するとinsert/update自体がDBエラーで失敗するため)。
+  tour_arrangements: {
+    // tour_arrangementsはbooking_id列を持たずbooking_ref(予約のref_no)で紐づいている
+    // ため、deleteByBookingではなくdeleteByField(allowedDeleteFields: ['booking_ref'])を
+    // 使う(予約削除時のdeleteBookingData参照)。
+    actions: ['insertReturning', 'updateById', 'deleteById', 'deleteByField'],
+    label: '手配書',
+    allowedDeleteFields: ['booking_ref'],
+    auditLog: true,
+  },
+  // tour_arrangement_days: 1手配書(tour_arrangements.id)に対する日毎明細。保存は
+  // 既存のarrangement_document_days等と同じ「全削除→再挿入」(replaceByKey、キー列は
+  // arrangement_id)。予約削除時のみ複数手配書分をまとめて削除する必要があるため、
+  // deleteByField(arrangement_id。配列値もdoDeleteByFieldがin.()で対応)も合わせて許可する。
+  tour_arrangement_days: {
+    actions: ['replaceByKey', 'deleteByField'],
+    label: '手配書日毎明細',
+    allowedReplaceKeyFields: ['arrangement_id'],
+    allowedDeleteFields: ['arrangement_id'],
+  },
+  // bullet_train_arrangements: 予約詳細モーダル「新幹線」タブの一括保存
+  // (saveBulletTrainItems)はbooking_refキーの全削除→再挿入(replaceByKey)。サイドバー
+  // 「新幹線手配」一覧画面(bt-modal)は1件ずつのupdateById/insertReturning/deleteById、
+  // CSV一括取込(importBtCsv)はinsert。予約削除時のdeleteByField(booking_ref)も許可する。
+  bullet_train_arrangements: {
+    actions: ['replaceByKey', 'updateById', 'insertReturning', 'deleteById', 'insert', 'deleteByField'],
+    label: '新幹線手配',
+    allowedReplaceKeyFields: ['booking_ref'],
+    allowedDeleteFields: ['booking_ref'],
+    auditLog: true,
+  },
+  // arrangement_documents: ガイド別手配書のヘッダー行(booking_idに1:N、booking_guide_idに
+  // 1:1)。新規作成(syncArrangementDocumentsFromDraft)はinsertReturning(挿入直後の採番idを
+  // 子テーブル(arrangement_document_days/notes)へarrangement_document_idとして紐付ける
+  // 必要があるため)、編集保存(pullGuideDocFromDraft/saveGuideDocEditor)はupdateById。
+  // 個別削除機能は無く、削除は予約削除時のdeleteByBooking(cascade)のみ。
+  arrangement_documents: {
+    actions: ['insertReturning', 'updateById', 'deleteByBooking'],
+    label: 'ガイド別手配書',
+    auditLog: true,
+  },
   // F1(見積もりのservice_role移行)。created_by/updated_by列追加・service_roleへの
   // GRANTを実施済み(SQL実行済み)。無停止移行のため、anon直接書き込み権限は当面維持する
   // (フェーズB相当のREVOKEは別途実施)。estimation_fit_itemsは実データ0件・書き込み経路が

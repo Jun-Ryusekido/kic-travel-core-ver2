@@ -4940,6 +4940,16 @@ async function bookingCostsApiCall(action, payload){ return tableCrudApiCall('bo
 // 残っていた(2026-08点検で判明)。他テーブルと同じ形式でservice_role API化する
 // (api/table-crud.jsのTABLE_CONFIG.invoices参照。REVOKEはこの時点では未実行)。
 async function invoicesApiCall(action, payload){ return tableCrudApiCall('invoices', action, payload); }
+// tour_arrangements(手配書ヘッダー・共通ドラフト)/tour_arrangement_days(同日毎明細)/
+// bullet_train_arrangements(新幹線手配)/arrangement_documents(ガイド別手配書ヘッダー):
+// 似た名前の他テーブル(tour_arrangement_headers等)との取り違えでservice_role移行対象から
+// 漏れ、anonキーからの直接insert/update/delete/upsertが残っていた(2026-08点検で判明)。
+// 他テーブルと同じ形式でservice_role API化する(api/table-crud.jsのTABLE_CONFIG参照。
+// REVOKEはこの時点では未実行)。
+async function tourArrangementsApiCall(action, payload){ return tableCrudApiCall('tour_arrangements', action, payload); }
+async function tourArrangementDaysApiCall(action, payload){ return tableCrudApiCall('tour_arrangement_days', action, payload); }
+async function bulletTrainArrangementsApiCall(action, payload){ return tableCrudApiCall('bullet_train_arrangements', action, payload); }
+async function arrangementDocumentsApiCall(action, payload){ return tableCrudApiCall('arrangement_documents', action, payload); }
 // booking_hotels/booking_buses/booking_restaurants(セキュリティ移行バッチA)。
 // safeReplaceBookingRowsが行っていたselect→insert→deleteの差分置き換えは、
 // 既存のbooking_sales/booking_costs/local_expensesと同じdoReplace(action:'replace')に
@@ -8083,7 +8093,7 @@ async function deleteArrangement(id){
   const a = arrangementsCache.find(x=>x.id===id);
   const label = a ? [a.sheet_label||'(未設定)', a.tour_code, a.bus_company_name, a.guide_name].filter(Boolean).join(' / ') : '';
   if(!confirm(`以下の手配書を削除しますか?\n\n${label}`)) return;
-  await sb.from('tour_arrangements').delete().eq('id', id);
+  await tourArrangementsApiCall('deleteById', { id });
   await loadArrangementsList();
 }
 
@@ -8202,43 +8212,45 @@ async function saveArrangement(){
 
     let arrId = currentArrangementId;
     if(arrId){
-      const {error} = await sb.from('tour_arrangements').update(payload).eq('id', arrId);
-      if(error){ alert('保存に失敗しました: '+error.message); return; }
+      try{
+        await tourArrangementsApiCall('updateById', { id: arrId, fields: payload });
+      }catch(e){ alert('保存に失敗しました: '+e.message); return; }
     }else{
       payload.created_by = currentUser ? currentUser.email : null;
-      const {data, error} = await sb.from('tour_arrangements').insert(payload).select().single();
-      if(error){ alert('保存に失敗しました: '+error.message); return; }
+      let data;
+      try{
+        const result = await tourArrangementsApiCall('insertReturning', { rows: [payload] });
+        data = (result.rows||[])[0];
+      }catch(e){ alert('保存に失敗しました: '+e.message); return; }
       arrId = data.id;
       currentArrangementId = arrId;
     }
 
     // 日程を保存（全削除→再挿入）
-    await sb.from('tour_arrangement_days').delete().eq('arrangement_id', arrId);
-    if(arrDays.length>0){
-      const rows = arrDays.map((d,i)=>({
-        arrangement_id: arrId,
-        day_number: i+1,
-        day_date: d.day_date || null,
-        day_of_week: d.day_of_week||'',
-        bus_company: d.bus_company||'',
-        itinerary: d.itinerary||'',
-        others_notes: d.others_notes||'',
-        hotel_name: d.hotel_name||'',
-        hotel_area: d.hotel_area||'',
-        hotel_area_phone: d.hotel_area_phone||'',
-        driver_info: d.driver_info||'',
-        breakfast_type: d.breakfast_type||'',
-        lunch_restaurant: d.lunch_restaurant||'',
-        lunch_time: d.lunch_time||'',
-        lunch_phone: d.lunch_phone||'',
-        dinner_restaurant: d.dinner_restaurant||'',
-        dinner_time: d.dinner_time||'',
-        dinner_phone: d.dinner_phone||'',
-        sort_order: i
-      }));
-      const {error: dayErr} = await sb.from('tour_arrangement_days').insert(rows);
-      if(dayErr){ alert('日程の保存に失敗しました: '+dayErr.message); return; }
-    }
+    const dayRows = arrDays.map((d,i)=>({
+      arrangement_id: arrId,
+      day_number: i+1,
+      day_date: d.day_date || null,
+      day_of_week: d.day_of_week||'',
+      bus_company: d.bus_company||'',
+      itinerary: d.itinerary||'',
+      others_notes: d.others_notes||'',
+      hotel_name: d.hotel_name||'',
+      hotel_area: d.hotel_area||'',
+      hotel_area_phone: d.hotel_area_phone||'',
+      driver_info: d.driver_info||'',
+      breakfast_type: d.breakfast_type||'',
+      lunch_restaurant: d.lunch_restaurant||'',
+      lunch_time: d.lunch_time||'',
+      lunch_phone: d.lunch_phone||'',
+      dinner_restaurant: d.dinner_restaurant||'',
+      dinner_time: d.dinner_time||'',
+      dinner_phone: d.dinner_phone||'',
+      sort_order: i
+    }));
+    try{
+      await tourArrangementDaysApiCall('replaceByKey', { keyField: 'arrangement_id', keyValue: arrId, rows: dayRows });
+    }catch(e){ alert('日程の保存に失敗しました: '+e.message); return; }
 
     await logAction('手配書保存', b.ref_no + (payload.sheet_label?(' / '+payload.sheet_label):''));
     const msg = document.getElementById('arr-msg');
@@ -8650,7 +8662,7 @@ async function deleteBookingData(){
 
     // ガイド別手配書（arrangement_document_days/arrangement_document_notesは
     // arrangement_documents.idへのon delete cascadeのため、親を削除すれば自動的に消える）
-    await sb.from('arrangement_documents').delete().eq('booking_id', b.id);
+    await arrangementDocumentsApiCall('deleteByBooking', { bookingId: b.id });
 
     // 現行手配書系（tour_arrangement_headers/tour_guides/tour_day_itinerary/tour_arrangement_notes）
     // ※いずれもbookings(id)へon delete cascadeのFKを持つため、末尾のbookings削除だけでも
@@ -8664,8 +8676,8 @@ async function deleteBookingData(){
     // 旧手配書（tour_arrangements/tour_arrangement_days、現在は使われていない旧テーブル）
     const {data: arrangements} = await sb.from('tour_arrangements').select('id').eq('booking_ref', refNo);
     if(arrangements && arrangements.length>0){
-      await sb.from('tour_arrangement_days').delete().in('arrangement_id', arrangements.map(a=>a.id));
-      await sb.from('tour_arrangements').delete().eq('booking_ref', refNo);
+      await tourArrangementDaysApiCall('deleteByField', { field: 'arrangement_id', value: arrangements.map(a=>a.id) });
+      await tourArrangementsApiCall('deleteByField', { field: 'booking_ref', value: refNo });
     }
 
     // 実手配（ホテル/バス/レストラン/観光施設は書き込みがservice_role経由に限定されているため
@@ -8674,7 +8686,7 @@ async function deleteBookingData(){
     await bookingBusesApiCall('deleteByBooking', { bookingId: b.id });
     await bookingRestaurantsApiCall('deleteByBooking', { bookingId: b.id });
     await bookingFacilitiesApiCall('deleteByBooking', { bookingId: b.id });
-    await sb.from('bullet_train_arrangements').delete().eq('booking_ref', refNo);
+    await bulletTrainArrangementsApiCall('deleteByField', { field: 'booking_ref', value: refNo });
     // 2026-08-12点検で追加: 以下4テーブルも予約に紐づくが削除対象から漏れていた
     // (DB側のcascade設定に依存すると、バックアップに残らないまま消える/または孤立する)。
     await bookingWaterItemsApiCall('deleteByBooking', { bookingId: b.id });
@@ -16203,12 +16215,9 @@ async function saveBulletTrainItems(){
   const ref = bdCurrentRefNo;
   if(!ref) return;
   const rows = buildBulletTrainRows(ref);
-  const {error: delErr} = await sb.from('bullet_train_arrangements').delete().eq('booking_ref', ref);
-  if(delErr) throw new Error(appendSchemaErrorHint('新幹線明細の削除に失敗: '+delErr.message));
-  if(rows.length){
-    const {error: insErr} = await sb.from('bullet_train_arrangements').insert(rows);
-    if(insErr) throw new Error(appendSchemaErrorHint('新幹線明細の保存に失敗: '+insErr.message));
-  }
+  try{
+    await bulletTrainArrangementsApiCall('replaceByKey', { keyField: 'booking_ref', keyValue: ref, rows });
+  }catch(e){ throw new Error(appendSchemaErrorHint('新幹線明細の保存に失敗: '+e.message)); }
   bdLoadSnapshot.bulletTrain = JSON.stringify(rows);
 }
 
@@ -17504,8 +17513,11 @@ async function syncArrangementDocumentsFromDraft(bookingId){
       guide_name_snapshot: guideName, guide_phone_snapshot: guidePhone,
       status: 'draft', revision_no: 0,
     };
-    const {data: newDoc, error: insErr} = await sb.from('arrangement_documents').insert(docPayload).select().single();
-    if(insErr) throw new Error('ガイド別手配書の作成に失敗（'+guideName+'）: '+insErr.message);
+    let newDoc;
+    try{
+      const result = await arrangementDocumentsApiCall('insertReturning', { rows: [docPayload] });
+      newDoc = (result.rows||[])[0];
+    }catch(e){ throw new Error('ガイド別手配書の作成に失敗（'+guideName+'）: '+e.message); }
 
     const noteRows = [
       {arrangement_document_id: newDoc.id, note_type:'fixed_template', content: noteSnapshot.fixed_template, display_order:0},
@@ -17565,8 +17577,9 @@ async function pullGuideDocFromDraft(docId){
     updated_at: new Date().toISOString(),
   };
   try{
-    const {error: updErr} = await sb.from('arrangement_documents').update(headerPayload).eq('id', docId);
-    if(updErr) throw new Error('手配書ヘッダーの取り込みに失敗: '+updErr.message);
+    try{
+      await arrangementDocumentsApiCall('updateById', { id: docId, fields: headerPayload });
+    }catch(e){ throw new Error('手配書ヘッダーの取り込みに失敗: '+e.message); }
     await Promise.all([
       arrangementDocumentDaysApiCall('replaceByKey', { keyField: 'arrangement_document_id', keyValue: docId, rows: daySnapshots.map(d=>Object.assign({arrangement_document_id: docId}, d)) }),
       arrangementDocumentNotesApiCall('replaceByKey', { keyField: 'arrangement_document_id', keyValue: docId, rows: noteRows }),
@@ -17733,8 +17746,9 @@ async function saveGuideDocEditor(){
   const saveBtnOrigHtml = saveBtn ? saveBtn.innerHTML : null;
   if(saveBtn){ saveBtn.disabled = true; saveBtn.innerHTML = '⏳ 保存中...'; }
   try{
-    const {error: updErr} = await sb.from('arrangement_documents').update(headerPayload).eq('id', d.id);
-    if(updErr) throw new Error('手配書ヘッダーの保存に失敗: '+updErr.message);
+    try{
+      await arrangementDocumentsApiCall('updateById', { id: d.id, fields: headerPayload });
+    }catch(e){ throw new Error('手配書ヘッダーの保存に失敗: '+e.message); }
 
     const dayRows = d.days.map((it,i)=>({
       arrangement_document_id: d.id,
@@ -22113,13 +22127,17 @@ async function saveBtModal(){
   if(saveBtn){ saveBtn.disabled = true; saveBtn.innerHTML = '⏳ 保存中...'; }
   try{
     if(currentBtId){
-      const {error} = await sb.from('bullet_train_arrangements').update(payload).eq('id', currentBtId);
-      if(error){ alert('保存エラー: '+error.message); return; }
+      try{
+        await bulletTrainArrangementsApiCall('updateById', { id: currentBtId, fields: payload });
+      }catch(e){ alert('保存エラー: '+e.message); return; }
       const idx = bulletTrainCache.findIndex(x=>x.id===currentBtId);
       if(idx>=0) Object.assign(bulletTrainCache[idx], payload);
     }else{
-      const {data, error} = await sb.from('bullet_train_arrangements').insert(payload).select().single();
-      if(error){ alert('保存エラー: '+error.message); return; }
+      let data;
+      try{
+        const result = await bulletTrainArrangementsApiCall('insertReturning', { rows: [payload] });
+        data = (result.rows||[])[0];
+      }catch(e){ alert('保存エラー: '+e.message); return; }
       bulletTrainCache.push(data);
       currentBtId = data.id;
       document.getElementById('bt-modal-delete').style.display='';
@@ -22137,8 +22155,9 @@ async function deleteBtRecord(){
   const r = bulletTrainCache.find(x=>x.id===currentBtId);
   const label = r ? [r.booking_ref, r.ride_date, r.train_name, r.train_number?('号数:'+r.train_number):''].filter(Boolean).join(' / ') : '';
   if(!confirm(`以下の新幹線手配レコードを削除しますか？\n\n${label}`)) return;
-  const {error} = await sb.from('bullet_train_arrangements').delete().eq('id', currentBtId);
-  if(error){ alert('削除エラー: '+error.message); return; }
+  try{
+    await bulletTrainArrangementsApiCall('deleteById', { id: currentBtId });
+  }catch(e){ alert('削除エラー: '+e.message); return; }
   bulletTrainCache = bulletTrainCache.filter(x=>x.id!==currentBtId);
   closeBtModal();
   filterBulletTrains();
@@ -22433,10 +22452,11 @@ async function importBtCsv(){
     return;
   }
 
-  const {error} = await sb.from('bullet_train_arrangements').insert(records);
-  if(error){
+  try{
+    await bulletTrainArrangementsApiCall('insert', { rows: records });
+  }catch(e){
     statusEl.style.color='var(--red)';
-    statusEl.textContent='取り込みエラー: '+error.message;
+    statusEl.textContent='取り込みエラー: '+e.message;
     return;
   }
 
