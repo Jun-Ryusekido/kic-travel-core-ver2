@@ -63,15 +63,17 @@ revoke insert, update, delete on public.bullet_train_arrangements from anon, aut
 revoke insert, update, delete on public.arrangement_documents from anon, authenticated;
 -- selectは既存の一覧表示・PDF出力等の閲覧系機能を壊さないため、anon/authenticatedから剥奪しない
 
--- bullet_train_arrangementsに残存する「anon全権限」のRLSポリシーをDROPする。
--- 上記3)のpg_policies確認結果で実際のポリシー名を確認し、<<POLICY_NAME>>を置き換えてから
--- 実行すること(RLS自体は他3テーブルと同様rowsecurity=falseのまま維持し、無効化されている
--- 想定のポリシー自体を掃除する目的。もしrowsecurity=trueだった場合は、先に無効化すべきか
--- 個別に判断すること)。
--- drop policy if exists "<<POLICY_NAME>>" on public.bullet_train_arrangements;
+-- bullet_train_arrangementsに残存する「anon全権限」のRLSポリシー(roles={anon}, cmd=ALL,
+-- qual=true。上記3)のpg_policies確認で実際に確認済み)をDROPする。
+drop policy if exists "anon全権限" on public.bullet_train_arrangements;
 
--- 他3テーブル(tour_arrangements/tour_arrangement_days/arrangement_documents)についても、
--- 上記3)の確認結果に意味を失った・矛盾したポリシーがあれば、同じ形式で追記してDROPすること。
+-- 他3テーブル(tour_arrangements/tour_arrangement_days/arrangement_documents)について、
+-- このリポジトリの作業セッションはSupabaseへの直接アクセス手段を持たないため、
+-- 上記3)のpg_policies確認結果をこのセッションでは未確認・未反映(2026-08-25時点)。
+-- 本体を実行する前に、必ず上記3)を実行して3テーブル分の結果を確認し、意味を失った・
+-- 矛盾したポリシー(RLS無効なのに残っているもの、anon/authenticatedに書き込みを許可する
+-- 内容のもの等)があれば、bullet_train_arrangementsと同じ形式で以下にDROP文を追記してから
+-- 本体を実行すること。該当ポリシーが無ければ何も追記せず本体をそのまま実行してよい。
 -- drop policy if exists "<<POLICY_NAME>>" on public.<<TABLE_NAME>>;
 
 notify pgrst, 'reload schema';
