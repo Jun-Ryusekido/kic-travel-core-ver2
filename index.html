@@ -2863,6 +2863,8 @@ input[type=number]{-moz-appearance:textfield}
         </table></div>
         <button class="btn" id="bd-sales-add-btn" style="font-size:10px;margin-top:4px" onclick="addSalesRow()">＋ 行追加</button>
 <div class="li-total">売上合計: <span id="bd-sales-total">¥0</span></div>
+<div class="li-total">入金合計: <span id="bd-sales-paid-total">¥0</span></div>
+<div class="li-total">差額（未収）: <span id="bd-sales-diff-total">¥0</span></div>
       </div>
       <div>
         <h4 class="red">仕入明細</h4>
@@ -5901,6 +5903,14 @@ function updateDetailGrossPreview(){
   const unpaidEl = document.getElementById('bd-sum-unpaid');
   if(paidEl) paidEl.textContent = yen(totalPaid);
   const depositElInput = document.getElementById('bd-deposit'); if(depositElInput) depositElInput.value = totalPaid;
+  // 売上明細セクション内(売上合計の直下)にも入金合計・差額を表示する。上のbd-sum-paid/
+  // bd-sum-unpaid(画面上部のKPIタイル)と同じtotalPaid/unpaidをそのまま再利用し、
+  // 別計算にしない(2箇所で計算がずれるのを防ぐため)。配色も行ごとの「未収」列
+  // (renderSalesTable内)と同じ基準(unpaid>0が赤、それ以外は緑)に揃える。
+  const salesPaidTotalEl = document.getElementById('bd-sales-paid-total');
+  if(salesPaidTotalEl) salesPaidTotalEl.textContent = yen(totalPaid);
+  const salesDiffTotalEl = document.getElementById('bd-sales-diff-total');
+  if(salesDiffTotalEl){ salesDiffTotalEl.textContent = yen(unpaid); salesDiffTotalEl.style.color = unpaid>0 ? 'var(--red)' : 'var(--green)'; }
   if(unpaidEl){ unpaidEl.textContent = yen(unpaid); unpaidEl.className = 'kpi-val '+(unpaid>0?'red':'green'); }
   const cost = bdCostTotal();
   const gross = sales-cost;
