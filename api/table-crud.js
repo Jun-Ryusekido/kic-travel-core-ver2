@@ -375,6 +375,12 @@ const TABLE_CONFIG = {
     allowedReplaceKeyFields: ['booking_ref'],
     allowedDeleteFields: ['booking_ref'],
     auditLog: true,
+    // bullet_train_arrangements_unique制約(booking_ref+ride_date+train_number+
+    // departure_station+arrival_station、buildBulletTrainRows/btDupKey参照)があるため、
+    // doReplaceByKeyの既定順序(INSERT→DELETE)では、内容を変更しない行が旧行とキーの
+    // 重複でINSERT時にunique制約違反となる(2026-08、予約#1068で発覚)。旧コードの
+    // sb.from(...).delete()→insert()と同じDELETE→INSERT順序に切り替える。
+    replaceByKeyDeleteFirst: true,
   },
   // arrangement_documents: ガイド別手配書のヘッダー行(booking_idに1:N、booking_guide_idに
   // 1:1)。新規作成(syncArrangementDocumentsFromDraft)はinsertReturning(挿入直後の採番idを
@@ -744,19 +750,46 @@ async function doReplaceByKey(table, label, keyField, keyValue, rows, config) {
   const existing = await existingRes.json();
   const existingIds = (existing || []).map((r) => r.id);
 
-  if (Array.isArray(rows) && rows.length) {
+  async function doInsert() {
+    if (!Array.isArray(rows) || !rows.length) return null;
     const insRes = await sbFetch(table, '', { method: 'POST', prefer: 'return=minimal', body: JSON.stringify(rows) });
     if (!insRes.ok) {
       const e = await readJsonSafe(insRes);
       return { status: 500, body: { error: withGrantHint(e.message, table) || `${label}の保存に失敗しました` } };
     }
+    return null;
   }
-  if (existingIds.length) {
+  async function doDelete(messageSuffix) {
+    if (!existingIds.length) return null;
     const delRes = await sbFetch(table, `?id=in.(${existingIds.join(',')})`, { method: 'DELETE', prefer: 'return=minimal' });
     if (!delRes.ok) {
       const e = await readJsonSafe(delRes);
-      return { status: 500, body: { error: withGrantHint(e.message, table) || `${label}の旧データ削除に失敗しました（新データは保存済みのため重複している可能性があります）` } };
+      return { status: 500, body: { error: withGrantHint(e.message, table) || `${label}の旧データ削除に失敗しました${messageSuffix}` } };
     }
+    return null;
+  }
+
+  // 既定は「新規INSERTに成功してから、既存の旧行だけをidで指定してDELETEする」順序
+  // (#782の全削除→再挿入事故の再発防止。doReplace()と同じ考え方。INSERTが失敗しても
+  // 旧データがそのまま残るため、保存の途中失敗によるデータ全損を避けられる)。
+  // ただしconfig.replaceByKeyDeleteFirstが立っているテーブルは、この既定の順序だと
+  // 「内容を変更しない行(例: pax数のみ変更等)」の新INSERTが、まだ削除していない旧行と
+  // 内容が重複しunique制約(例: bullet_train_arrangementsのbooking_ref+ride_date+
+  // train_number+departure_station+arrival_station)に違反して保存自体が失敗する
+  // (2026-08、予約#1068の新幹線タブ保存失敗で発覚)。該当テーブルに限り、旧経路の
+  // sb.from(...).delete()→insert()と同じDELETE→INSERTの順序に切り替える
+  // (DELETE成功後にINSERTが失敗すると当該キーのデータが一時的に空になるリスクは
+  // 受け入れる。旧コードも同じ順序・同じリスクで長期間運用されていた実績があるため)。
+  if (config.replaceByKeyDeleteFirst) {
+    const delErr = await doDelete('');
+    if (delErr) return delErr;
+    const insErr = await doInsert();
+    if (insErr) return insErr;
+  } else {
+    const insErr = await doInsert();
+    if (insErr) return insErr;
+    const delErr = await doDelete('（新データは保存済みのため重複している可能性があります）');
+    if (delErr) return delErr;
   }
   return { status: 200, body: { ok: true } };
 }
