@@ -23857,6 +23857,7 @@ async function loadPartners(){
     ptFrom += ptPageSize;
   }
   partnersCache = data;
+  await loadBusinessPartnerContactsIndex();
   await fetchAndRenderPartners();
   loadPartnerMergePendingCache();
 }
@@ -24113,12 +24114,18 @@ function renderPartnersRows(){
   // JS構文が壊れるため避けている)。値が空の項目にはボタン自体を出さない。
   const copyBtn = (val) => val ? `<button type="button" class="copy-icon-btn" data-copy="${escAttr(val)}" onclick="copyPartnerField(this,this.dataset.copy,event)" title="コピー">📋</button>` : '';
 
-  // PC テーブル
-  tbody.innerHTML = filtered.map(p=>`
+  // PC テーブル。「担当者」列は代表担当者(is_primary)があればその人、無ければ
+  // 従来通り登録順1人目(business_partner_contacts0件の会社はbusiness_partners自身の
+  // contact_person)を表示する(getDisplayContactForPartner)。読み仮名がある場合は
+  // 担当者名の直後に小さく併記する。
+  tbody.innerHTML = filtered.map(p=>{
+    const dc = getDisplayContactForPartner(p);
+    const kanaSuffix = dc.contact_person_kana ? ` <span style="color:var(--text3);font-size:10px">（${escHtml(dc.contact_person_kana)}）</span>` : '';
+    return `
     <tr>
       <td>${escHtml(p.category||'')}</td>
       <td>${escHtml(p.company_name||'')}${copyBtn(p.company_name)}${p.branch_name?(' / '+escHtml(p.branch_name)):''}${(p.company_name_en||p.branch_name_en)?('<br><span style="color:var(--text3);font-size:10px">'+escHtml([p.company_name_en,p.branch_name_en].filter(Boolean).join(' / '))+'</span>'):''}</td>
-      <td>${escHtml(p.contact_person||'')}${copyBtn(p.contact_person)}${p.position?(' / '+escHtml(p.position)):''}${(p.contact_person_en||p.position_en)?('<br><span style="color:var(--text3);font-size:10px">'+escHtml([p.contact_person_en,p.position_en].filter(Boolean).join(' / '))+'</span>'):''}</td>
+      <td>${escHtml(dc.contact_person||'')}${kanaSuffix}${copyBtn(dc.contact_person)}${dc.position?(' / '+escHtml(dc.position)):''}${(dc.contact_person_en||dc.position_en)?('<br><span style="color:var(--text3);font-size:10px">'+escHtml([dc.contact_person_en,dc.position_en].filter(Boolean).join(' / '))+'</span>'):''}</td>
       <td>${escHtml(p.phone||p.department_phone||p.company_phone||'')}${copyBtn(p.phone||p.department_phone||p.company_phone||'')}</td>
       <td style="white-space:normal;font-size:10px;color:var(--text3)">${escHtml(p.notes||'')}${copyBtn(p.notes)}</td>
       <td style="white-space:nowrap">
@@ -24126,13 +24133,16 @@ function renderPartnersRows(){
         <button class="btn" style="font-size:11px" onclick="openPartnerEditor('${p.id}')">編集</button>
         <button class="btn" style="font-size:11px;color:var(--red)" onclick="deletePartner('${p.id}')">削除</button>
       </td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 
-  // スマホ カード
+  // スマホ カード(同じくgetDisplayContactForPartnerで代表担当者を反映)
   cards.innerHTML = filtered.map(p=>{
+    const dc = getDisplayContactForPartner(p);
     const companyLine = [p.company_name, p.branch_name].filter(Boolean).join(' / ');
     const enLine      = [p.company_name_en, p.branch_name_en].filter(Boolean).join(' / ');
-    const personLine  = [p.contact_person, p.position].filter(Boolean).join(' / ');
+    const personLine  = [dc.contact_person, dc.position].filter(Boolean).join(' / ');
+    const kanaSuffix  = dc.contact_person_kana ? ` <span style="color:var(--text3);font-size:10px">（${escHtml(dc.contact_person_kana)}）</span>` : '';
     const phone       = p.phone || p.department_phone || p.company_phone || '';
     return `<div class="pt-card">
       <div class="pt-card-main">
@@ -24142,7 +24152,7 @@ function renderPartnersRows(){
             <span class="pt-card-company">${escHtml(companyLine||'（社名なし）')}${copyBtn(p.company_name)}</span>
           </div>
           ${enLine ? `<div class="pt-card-en">${escHtml(enLine)}</div>` : ''}
-          ${personLine ? `<div class="pt-card-meta">${escHtml(personLine)}${copyBtn(p.contact_person)}</div>` : ''}
+          ${personLine ? `<div class="pt-card-meta">${escHtml(personLine)}${kanaSuffix}${copyBtn(dc.contact_person)}</div>` : ''}
           ${phone ? `<div class="pt-card-meta">📞 ${escHtml(phone)}${copyBtn(phone)}</div>` : ''}
           ${p.email ? `<div class="pt-card-meta">✉️ ${escHtml(p.email)}</div>` : ''}
           ${p.notes ? `<div class="pt-card-notes">${escHtml(p.notes)}${copyBtn(p.notes)}</div>` : ''}
@@ -24211,11 +24221,15 @@ let currentPartnerContactsCache = [];
 // 先頭に固定表示する(business_partners自体は一切変更しない、表示専用のフォールバック)。
 // 移行SQL実行後はbusiness_partner_contacts側に実データとして1行入るため、通常の
 // 担当者行として表示され、このフォールバックとは二重に表示されない。
+//
+// フェーズ3: 代表担当者(is_primary)が常に先頭に来るよう並び替える。代表が
+// 未設定の会社は今まで通りcreated_at(登録順)で並べる。
 async function renderPartnerContactsList(partner){
   const el = document.getElementById('pt-detail-contacts');
   if(!el) return;
   const {data, error} = await sb.from('business_partner_contacts').select('*')
-    .eq('business_partner_id', partner.id).eq('is_deleted', false).order('created_at');
+    .eq('business_partner_id', partner.id).eq('is_deleted', false)
+    .order('is_primary', {ascending:false}).order('created_at', {ascending:true});
   if(error){ el.innerHTML = `<span style="color:var(--red)">読み込みエラー: ${escHtml(error.message)}</span>`; return; }
   currentPartnerContactsCache = data || [];
 
@@ -24235,16 +24249,20 @@ async function renderPartnerContactsList(partner){
 
   const contactsHtml = currentPartnerContactsCache.map(c=>{
     const nameLine = [c.contact_person, c.position].filter(Boolean).join(' / ');
+    const kanaSuffix = c.contact_person_kana ? ` <span style="color:var(--text3);font-size:10px;font-weight:normal">（${escHtml(c.contact_person_kana)}）</span>` : '';
     const phone = c.phone || c.department_phone || '';
     const deleteLabel = escAttr(`${partner.company_name||''}${nameLine?(' / '+nameLine):''}${phone?(' / '+phone):''}`);
+    const primaryBadge = c.is_primary ? '<span style="font-size:10px;color:var(--orange);background:var(--orange-lt);border-radius:4px;padding:1px 5px;margin-left:4px;white-space:nowrap">★代表</span>' : '';
+    const primaryBtn = c.is_primary ? '' : `<button class="btn" style="font-size:10px" onclick="setPrimaryContact('${c.id}')">★ 代表にする</button>`;
     return `<div style="padding:7px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:8px;align-items:flex-start">
       <div>
-        <div style="font-weight:600">${escHtml(nameLine || '（名前未登録）')}</div>
+        <div style="font-weight:600">${escHtml(nameLine || '（名前未登録）')}${kanaSuffix}${primaryBadge}</div>
         ${c.branch_name ? `<div style="color:var(--text3)">${escHtml(c.branch_name)}</div>` : ''}
         ${phone ? `<div>📞 ${escHtml(phone)}</div>` : ''}
         ${c.email ? `<div>✉️ ${escHtml(c.email)}</div>` : ''}
       </div>
       <div style="white-space:nowrap;display:flex;flex-direction:column;gap:4px;flex-shrink:0">
+        ${primaryBtn}
         <button class="btn" style="font-size:10px" onclick="openContactEditModal('${c.id}')">編集</button>
         <button class="btn" style="font-size:10px;color:var(--red)" onclick="deleteContact('${c.id}','${deleteLabel}')">削除</button>
       </div>
@@ -24254,13 +24272,31 @@ async function renderPartnerContactsList(partner){
   el.innerHTML = legacyHtml + contactsHtml;
 }
 
+// 代表担当者は1社につき常に1人まで。対象をtrueにし、同じ会社の他の担当者は
+// 自動的にfalseへ戻す(business_partner_contactsにupdateByIds等の一括更新actionは
+// ホワイトリストしていないため、変更が必要な行だけ1件ずつupdateByIdする)。
+async function setPrimaryContact(contactId){
+  const target = currentPartnerContactsCache.find(x=>x.id===contactId);
+  if(!target) return;
+  try{
+    for(const c of currentPartnerContactsCache){
+      const shouldBePrimary = c.id === contactId;
+      if(!!c.is_primary === shouldBePrimary) continue;
+      await businessPartnerContactsApiCall('updateById', { id: c.id, fields: { is_primary: shouldBePrimary } });
+    }
+  }catch(e){ alert('代表担当者の設定に失敗しました: '+e.message); return; }
+  const partner = getCurrentPartnerDetailObj();
+  if(partner) await renderPartnerContactsList(partner);
+  await refreshPartnerContactsIndexAndRerenderList();
+}
+
 let currentEditingContactId = null;
 
 function openContactAddModal(businessPartnerId){
   currentPartnerDetailId = businessPartnerId;
   currentEditingContactId = null;
   document.getElementById('contact-form-modal-title').textContent = '担当者を追加';
-  ['ct-contact-person','ct-position','ct-branch-name','ct-phone','ct-department-phone','ct-email'].forEach(id=>{
+  ['ct-contact-person','ct-contact-person-kana','ct-position','ct-branch-name','ct-phone','ct-department-phone','ct-email'].forEach(id=>{
     const el = document.getElementById(id); if(el) el.value = '';
   });
   document.getElementById('contact-add-modal').classList.add('open');
@@ -24272,6 +24308,7 @@ function openContactEditModal(contactId){
   currentEditingContactId = c.id;
   document.getElementById('contact-form-modal-title').textContent = '担当者を編集';
   document.getElementById('ct-contact-person').value = c.contact_person || '';
+  document.getElementById('ct-contact-person-kana').value = c.contact_person_kana || '';
   document.getElementById('ct-position').value = c.position || '';
   document.getElementById('ct-branch-name').value = c.branch_name || '';
   document.getElementById('ct-phone').value = c.phone || '';
@@ -24284,12 +24321,25 @@ function getCurrentPartnerDetailObj(){
   return partnersFilteredRows.find(x=>x.id===currentPartnerDetailId) || partnersCache.find(x=>x.id===currentPartnerDetailId) || null;
 }
 
+// 担当者名(カタカナ)の軽量バリデーション。全角カタカナ・長音記号(ー)・中黒(・)・
+// 空白のみで構成されていればtrue。保存自体は妨げない補助的な確認のためのチェックで、
+// falseでも警告を出すだけで保存は続行する。
+function isLikelyKatakana(s){
+  if(!s) return true;
+  return /^[゠-ヿー・\s]+$/.test(s);
+}
+
 async function saveNewContact(){
   if(!currentPartnerDetailId){ alert('取引先が特定できません'); return; }
   const contactPerson = document.getElementById('ct-contact-person').value.trim();
   if(!contactPerson){ alert('担当者名を入力してください'); return; }
+  const contactPersonKana = document.getElementById('ct-contact-person-kana').value.trim();
+  if(contactPersonKana && !isLikelyKatakana(contactPersonKana)){
+    alert('担当者名（カタカナ）にカタカナ以外の文字が含まれているようです。内容を確認してください（このまま保存されます）。');
+  }
   const fields = {
     contact_person: contactPerson,
+    contact_person_kana: contactPersonKana || null,
     position: document.getElementById('ct-position').value.trim() || null,
     branch_name: document.getElementById('ct-branch-name').value.trim() || null,
     phone: document.getElementById('ct-phone').value.trim() || null,
@@ -24314,6 +24364,7 @@ async function saveNewContact(){
   document.getElementById('contact-add-modal').classList.remove('open');
   const partner = getCurrentPartnerDetailObj();
   if(partner) await renderPartnerContactsList(partner);
+  await refreshPartnerContactsIndexAndRerenderList();
 }
 
 // 担当者の削除は他の論理削除パターン(deletePartner/deleteFacilityTodoItem等)と統一し、
@@ -24331,6 +24382,49 @@ async function deleteContact(contactId, label){
   }catch(e){ alert('削除に失敗しました: '+e.message); return; }
   const partner = getCurrentPartnerDetailObj();
   if(partner) await renderPartnerContactsList(partner);
+  await refreshPartnerContactsIndexAndRerenderList();
+}
+
+// ─── 取引先マスタ一覧(PC/モバイル)での「代表担当者」表示 ─────────────────
+// 会社ごとに、代表担当者(is_primary=true)が設定されていればその人を、未設定
+// であれば従来通り登録順(created_at)1人目を、一覧の「担当者」列/欄に表示する。
+// business_partner_contactsが1件も無い会社は、これまで通りbusiness_partners自身の
+// contact_person等を表示する(フォールバック、business_partners自体は変更しない)。
+let businessPartnerContactsIndex = new Map();
+
+async function loadBusinessPartnerContactsIndex(){
+  const {data, error} = await sb.from('business_partner_contacts')
+    .select('business_partner_id,contact_person,contact_person_en,contact_person_kana,position,position_en,is_primary,created_at')
+    .eq('is_deleted', false).order('created_at', {ascending:true});
+  businessPartnerContactsIndex = new Map();
+  if(error){ logError('取引先一覧・代表担当者表示用データの読み込み', error, {toast:false}); return; }
+  (data||[]).forEach(c=>{
+    const existing = businessPartnerContactsIndex.get(c.business_partner_id);
+    if(!existing || (c.is_primary && !existing.is_primary)){
+      businessPartnerContactsIndex.set(c.business_partner_id, c);
+    }
+  });
+}
+
+function getDisplayContactForPartner(p){
+  const c = businessPartnerContactsIndex.get(p.id);
+  if(c){
+    return {
+      contact_person: c.contact_person, contact_person_en: c.contact_person_en,
+      contact_person_kana: c.contact_person_kana, position: c.position, position_en: c.position_en,
+    };
+  }
+  return {
+    contact_person: p.contact_person, contact_person_en: p.contact_person_en,
+    contact_person_kana: null, position: p.position, position_en: p.position_en,
+  };
+}
+
+// 取引先照会モーダル側での担当者の追加・編集・削除・代表担当者変更は一覧側の
+// 表示にも影響するため、その都度インデックスを再取得して一覧を再描画する。
+async function refreshPartnerContactsIndexAndRerenderList(){
+  await loadBusinessPartnerContactsIndex();
+  renderPartnersRows();
 }
 
 async function handleCardUpload(event){
@@ -26595,6 +26689,7 @@ function setDateInputValue(el, d){
     </div>
     <div class="form-grid">
       <div class="form-field"><label>担当者名</label><input id="ct-contact-person" placeholder="例: 田中太郎"></div>
+      <div class="form-field"><label>担当者名（カタカナ）</label><input id="ct-contact-person-kana" placeholder="例: タナカタロウ"></div>
       <div class="form-field"><label>役職</label><input id="ct-position" placeholder="例: 営業部長"></div>
       <div class="form-field"><label>支店名等</label><input id="ct-branch-name" placeholder="例: 新宿店"></div>
       <div class="form-field"><label>携帯・直通番号</label><input id="ct-phone" placeholder="例: 090-1234-5678"></div>
