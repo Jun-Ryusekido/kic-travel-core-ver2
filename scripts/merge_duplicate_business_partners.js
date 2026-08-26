@@ -49,6 +49,9 @@ function parseArgs(argv) {
 // scripts/import_guide_bank_accounts_dryrun.js等と同じ手書きCSVパーサー(RFC4180相当、
 // ダブルクォート内のカンマ・改行・エスケープされた""に対応)。
 function parseCsv(text) {
+  // 呼び出し元(loadReportRows)で読み込み時に既にBOM除去しているが、parseCsv単体で
+  // 直接呼ばれるケース(テスト等)にも備え、ここでも先頭のBOM(U+FEFF)を除去する。
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
   const rows = [];
   let row = [], field = '', inQuotes = false;
   for (let i = 0; i < text.length; i++) {
@@ -74,8 +77,15 @@ function loadReportRows(csvPath) {
   if (!fs.existsSync(csvPath)) {
     throw new Error(`CSVが見つかりません: ${csvPath}\n先にscripts/find_duplicate_business_partners.jsを実行してください。`);
   }
-  const rows = parseCsv(fs.readFileSync(csvPath, 'utf8'));
-  const header = rows[0];
+  // Excelで「CSV UTF-8」形式で保存すると、ファイル先頭にBOM(U+FEFF)が付与され、
+  // 1列目のヘッダー名の前に不可視文字として紛れ込む(例:「グループ番号」の前にBOMが
+  // 付いて一致しなくなる)。読み込み時に先頭のBOMを除去してから解析する。
+  let text = fs.readFileSync(csvPath, 'utf8');
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+  const rows = parseCsv(text);
+  // 同様にExcelでの編集・再保存で列名の前後に空白が入り込むことがあるため、
+  // ヘッダーは必ずtrimしてから列を特定する(値側は元々trimしている箇所のみtrim対象)。
+  const header = rows[0].map(h => String(h).trim());
   const idx = name => {
     const i = header.indexOf(name);
     if (i === -1) throw new Error(`CSVに列「${name}」がありません(ヘッダー: ${header.join(', ')})`);
