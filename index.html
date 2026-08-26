@@ -22638,9 +22638,10 @@ async function generateMealVoucher(){
   // 店名だけ変更されても備考の電話番号が古いまま残り続ける不具合(REF#1153で発覚)の原因
   // だったため、生成のたびに取引先マスタから店名で検索して取得する方式に変更した
   // (備考欄は今まで通りスタッフの自由記述専用に戻し、電話番号の代入元としては使わない)。
-  // 電話番号(担当者個人の情報)は、会社が特定できた後にbusiness_partner_contactsの
-  // 代表担当者から取得する(loadRepresentativeContactsByPartnerIds)。company_name_en
-  // (会社そのものの情報)は引き続きbusiness_partners側の値をそのまま使う。
+  // 電話番号はまず会社の代表電話(business_partners.company_phone)を優先し、無ければ
+  // business_partner_contactsの代表担当者(is_primary優先)個人の電話番号にフォールバック
+  // する(現地の手配先への連絡・確認用の帳票のため、個人の携帯より会社の代表電話を優先する)。
+  // company_name_en(会社そのものの情報)は引き続きbusiness_partners側の値をそのまま使う。
   const normName = s => String(s||'').normalize('NFKC').trim();
   const restNames = [...new Set(targetRestaurantItems.map(r=>r.restaurant_name).filter(Boolean))];
   let supplierByName = {};
@@ -22649,7 +22650,7 @@ async function generateMealVoucher(){
     let supRows = [], from = 0;
     const PAGE = 1000;
     while(true){
-      const {data: page, error: supErr} = await sb.from('business_partners').select('id,company_name,company_name_en,phone').range(from, from+PAGE-1);
+      const {data: page, error: supErr} = await sb.from('business_partners').select('id,company_name,company_name_en,phone,company_phone').range(from, from+PAGE-1);
       if(supErr){ logError('取引先マスタの読み込み(business_partners)', supErr); break; }
       supRows = supRows.concat(page||[]);
       if(!page || page.length < PAGE) break;
@@ -22692,11 +22693,11 @@ async function generateMealVoucher(){
       payment_method: document.getElementById(`vc-r-payment-${i}`)?.value||'請求書払い',
       memo:        document.getElementById(`vc-r-memo-${i}`)?.value||'',
       restaurant_name_en: sup ? (sup.company_name_en||'') : '',
-      // 代表担当者(rep)がいればその電話番号を優先し、いなければbusiness_partners自身の
-      // phoneにフォールバックする(移行対象外・担当者0件の会社でも従来通り表示される)。
-      // マッチしなかった場合は無理に埋めず空欄のままにする(printArrangementSummaryList等の
-      // 既存の他印刷機能と同じ安全なフォールバック)。
-      restaurant_phone: (rep && rep.phone) || (sup ? (sup.phone||'') : ''),
+      // 会社の代表電話(company_phone)を最優先し、無ければ代表担当者(rep)個人の電話、
+      // それも無ければbusiness_partners自身のphone(移行対象外・担当者0件の会社向け
+      // フォールバック)を使う。マッチしなかった場合は無理に埋めず空欄のままにする
+      // (printArrangementSummaryList等の既存の他印刷機能と同じ安全なフォールバック)。
+      restaurant_phone: (sup && sup.company_phone) || (rep && rep.phone) || (sup ? (sup.phone||'') : ''),
     };
   });
   // 印刷物一式の最後のページに余白が残る場合、現地での手書き対応用の予備バウチャーで
@@ -22720,9 +22721,10 @@ async function printRestaurantList(){
 
   // 店名の全角/半角ゆれ（例: ＆ vs &）を吸収するため、NFKC正規化した名前をキーに突合する
   // 実データはsuppliersではなくbusiness_partners（取引先マスタ）に登録されているため、こちらを参照する。
-  // 電話番号(担当者個人の情報)は、会社が特定できた後にbusiness_partner_contactsの
-  // 代表担当者から取得する(loadRepresentativeContactsByPartnerIds)。address(会社そのものの
-  // 情報)は引き続きbusiness_partners側の値をそのまま使う。
+  // 電話番号はまず会社の代表電話(business_partners.company_phone)を優先し、無ければ
+  // business_partner_contactsの代表担当者(is_primary優先)個人の電話番号にフォールバック
+  // する(現地の店舗への連絡・確認用の帳票のため、個人の携帯より会社の代表電話を優先する)。
+  // address(会社そのものの情報)は引き続きbusiness_partners側の値をそのまま使う。
   const normName = s => String(s||'').normalize('NFKC').trim();
   const restNames = [...new Set(bdRestaurantItems.map(r=>r.restaurant_name).filter(Boolean))];
   let supplierByName = {};
@@ -22733,7 +22735,7 @@ async function printRestaurantList(){
     let supRows = [], from = 0;
     const PAGE = 1000;
     while(true){
-      const {data: page, error: supErr} = await sb.from('business_partners').select('id,company_name,address,phone').range(from, from+PAGE-1);
+      const {data: page, error: supErr} = await sb.from('business_partners').select('id,company_name,address,phone,company_phone').range(from, from+PAGE-1);
       if(supErr){ logError('取引先マスタの読み込み(business_partners)', supErr); break; }
       supRows = supRows.concat(page||[]);
       if(!page || page.length < PAGE) break;
@@ -22756,7 +22758,7 @@ async function printRestaurantList(){
   const rows = sorted.map(r=>{
     const sup = supplierByName[normName(r.restaurant_name)];
     const rep = sup ? repContactsByPartnerId.get(sup.id) : null;
-    const phoneVal = (rep && rep.phone) || (sup ? (sup.phone||'') : '');
+    const phoneVal = (sup && sup.company_phone) || (rep && rep.phone) || (sup ? (sup.phone||'') : '');
     const mealEn = MEAL_TYPE_EN[r.meal_type||'']||'';
     return `<tr>
     <td ${tdS()}>${escHtml(r.date||'')}</td>
@@ -22863,10 +22865,12 @@ async function printArrangementSummaryList(){
   // 店名の全角/半角ゆれを吸収できるようNFKC正規化した名前をキーに突合する(printLocalExpenseVoucher
   // で店名→business_partners突合に使っているのと同じパターン)。該当する取引先が見つからない、
   // または電話番号が未登録の場合は無理に埋めず空欄のままにする(エラーにはしない)。
-  // phone/department_phone/show_contact_phone/show_department_phone(担当者個人の情報)は、
-  // 会社が特定できた後にbusiness_partner_contactsの代表担当者から取得する
-  // (loadRepresentativeContactsByPartnerIds)。company_phone/show_company_phone
-  // (会社そのものの情報)は引き続きbusiness_partners側の値をそのまま使う。
+  // 会社の代表電話(company_phone、show_company_phoneで表示可の場合)を最優先する。
+  // それが無い/非表示の場合のみ、phone/department_phone/show_contact_phone/
+  // show_department_phone(担当者個人の情報)を、会社が特定できた後にbusiness_partner_contacts
+  // の代表担当者から取得してフォールバックする(loadRepresentativeContactsByPartnerIds)。
+  // company_phone/show_company_phone(会社そのものの情報)は引き続きbusiness_partners側の
+  // 値をそのまま使う。
   const normName = s => String(s||'').normalize('NFKC').trim();
   const arrPartnerNames = [...new Set([
     ...(bdHotelItems||[]).map(h=>h.hotel_name),
@@ -22892,6 +22896,13 @@ async function printArrangementSummaryList(){
   const arrPartnerPhone = name => {
     const p = arrPartnerByName[normName(name)];
     if(!p) return '';
+    // 会社の代表電話が表示可(show_company_phone)かつ登録済みなら、それだけを使う
+    // (現地の手配先への連絡・確認用の帳票のため、個人の携帯より会社の代表電話を優先する)。
+    if(p.show_company_phone && p.company_phone) return p.company_phone;
+    // 会社の代表電話が無い/非表示の場合のみ、代表担当者(rep、無ければbusiness_partners
+    // 自身)の電話番号にフォールバックする。表示可否はこれまで通りshow_contact_phone/
+    // show_department_phoneに従う(repがいればrep側のフラグ、いなければbusiness_partners
+    // 自身のフラグ)。
     const rep = arrRepContactsByPartnerId.get(p.id);
     const contactPhone = (rep && rep.phone) || p.phone;
     const deptPhone = (rep && rep.department_phone) || p.department_phone;
@@ -22900,7 +22911,6 @@ async function printArrangementSummaryList(){
     const nums = [];
     if(showContact && contactPhone) nums.push(contactPhone);
     if(showDept && deptPhone) nums.push(deptPhone);
-    if(p.show_company_phone && p.company_phone) nums.push(p.company_phone);
     return nums.join(' / ');
   };
 
