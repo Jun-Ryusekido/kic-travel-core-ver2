@@ -300,6 +300,18 @@ const TABLE_CONFIG = {
     label: '名刺マージ保留候補',
     stampSentByField: 'scanned_by',
   },
+  // business_partner_contacts(取引先マスタ担当者・フェーズ1): business_partners自体は
+  // 変更せず、同じ会社に複数の担当者を紐付けるための新設テーブル。partner_merge_pending
+  // と同じ方針で最初からservice_role専用の書き込みとする(scripts/
+  // create_business_partner_contacts_table.sql参照)。deleteByIdは一覧画面からの
+  // 担当者削除(論理削除はupdateById、完全削除まではフェーズ1のスコープ外)用に含めるが、
+  // 今回のフェーズ1では未使用。
+  business_partner_contacts: {
+    actions: ['insert', 'insertReturning', 'updateById', 'deleteById'],
+    label: '取引先マスタ担当者',
+    stampIdentity: true,
+    auditLog: true,
+  },
   // credit_card_statements(クレジットカード明細): 経理・原価計算に関わるデータのため
   // 監査ログを有効化する(再設計時にscripts/redesign_credit_card_statements.sqlで
   // created_by/updated_by/created_at列を追加済みであることが前提)。無停止移行のため、
@@ -1310,7 +1322,15 @@ export default async function handler(req, res) {
       if (table === 'business_partners' && Array.isArray(rows)) {
         const dup = await findExactDuplicateBusinessPartner(rows);
         if (dup) {
-          return res.status(409).json({ error: `会社名「${dup.newName}」は既存の取引先「${dup.existing.company_name}」と完全に同じ表記のため、重複登録としてブロックしました。既存データを編集するか、表記を変えて登録してください。` });
+          // 会社名完全一致時、以前は保存を拒否するだけだったが、business_partner_contacts
+          // (フェーズ1)追加により、クライアント側で「既存の会社に担当者として追加する」
+          // 選択肢を出せるよう、既存取引先のid/会社名を構造化フィールドとしても返す。
+          return res.status(409).json({
+            error: `会社名「${dup.newName}」は既存の取引先「${dup.existing.company_name}」と完全に同じ表記のため、重複登録としてブロックしました。既存の取引先に担当者として追加するか、表記を変えて登録してください。`,
+            code: 'DUPLICATE_COMPANY_NAME',
+            existingPartnerId: dup.existing.id,
+            existingCompanyName: dup.existing.company_name,
+          });
         }
       }
       const result = await doInsert(table, config.label, stampNewRows(rows), config, changedBy);
