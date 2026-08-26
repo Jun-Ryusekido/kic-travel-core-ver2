@@ -128,7 +128,10 @@ async function main() {
   });
 
   fs.mkdirSync(path.dirname(OUT_CSV), { recursive: true });
-  fs.writeFileSync(OUT_CSV, csvRows.map(toCsvRow).join('\n'), 'utf8');
+  // 先頭にUTF-8 BOM(U+FEFF)を付けて出力する。BOM無しだとExcelで直接開いた際に
+  // 日本語ヘッダーが文字化けすることがあるため(Excelでの編集・再保存を想定した運用)。
+  // merge_duplicate_business_partners.js側はBOM付き・BOM無しのどちらのCSVも読める。
+  fs.writeFileSync(OUT_CSV, '\uFEFF' + csvRows.map(toCsvRow).join('\n'), 'utf8');
   console.log(`\nCSVを保存しました: ${OUT_CSV}`);
 
   console.log('\n--- 重複グループ上位20件(件数の多い順) ---');
