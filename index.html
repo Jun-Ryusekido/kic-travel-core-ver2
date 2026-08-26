@@ -2475,11 +2475,15 @@ input[type=number]{-moz-appearance:textfield}
       <div class="form-field" style="grid-column:1/-1">
         <!-- REF#/AGENT/TOUR CODE/TOUR NAME行・PAX人数行・担当者/日程/入金合計行・国名/種別/
              備考/手配状況行の4行と、その右にMEMOをposition:absoluteで独立配置する(高さ・
-             上端位置だけをMEMO自身で制御し、他の行の高さに影響させないため)。MEMOのleft値
-             (725px)は、4行のうち最も幅が広い担当者/日程/入金合計行(705px)がMEMOと重ならない
-             よう、実測(Playwright)の上で余白を持たせて設定している。行の項目を増減する場合は
-             再度実測し、必要ならこの値を調整すること(以前は689pxだったが、担当者/日程/
-             入金合計行の実際の幅がそれを超えており、入金合計欄の右端がMEMO欄と重なっていた)。 -->
+             上端位置だけをMEMO自身で制御し、他の行の高さに影響させないため)。
+             各行の右端(コンテナ幅)を705px(項目数が最も多く、伸縮させる欄が無い担当者/日程/
+             入金合計行の幅)に統一している。他の3行は項目数・項目幅がこの705pxに届かない分、
+             自由入力で長くなりやすい欄(Tour Name=261px/子供年齢=315px/備考=252px)の幅を
+             広げて705pxちょうどに揃えている(それ以外の欄の幅は変更していない)。
+             項目を増減・幅変更する場合は、実測(Playwright、getBoundingClientRect())で
+             4行とも右端が705pxで一致することを確認してから調整すること。
+             MEMOのleft値(725px)は、この705pxに対して余白を持たせて設定している
+             (以前は689pxだったが、入金合計行の実際の幅がそれを超えて重なっていたため修正済み)。 -->
         <div class="bd-basicinfo-wrap" style="position:relative;min-height:188px">
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start">
             <div class="form-field" style="flex:0 0 70px"><label>REF#</label><input id="bd-ref-input" disabled style="width:100%;box-sizing:border-box"></div>
@@ -2488,12 +2492,12 @@ input[type=number]{-moz-appearance:textfield}
               <div id="bd-agent-dd" style="display:none;position:fixed;background:var(--card,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:99999;max-height:220px;overflow-y:auto"></div>
             </div>
             <div class="form-field" style="flex:0 0 130px"><label>Tour Code</label><input id="bd-tour-code" style="width:100%;box-sizing:border-box"></div>
-            <div class="form-field" style="flex:0 0 205px"><label>Tour Name</label><input id="bd-tour" style="width:100%;box-sizing:border-box"></div>
+            <div class="form-field" style="flex:0 0 261px"><label>Tour Name</label><input id="bd-tour" style="width:100%;box-sizing:border-box"></div>
           </div>
           <div class="pax-row" style="margin-top:6px">
             <div class="form-field"><label>大人 (ADT)</label><input id="bd-pax-adt" type="number" min="0" oninput="updateBdPaxTotal()"></div>
             <div class="form-field"><label>子供 (CHD)</label><input id="bd-pax-chd" type="number" min="0" oninput="updateBdPaxTotal()"></div>
-            <div class="form-field" style="flex:0 1 180px"><label>子供年齢 (Age of CHD)</label><input id="bd-children-ages" placeholder="例: 8, 5, 12"></div>
+            <div class="form-field" style="flex:0 1 315px"><label>子供年齢 (Age of CHD)</label><input id="bd-children-ages" placeholder="例: 8, 5, 12"></div>
             <div class="form-field"><label>乳児 (INF)</label><input id="bd-pax-inf" type="number" min="0" oninput="updateBdPaxTotal()"></div>
             <div class="form-field"><label>FOC</label><input id="bd-pax-foc" type="number" min="0"></div>
             <div class="form-field"><label>合計 (TCP)</label><input id="bd-pax-total" type="number" disabled></div>
@@ -2508,7 +2512,7 @@ input[type=number]{-moz-appearance:textfield}
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;margin-top:6px">
             <div class="form-field" style="flex:0 0 140px"><label>国名</label><input id="bd-country" style="width:100%;box-sizing:border-box"></div>
             <div class="form-field" style="flex:0 0 140px"><label>種別</label><input id="bd-booking-type" placeholder="例: FIT, PKG" style="width:100%;box-sizing:border-box"></div>
-            <div class="form-field" style="flex:0 0 140px"><label>備考</label><input id="bd-memo1" style="width:100%;box-sizing:border-box"></div>
+            <div class="form-field" style="flex:0 0 252px"><label>備考</label><input id="bd-memo1" style="width:100%;box-sizing:border-box"></div>
             <div class="form-field" style="flex:0 0 149px">
               <label>手配状況 / Status</label>
               <div class="st-dd">
