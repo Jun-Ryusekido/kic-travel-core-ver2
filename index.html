@@ -24257,6 +24257,7 @@ async function renderPartnerContactsList(partner){
     return `<div style="padding:7px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:8px;align-items:flex-start">
       <div>
         <div style="font-weight:600">${escHtml(nameLine || '（名前未登録）')}${kanaSuffix}${primaryBadge}</div>
+        ${c.contact_person_en ? `<div style="color:var(--text3)">${escHtml(c.contact_person_en)}</div>` : ''}
         ${c.branch_name ? `<div style="color:var(--text3)">${escHtml(c.branch_name)}</div>` : ''}
         ${phone ? `<div>📞 ${escHtml(phone)}</div>` : ''}
         ${c.email ? `<div>✉️ ${escHtml(c.email)}</div>` : ''}
@@ -24296,7 +24297,7 @@ function openContactAddModal(businessPartnerId){
   currentPartnerDetailId = businessPartnerId;
   currentEditingContactId = null;
   document.getElementById('contact-form-modal-title').textContent = '担当者を追加';
-  ['ct-contact-person','ct-contact-person-kana','ct-position','ct-branch-name','ct-phone','ct-department-phone','ct-email'].forEach(id=>{
+  ['ct-contact-person','ct-contact-person-kana','ct-contact-person-en','ct-position','ct-branch-name','ct-phone','ct-department-phone','ct-email'].forEach(id=>{
     const el = document.getElementById(id); if(el) el.value = '';
   });
   document.getElementById('contact-add-modal').classList.add('open');
@@ -24309,6 +24310,7 @@ function openContactEditModal(contactId){
   document.getElementById('contact-form-modal-title').textContent = '担当者を編集';
   document.getElementById('ct-contact-person').value = c.contact_person || '';
   document.getElementById('ct-contact-person-kana').value = c.contact_person_kana || '';
+  document.getElementById('ct-contact-person-en').value = c.contact_person_en || '';
   document.getElementById('ct-position').value = c.position || '';
   document.getElementById('ct-branch-name').value = c.branch_name || '';
   document.getElementById('ct-phone').value = c.phone || '';
@@ -24340,6 +24342,7 @@ async function saveNewContact(){
   const fields = {
     contact_person: contactPerson,
     contact_person_kana: contactPersonKana || null,
+    contact_person_en: document.getElementById('ct-contact-person-en').value.trim() || null,
     position: document.getElementById('ct-position').value.trim() || null,
     branch_name: document.getElementById('ct-branch-name').value.trim() || null,
     phone: document.getElementById('ct-phone').value.trim() || null,
@@ -26690,6 +26693,7 @@ function setDateInputValue(el, d){
     <div class="form-grid">
       <div class="form-field"><label>担当者名</label><input id="ct-contact-person" placeholder="例: 田中太郎"></div>
       <div class="form-field"><label>担当者名（カタカナ）</label><input id="ct-contact-person-kana" placeholder="例: タナカタロウ"></div>
+      <div class="form-field"><label>担当者名（英語）</label><input id="ct-contact-person-en" placeholder="e.g. Taro Tanaka"></div>
       <div class="form-field"><label>役職</label><input id="ct-position" placeholder="例: 営業部長"></div>
       <div class="form-field"><label>支店名等</label><input id="ct-branch-name" placeholder="例: 新宿店"></div>
       <div class="form-field"><label>携帯・直通番号</label><input id="ct-phone" placeholder="例: 090-1234-5678"></div>
