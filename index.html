@@ -5450,6 +5450,13 @@ function vendorEmailTemplate(c){
   return {subject, body};
 }
 
+// 【フェーズ2で気づいた点・今回は未実装】この「手配確定状況」メール作成
+// (仕入先確認メール、実送信は未実装のスタブ)は現状c.vendorName(会社名)宛にのみ
+// テンプレートを組み立てており、business_partner_contactsに複数の担当者がいる
+// 会社でも宛先担当者を選ぶ導線が無い。将来実送信機能を作る際は、business_partners.id
+// を軸にbusiness_partner_contactsを引き、「どの担当者宛に送るか」を選べるように
+// すると、複数拠点・複数担当者を持つ仕入先(ホテル等)への手配確認がより実態に
+// 合う可能性がある(見積書送付についても同様、送付先候補として使える)。
 let vendorEmailComposerItems = [];
 function openVendorEmailComposer(){
   const idxs = [...document.querySelectorAll('.ve-chk:checked')].map(cb=>Number(cb.dataset.idx));
@@ -24189,62 +24196,141 @@ async function showPartnerDetail(id){
       <div id="pt-detail-contacts" style="font-size:12px">読み込み中...</div>
     </div>`;
   document.getElementById('pt-detail-modal').classList.add('open');
-  await renderPartnerContactsList(p.id);
+  await renderPartnerContactsList(p);
 }
 
-// business_partner_contacts(取引先マスタ担当者・フェーズ1)。取引先照会モーダルの
+// business_partner_contacts(取引先マスタ担当者・フェーズ1/2)。取引先照会モーダルの
 // 「担当者一覧」に、紐づく担当者(is_deleted=false)を一覧表示する。読み取りはanonにも
 // select権限があるため(scripts/create_business_partner_contacts_table.sql参照)、
 // 他の一覧読み込みと同様supabaseクライアントから直接取得する。
-async function renderPartnerContactsList(businessPartnerId){
+let currentPartnerContactsCache = [];
+
+// フェーズ2: business_partners.contact_person等に元々入っていた担当者情報
+// (scripts/migrate_business_partner_contacts_phase2.sqlの実行前、または移行対象外の
+// データ)を、business_partner_contacts側に行が無い場合に限り「元からの担当者」として
+// 先頭に固定表示する(business_partners自体は一切変更しない、表示専用のフォールバック)。
+// 移行SQL実行後はbusiness_partner_contacts側に実データとして1行入るため、通常の
+// 担当者行として表示され、このフォールバックとは二重に表示されない。
+async function renderPartnerContactsList(partner){
   const el = document.getElementById('pt-detail-contacts');
   if(!el) return;
   const {data, error} = await sb.from('business_partner_contacts').select('*')
-    .eq('business_partner_id', businessPartnerId).eq('is_deleted', false).order('created_at');
+    .eq('business_partner_id', partner.id).eq('is_deleted', false).order('created_at');
   if(error){ el.innerHTML = `<span style="color:var(--red)">読み込みエラー: ${escHtml(error.message)}</span>`; return; }
-  if(!data || data.length===0){ el.innerHTML = '<span style="color:var(--text3)">担当者はまだ登録されていません。</span>'; return; }
-  el.innerHTML = data.map(c=>{
+  currentPartnerContactsCache = data || [];
+
+  const legacyHasContact = !currentPartnerContactsCache.length && !!(partner.contact_person || partner.contact_person_en);
+  const legacyHtml = legacyHasContact ? (()=>{
+    const nameLine = [partner.contact_person, partner.position].filter(Boolean).join(' / ');
+    const phone = partner.phone || partner.department_phone || '';
+    return `<div style="padding:7px 0;border-bottom:1px solid var(--border)">
+      <div style="font-weight:600">${escHtml(nameLine || '（名前未登録）')} <span style="font-size:10px;color:var(--text3);font-weight:normal">（元からの担当者）</span></div>
+      ${partner.branch_name ? `<div style="color:var(--text3)">${escHtml(partner.branch_name)}</div>` : ''}
+      ${phone ? `<div>📞 ${escHtml(phone)}</div>` : ''}
+      ${partner.email ? `<div>✉️ ${escHtml(partner.email)}</div>` : ''}
+    </div>`;
+  })() : '';
+
+  if(!currentPartnerContactsCache.length && !legacyHtml){ el.innerHTML = '<span style="color:var(--text3)">担当者はまだ登録されていません。</span>'; return; }
+
+  const contactsHtml = currentPartnerContactsCache.map(c=>{
     const nameLine = [c.contact_person, c.position].filter(Boolean).join(' / ');
     const phone = c.phone || c.department_phone || '';
-    return `<div style="padding:7px 0;border-bottom:1px solid var(--border)">
-      <div style="font-weight:600">${escHtml(nameLine || '（名前未登録）')}</div>
-      ${c.branch_name ? `<div style="color:var(--text3)">${escHtml(c.branch_name)}</div>` : ''}
-      ${phone ? `<div>📞 ${escHtml(phone)}</div>` : ''}
-      ${c.email ? `<div>✉️ ${escHtml(c.email)}</div>` : ''}
+    const deleteLabel = escAttr(`${partner.company_name||''}${nameLine?(' / '+nameLine):''}${phone?(' / '+phone):''}`);
+    return `<div style="padding:7px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:8px;align-items:flex-start">
+      <div>
+        <div style="font-weight:600">${escHtml(nameLine || '（名前未登録）')}</div>
+        ${c.branch_name ? `<div style="color:var(--text3)">${escHtml(c.branch_name)}</div>` : ''}
+        ${phone ? `<div>📞 ${escHtml(phone)}</div>` : ''}
+        ${c.email ? `<div>✉️ ${escHtml(c.email)}</div>` : ''}
+      </div>
+      <div style="white-space:nowrap;display:flex;flex-direction:column;gap:4px;flex-shrink:0">
+        <button class="btn" style="font-size:10px" onclick="openContactEditModal('${c.id}')">編集</button>
+        <button class="btn" style="font-size:10px;color:var(--red)" onclick="deleteContact('${c.id}','${deleteLabel}')">削除</button>
+      </div>
     </div>`;
   }).join('');
+
+  el.innerHTML = legacyHtml + contactsHtml;
 }
+
+let currentEditingContactId = null;
 
 function openContactAddModal(businessPartnerId){
   currentPartnerDetailId = businessPartnerId;
+  currentEditingContactId = null;
+  document.getElementById('contact-form-modal-title').textContent = '担当者を追加';
   ['ct-contact-person','ct-position','ct-branch-name','ct-phone','ct-department-phone','ct-email'].forEach(id=>{
     const el = document.getElementById(id); if(el) el.value = '';
   });
   document.getElementById('contact-add-modal').classList.add('open');
 }
 
+function openContactEditModal(contactId){
+  const c = currentPartnerContactsCache.find(x=>x.id===contactId);
+  if(!c) return;
+  currentEditingContactId = c.id;
+  document.getElementById('contact-form-modal-title').textContent = '担当者を編集';
+  document.getElementById('ct-contact-person').value = c.contact_person || '';
+  document.getElementById('ct-position').value = c.position || '';
+  document.getElementById('ct-branch-name').value = c.branch_name || '';
+  document.getElementById('ct-phone').value = c.phone || '';
+  document.getElementById('ct-department-phone').value = c.department_phone || '';
+  document.getElementById('ct-email').value = c.email || '';
+  document.getElementById('contact-add-modal').classList.add('open');
+}
+
+function getCurrentPartnerDetailObj(){
+  return partnersFilteredRows.find(x=>x.id===currentPartnerDetailId) || partnersCache.find(x=>x.id===currentPartnerDetailId) || null;
+}
+
 async function saveNewContact(){
   if(!currentPartnerDetailId){ alert('取引先が特定できません'); return; }
   const contactPerson = document.getElementById('ct-contact-person').value.trim();
   if(!contactPerson){ alert('担当者名を入力してください'); return; }
+  const fields = {
+    contact_person: contactPerson,
+    position: document.getElementById('ct-position').value.trim() || null,
+    branch_name: document.getElementById('ct-branch-name').value.trim() || null,
+    phone: document.getElementById('ct-phone').value.trim() || null,
+    department_phone: document.getElementById('ct-department-phone').value.trim() || null,
+    email: document.getElementById('ct-email').value.trim() || null,
+  };
   const saveBtn = document.getElementById('ct-save-btn');
   const origHtml = saveBtn ? saveBtn.innerHTML : null;
-  if(saveBtn){ saveBtn.disabled = true; saveBtn.innerHTML = '⏳ 追加中...'; }
+  if(saveBtn){ saveBtn.disabled = true; saveBtn.innerHTML = '⏳ 保存中...'; }
   try{
-    await businessPartnerContactsApiCall('insert', { rows: [{
-      business_partner_id: currentPartnerDetailId,
-      contact_person: contactPerson,
-      position: document.getElementById('ct-position').value.trim() || null,
-      branch_name: document.getElementById('ct-branch-name').value.trim() || null,
-      phone: document.getElementById('ct-phone').value.trim() || null,
-      department_phone: document.getElementById('ct-department-phone').value.trim() || null,
-      email: document.getElementById('ct-email').value.trim() || null,
-      created_by: currentUser ? currentUser.email : null,
-    }] });
-  }catch(e){ alert('担当者の追加に失敗しました: '+e.message); return; }
+    if(currentEditingContactId){
+      await businessPartnerContactsApiCall('updateById', { id: currentEditingContactId, fields });
+    }else{
+      await businessPartnerContactsApiCall('insert', { rows: [{
+        business_partner_id: currentPartnerDetailId,
+        ...fields,
+        created_by: currentUser ? currentUser.email : null,
+      }] });
+    }
+  }catch(e){ alert('担当者の保存に失敗しました: '+e.message); return; }
   finally{ if(saveBtn){ saveBtn.disabled = false; saveBtn.innerHTML = origHtml; } }
   document.getElementById('contact-add-modal').classList.remove('open');
-  await renderPartnerContactsList(currentPartnerDetailId);
+  const partner = getCurrentPartnerDetailObj();
+  if(partner) await renderPartnerContactsList(partner);
+}
+
+// 担当者の削除は他の論理削除パターン(deletePartner/deleteFacilityTodoItem等)と統一し、
+// is_deleted=trueへの更新のみで物理削除は行わない。確認ダイアログには削除対象の
+// 具体的な内容(会社名・担当者名・電話番号)を含める(CLAUDE.mdの削除確認ダイアログの
+// ルールに従う)。
+async function deleteContact(contactId, label){
+  if(!confirm(`「${label}」を削除します。よろしいですか？`)) return;
+  try{
+    await businessPartnerContactsApiCall('updateById', { id: contactId, fields: {
+      is_deleted: true,
+      deleted_at: new Date().toISOString(),
+      deleted_by: currentUser ? currentUser.email : null,
+    } });
+  }catch(e){ alert('削除に失敗しました: '+e.message); return; }
+  const partner = getCurrentPartnerDetailObj();
+  if(partner) await renderPartnerContactsList(partner);
 }
 
 async function handleCardUpload(event){
@@ -26504,7 +26590,7 @@ function setDateInputValue(el, d){
 <div class="modal-overlay" id="contact-add-modal">
   <div class="modal-box" style="max-width:420px">
     <div class="modal-header">
-      <div class="modal-title">担当者を追加</div>
+      <div class="modal-title" id="contact-form-modal-title">担当者を追加</div>
       <div class="modal-close" onclick="document.getElementById('contact-add-modal').classList.remove('open')">✕</div>
     </div>
     <div class="form-grid">
