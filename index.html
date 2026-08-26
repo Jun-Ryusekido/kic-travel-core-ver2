@@ -10286,14 +10286,28 @@ function updateEstTypeUI(){
 }
 
 // ---- PAX人数帯 ----
+// 各人数帯(estPaxTiers[i])は通常{label, pax}のみを持つが、その人数帯だけ
+// ハンドリング料率を共通のest-handling値と別に設定したい場合、任意で
+// override_handling_pct(number)を持たせられる(「個別料率」チェックボックス)。
+// 未設定(null/undefined)の場合はcalcEstimation側で共通のhandlingPctに
+// フォールバックする(既存データ・チェック無しの行は今まで通りの一律計算)。
 function renderEstTiers(){
-  document.getElementById('est-tiers').innerHTML = estPaxTiers.map((t,i)=>`
-    <div style="display:flex;gap:6px;margin-bottom:4px;align-items:center">
+  document.getElementById('est-tiers').innerHTML = estPaxTiers.map((t,i)=>{
+    const hasOverride = t.override_handling_pct!=null;
+    return `
+    <div style="display:flex;gap:6px;margin-bottom:4px;align-items:center;flex-wrap:wrap">
       <input style="width:120px;padding:4px 6px;font-size:11px" value="${escAttr(t.label)}" placeholder="ラベル(例: 10～14)" onchange="estPaxTiers[${i}].label=this.value;renderEstSelectedTierOptions()">
       <input style="width:70px;padding:4px 6px;font-size:11px" type="number" value="${t.pax||0}" oninput="estPaxTiers[${i}].pax=Number(this.value);renderEstSelectedTierOptions();calcEstimation()">
       <span style="font-size:10px;color:var(--text3)">名</span>
+      <label style="display:flex;align-items:center;gap:2px;font-size:10px;color:var(--text3);white-space:nowrap">
+        <input type="checkbox" ${hasOverride?'checked':''} onchange="toggleEstTierHandlingOverride(${i}, this.checked)">個別料率
+      </label>
+      <input style="width:55px;padding:4px 6px;font-size:11px;display:${hasOverride?'':'none'}" type="number" step="0.1"
+        value="${hasOverride?t.override_handling_pct:''}" placeholder="%"
+        oninput="estPaxTiers[${i}].override_handling_pct=this.value===''?null:Number(this.value);calcEstimation()">
       <button class="btn" style="font-size:10px;padding:3px 7px" onclick="removeEstTier(${i})">✕</button>
-    </div>`).join('');
+    </div>`;
+  }).join('');
   renderEstSelectedTierOptions();
 }
 function addEstTier(){ estPaxTiers.push({label:'', pax:0}); renderEstTiers(); calcEstimation(); }
@@ -10302,6 +10316,20 @@ function removeEstTier(i){
   const label = t ? [t.label, t.pax!=null?`${t.pax}名`:''].filter(Boolean).join(' / ') : '';
   if(!confirm(`以下の人数区分を削除しますか？\n\n${label}`)) return;
   estPaxTiers.splice(i,1); renderEstTiers(); calcEstimation();
+}
+// チェックONにした瞬間は、共通のest-handling値をそのまま初期値として個別欄に
+// 入れておく(0%から入力し直す手間を省く)。OFFにした場合はoverride自体を
+// null(=共通料率にフォールバック)に戻す。
+function toggleEstTierHandlingOverride(i, checked){
+  const t = estPaxTiers[i];
+  if(!t) return;
+  if(checked){
+    if(t.override_handling_pct==null) t.override_handling_pct = Number(document.getElementById('est-handling').value)||0;
+  } else {
+    t.override_handling_pct = null;
+  }
+  renderEstTiers();
+  calcEstimation();
 }
 function renderEstSelectedTierOptions(){
   const sel = document.getElementById('est-selected-tier');
@@ -10613,11 +10641,16 @@ function calcEstimation(){
     results = estPaxTiers.map(t=>{
       const N = Number(t.pax)||0;
       const subtotal = perPaxSum*N + bulletSum*(N+1) + fixedSum;
-      const handling = subtotal * handlingPct/100;
+      // その人数帯だけ個別のハンドリング料率(override_handling_pct)が設定されて
+      // いればそれを使い、無ければ共通のhandlingPctを使う(既存データ・チェック
+      // 無しの行はnull/undefinedのため今まで通り一律の計算になる)。
+      const handlingPctOverridden = t.override_handling_pct!=null;
+      const effectiveHandlingPct = handlingPctOverridden ? Number(t.override_handling_pct)||0 : handlingPct;
+      const handling = subtotal * effectiveHandlingPct/100;
       const insurance = insurancePerPax*N;
       const total = subtotal+handling+insurance;
       const perPax = N>0 ? total/N : 0;
-      return {label:t.label, pax:N, subtotal, handling, insurance, total, perPax};
+      return {label:t.label, pax:N, subtotal, handling, insurance, total, perPax, effectiveHandlingPct, handlingPctOverridden};
     });
   }
 
@@ -10654,16 +10687,46 @@ function renderEstResults(results){
   const selIdx = selVal==='' ? -1 : Number(selVal);
   const head = `<tr><th></th>${results.map((r,i)=>`<th style="white-space:nowrap;text-align:right${i===selIdx?';background:#EAF3DE':''}">${escHtml(r.label)} (${r.pax}名)</th>`).join('')}</tr>`;
   const row = (label, key, fmt) => `<tr><td style="font-weight:700">${label}</td>${results.map((r,i)=>`<td style="text-align:right${i===selIdx?';background:#EAF3DE':''}">${fmt(r[key])}</td>`).join('')}</tr>`;
+  const handlingRow = estHandlingRowHtml(results, handlingPct, selIdx, false);
 
   table.innerHTML = `
     <thead>${head}</thead>
     <tbody>
       ${row('Sub Total','subtotal',yen)}
-      ${row(`ハンドリング料 (${handlingPct}%)`,'handling',yen)}
+      ${handlingRow}
       ${row(`保険料 (¥${insurancePerPax.toLocaleString()}/名)`,'insurance',yen)}
       ${row('Total','total',yen)}
       ${row('Total / Pax','perPax',v=>yen(Math.round(v)))}
     </tbody>`;
+}
+
+// ハンドリング料の行を構築する共通ヘルパー(見積もり編集画面のresults-table・印刷
+// プレビューの結果テーブルの両方から使う)。人数帯のいずれにも個別料率
+// (override_handling_pct)が設定されていない場合は、今まで通りラベル1箇所に
+// 共通の%を表示するだけのシンプルな行にする(表示を増やさない)。1つでも個別
+// 設定があれば、ラベルからは%を外し、列ごとのセルに適用された%を小さく併記
+// する。個別設定されている列はセルの背景を軽く強調する(選択中人数帯の強調色
+// #EAF3DEとは別に、個別設定である旨が常に分かるよう#FDEBD8を使う。選択中と
+// 重なる場合は既存の選択中強調を優先する)。
+// bordered: 印刷プレビュー用の罫線ありtd(true)か、編集画面の罫線無しtd(false)か。
+function estHandlingRowHtml(results, commonPct, selIdx, bordered){
+  const anyOverride = results.some(r=>r.handlingPctOverridden);
+  const labelTd = bordered
+    ? `<td style="border:1px solid #999;padding:5px;font-weight:700;background:#f5f7fa;white-space:nowrap">`
+    : `<td style="font-weight:700">`;
+  const label = anyOverride ? 'ハンドリング料' : `ハンドリング料 (${commonPct}%)`;
+  const cells = results.map((r,i)=>{
+    const selected = i===selIdx;
+    const bg = selected ? '#EAF3DE' : (r.handlingPctOverridden ? '#FDEBD8' : '');
+    const pctLine = anyOverride
+      ? `<br><span class="pv-remark" style="font-size:9px;color:${r.handlingPctOverridden?'#B35C00':'#888'}">(${r.effectiveHandlingPct}%)${r.handlingPctOverridden?' ※個別設定':''}</span>`
+      : '';
+    const tdOpen = bordered
+      ? `<td style="border:1px solid #999;padding:5px;text-align:right;white-space:nowrap${bg?';background:'+bg:''}">`
+      : `<td style="text-align:right${bg?';background:'+bg:''}">`;
+    return `${tdOpen}${yen(r.handling)}${pctLine}</td>`;
+  }).join('');
+  return `<tr>${labelTd}${label}</td>${cells}</tr>`;
 }
 
 // ---- 保存 ----
@@ -10876,11 +10939,12 @@ function previewEstimation(){
     const selIdx = selVal==='' ? -1 : Number(selVal);
     const resHead = `<tr><th style="border:1px solid #999;padding:5px;background:#f5f7fa"></th>${results.map((r,i)=>`<th style="border:1px solid #999;padding:5px;white-space:nowrap;background:#f5f7fa${i===selIdx?';background:#EAF3DE':''}">${escHtml(r.label)} (${r.pax}名)</th>`).join('')}</tr>`;
     const resRow = (label, key, fmt) => `<tr><td style="border:1px solid #999;padding:5px;font-weight:700;background:#f5f7fa;white-space:nowrap">${label}</td>${results.map((r,i)=>`<td style="border:1px solid #999;padding:5px;text-align:right;white-space:nowrap${i===selIdx?';background:#EAF3DE':''}">${fmt(r[key])}</td>`).join('')}</tr>`;
+    const handlingRowPv = estHandlingRowHtml(results, handlingPct, selIdx, true);
     resultTableHtml = `<div class="tbl-wrap"><table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:10px">
       <thead>${resHead}</thead>
       <tbody>
         ${resRow('Sub Total','subtotal',yen)}
-        ${resRow(`ハンドリング料 (${handlingPct}%)`,'handling',yen)}
+        ${handlingRowPv}
         ${resRow(`保険料 (¥${insurancePerPax.toLocaleString()}/名)`,'insurance',yen)}
         ${resRow('Total','total',yen)}
         ${resRow('Total / Pax','perPax',v=>yen(Math.round(v)))}
