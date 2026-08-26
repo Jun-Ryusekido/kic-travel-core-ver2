@@ -22656,7 +22656,16 @@ async function generateMealVoucher(){
       if(!page || page.length < PAGE) break;
       from += PAGE;
     }
-    supRows.forEach(s=>{ supplierByName[normName(s.company_name)] = s; });
+    // company_nameの正規化キーが重複する取引先(過去の重複登録等で同名の行が複数
+    // 存在するケース)がある場合、単純に最後に処理した行で上書きすると、
+    // company_phoneが入っている「正しい」行が空の行に上書きされて電話番号が
+    // 表示されなくなることがある(W大阪の重複登録問題と同種のリスク)。
+    // 同じキーに複数の行がある場合はcompany_phoneが入っている行を優先する。
+    supRows.forEach(s=>{
+      const key = normName(s.company_name);
+      const existing = supplierByName[key];
+      if(!existing || (!existing.company_phone && s.company_phone)) supplierByName[key] = s;
+    });
     repContactsByPartnerId = await loadRepresentativeContactsByPartnerIds(supRows);
   }
 
@@ -22741,7 +22750,16 @@ async function printRestaurantList(){
       if(!page || page.length < PAGE) break;
       from += PAGE;
     }
-    supRows.forEach(s=>{ supplierByName[normName(s.company_name)] = s; });
+    // company_nameの正規化キーが重複する取引先(過去の重複登録等で同名の行が複数
+    // 存在するケース)がある場合、単純に最後に処理した行で上書きすると、
+    // company_phoneが入っている「正しい」行が空の行に上書きされて電話番号が
+    // 表示されなくなることがある(W大阪の重複登録問題と同種のリスク)。
+    // 同じキーに複数の行がある場合はcompany_phoneが入っている行を優先する。
+    supRows.forEach(s=>{
+      const key = normName(s.company_name);
+      const existing = supplierByName[key];
+      if(!existing || (!existing.company_phone && s.company_phone)) supplierByName[key] = s;
+    });
     repContactsByPartnerId = await loadRepresentativeContactsByPartnerIds(supRows);
   }
 
@@ -22890,8 +22908,32 @@ async function printArrangementSummaryList(){
       if(!page || page.length < PAGE) break;
       from += PAGE;
     }
-    partnerRows.forEach(p=>{ arrPartnerByName[normName(p.company_name)] = p; });
+    // company_nameの正規化キーが重複する取引先(過去の重複登録等で同名の行が複数
+    // 存在するケース)がある場合、単純に最後に処理した行で上書きすると、
+    // company_phoneが入っている「正しい」行が空の行に上書きされて電話番号が
+    // 表示されなくなることがある(W大阪の重複登録問題と同種のリスク)。
+    // 同じキーに複数の行がある場合はcompany_phoneが入っている行を優先する。
+    partnerRows.forEach(p=>{
+      const key = normName(p.company_name);
+      const existing = arrPartnerByName[key];
+      if(!existing || (!existing.company_phone && p.company_phone)) arrPartnerByName[key] = p;
+    });
     arrRepContactsByPartnerId = await loadRepresentativeContactsByPartnerIds(partnerRows);
+    // 診断用: 「手配先名は表示されるが電話番号だけ出ない」不具合の切り分けのため、
+    // 手配先ごとの突合結果・company_phone/show_company_phoneの値をブラウザの
+    // 開発者ツールのコンソールに出力する(印刷結果自体には影響しない)。
+    if(typeof console!=='undefined' && console.debug){
+      arrPartnerNames.forEach(n=>{
+        const key = normName(n);
+        const matched = arrPartnerByName[key];
+        console.debug('[手配一覧表PDF] 電話番号突合診断', {
+          入力名: n, 正規化キー: key, 突合成功: !!matched,
+          突合先company_name: matched ? matched.company_name : null,
+          company_phone: matched ? matched.company_phone : null,
+          show_company_phone: matched ? matched.show_company_phone : null,
+        });
+      });
+    }
   }
   const arrPartnerPhone = name => {
     const p = arrPartnerByName[normName(name)];
