@@ -24173,15 +24173,20 @@ async function showPartnerDetail(id){
   const p = partnersFilteredRows.find(x=>x.id===id) || partnersCache.find(x=>x.id===id);
   if(!p) return;
   currentPartnerDetailId = p.id;
+  // 「担当者」「担当者（英語）」「役職」「役職（英語）」「拠点名」は、一覧画面・
+  // 担当者一覧セクションと同じgetDisplayContactForPartner()を使い、代表担当者
+  // (business_partner_contacts.is_primary)があればその人の情報を表示する
+  // (business_partners.contact_person等は変更しない、表示ロジックのみの変更)。
+  const dc = getDisplayContactForPartner(p);
   const rows = [
     ['種別',         p.category],
     ['会社名',       p.company_name],
     ['会社名（英語）', p.company_name_en],
-    ['拠点名',       [p.branch_name, p.branch_name_en].filter(Boolean).join(' / ')],
-    ['担当者',       p.contact_person],
-    ['担当者（英語）', p.contact_person_en],
-    ['役職',         p.position],
-    ['役職（英語）',  p.position_en],
+    ['拠点名',       [dc.branch_name, dc.branch_name_en].filter(Boolean).join(' / ')],
+    ['担当者',       dc.contact_person],
+    ['担当者（英語）', dc.contact_person_en],
+    ['役職',         dc.position],
+    ['役職（英語）',  dc.position_en],
     ['携帯',         p.phone],
     ['部署直通',     p.department_phone],
     ['会社電話',     p.company_phone],
@@ -24397,7 +24402,7 @@ let businessPartnerContactsIndex = new Map();
 
 async function loadBusinessPartnerContactsIndex(){
   const {data, error} = await sb.from('business_partner_contacts')
-    .select('business_partner_id,contact_person,contact_person_en,contact_person_kana,position,position_en,is_primary,created_at')
+    .select('business_partner_id,contact_person,contact_person_en,contact_person_kana,position,position_en,branch_name,branch_name_en,is_primary,created_at')
     .eq('is_deleted', false).order('created_at', {ascending:true});
   businessPartnerContactsIndex = new Map();
   if(error){ logError('取引先一覧・代表担当者表示用データの読み込み', error, {toast:false}); return; }
@@ -24409,17 +24414,23 @@ async function loadBusinessPartnerContactsIndex(){
   });
 }
 
+// 取引先マスタ一覧(PC/モバイル)・取引先詳細モーダル上部の会社情報セクションの
+// 「担当者」「担当者（英語）」「役職」「役職（英語）」「拠点名」欄で共通して使う。
+// 代表担当者(is_primary)があればその人、無ければ登録順1人目、business_partner_contacts
+// が1件も無い会社はbusiness_partners自身のcontact_person等にフォールバックする。
 function getDisplayContactForPartner(p){
   const c = businessPartnerContactsIndex.get(p.id);
   if(c){
     return {
       contact_person: c.contact_person, contact_person_en: c.contact_person_en,
       contact_person_kana: c.contact_person_kana, position: c.position, position_en: c.position_en,
+      branch_name: c.branch_name, branch_name_en: c.branch_name_en,
     };
   }
   return {
     contact_person: p.contact_person, contact_person_en: p.contact_person_en,
     contact_person_kana: null, position: p.position, position_en: p.position_en,
+    branch_name: p.branch_name, branch_name_en: p.branch_name_en,
   };
 }
 
