@@ -96,7 +96,10 @@ function loadReportRows(csvPath) {
     groupNo: r[iGroup],
     id: r[iId],
     companyName: r[iName],
-    keep: (r[iKeep] || '').trim().toLowerCase(),
+    // Excelの自動変換で全角Ｙ(U+FF39)・全角ｙが入力されるケースがあるため、
+    // NFKC正規化で全角英字を半角に統一してからtrim/小文字化する
+    // (index.htmlのnormalizePartnerCompanyName等、他の正規化処理と同じ考え方)。
+    keep: (r[iKeep] || '').normalize('NFKC').trim().toLowerCase(),
   }));
 }
 
