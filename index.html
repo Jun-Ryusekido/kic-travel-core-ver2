@@ -2401,6 +2401,8 @@ input[type=number]{-moz-appearance:textfield}
               <option value="email_sender">メール送信元</option>
               <option value="cc_merchant">カード明細店舗名</option>
               <option value="receipt_merchant">レシート店名</option>
+              <option value="bankbook_payer">入金消込(通帳)</option>
+              <option value="partner_merge">取引先マージ(AI類似)</option>
             </select>
             <span id="lm-count" style="font-size:11px;color:var(--text3);margin-left:6px"></span>
           </div>
@@ -24724,6 +24726,120 @@ function findDuplicatePartner(candidate, partnersCacheArr, excludeId){
   }) || null;
 }
 
+// ===== 類似検出のAI補助(findDuplicatePartnerの完全一致で見つからなかった場合のみ使用) =====
+// 完全一致は表記が微妙に異なる同一会社(法人格の有無、語順違い、略称等)を見逃すため、
+// AI(Claude API)による判定で補う。ただし既存の学習系機能(learned_mappings、メール送信元/
+// カード明細店名/レシートカテゴリ学習)が一貫して守っている「学習・AI判定は候補提示のみに
+// 使い、自動確定はしない」という原則に合わせ、AIが「同一の可能性が高い」と判定した場合も
+// 必ず人間の確認・確定操作(マージボタン)を経てからでないとデータは一切変更されない
+// (このモジュール自体はDBへの書き込みを一切行わない。書き込みはfindSimilarPartnerWithAiの
+// 呼び出し元が、人間がマージを確定した後にのみ行う)。
+
+// 文字bigram(2文字の組)集合のJaccard類似度。findDuplicatePartnerの旧partnerFuzzyMatchが
+// 使っていた部分一致(includes)は、短い断片が長い無関係な文字列にたまたま含まれるだけで
+// 誤検知する欠陥があった(「HOTバス」の"hot"が"Hotel"に誤爆した実害)。bigram Jaccardは
+// 文字列全体の重なり具合を見るため、同じ欠陥を再現しにくい(このスコアはAI判定に回す
+// 候補を絞り込むためだけに使い、これ単体で「類似」と確定することはない)。
+function partnerBigrams(s){
+  const t = String(s||'');
+  const set = new Set();
+  for(let i=0;i<t.length-1;i++) set.add(t.slice(i,i+2));
+  return set;
+}
+function partnerBigramSimilarity(a,b){
+  const A = partnerBigrams(a), B = partnerBigrams(b);
+  if(!A.size || !B.size) return 0;
+  let inter = 0;
+  A.forEach(x=>{ if(B.has(x)) inter++; });
+  return inter / (A.size + B.size - inter);
+}
+
+// AI判定にかける候補を、全取引先の中から軽量な文字列類似度で数件〜十数件程度に絞り込む
+// (全件をAIに渡すのはコスト・速度的に非現実的なため)。候補が1件も無ければ空配列を返し、
+// 呼び出し元はAI呼び出し自体をスキップする。
+const PARTNER_AI_CANDIDATE_MAX = 15;
+const PARTNER_AI_SIMILARITY_MIN = 0.2;
+function getAiSimilarityCandidates(candidate, partnersCacheArr, excludeId){
+  const newJa = normPartnerJaName(candidate.companyName);
+  const newEn = normPartnerAlnum(candidate.companyNameEn);
+  const scored = (partnersCacheArr||[])
+    .filter(p=>!(excludeId && p.id===excludeId))
+    .map(p=>{
+      const pJa = normPartnerJaName(p.company_name);
+      const pEn = normPartnerAlnum(p.company_name_en);
+      const simJa = partnerBigramSimilarity(newJa, pJa);
+      const simEn = partnerBigramSimilarity(newEn, pEn);
+      const sameCategory = candidate.category && p.category && candidate.category===p.category;
+      const score = Math.max(simJa, simEn) + (sameCategory ? 0.15 : 0);
+      return { p, score };
+    })
+    .filter(x=>x.score >= PARTNER_AI_SIMILARITY_MIN)
+    .sort((a,b)=>b.score-a.score)
+    .slice(0, PARTNER_AI_CANDIDATE_MAX);
+  return scored.map(x=>x.p);
+}
+
+// /api/partner-similarity へのAI判定呼び出し。失敗時は空配列を返し、呼び出し元は
+// 「AI候補なし」の通常動作(完全一致のみ)にフォールバックする(学習系機能の
+// fetchLearnedMappingsと同じベストエフォート方針)。
+async function callPartnerSimilarityAi(candidate, options){
+  try{
+    const resp = await fetch('/api/partner-similarity', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        candidate: { companyName: candidate.companyName, companyNameEn: candidate.companyNameEn, category: candidate.category },
+        options: options.map(p=>({ id: p.id, companyName: p.company_name, companyNameEn: p.company_name_en, category: p.category })),
+      })
+    });
+    if(!resp.ok) return [];
+    const data = await resp.json();
+    return Array.isArray(data.results) ? data.results : [];
+  }catch(e){ return []; }
+}
+
+// learned_mappings(category='partner_merge')の学習キー。会社名(日本語/英語)の組み合わせを
+// そのまま使う(正規化はrecordLearnedMapping/fetchLearnedMappings内のnormalizeLearnKeyに
+// 任せる。他の3カテゴリと同じ方式)。
+function partnerMergeLearnKey(candidate){
+  return `${candidate.companyName||''}||${candidate.companyNameEn||''}`;
+}
+
+// findDuplicatePartner(完全一致)→学習済みAI判定結果→AI判定、の順で類似取引先を探す。
+// 完全一致が見つかった場合はAI呼び出し自体を行わない(コスト削減・回帰なし)。
+// 戻り値: 完全一致の場合はpartnersCacheArrの要素そのもの(viaAi等のプロパティなし)。
+// AI判定(学習済み参照含む)でヒットした場合は、その要素に viaAi:true を付与したコピー。
+// いずれも見つからなければnull。この関数自体はDBへの書き込みを一切行わない
+// (呼び出し元が人間の確認後にmerge操作で初めて書き込む)。
+async function findSimilarPartnerWithAi(candidate, partnersCacheArr, excludeId){
+  const exact = findDuplicatePartner(candidate, partnersCacheArr, excludeId);
+  if(exact) return exact;
+
+  // 学習済み(過去に人間がAI提案を確認してマージ確定した)組み合わせがあれば、
+  // AI判定を再度呼ばずに即座に候補提示する(スペック4: APIコスト削減・速度向上)。
+  const learnKey = partnerMergeLearnKey(candidate);
+  const learned = await fetchLearnedMappings('partner_merge', learnKey);
+  if(learned && learned.length){
+    const target = (partnersCacheArr||[]).find(p=>String(p.id)===String(learned[0].confirmed_value) && !(excludeId && p.id===excludeId));
+    if(target) return {...target, viaAi:true};
+  }
+
+  const options = getAiSimilarityCandidates(candidate, partnersCacheArr, excludeId);
+  if(!options.length) return null;
+  const results = await callPartnerSimilarityAi(candidate, options);
+  const hitId = results.find(r=>r.same)?.id;
+  if(!hitId) return null;
+  const target = options.find(p=>String(p.id)===String(hitId));
+  return target ? {...target, viaAi:true} : null;
+}
+
+// AIによる類似候補と判定された組み合わせ(新規会社名×確定先の既存取引先id)を学習として
+// 記録する(ベストエフォート)。完全一致でのマージは学習不要(常に無料・瞬時に判定できる
+// ため)なので、dup.viaAiがtrueの場合のみ呼ぶこと。
+async function recordPartnerMergeLearning(candidate, matchedPartnerId){
+  await recordLearnedMapping('partner_merge', partnerMergeLearnKey(candidate), matchedPartnerId);
+}
+
 // 会社名(日本語欄)と会社名英語欄の言語混在を仕分ける共通ヘルパー。名刺OCR(processCardFile)
 // 専用だったが、複数拠点まとめて読み取り(batchSaveAndNext)でも同じ問題(AIの抽出結果が
 // 完全に逆の言語欄に入る)が起こりうるため、両方から呼べるようここに切り出した。
@@ -24900,10 +25016,12 @@ const rotateImage = (b64, mt, deg) => new Promise((resolve)=>{
     const formHasData = !!(document.getElementById('pt-company').value || document.getElementById('pt-contact').value);
 
     if(!formHasData){
-      const dup = findDuplicatePartner({
+      const _candidate1 = {
         companyName: parsed.company_name, companyNameEn: parsed.company_name_en,
         phone: parsed.company_phone, email: parsed.email,
-      }, partnersCache, currentPartnerEditId);
+        category: document.getElementById('pt-category')?.value || '',
+      };
+      const dup = await findSimilarPartnerWithAi(_candidate1, partnersCache, currentPartnerEditId);
 
       if(dup){
         // 読み取り中オーバーレイ(#global-ocr-overlay、z-index:99998)が出たままだと
@@ -24912,7 +25030,7 @@ const rotateImage = (b64, mt, deg) => new Promise((resolve)=>{
         hideGlobalOcrBanner();
         const choice = await showChoiceModal(
           '類似する取引先が見つかりました',
-          `類似する取引先「${escHtml(dup.company_name)}」が既に登録されています。`,
+          `類似する取引先「${escHtml(dup.company_name)}」が既に登録されています。`+(dup.viaAi?' <span style="font-size:10px;color:var(--text3)">（AIによる類似候補です）</span>':''),
           [
             {label:'✓ 既存データにマージする（空欄のみ上書き）', value:'merge', primary:true},
             {label:'＋ 別の新規取引先として登録', value:'new'},
@@ -24920,6 +25038,7 @@ const rotateImage = (b64, mt, deg) => new Promise((resolve)=>{
           ]
         );
         if(choice==='merge'){
+          if(dup.viaAi) await recordPartnerMergeLearning(_candidate1, dup.id);
           // openPartnerEditor でフォームを既存データで正しく初期化してからOCRデータを空欄補完
           openPartnerEditor(dup.id);
           document.getElementById('partner-modal-title').textContent = '取引先編集（マージ）';
@@ -25251,9 +25370,10 @@ async function batchSaveAndNext(){
   const companyEn = document.getElementById('pt-company-en').value.trim();
   if(!company && !companyEn){ alert('会社名を入力してください'); return; }
 
-  const dup = findDuplicatePartner({
+  const dup = await findSimilarPartnerWithAi({
     companyName: company, companyNameEn: companyEn,
     phone: document.getElementById('pt-company-phone').value, email: document.getElementById('pt-email').value,
+    category: document.getElementById('pt-category')?.value || '',
   }, partnersCache, null);
 
   const payload = {
@@ -25283,7 +25403,7 @@ async function batchSaveAndNext(){
   if(dup){
     const choice = await showChoiceModal(
       '類似する取引先が見つかりました',
-      `類似する取引先「${escHtml(dup.company_name)}」が既に登録されています。`,
+      `類似する取引先「${escHtml(dup.company_name)}」が既に登録されています。`+(dup.viaAi?' <span style="font-size:10px;color:var(--text3)">（AIによる類似候補です）</span>':''),
       [
         {label:'⏭ スキップして次へ', value:'skip', primary:true},
         {label:'＋ このまま新規登録する', value:'new'},
@@ -25484,14 +25604,16 @@ const fmtPhone = s => {
   // いた実害があったため、名刺OCR/一括登録と同じfindDuplicatePartner+選択モーダルのパターンを
   // ここにも適用する(2026-08-21)。
   if(!currentPartnerEditId){
-    const dup = findDuplicatePartner({
+    const _candidate3 = {
       companyName: company, companyNameEn: companyEn,
       phone: document.getElementById('pt-company-phone').value, email: document.getElementById('pt-email').value,
-    }, partnersCache, null);
+      category: payload.category || '',
+    };
+    const dup = await findSimilarPartnerWithAi(_candidate3, partnersCache, null);
     if(dup){
       const choice = await showChoiceModal(
         '類似する取引先が見つかりました',
-        `類似する取引先「${escHtml(dup.company_name)}」が既に登録されています。`,
+        `類似する取引先「${escHtml(dup.company_name)}」が既に登録されています。`+(dup.viaAi?' <span style="font-size:10px;color:var(--text3)">（AIによる類似候補です）</span>':''),
         [
           {label:'✓ 既存データにマージする（空欄のみ上書き）', value:'merge', primary:true},
           {label:'＋ このまま新規登録する', value:'new'},
@@ -25499,6 +25621,7 @@ const fmtPhone = s => {
         ]
       );
       if(choice==='merge'){
+        if(dup.viaAi) await recordPartnerMergeLearning(_candidate3, dup.id);
         // openPartnerEditorでフォームを既存データで初期化してから、いま入力していた内容を
         // 空欄のみ補完する(processCardFileの名刺マージ判定と同じ流れ)。ここではまだ保存せず、
         // 内容確認の上で改めて保存ボタンを押してもらう。
@@ -25953,6 +26076,8 @@ const LEARNED_CATEGORY_LABELS = {
   email_sender: 'メール送信元',
   cc_merchant: 'カード明細店舗名',
   receipt_merchant: 'レシート店名',
+  bankbook_payer: '入金消込(通帳)',
+  partner_merge: '取引先マージ(AI類似)',
 };
 
 async function loadLearnedMappingsAdmin(){

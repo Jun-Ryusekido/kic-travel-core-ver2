@@ -9,6 +9,7 @@
   ],
   "routes": [
     { "src": "/api/extract-card", "dest": "/api/extract-card.js" },
+    { "src": "/api/partner-similarity", "dest": "/api/partner-similarity.js" },
     { "src": "/api/extract-email-refs", "dest": "/api/ai-inbox.js?legacyMode=extractRefs" },
     { "src": "/api/classify-email-relevance", "dest": "/api/ai-inbox.js?legacyMode=classify" },
     { "src": "/api/login", "dest": "/api/login.js" },

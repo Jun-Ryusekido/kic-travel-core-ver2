@@ -471,10 +471,15 @@ const TABLE_CONFIG = {
   },
 };
 
-// learned_mappingsのcategoryはこの4種のみ許可する(bodyの値をそのまま保存しない)。
+// learned_mappingsのcategoryはこの5種のみ許可する(bodyの値をそのまま保存しない)。
 // bankbook_payer(F16): 通帳OCRの入金消込マッチングで、振込人名等(input_key)と
 // 確定したREF#(confirmed_value)の組を学習する。cc_merchantと同じ仕組みを流用。
-const LEARNED_MAPPING_CATEGORIES = ['email_sender', 'cc_merchant', 'receipt_merchant', 'bankbook_payer'];
+// partner_merge: 取引先マスタの類似検出(findSimilarPartnerWithAi、index.html)で、
+// AI判定によりマージ候補として提示され、人間がマージを確定した組み合わせ
+// (input_key=新規会社名の組、confirmed_value=マージ先取引先id)を学習する。
+// 他カテゴリと同じく、この学習はあくまで次回以降のAI呼び出し省略にのみ使い、
+// 自動確定には使わない(index.html側のfindSimilarPartnerWithAi参照)。
+const LEARNED_MAPPING_CATEGORIES = ['email_sender', 'cc_merchant', 'receipt_merchant', 'bankbook_payer', 'partner_merge'];
 
 // learned_mappingsへの確定upsert。(category, input_key, confirmed_value)が既に存在すれば
 // confirmed_count+1とlast_confirmed_atのみ更新し、無ければ新規行を挿入する。
