@@ -26577,7 +26577,6 @@ async function generateInvoice(bookingId, currency, agentFilter){
 
   const today = new Date();
   const issue = today.toISOString().slice(0,10);
-  const due = new Date(today.getTime()+30*86400000).toISOString().slice(0,10);
 
   // Invoice No. は REF# をベースにした形式（例: INV-1060）
   const refNum = (booking.ref_no||'').replace(/[^0-9]/g,'') || (booking.ref_no||'').replace(/[^A-Za-z0-9]/g,'');
@@ -26609,7 +26608,7 @@ async function generateInvoice(bookingId, currency, agentFilter){
       currency: currency,
       amount: amount,
       issue_date: issue,
-      due_date: due,
+      due_date: null,
       status: 'pending',
       agent_name: agentFilter || booking.agent_name || null,
       agent_id: agentId,
@@ -26643,6 +26642,14 @@ function _fmtSlashDate(d){
   if(!d) return '';
   const m = String(d).match(/^(\d{4})-(\d{2})-(\d{2})/);
   return m ? `${m[1]}/${m[2]}/${m[3]}` : String(d);
+}
+// Invoiceプレビューの振込期限(Due date)欄はYYYY/MM/DD表示のcontenteditableのため、
+// 保存時にDBのdate型(YYYY-MM-DD)へ変換する。空欄はnull(未設定)として保存する。
+function _parseSlashDateToIso(s){
+  const t = String(s||'').trim();
+  if(!t) return null;
+  const m = t.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/);
+  return m ? `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}` : undefined;
 }
 
 async function showInvoicePreview(inv, booking){
@@ -26765,6 +26772,8 @@ async function showInvoicePreview(inv, booking){
         </tbody>
       </table>
 
+      <div style="margin-bottom:2px">Due date&nbsp;: &nbsp;<span contenteditable="true" id="inv-due-date" data-placeholder="YYYY/MM/DD" style="display:inline-block;min-width:200px">${escHtml(_fmtSlashDate(inv.due_date))}</span></div>
+
       <div style="margin-top:14px;font-size:11px;line-height:1.6">
         Remittance may be made to the following account by:<br>
         Bank transfer fee should be paid by sender.
@@ -26806,12 +26815,17 @@ async function saveInvoicePreviewFields(){
   // 住所欄は複数行入力(改行)を許可する表示(\n→<br>)になっているため、textContentでは
   // 改行が失われる。innerTextは表示上の改行を\nとして拾えるため、こちらを使う。
   const addressVal = (document.getElementById('inv-address')?.innerText || '').trim();
+  const dueDateVal = _parseSlashDateToIso(getVal('inv-due-date'));
+  if(dueDateVal === undefined){
+    alert('振込期限の形式が正しくありません(YYYY/MM/DD で入力してください)。振込期限以外の項目のみ保存します。');
+  }
   const payload = {
     name_group: getVal('inv-name-group'),
     itinerary: getVal('inv-itinerary'),
     note: getVal('inv-note'),
     person_in_charge: getVal('inv-person-in-charge'),
   };
+  if(dueDateVal !== undefined) payload.due_date = dueDateVal;
   const saveBtn = document.getElementById('inv-save-btn');
   const saveBtnOrigHtml = saveBtn ? saveBtn.innerHTML : null;
   if(saveBtn){ saveBtn.disabled = true; saveBtn.innerHTML = '⏳ 保存中...'; }
