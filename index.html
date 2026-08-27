@@ -17331,6 +17331,50 @@ async function remapCreditCardStatementSourceIds(bookingId, oldCostRows){
   }
 }
 
+// booking_salesもbooking_costsと同じdoReplace(全delete→再insert)方式のため、保存の
+// たびに行idが変わる。通常はbdSalesItems(クライアント側の配列)自体がagent_idを
+// 保持していればbuildSalesRows()経由でそのままreplaceに乗るため問題ないが、
+// 「他のタブ・SQL等でDB側のagent_idだけが後から更新され、かつこのタブのbdSalesItemsが
+// それを読み込み直す前に(古い状態のまま)保存された」場合、doReplaceによってその
+// DB側の更新が静かに失われる(REF#967で実際に発生した不具合の再発防止策)。
+// remapCreditCardStatementSourceIds()と同じ考え方で、replace実行"前"のDBの実際の状態
+// (oldSalesRows。bdSalesItemsという可能性のある古いclient stateではなく、保存直前に
+// 別途取得した最新のDB状態)を基準に、replace実行"後"の新しい行と内容一致で照合し、
+// クライアント側がagent_idを持っていなかった行にだけ、DBに残っていたagent_idを
+// 引き継いで再設定する。
+// 一意識別キーはitem_name+agent_name+unit_price+pax+qty(5項目)とする。同一予約内で
+// item_name+agent_nameだけが一致する行(例: 按分予約で同じ品目が請求先ごとに存在する
+// ケース)はunit_price/pax/qtyまで一致しない限り区別できるため、これで実用上十分な
+// 一意性が得られる。新旧いずれかの側で同一内容の行が複数存在し一意に対応付けできない
+// 場合は、誤った行への付け替えを避けるため何もしない(該当行はagent_id無しのまま)。
+async function remapSalesAgentIds(bookingId, oldSalesRows){
+  if(!oldSalesRows || !oldSalesRows.length) return;
+  if(!oldSalesRows.some(r=>r.agent_id)) return; // 引き継ぐべきagent_idが元々無ければ何もしない
+  const {data: freshSales, error} = await sb.from('booking_sales')
+    .select('id,item_name,agent_name,unit_price,pax,qty,agent_id').eq('booking_id', bookingId);
+  if(error || !freshSales || !freshSales.length) return;
+  const sig = r => `${r.item_name||''}|${r.agent_name||''}|${Number(r.unit_price)||0}|${Number(r.pax)||0}|${Number(r.qty)||0}`;
+  const groupBySig = list => {
+    const m = {};
+    (list||[]).forEach(r=>{ const s = sig(r); (m[s] = m[s]||[]).push(r); });
+    return m;
+  };
+  const oldBySig = groupBySig(oldSalesRows.filter(r=>r.agent_id));
+  const freshBySig = groupBySig(freshSales);
+  for(const s in oldBySig){
+    const oldGroup = oldBySig[s];
+    const freshGroup = freshBySig[s] || [];
+    if(oldGroup.length !== 1 || freshGroup.length !== 1){
+      console.warn(`[remapSalesAgentIds] 内容(${s})が複数行と一致し一意に特定できないため、agent_idの引き継ぎをスキップします: booking_id=${bookingId}`);
+      continue;
+    }
+    const oldRow = oldGroup[0], freshRow = freshGroup[0];
+    if(!freshRow.agent_id && oldRow.agent_id){
+      await bookingSalesApiCall('updateById', { id: freshRow.id, fields: { agent_id: oldRow.agent_id } });
+    }
+  }
+}
+
 // ヘッダーの差分比較専用フィールド(last_revised_at/updated_atは保存の都度書き換わる
 // 派生値のため、これらを含めて比較すると常に「変更あり」判定になってしまう。
 // ユーザーが実際に編集し得る項目のみを対象にする)。
@@ -18489,11 +18533,22 @@ async function saveBookingDetail(){
       const {data: oldCosts} = await sb.from('booking_costs').select('id,item_name,amount,payment_date').eq('booking_id', bookingId);
       _oldCostRowsForCcRemap = oldCosts || [];
     }
+    // remapSalesAgentIds()用に、booking_salesがこのあと書き換わる(replaceで新IDが
+    // 振られる)"前"のDB上の実際の状態をあらかじめ取得しておく(_oldCostRowsForCcRemapと
+    // 同じ理由。bdSalesItemsという可能性のある古いclient stateではなく、保存直前の
+    // 最新DB状態を基準にする)。
+    let _oldSalesRowsForAgentRemap = null;
+    if(salesDirty){
+      const {data: oldSales} = await sb.from('booking_sales').select('id,item_name,agent_name,unit_price,pax,qty,agent_id').eq('booking_id', bookingId);
+      _oldSalesRowsForAgentRemap = oldSales || [];
+    }
 
     await runSkippable('売上明細(booking_sales)', salesDirty, async () => {
       await bookingSalesApiCall('replace', { bookingId, rows: salesRows });
       bdLoadSnapshot.sales = JSON.stringify(salesRows);
     });
+    await runSkippableIsolated('売上明細のagent_id引き継ぎ', 'booking_sales', salesDirty,
+      () => remapSalesAgentIds(bookingId, _oldSalesRowsForAgentRemap));
     await runSkippable('仕入明細(booking_costs)', costsDirty, async () => {
       await bookingCostsApiCall('replace', { bookingId, rows: costRows });
       bdLoadSnapshot.costs = JSON.stringify(costRows);
