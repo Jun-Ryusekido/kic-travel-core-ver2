@@ -3969,7 +3969,9 @@ async function fetchBookingsListLight(){
   let all=[]; let from=0; const pageSize=1000;
   while(true){
     const {data, error} = await sb.from('bookings')
-      .select('id,ref_no,agent_name,tour_code,tour_name,in_date,out_date,gross_sales,status,pax,staff_in_charge')
+      // memo1(基本情報「備考」欄)はInvoiceプレビューのNoteをbookingsと連動表示するために
+      // 追加(showInvoicePreview参照)。
+      .select('id,ref_no,agent_name,tour_code,tour_name,in_date,out_date,gross_sales,status,pax,staff_in_charge,memo1')
       .order('created_at',{ascending:false}).range(from, from+pageSize-1);
     if(error){ logError('予約一覧(軽量版)の読み込み(bookings)', error); break; }
     all = all.concat(data);
@@ -24781,6 +24783,9 @@ function findDuplicatePartner(candidate, partnersCacheArr, excludeId){
   const newJaAlpha = normPartnerAlnum(candidate.companyName);
   return (partnersCacheArr||[]).find(p=>{
     if(excludeId && p.id===excludeId) return false;
+    // 削除済み(is_deleted=true)の取引先は重複候補にしない(呼び出し元のキャッシュに
+    // is_deletedの絞り込みが漏れていても、ここで念のため二重に防ぐ)。
+    if(p.is_deleted) return false;
     const pPhone   = normPartnerPhone(p.company_phone);
     const pEmail   = normPartnerAlnum(p.email);
     const pJa      = normPartnerJaName(p.company_name);
@@ -24834,6 +24839,7 @@ function getAiSimilarityCandidates(candidate, partnersCacheArr, excludeId){
   const newEn = normPartnerAlnum(candidate.companyNameEn);
   const scored = (partnersCacheArr||[])
     .filter(p=>!(excludeId && p.id===excludeId))
+    .filter(p=>!p.is_deleted) // 削除済みは AI 類似候補にもしない(findDuplicatePartnerと同じ理由)
     .map(p=>{
       const pJa = normPartnerJaName(p.company_name);
       const pEn = normPartnerAlnum(p.company_name_en);
@@ -24966,7 +24972,10 @@ async function processCardFile(file){
   showGlobalOcrBanner();
 
   try{
-    const {data: freshPartners} = await sb.from('business_partners').select('*').order('company_name');
+    // is_deletedの絞り込みをloadPartners()と揃える(欠けていたため、削除済みの取引先が
+    // 重複候補として提示され、そのままマージ・保存されてしまう不具合があった。マージ後は
+    // is_deletedがtrueのまま更新されるため、取引先マスタの一覧・検索から見えなくなる)。
+    const {data: freshPartners} = await sb.from('business_partners').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('company_name');
     if(freshPartners) partnersCache = freshPartners;
   }catch(e){ logError('取引先キャッシュの再読込', e, {toast:false}); }
 
@@ -26721,6 +26730,19 @@ function _parseSlashDateToIso(s){
   const m = t.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/);
   return m ? `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}` : undefined;
 }
+// Invoiceプレビューの Itinerary 欄用。基本情報の宿泊日数表示(updateBdNightsDays、
+// 「9泊10日 / 9Nts, 10Days」形式)と同じ計算だが、日本語表記は含めず英語表記
+// (例: 9Nts, 10Days)のみを返す。in_date/out_dateが無い・不正な場合は空文字。
+function _calcNightsDaysEn(inDate, outDate){
+  if(!inDate || !outDate) return '';
+  const inD = new Date(inDate+'T00:00:00');
+  const outD = new Date(outDate+'T00:00:00');
+  if(isNaN(inD.getTime()) || isNaN(outD.getTime())) return '';
+  const nights = Math.round((outD - inD) / (1000*60*60*24));
+  if(nights < 0) return '';
+  const days = nights + 1;
+  return `${nights}Nts, ${days}Days`;
+}
 
 async function showInvoicePreview(inv, booking){
   window._currentInvoicePreview = inv;
@@ -26778,6 +26800,14 @@ async function showInvoicePreview(inv, booking){
   // 優先表示し、保存されていない(未編集)場合のみagentAddress(マスタ由来の既定値)を
   // 表示する。
   const displayAddress = (inv.address!=null && inv.address!=='') ? inv.address : agentAddress;
+  // Name/Group・Itinerary・Noteは基本情報(TOUR NAME・宿泊日数・備考欄)と連動させる。
+  // displayAddressと同じパターンで、このInvoice固有に手動編集・保存済みの値があれば
+  // それを優先し、無い(未編集の)場合のみ基本情報由来の値を表示する。
+  // 備考欄はbookings.remarksではなくbookings.memo1(基本情報「備考」欄の実体、
+  // メモ1/メモ2統合後の列。buildBookingDetailPayload参照)。
+  const displayNameGroup = (inv.name_group!=null && inv.name_group!=='') ? inv.name_group : (booking.tour_name||'');
+  const displayItinerary = (inv.itinerary!=null && inv.itinerary!=='') ? inv.itinerary : _calcNightsDaysEn(booking.in_date, booking.out_date);
+  const displayNote = (inv.note!=null && inv.note!=='') ? inv.note : (booking.memo1||'');
 
   const itemRows = items.map(it=>`
     <tr>
@@ -26825,9 +26855,9 @@ async function showInvoicePreview(inv, booking){
       </div>
 
       <div style="margin-bottom:2px">From&nbsp;: &nbsp;<strong>${escHtml(booking.in_date||'')}</strong> &nbsp;&nbsp; To: <strong>${escHtml(booking.out_date||'')}</strong> &nbsp;&nbsp;&nbsp; No of pax: &nbsp;<strong>${booking.pax||0}</strong></div>
-      <div style="margin-bottom:2px">Name/Group: &nbsp;<span contenteditable="true" id="inv-name-group" style="display:inline-block;min-width:200px">${escHtml(inv.name_group||'')}</span></div>
-      <div style="margin-bottom:2px">Itinerary&nbsp;: &nbsp;<span contenteditable="true" id="inv-itinerary" style="display:inline-block;min-width:200px">${escHtml(inv.itinerary||'')}</span></div>
-      <div style="margin-bottom:10px">Note: &nbsp;<span contenteditable="true" id="inv-note" style="display:inline-block;min-width:200px">${escHtml(inv.note||'')}</span></div>
+      <div style="margin-bottom:2px">Name/Group: &nbsp;<span contenteditable="true" id="inv-name-group" style="display:inline-block;min-width:200px">${escHtml(displayNameGroup)}</span></div>
+      <div style="margin-bottom:2px">Itinerary&nbsp;: &nbsp;<span contenteditable="true" id="inv-itinerary" style="display:inline-block;min-width:200px">${escHtml(displayItinerary)}</span></div>
+      <div style="margin-bottom:10px">Note: &nbsp;<span contenteditable="true" id="inv-note" style="display:inline-block;min-width:200px">${escHtml(displayNote)}</span></div>
 
       <table style="width:100%;border-collapse:collapse;font-size:11px;border:1px solid #000">
         <thead><tr>
