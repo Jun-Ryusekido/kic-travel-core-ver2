@@ -24781,6 +24781,9 @@ function findDuplicatePartner(candidate, partnersCacheArr, excludeId){
   const newJaAlpha = normPartnerAlnum(candidate.companyName);
   return (partnersCacheArr||[]).find(p=>{
     if(excludeId && p.id===excludeId) return false;
+    // 削除済み(is_deleted=true)の取引先は重複候補にしない(呼び出し元のキャッシュに
+    // is_deletedの絞り込みが漏れていても、ここで念のため二重に防ぐ)。
+    if(p.is_deleted) return false;
     const pPhone   = normPartnerPhone(p.company_phone);
     const pEmail   = normPartnerAlnum(p.email);
     const pJa      = normPartnerJaName(p.company_name);
@@ -24834,6 +24837,7 @@ function getAiSimilarityCandidates(candidate, partnersCacheArr, excludeId){
   const newEn = normPartnerAlnum(candidate.companyNameEn);
   const scored = (partnersCacheArr||[])
     .filter(p=>!(excludeId && p.id===excludeId))
+    .filter(p=>!p.is_deleted) // 削除済みは AI 類似候補にもしない(findDuplicatePartnerと同じ理由)
     .map(p=>{
       const pJa = normPartnerJaName(p.company_name);
       const pEn = normPartnerAlnum(p.company_name_en);
@@ -24966,7 +24970,10 @@ async function processCardFile(file){
   showGlobalOcrBanner();
 
   try{
-    const {data: freshPartners} = await sb.from('business_partners').select('*').order('company_name');
+    // is_deletedの絞り込みをloadPartners()と揃える(欠けていたため、削除済みの取引先が
+    // 重複候補として提示され、そのままマージ・保存されてしまう不具合があった。マージ後は
+    // is_deletedがtrueのまま更新されるため、取引先マスタの一覧・検索から見えなくなる)。
+    const {data: freshPartners} = await sb.from('business_partners').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('company_name');
     if(freshPartners) partnersCache = freshPartners;
   }catch(e){ logError('取引先キャッシュの再読込', e, {toast:false}); }
 
