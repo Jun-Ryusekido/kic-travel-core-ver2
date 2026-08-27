@@ -17377,6 +17377,99 @@ async function remapSalesAgentIds(bookingId, oldSalesRows){
   }
 }
 
+// arrangement_documents.booking_guide_idはbooking_guides(id) on delete cascadeの
+// DB制約で参照している。booking_guidesもdoReplace(全delete→再insert)方式のため、
+// 担当ガイドタブを保存するたびに旧行が削除され、そのcascadeでarrangement_documents
+// (および子のarrangement_document_days/arrangement_document_notes)がDBレベルで
+// 即座に削除されてしまう。直後に必ず実行されるsyncArrangementDocumentsFromDraft()には
+// remap処理が無く、削除された(=idが変わった)ガイドを「手配書未作成」と誤判定して
+// status='draft'・revision_no=0のまっさらな手配書を自動的に作り直すため、確定状態・
+// 改訂履歴・個別編集内容が保存のたびに失われていた(2026-08、棚卸し調査で発覚)。
+//
+// 他のremap関数(JS側の緩い参照)と異なり、DB制約のcascadeは保存処理の内部(doReplaceの
+// DELETEの瞬間)で即座に発生するため、削除"後"に付け替えるのでは間に合わない。そのため
+// この関数は、呼び出し元がbooking_guidesのreplace実行"前"に取得しておいたoldSnapshot
+// (削除される前のarrangement_documents/days/notesの内容そのもの)を受け取り、replace
+// 実行"後"に、新しいbooking_guides idへ付け替えた上で改めてinsertし直す
+// (cascadeで消えた行を、内容を保った状態で復元する)。
+//
+// 一意識別キーはguide_id(guidesマスタ参照。設定されていれば最も安定)、フリーテキストの
+// みのガイドはguide_name_freetextを使う。start_date/end_dateは意図的に含めない
+// (「日付だけ編集して保存」が最も典型的な編集パターンであり、日付をキーに含めると
+// その編集のたびに別ガイド扱いされ、手配書が復元されなくなってしまうため)。
+// 同じガイドが同じ予約に複数行(期間違い等)でアサインされている場合は、このキーだけでは
+// 区別できず「一意に対応付けできない」側のケースとして扱われる(下記参照)。
+// 新旧いずれかの側で同一キーの行が複数存在し一意に対応付けできない場合、または
+// 対応する新しいガイドが見つからない(=本当にアサイン解除された)場合は、誤った
+// 付け替えを避けるためその手配書は復元しない(cascadeで削除されたまま。ガイドを
+// 外せば手配書も一緒に消えるという、cascade制約が本来意図している挙動を維持する)。
+function _guideIdentityKey(g){
+  return g.guide_id ? `gid:${g.guide_id}` : `fn:${g.guide_name_freetext||''}`;
+}
+async function remapGuideArrangementDocuments(bookingId, oldSnapshot){
+  const { oldGuides, oldDocs, oldDaysByDocId, oldNotesByDocId } = oldSnapshot || {};
+  if(!oldGuides || !oldGuides.length || !oldDocs || !oldDocs.length) return;
+
+  const {data: freshGuides, error} = await sb.from('booking_guides')
+    .select('id,guide_id,guide_name_freetext,start_date,end_date').eq('booking_id', bookingId);
+  if(error || !freshGuides || !freshGuides.length) return;
+
+  const groupByKey = (list, keyFn) => {
+    const m = {};
+    (list||[]).forEach(x=>{ const k = keyFn(x); (m[k] = m[k]||[]).push(x); });
+    return m;
+  };
+  const oldGuidesByKey = groupByKey(oldGuides, _guideIdentityKey);
+  const freshGuidesByKey = groupByKey(freshGuides, _guideIdentityKey);
+
+  // 旧booking_guides.id -> 新booking_guides.id のマップを、一意に対応付けられた
+  // ものだけ作る(remapSalesAgentIds等と同じ安全策)。
+  const oldIdToNewId = {};
+  for(const k in oldGuidesByKey){
+    const oldGroup = oldGuidesByKey[k];
+    const freshGroup = freshGuidesByKey[k] || [];
+    if(oldGroup.length !== 1 || freshGroup.length !== 1){
+      if(oldGroup.length > 1 || freshGroup.length > 1){
+        console.warn(`[remapGuideArrangementDocuments] 内容(${k})が複数行と一致し一意に特定できないため、該当ガイドの手配書は復元しません: booking_id=${bookingId}`);
+      }
+      continue; // freshGroup.length===0(本当にアサイン解除)は警告不要、静かにスキップ
+    }
+    oldIdToNewId[oldGroup[0].id] = freshGroup[0].id;
+  }
+
+  for(const oldDoc of oldDocs){
+    const newGuideId = oldIdToNewId[oldDoc.booking_guide_id];
+    if(!newGuideId) continue; // 一意に対応付けられなかった、または本当に削除された
+
+    const { id: oldDocId, ...docFields } = oldDoc;
+    let newDoc;
+    try{
+      const result = await arrangementDocumentsApiCall('insertReturning', {
+        rows: [{ ...docFields, booking_guide_id: newGuideId }]
+      });
+      newDoc = (result.rows||[])[0];
+    }catch(e){
+      logError('ガイド別手配書のID付け替え(再作成)', e, {toast:false});
+      continue; // この手配書だけ諦め、他の手配書の復元は継続する
+    }
+
+    const oldDays = oldDaysByDocId?.get(oldDocId) || [];
+    const oldNotes = oldNotesByDocId?.get(oldDocId) || [];
+    await Promise.all([
+      oldDays.length
+        ? arrangementDocumentDaysApiCall('insert', {
+            rows: oldDays.map(({id, arrangement_document_id, ...rest})=>({...rest, arrangement_document_id: newDoc.id}))
+          }).catch(e=>logError('ガイド別手配書のID付け替え(日毎明細)', e, {toast:false}))
+        : Promise.resolve(),
+      oldNotes.length
+        ? arrangementDocumentNotesApiCall('insert', {
+            rows: oldNotes.map(({id, arrangement_document_id, ...rest})=>({...rest, arrangement_document_id: newDoc.id}))
+          }).catch(e=>logError('ガイド別手配書のID付け替え(注意文言)', e, {toast:false}))
+        : Promise.resolve(),
+    ]);
+  }
+}
+
 // ヘッダーの差分比較専用フィールド(last_revised_at/updated_atは保存の都度書き換わる
 // 派生値のため、これらを含めて比較すると常に「変更あり」判定になってしまう。
 // ユーザーが実際に編集し得る項目のみを対象にする)。
@@ -18596,6 +18689,28 @@ async function saveBookingDetail(){
     await runSkippableIsolated('クレジットカード明細の消込リンク付け替え', 'credit_card_statements', costsIdsMayChange,
       () => remapCreditCardStatementSourceIds(bookingId, _oldCostRowsForCcRemap));
     await runSkippableIsolated('新幹線手配', 'bullet_train_arrangements', bulletTrainDirty, () => saveBulletTrainItems());
+    // remapGuideArrangementDocuments()用に、booking_guidesがこのあと書き換わる
+    // (replaceのDELETEでcascadeが発火し、紐づくarrangement_documents/days/notesが
+    // DBレベルで即座に削除される)"前"の状態をあらかじめ全て取得しておく。削除後からは
+    // 内容を復元できないため、_oldCostRowsForCcRemap等と異なりこちらは削除前の退避が必須。
+    let _oldGuideDocsSnapshot = null;
+    if(guidesDirty){
+      const [{data: oldGuides}, {data: oldDocs}] = await Promise.all([
+        sb.from('booking_guides').select('id,guide_id,guide_name_freetext,start_date,end_date').eq('booking_id', bookingId),
+        sb.from('arrangement_documents').select('*').eq('booking_id', bookingId),
+      ]);
+      const docIds = (oldDocs||[]).map(d=>d.id);
+      const oldDaysByDocId = new Map(), oldNotesByDocId = new Map();
+      if(docIds.length){
+        const [{data: oldDays}, {data: oldNotes}] = await Promise.all([
+          sb.from('arrangement_document_days').select('*').in('arrangement_document_id', docIds),
+          sb.from('arrangement_document_notes').select('*').in('arrangement_document_id', docIds),
+        ]);
+        (oldDays||[]).forEach(d=>{ const l = oldDaysByDocId.get(d.arrangement_document_id)||[]; l.push(d); oldDaysByDocId.set(d.arrangement_document_id, l); });
+        (oldNotes||[]).forEach(n=>{ const l = oldNotesByDocId.get(n.arrangement_document_id)||[]; l.push(n); oldNotesByDocId.set(n.arrangement_document_id, l); });
+      }
+      _oldGuideDocsSnapshot = { oldGuides: oldGuides||[], oldDocs: oldDocs||[], oldDaysByDocId, oldNotesByDocId };
+    }
     await runSkippableIsolated('ガイド', 'booking_guides', guidesDirty, () => saveGuideItems());
     // 手配書は「FKの張り替え→ヘッダ/明細の保存」が1セットで、途中で分割すると
     // 不整合な状態で残るため、この3つは1ステップとして扱う。ID張り替え自体は
@@ -18604,7 +18719,14 @@ async function saveBookingDetail(){
       if(arrDocNeedsRemap) await remapArrDayForeignKeys(bookingId);
       await saveArrDoc();
     });
-    await runSkippableIsolated('ガイド別手配書', 'arrangement_documents / arrangement_document_days / arrangement_document_notes', guideDocsDirty, () => syncArrangementDocumentsFromDraft(bookingId));
+    await runSkippableIsolated('ガイド別手配書', 'arrangement_documents / arrangement_document_days / arrangement_document_notes', guideDocsDirty, async () => {
+      // syncArrangementDocumentsFromDraft()より必ず先に実行する。先にremapで既存ガイドの
+      // 手配書を新idで復元しておくことで、sync側の「手配書未作成」判定が正しく働き
+      // (復元済みのガイドを未作成と誤判定しない)、本当に新規アサインされたガイドの分だけ
+      // 新規の下書き手配書が作られる。
+      if(guidesDirty) await remapGuideArrangementDocuments(bookingId, _oldGuideDocsSnapshot);
+      await syncArrangementDocumentsFromDraft(bookingId);
+    });
 
     __savePerfLog.push({ 'ステップ': '─合計(全ステップ)', '所要時間(ms)': Math.round(performance.now()-__savePerfT0) });
     console.log('【保存処理の所要時間 内訳】(実行した項目は実測ms、無変更でスキップした項目は「変更なし(スキップ)」と表示。window.__savePerfLogでも参照可)');
