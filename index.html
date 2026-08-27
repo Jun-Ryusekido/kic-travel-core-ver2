@@ -7801,7 +7801,7 @@ async function openBookingDetail(id){
   ]);
   if(_stale()) return;
 
-  bdSalesItems = (salesRows||[]).map(r=>({item_name:r.item_name, memo:r.memo||'', unit_price:r.unit_price, pax:r.pax||1, qty:r.qty, amount:r.amount, payment_date:r.payment_date, agent_name:r.agent_name||'', payments:r.payments||[]}));
+  bdSalesItems = (salesRows||[]).map(r=>({item_name:r.item_name, memo:r.memo||'', unit_price:r.unit_price, pax:r.pax||1, qty:r.qty, amount:r.amount, payment_date:r.payment_date, agent_name:r.agent_name||'', agent_id:r.agent_id||null, payments:r.payments||[]}));
   bdCostItems = mapCostRowsToBdCostItems(costRows);
   originalSalesCount = bdSalesItems.length;
   originalCostsCount = bdCostItems.length;
