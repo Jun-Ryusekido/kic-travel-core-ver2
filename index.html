@@ -1321,6 +1321,9 @@ input[type=number]{-moz-appearance:textfield}
                 <option value="closed">Closed</option>
                 <option value="cancelled">中止</option>
               </select>
+              <label style="display:flex;align-items:center;gap:4px;margin-top:4px;font-size:11px;font-weight:400;color:var(--text2);cursor:pointer;white-space:nowrap">
+                <input type="checkbox" id="bl-status-exclude" onchange="filterBookingListGeneric('bl')" style="margin:0"> このステータスを除く
+              </label>
             </div>
           </div>
           <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center">
@@ -4204,6 +4207,8 @@ function resetBookingFilter(prefix){
   document.getElementById(prefix+'-from').value = isAdmin ? '' : TEMP_DEFAULT_FROM;
   document.getElementById(prefix+'-to').value='';
   document.getElementById(prefix+'-status').value='';
+  const statusExcludeEl = document.getElementById(prefix+'-status-exclude');
+  if(statusExcludeEl) statusExcludeEl.checked = false;
   listState[prefix].page = 1;
   filterBookingListGeneric(prefix);
 }
@@ -4284,7 +4289,7 @@ function renderDbArrivalAlert(){
 
   const active = allBookingsCache.filter(b => {
     if(!b.in_date || b.in_date < todayStr) return false;
-    if(b.status === 'cancelled' || b.status === 'closed') return false;
+    if(normalizeStatus(b.status) === 'cancelled' || normalizeStatus(b.status) === 'closed') return false;
     return inDays(b.in_date) <= 90;
   });
 
@@ -4387,7 +4392,7 @@ async function fetchFacilityDeadlineItems(maxDays){
       return { ...f, _booking: b, _days: inDays(f.deadline_date) };
     })
     .filter(f=>{
-      if(f._booking && (f._booking.status === 'cancelled' || f._booking.status === 'closed')) return false;
+      if(f._booking && (normalizeStatus(f._booking.status) === 'cancelled' || normalizeStatus(f._booking.status) === 'closed')) return false;
       if(f.status === 'キャンセル') return false;
       return true;
     })
@@ -4696,6 +4701,9 @@ function filterBookingListGeneric(prefix){
   const from = document.getElementById(prefix+'-from').value;
   const to = document.getElementById(prefix+'-to').value;
   const status = document.getElementById(prefix+'-status').value;
+  // 除外モード(bl画面のみ現状存在。他prefixにはチェックボックス自体が無いため常にfalse)。
+  // ONの場合、選択したステータスの予約を「除いて」表示する(例: 中止+除外ON→中止以外を表示)。
+  const statusExclude = document.getElementById(prefix+'-status-exclude')?.checked || false;
 
   let filtered = bookingsListCache.filter(b=>{
     if(q){
@@ -4708,8 +4716,11 @@ function filterBookingListGeneric(prefix){
       // Open検索では、ステータスが「ファイナル済み」でもツアーがOut日(最終日)を
       // 過ぎるまでは稼働中の予約として表示する(Openのみを厳密一致させると、
       // ファイナル済みだが実施中のツアーが検索結果から消えてしまうため)。
-      const isActiveFinalized = status==='open' && b.status==='finalized' && b.out_date && b.out_date>=localDateStr();
-      if(b.status!==status && !isActiveFinalized) return false;
+      const isActiveFinalized = status==='open' && normalizeStatus(b.status)==='finalized' && b.out_date && b.out_date>=localDateStr();
+      const matchesStatus = normalizeStatus(b.status)===status || isActiveFinalized;
+      // 除外OFF: 選択ステータスに一致する予約のみ残す(従来通り)。
+      // 除外ON: 選択ステータスに一致する予約を除外する(反転)。
+      if(statusExclude ? matchesStatus : !matchesStatus) return false;
     }
     return true;
   });
@@ -4804,8 +4815,9 @@ function statusPill(status){
     open:'Open', pending:'Pending', confirmed:'Confirmed', finalized:'Finalized',
     invoiced:'Invoiced', paid:'Paid', settlement:'精算中', closed:'Closed', cancelled:'中止'
   };
-  const c = STATUS_COLORS[status];
-  const label = shortLabels[status] || status;
+  const norm = normalizeStatus(status);
+  const c = STATUS_COLORS[norm];
+  const label = shortLabels[norm] || status;
   if(!c) return `<span class="pill s-open">${escHtml(label)}</span>`;
   return `<span class="pill" style="background:${c.bg};color:${c.fg}">${escHtml(label)}</span>`;
 }
@@ -5897,6 +5909,18 @@ function updateBdNightsDays(){
 // button+リストのカスタムドロップダウン(.st-dd/.st-dd-list、toggleStatusDropdown等)
 // と同じ仕組みに統一し、9色それぞれを個別のdiv(.st-dd-item)としてbody直下に描画する
 // ことで、ネイティブ<select>のoption色無視問題を根本的に回避する。
+// bookings.statusの表記ゆれ(大文字小文字)を吸収する共通ヘルパー。STATUS_COLORS/
+// STATUS_ORDERのキーとの比較・参照は、必ずこの関数を通した値同士で行うこと(直接
+// b.status===... のような比較を新たに書かないこと)。2026-08、Access移行スクリプトの
+// バグでstatus='Closed'(大文字)が530件混入し、Booking Listの色分け・STATUS絞り込み・
+// ダッシュボードの到着アラート等が正しく動作しない事故が実際に発生したため導入した
+// (データ側は修正済みだが、将来同種の表記ゆれが再発してもロジック側で吸収できるようにする)。
+// null/undefinedは空文字を返す(STATUS_COLORS['']は存在しないため、未設定値は
+// 「色が付かない」という従来通りの安全側の挙動になる)。
+function normalizeStatus(status){
+  return (status||'').toLowerCase();
+}
+
 const STATUS_ORDER = ['open','pending','confirmed','finalized','invoiced','paid','settlement','closed','cancelled'];
 const STATUS_COLORS = {
   open:       {bg:'#f0f0f0', fg:'#555555', label:'Open / 新規'},
@@ -24655,7 +24679,7 @@ async function handleCardUpload(event){
 // 以前はprocessCardFile()とbatchSaveAndNext()の2箇所に全く同じcm()判定が
 // 重複実装されていたため、この1箇所にまとめた(名刺スキャン自動マージ・確認バナー機能)。
 // 電話番号・メールアドレス(完全一致)、会社名(日本語/英語、法人格や記号を正規化した上での
-// 部分一致、日本語名の英数字部分と英語名の相互比較も含む)のいずれかが一致すれば重複候補とする。
+// 完全一致、日本語名の英数字部分と英語名の相互比較も含む)のいずれかが一致すれば重複候補とする。
 function normPartnerAlnum(s){ return (s||'').replace(/[^0-9a-zA-Z]/g,'').toLowerCase(); }
 function normPartnerJaName(s){
   return (s||'')
@@ -24665,7 +24689,17 @@ function normPartnerJaName(s){
     .toLowerCase();
 }
 function normPartnerPhone(s){ let v = normPartnerAlnum(s); if(v.startsWith('81')) v = '0'+v.slice(2); return v; }
-function partnerFuzzyMatch(a,b){ return !!(a && b && a.length>=2 && b.length>=2 && (a===b||a.includes(b)||b.includes(a))); }
+// 【2026-08修正】以前はa.includes(b)||b.includes(a)による部分一致だったため、
+// normPartnerAlnum()で英数字以外を削ぎ落とした結果できる短い断片(例: 「HOTバス」→"hot")が、
+// 全く無関係な会社の英語名(例: "...Hotel..."の一部)に偶然出現するだけで「類似」と誤判定
+// される事故が発生した(実データ508件で検証したところ、"hot"だけで50件、"by"で34件、
+// "ana"で253件の無関係な組み合わせが誤ヒットする状態だった)。メール取引先登録フロー
+// (_findMatchingPartnerCandidates、"CHI"/"omachi"の実害で判明)で既に完全一致化した
+// のと同じ教訓を適用し、ここも完全一致のみに統一する。
+// 【将来的な課題】完全一致用のnormalizePartnerCompanyName()と、ここで使うfuzzy-match用
+// だったnormPartnerJaName()/normPartnerAlnum()は、性質の異なる正規化ロジックが並存して
+// いる状態のままである(今回は無理に統合しない。別途統合を検討すること)。
+function partnerFuzzyMatch(a,b){ return !!(a && b && a.length>=2 && b.length>=2 && a===b); }
 // candidate: {companyName, companyNameEn, phone, email}。excludeIdは編集中の取引先自身を除外するため。
 function findDuplicatePartner(candidate, partnersCacheArr, excludeId){
   const newPhone   = normPartnerPhone(candidate.phone);
