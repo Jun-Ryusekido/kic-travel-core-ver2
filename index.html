@@ -1321,6 +1321,9 @@ input[type=number]{-moz-appearance:textfield}
                 <option value="closed">Closed</option>
                 <option value="cancelled">中止</option>
               </select>
+              <label style="display:flex;align-items:center;gap:4px;margin-top:4px;font-size:11px;font-weight:400;color:var(--text2);cursor:pointer;white-space:nowrap">
+                <input type="checkbox" id="bl-status-exclude" onchange="filterBookingListGeneric('bl')" style="margin:0"> このステータスを除く
+              </label>
             </div>
           </div>
           <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center">
@@ -4204,6 +4207,8 @@ function resetBookingFilter(prefix){
   document.getElementById(prefix+'-from').value = isAdmin ? '' : TEMP_DEFAULT_FROM;
   document.getElementById(prefix+'-to').value='';
   document.getElementById(prefix+'-status').value='';
+  const statusExcludeEl = document.getElementById(prefix+'-status-exclude');
+  if(statusExcludeEl) statusExcludeEl.checked = false;
   listState[prefix].page = 1;
   filterBookingListGeneric(prefix);
 }
@@ -4696,6 +4701,9 @@ function filterBookingListGeneric(prefix){
   const from = document.getElementById(prefix+'-from').value;
   const to = document.getElementById(prefix+'-to').value;
   const status = document.getElementById(prefix+'-status').value;
+  // 除外モード(bl画面のみ現状存在。他prefixにはチェックボックス自体が無いため常にfalse)。
+  // ONの場合、選択したステータスの予約を「除いて」表示する(例: 中止+除外ON→中止以外を表示)。
+  const statusExclude = document.getElementById(prefix+'-status-exclude')?.checked || false;
 
   let filtered = bookingsListCache.filter(b=>{
     if(q){
@@ -4709,7 +4717,10 @@ function filterBookingListGeneric(prefix){
       // 過ぎるまでは稼働中の予約として表示する(Openのみを厳密一致させると、
       // ファイナル済みだが実施中のツアーが検索結果から消えてしまうため)。
       const isActiveFinalized = status==='open' && b.status==='finalized' && b.out_date && b.out_date>=localDateStr();
-      if(b.status!==status && !isActiveFinalized) return false;
+      const matchesStatus = b.status===status || isActiveFinalized;
+      // 除外OFF: 選択ステータスに一致する予約のみ残す(従来通り)。
+      // 除外ON: 選択ステータスに一致する予約を除外する(反転)。
+      if(statusExclude ? matchesStatus : !matchesStatus) return false;
     }
     return true;
   });
