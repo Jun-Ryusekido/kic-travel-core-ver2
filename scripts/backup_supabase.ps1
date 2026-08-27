@@ -48,7 +48,19 @@ $Tables = @(
   'tour_arrangements',
   'tour_arrangement_days',
   'estimations',
-  'access_logs'
+  'access_logs',
+  'agents',
+  'business_partner_contacts',
+  'card_holders',
+  'credit_card_statements',
+  'error_logs',
+  'facility_operating_info',
+  'guide_bank_accounts',
+  'learned_mappings',
+  'partner_merge_pending',
+  'vendor_email_logs',
+  'booking_edit_presence',
+  'payments'
 )
 
 # 差分取得の対象(updated_at列あり + 書き込み経路が全てtable-crud.js経由であることを
