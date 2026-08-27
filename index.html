@@ -2507,7 +2507,7 @@ input[type=number]{-moz-appearance:textfield}
             <div class="form-field" style="flex:0 0 130px"><label>In-Date</label><input id="bd-in" type="date" min="1900-01-01" max="9999-12-31" autocomplete="off" onchange="updateBdNightsDays()" style="width:100%;box-sizing:border-box"></div>
             <div class="form-field" style="flex:0 0 130px"><label>Out-Date</label><input id="bd-out" type="date" min="1900-01-01" max="9999-12-31" autocomplete="off" onchange="updateBdNightsDays()" style="width:100%;box-sizing:border-box"></div>
             <div class="form-field" style="flex:0 1 145px"><label>宿泊日数</label><input id="bd-nights-days" type="text" disabled style="background:var(--bg);color:var(--text);width:100%;box-sizing:border-box"></div>
-            <div class="form-field" style="flex:0 0 120px"><label>入金合計 (Deposit, JPY)</label><input id="bd-deposit" type="number" disabled style="background:var(--bg);color:var(--text);width:100%;box-sizing:border-box"></div>
+            <div class="form-field" style="flex:0 0 120px"><label>入金合計 (Deposit, JPY)</label><input id="bd-deposit" type="text" inputmode="numeric" disabled style="background:var(--bg);color:var(--text);width:100%;box-sizing:border-box;text-align:right"></div>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;margin-top:6px">
             <div class="form-field" style="flex:0 0 140px"><label>国名</label><input id="bd-country" style="width:100%;box-sizing:border-box"></div>
@@ -5931,7 +5931,7 @@ function updateDetailGrossPreview(){
   const paidEl = document.getElementById('bd-sum-paid');
   const unpaidEl = document.getElementById('bd-sum-unpaid');
   if(paidEl) paidEl.textContent = yen(totalPaid);
-  const depositElInput = document.getElementById('bd-deposit'); if(depositElInput) depositElInput.value = totalPaid;
+  const depositElInput = document.getElementById('bd-deposit'); if(depositElInput) depositElInput.value = fmtAmt(totalPaid);
   // 売上明細セクション内(売上合計の直下)にも入金合計・差額を表示する。上のbd-sum-paid/
   // bd-sum-unpaid(画面上部のKPIタイル)と同じtotalPaid/unpaidをそのまま再利用し、
   // 別計算にしない(2箇所で計算がずれるのを防ぐため)。配色も行ごとの「未収」列
@@ -7769,7 +7769,7 @@ async function openBookingDetail(id){
 
   bdLocked = !!b.locked;
   renderLockBanner();
-  document.getElementById('bd-deposit').value = 0;renderSalesTable();
+  document.getElementById('bd-deposit').value = fmtAmt(0);renderSalesTable();
   renderCostTable();
 
   // 関連Invoiceを読み込み（一覧はモーダル内、通常表示はボタンの件数のみ）
