@@ -4289,7 +4289,7 @@ function renderDbArrivalAlert(){
 
   const active = allBookingsCache.filter(b => {
     if(!b.in_date || b.in_date < todayStr) return false;
-    if(b.status === 'cancelled' || b.status === 'closed') return false;
+    if(normalizeStatus(b.status) === 'cancelled' || normalizeStatus(b.status) === 'closed') return false;
     return inDays(b.in_date) <= 90;
   });
 
@@ -4392,7 +4392,7 @@ async function fetchFacilityDeadlineItems(maxDays){
       return { ...f, _booking: b, _days: inDays(f.deadline_date) };
     })
     .filter(f=>{
-      if(f._booking && (f._booking.status === 'cancelled' || f._booking.status === 'closed')) return false;
+      if(f._booking && (normalizeStatus(f._booking.status) === 'cancelled' || normalizeStatus(f._booking.status) === 'closed')) return false;
       if(f.status === 'キャンセル') return false;
       return true;
     })
@@ -4716,8 +4716,8 @@ function filterBookingListGeneric(prefix){
       // Open検索では、ステータスが「ファイナル済み」でもツアーがOut日(最終日)を
       // 過ぎるまでは稼働中の予約として表示する(Openのみを厳密一致させると、
       // ファイナル済みだが実施中のツアーが検索結果から消えてしまうため)。
-      const isActiveFinalized = status==='open' && b.status==='finalized' && b.out_date && b.out_date>=localDateStr();
-      const matchesStatus = b.status===status || isActiveFinalized;
+      const isActiveFinalized = status==='open' && normalizeStatus(b.status)==='finalized' && b.out_date && b.out_date>=localDateStr();
+      const matchesStatus = normalizeStatus(b.status)===status || isActiveFinalized;
       // 除外OFF: 選択ステータスに一致する予約のみ残す(従来通り)。
       // 除外ON: 選択ステータスに一致する予約を除外する(反転)。
       if(statusExclude ? matchesStatus : !matchesStatus) return false;
@@ -4815,8 +4815,9 @@ function statusPill(status){
     open:'Open', pending:'Pending', confirmed:'Confirmed', finalized:'Finalized',
     invoiced:'Invoiced', paid:'Paid', settlement:'精算中', closed:'Closed', cancelled:'中止'
   };
-  const c = STATUS_COLORS[status];
-  const label = shortLabels[status] || status;
+  const norm = normalizeStatus(status);
+  const c = STATUS_COLORS[norm];
+  const label = shortLabels[norm] || status;
   if(!c) return `<span class="pill s-open">${escHtml(label)}</span>`;
   return `<span class="pill" style="background:${c.bg};color:${c.fg}">${escHtml(label)}</span>`;
 }
@@ -5908,6 +5909,18 @@ function updateBdNightsDays(){
 // button+リストのカスタムドロップダウン(.st-dd/.st-dd-list、toggleStatusDropdown等)
 // と同じ仕組みに統一し、9色それぞれを個別のdiv(.st-dd-item)としてbody直下に描画する
 // ことで、ネイティブ<select>のoption色無視問題を根本的に回避する。
+// bookings.statusの表記ゆれ(大文字小文字)を吸収する共通ヘルパー。STATUS_COLORS/
+// STATUS_ORDERのキーとの比較・参照は、必ずこの関数を通した値同士で行うこと(直接
+// b.status===... のような比較を新たに書かないこと)。2026-08、Access移行スクリプトの
+// バグでstatus='Closed'(大文字)が530件混入し、Booking Listの色分け・STATUS絞り込み・
+// ダッシュボードの到着アラート等が正しく動作しない事故が実際に発生したため導入した
+// (データ側は修正済みだが、将来同種の表記ゆれが再発してもロジック側で吸収できるようにする)。
+// null/undefinedは空文字を返す(STATUS_COLORS['']は存在しないため、未設定値は
+// 「色が付かない」という従来通りの安全側の挙動になる)。
+function normalizeStatus(status){
+  return (status||'').toLowerCase();
+}
+
 const STATUS_ORDER = ['open','pending','confirmed','finalized','invoiced','paid','settlement','closed','cancelled'];
 const STATUS_COLORS = {
   open:       {bg:'#f0f0f0', fg:'#555555', label:'Open / 新規'},

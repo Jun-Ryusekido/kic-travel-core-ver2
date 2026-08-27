@@ -51,10 +51,15 @@ const ACCESS_FIELD_MAP = {
   country: '国名',
   booking_type: '種別',
 };
-// statusのみ特殊変換(手配完了="済"の場合のみ"Closed"とみなす。それ以外は反映対象外=undefined)。
+// statusのみ特殊変換(手配完了="済"の場合のみ"closed"とみなす。それ以外は反映対象外=undefined)。
+// 【2026-08修正】以前は"Closed"(先頭大文字)を返しており、アプリ側の正規のステータス語彙
+// (STATUS_ORDER/STATUS_COLORS。index.htmlで全て小文字)と一致しないデータが本番に530件
+// 混入する事故につながった(Booking Listの色分け・STATUS絞り込み・ダッシュボードの
+// 到着アラート等が正しく機能しなくなった)。この関数の戻り値は必ずSTATUS_ORDERに含まれる
+// 値(小文字)と完全一致させること。
 const STATUS_ACCESS_KEY = '手配完了';
 function mapAccessStatus(rawValue) {
-  return rawValue === '済' ? 'Closed' : undefined;
+  return rawValue === '済' ? 'closed' : undefined;
 }
 
 const REFLECT_COLUMNS = [...Object.keys(ACCESS_FIELD_MAP), 'status'];
