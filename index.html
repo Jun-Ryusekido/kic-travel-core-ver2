@@ -2499,7 +2499,7 @@ input[type=number]{-moz-appearance:textfield}
             <div class="form-field"><label>子供 (CHD)</label><input id="bd-pax-chd" type="number" min="0" oninput="updateBdPaxTotal()"></div>
             <div class="form-field" style="flex:0 1 315px"><label>子供年齢 (Age of CHD)</label><input id="bd-children-ages" placeholder="例: 8, 5, 12"></div>
             <div class="form-field"><label>乳児 (INF)</label><input id="bd-pax-inf" type="number" min="0" oninput="updateBdPaxTotal()"></div>
-            <div class="form-field"><label>FOC</label><input id="bd-pax-foc" type="number" min="0"></div>
+            <div class="form-field"><label>FOC</label><input id="bd-pax-foc" type="number" min="0" oninput="updateBdPaxTotal()"></div>
             <div class="form-field"><label>合計 (TCP)</label><input id="bd-pax-total" type="number" disabled></div>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;margin-top:6px">
@@ -5844,16 +5844,31 @@ function findBookingById(id){
 function bdSalesTotal(){ return bdSalesItems.reduce((s,it)=>s+Number(it.amount||0),0); }
 function bdCostTotal(){ return bdCostItems.reduce((s,it)=>s+Number(it.amount||0),0); }
 
-// 合計(TCP)にはFOC(無料同行者)を含めない。bookings.pax(この合計と同じ計算式で
-// saveBookingDetail側が保存する値)はレストラン/観光施設タブの新規行デフォルト人数、
-// 見積もり反映画面のPax表示、Booking List・ダッシュボードのPax表示等、課金・員数系の
-// 既存機能から広く参照されているため、FOCを合算すると想定外の影響が出るリスクがある
-// と判断した(詳細はcommit参照)。FOC自体は入力・保存されるが、TCPの計算には使わない。
+// 合計(TCP)にはFOC(無料同行者)を含める(2026-08方針転換。以前はここにFOCを含めない
+// 判断をしていたが、請求書のNo of pax表示・予約一覧等の「ツアー全体の人数」としては
+// FOCも含めた人数を見せるべき、との判断に変更した)。
+// ただし、bookings.pax(このTCPと同じ値。saveBookingDetail側が保存する)を
+// レストラン/観光施設タブの新規行デフォルト人数のような「金額計算(unit_price×pax×qty)に
+// 直結する人数」の初期値として使い回すのは維持しない。INF(乳児)・FOC(無料同行者)は
+// いずれも無料人数であり、それらを含んだTCPを明細行のデフォルト人数に流用すると、
+// 無料のはずの人数分の金額が売上明細に混入するリスクがあるため。
+// この2つの用途(表示・請求書用のTCP と、明細行デフォルト人数用の課金対象人数)を
+// bookings.paxという同じ値の使い回しで賄うのをやめ、後者はgetBillablePax()という
+// 別の関数(ADT+CHDのみ、INF・FOCを含まない)に明確に分離した。明細行のデフォルト
+// 人数を求める箇所は、booking.paxを直接参照せず必ずgetBillablePax()を使うこと。
 function updateBdPaxTotal(){
   const adt = Number(document.getElementById('bd-pax-adt').value)||0;
   const chd = Number(document.getElementById('bd-pax-chd').value)||0;
   const inf = Number(document.getElementById('bd-pax-inf').value)||0;
-  document.getElementById('bd-pax-total').value = adt+chd+inf;
+  const foc = Number(document.getElementById('bd-pax-foc').value)||0;
+  document.getElementById('bd-pax-total').value = adt+chd+inf+foc;
+}
+
+// レストラン/観光施設タブの新規行等、「金額計算(unit_price×pax×qty)のデフォルト人数」
+// に使う値。TCP(bookings.pax = ADT+CHD+INF+FOC)とは異なり、無料人数であるINF・FOCを
+// 含まないADT+CHDのみを返す(上のupdateBdPaxTotal直上のコメント参照)。
+function getBillablePax(b){
+  return (Number(b?.pax_adult)||0) + (Number(b?.pax_child)||0);
 }
 
 // In-Date/Out-Dateから宿泊日数(〇泊〇日 / 〇 nights, 〇 days)を自動計算して表示する。
@@ -14782,7 +14797,7 @@ function renderRestaurantTable(){
 }
 function addRestaurantRow(){
   const b = findBookingById(currentDetailId);
-  bdRestaurantItems.push({restaurant_name:'',meal_type:'昼食',date:'',reservation_time:'',pax:b?b.pax||0:0,amount:0,status:'問い合わせ中',payment_method:'',memo:'',guide_id:null,guide_name_freetext:''});
+  bdRestaurantItems.push({restaurant_name:'',meal_type:'昼食',date:'',reservation_time:'',pax:getBillablePax(b),amount:0,status:'問い合わせ中',payment_method:'',memo:'',guide_id:null,guide_name_freetext:''});
   renderRestaurantTable();
 }
 
@@ -14806,7 +14821,7 @@ function generateRestaurantTemplateRows(b){
     return;
   }
   const existing = new Set(bdRestaurantItems.map(it=>(it.date||'')+'|'+(it.meal_type||'')));
-  const pax = b.pax||0;
+  const pax = getBillablePax(b);
   const newRows = [];
   const fmtLocalDate = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   for(let d = new Date(start); d <= end; d.setDate(d.getDate()+1)){
@@ -15197,7 +15212,7 @@ function saveRestaurantConfirm(){
       meal_type: document.getElementById(`rest-c-meal-${i}`)?.value||'昼食',
       date: document.getElementById(`rest-c-date-${i}`)?.value||'',
       reservation_time: document.getElementById(`rest-c-time-${i}`)?.value||'',
-      pax: Number(document.getElementById(`rest-c-pax-${i}`)?.value)||(b?b.pax||0:0),
+      pax: Number(document.getElementById(`rest-c-pax-${i}`)?.value)||getBillablePax(b),
       amount: Number(document.getElementById(`rest-c-amount-${i}`)?.value)||0,
       status: document.getElementById(`rest-c-status-${i}`)?.value||'問い合わせ中',
       memo: document.getElementById(`rest-c-memo-${i}`)?.value||'',
@@ -15525,7 +15540,7 @@ let bulletTrainSortState = { field: null, dir: 1 };
 function sortBulletTrainTable(field){ sortBdItems(bdBulletTrainItems, field, bulletTrainSortState, renderBulletTrainTable); }
 function addFacilityRow(){
   const b = findBookingById(currentDetailId);
-  bdFacilityItems.push({facility_name:'',date:'',pax:b?b.pax||0:0,amount:0,status:'問い合わせ中',confirmation_no:'',deadline_date:'',payment_method:'',memo:''});
+  bdFacilityItems.push({facility_name:'',date:'',pax:getBillablePax(b),amount:0,status:'問い合わせ中',confirmation_no:'',deadline_date:'',payment_method:'',memo:''});
   renderFacilityTable();
 }
 function buildFacilityRows(bookingId){
@@ -18297,7 +18312,9 @@ async function saveBookingDetail(){
     ? _bdOriginalAgentId
     : resolveAgentIdForSave('bd', bookingCompareFields.agent_name);
   const payload = Object.assign({}, bookingCompareFields, {
-    pax: bookingCompareFields.pax_adult + bookingCompareFields.pax_child + bookingCompareFields.pax_infant,
+    // TCP(合計人数)。updateBdPaxTotal()と同じ式(ADT+CHD+INF+FOC)。getBillablePax()の
+    // 対象(明細行デフォルト人数用のADT+CHDのみ)とは別物のため混同しないこと。
+    pax: bookingCompareFields.pax_adult + bookingCompareFields.pax_child + bookingCompareFields.pax_infant + bookingCompareFields.foc_count,
     gross_sales: totalSales,
     gross_cost: totalCost,
     deposit_amount: bdSalesItems.reduce((s,it)=>s+(it.payments||[]).reduce((ps,p)=>ps+(Number(p.amount)||0),0),0),
