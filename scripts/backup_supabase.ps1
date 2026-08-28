@@ -23,7 +23,17 @@ param(
 
 # ===== Config =====
 $SupabaseUrl = 'https://nzdygjlnzvtdezslnuoy.supabase.co'
-$SupabaseKey = 'sb_publishable_Cnloaxzb2Ati8gmCa-1o3Q_t3uy6_mB'
+# バックアップ対象のうちerror_logs/guide_bank_accounts/app_users/parking_reservations等は
+# セキュリティ強化の一環でanon(publishable)キーからのSELECTを意図的に遮断済み
+# (scripts/lock_down_*.sql参照)であり、anonキーでは全テーブルを読めない。バックアップは
+# 信頼されたこのPC上でのみ動く管理者用スクリプトのため、RLS/GRANTを問わず全テーブルを
+# 読めるservice_roleキーを使う。anonキーへのフォールバックは絶対に行わない
+# (静かにanonへ戻ると、一部テーブルが欠けたバックアップが「正常終了」してしまうため)。
+$SupabaseKey = $env:SUPABASE_SERVICE_ROLE_KEY
+if ([string]::IsNullOrWhiteSpace($SupabaseKey)) {
+  Write-Error 'SUPABASE_SERVICE_ROLE_KEY環境変数が設定されていません。setxコマンドで永続化してから再実行してください(詳細はscripts/backup_supabase_daily.ps1冒頭のコメント、またはこのタスクのPR説明を参照)。anonキーへのフォールバックは行わず、ここで処理を中断します。'
+  exit 1
+}
 $BackupRoot  = if ($BackupRootOverride) { $BackupRootOverride } else { 'C:\KIC_Backup' }
 $RetentionDays = 7
 $StateFile = if ($StateFileOverride) { $StateFileOverride } else { Join-Path $PSScriptRoot 'data\backup_last_success.json' }
