@@ -6703,11 +6703,14 @@ function hideItemNameSuggestionsForSales(){
 async function loadBusCompaniesCache(){
   if(busCompaniesCache.length>0) return;
   const {data} = await sb.from('business_partners')
-    .select('company_name,phone')
+    .select('id,company_name')
     .eq('category','バス・ハイヤー等')
     .or('is_deleted.is.null,is_deleted.eq.false')
     .order('company_name');
-  busCompaniesCache = data||[];
+  // 電話番号はbusiness_partner_contacts(代表担当者)側の値を使う(business_partners.phone
+  // は担当者情報一本化により廃止列のため参照しない)。
+  if(businessPartnerContactsIndex.size===0) await loadBusinessPartnerContactsIndex();
+  busCompaniesCache = (data||[]).map(p=>({ company_name: p.company_name, phone: getDisplayContactForPartner(p).phone||'' }));
 }
 // onSelect省略時は従来通り: idx>=0ならbdBusItems[idx]を直接書き換え(保存済み一覧テーブル向け)、
 // idx<0なら何もしない(取引先マスタ・駐車場予約モーダル等の単独欄向け、既存動作)。
@@ -6760,11 +6763,14 @@ function hideBusCompanySuggest(){
 async function loadHotelPartnersCache(){
   if(hotelPartnersCache.length>0) return;
   const {data} = await sb.from('business_partners')
-    .select('company_name,phone')
+    .select('id,company_name')
     .eq('category','ホテル')
     .or('is_deleted.is.null,is_deleted.eq.false')
     .order('company_name');
-  hotelPartnersCache = data||[];
+  // 電話番号はbusiness_partner_contacts(代表担当者)側の値を使う(business_partners.phone
+  // は担当者情報一本化により廃止列のため参照しない)。
+  if(businessPartnerContactsIndex.size===0) await loadBusinessPartnerContactsIndex();
+  hotelPartnersCache = (data||[]).map(p=>({ company_name: p.company_name, phone: getDisplayContactForPartner(p).phone||'' }));
 }
 async function showHotelSuggest(inputEl, idx, arr){
   hideHotelSuggest();
@@ -6799,11 +6805,14 @@ function hideHotelSuggest(){
 async function loadFacilityPartnersCache(){
   if(facilityPartnersCache.length>0) return;
   const {data} = await sb.from('business_partners')
-    .select('company_name,phone')
+    .select('id,company_name')
     .eq('category','その他')
     .or('is_deleted.is.null,is_deleted.eq.false')
     .order('company_name');
-  facilityPartnersCache = data||[];
+  // 電話番号はbusiness_partner_contacts(代表担当者)側の値を使う(business_partners.phone
+  // は担当者情報一本化により廃止列のため参照しない)。
+  if(businessPartnerContactsIndex.size===0) await loadBusinessPartnerContactsIndex();
+  facilityPartnersCache = (data||[]).map(p=>({ company_name: p.company_name, phone: getDisplayContactForPartner(p).phone||'' }));
 }
 // onSelect省略時は従来通りbdFacilityItems[idx]を直接書き換える(保存済み一覧テーブル向け)。
 // AI読み取り確認モーダル(showFacilityConfirmDialog)は別配列(window._pendingFacilities)を
@@ -6847,11 +6856,14 @@ function hideFacilitySuggest(){
 async function loadRestaurantPartnersCache(){
   if(restaurantPartnersCache.length>0) return;
   const {data} = await sb.from('business_partners')
-    .select('company_name,company_name_en,phone')
+    .select('id,company_name,company_name_en')
     .eq('category','レストラン')
     .or('is_deleted.is.null,is_deleted.eq.false')
     .order('company_name');
-  restaurantPartnersCache = data||[];
+  // 電話番号はbusiness_partner_contacts(代表担当者)側の値を使う(business_partners.phone
+  // は担当者情報一本化により廃止列のため参照しない)。
+  if(businessPartnerContactsIndex.size===0) await loadBusinessPartnerContactsIndex();
+  restaurantPartnersCache = (data||[]).map(p=>({ company_name: p.company_name, company_name_en: p.company_name_en, phone: getDisplayContactForPartner(p).phone||'' }));
 }
 // レストラン名（日本語）からbusiness_partnersに登録されている英語名を引く（NFKC正規化で全角/半角ゆれを吸収）
 function restaurantPartnerEnName(jpName){
