@@ -26635,6 +26635,10 @@ function filterInvoiceUnified(){
 
   tbody.innerHTML = pageData.map(row=>{
     const salesStr = row.currency==='USD' ? '$'+Number(row.amount||row.gross_sales||0).toLocaleString() : yen(row.gross_sales);
+    // Invoice発行・再発行ボタンから請求先を明示的に渡す(請求先が複数ある予約では
+    // 請求先ごとにinvoice_noが固定されるため、どの請求先向けの操作かを指定しないと
+    // 別の請求先のInvoiceを誤って更新してしまう)。
+    const agentEsc = (row.agent_name||'').replace(/'/g,"\\'").replace(/"/g,'&quot;');
     let statusCell, actionCell;
     if(row.invoice_no){
       const invNeedsManualCheck = row._inv && !(row._inv.agent_name && row._inv.agent_name.trim());
@@ -26642,19 +26646,18 @@ function filterInvoiceUnified(){
       const invJson = JSON.stringify(row._inv||{}).replace(/'/g,"&apos;");
       const bJson = JSON.stringify(row._booking||{}).replace(/'/g,"&apos;");
       actionCell = `<button class="btn btn-p" style="font-size:11px;font-weight:700" onclick='event.stopPropagation();showInvoicePreview(${invJson}, ${bJson})'>🧾 Invoiceを表示</button>`;
-      // 最新の請求書が失効(void)の場合、そのまま「表示」しか出せないと再発行できなくなるため
-      // 新規発行ボタンも併せて出す(直近の有効な請求書という概念ではなく、単に最新1件しか
-      // ここには載せていないため)。
+      // 失効(void)の場合、そのまま「表示」しか出せないと再発行できなくなるため
+      // 新規発行ボタンも併せて出す。
       if(row.invStatus==='void'){
         actionCell += `
-        <button class="btn btn-p" style="font-size:11px" onclick="event.stopPropagation();generateInvoice('${row.id}','JPY')">JPY再発行</button>
-        <button class="btn" style="font-size:11px" onclick="event.stopPropagation();generateInvoice('${row.id}','USD')">USD再発行</button>`;
+        <button class="btn btn-p" style="font-size:11px" onclick="event.stopPropagation();generateInvoice('${row.id}','JPY','${agentEsc}')">JPY再発行</button>
+        <button class="btn" style="font-size:11px" onclick="event.stopPropagation();generateInvoice('${row.id}','USD','${agentEsc}')">USD再発行</button>`;
       }
     }else{
       statusCell = '<span class="pill" style="background:var(--bg);color:var(--text3)">未発行</span>';
       actionCell = `
-        <button class="btn btn-p" style="font-size:11px" onclick="event.stopPropagation();generateInvoice('${row.id}','JPY')">JPY発行</button>
-        <button class="btn" style="font-size:11px" onclick="event.stopPropagation();generateInvoice('${row.id}','USD')">USD発行</button>`;
+        <button class="btn btn-p" style="font-size:11px" onclick="event.stopPropagation();generateInvoice('${row.id}','JPY','${agentEsc}')">JPY発行</button>
+        <button class="btn" style="font-size:11px" onclick="event.stopPropagation();generateInvoice('${row.id}','USD','${agentEsc}')">USD発行</button>`;
     }
     return `<tr class="row-link" onclick="openBookingDetail('${row.id}',{scrollTo:'sales'})">
       <td class="lnk" data-label="REF#">${row.ref_no}</td>
@@ -26676,28 +26679,38 @@ async function loadInvoicePage(){
   const bookings = await fetchBookingsListLight();
   const {data: invoices} = await sb.from('invoices').select('*').order('created_at',{ascending:false});
 
-  // booking_id ごとに最新のInvoiceをマップ
-  const latestInvByBooking = {};
+  // booking_id ごとにInvoiceの配列をマップする。請求先ごとに1件・番号固定の方式では、
+  // 請求先が複数ある予約は2件以上のInvoice行を持ち得る。以前は「最新1件」に潰していたため、
+  // 按分予約でもう片方の請求先のInvoiceが一覧から見えなくなっていた
+  // (reissueがUPDATEになりcreated_atが更新されなくなったことで、この問題がより顕在化する)。
+  const invsByBooking = {};
   (invoices||[]).forEach(inv=>{
-    const cur = latestInvByBooking[inv.booking_id];
-    if(!cur || new Date(inv.created_at) > new Date(cur.created_at)) latestInvByBooking[inv.booking_id] = inv;
+    (invsByBooking[inv.booking_id] = invsByBooking[inv.booking_id]||[]).push(inv);
   });
 
-  // 全予約を対象（未発行＋発行済み）
-  invoiceUnifiedCache = bookings.map(b=>{
-    const inv = latestInvByBooking[b.id];
-    return {
-      id: b.id, ref_no: b.ref_no, agent_name: b.agent_name, tour_name: b.tour_name,
+  // 全予約を対象（未発行＋発行済み）。発行済みInvoiceが複数(請求先が複数)ある予約は
+  // Invoiceごとに1行表示する。
+  invoiceUnifiedCache = bookings.flatMap(b=>{
+    const invs = invsByBooking[b.id];
+    if(!invs || invs.length===0){
+      return [{
+        id: b.id, ref_no: b.ref_no, agent_name: b.agent_name, tour_name: b.tour_name,
+        in_date: b.in_date, out_date: b.out_date,
+        gross_sales: b.gross_sales, status: b.status,
+        invoice_no: null, issue_date: null, currency: 'JPY', amount: null,
+        invStatus: null, statusLabel: 'unissued',
+        _inv: null, _booking: b
+      }];
+    }
+    return invs.map(inv=>({
+      id: b.id, ref_no: b.ref_no, agent_name: inv.agent_name || b.agent_name, tour_name: b.tour_name,
       in_date: b.in_date, out_date: b.out_date,
       gross_sales: b.gross_sales, status: b.status,
-      invoice_no: inv ? inv.invoice_no : null,
-      issue_date: inv ? inv.issue_date : null,
-      currency: inv ? inv.currency : 'JPY',
-      amount: inv ? inv.amount : null,
-      invStatus: inv ? inv.status : null,
-      statusLabel: inv ? inv.status : 'unissued',
-      _inv: inv || null, _booking: b
-    };
+      invoice_no: inv.invoice_no, issue_date: inv.issue_date,
+      currency: inv.currency, amount: inv.amount,
+      invStatus: inv.status, statusLabel: inv.status,
+      _inv: inv, _booking: b
+    }));
   });
 
   ivState.page = 1;
@@ -26813,50 +26826,90 @@ function closeInvVoidModal(action){
   if(resolve) resolve({action, selectedIds, memo});
 }
 
+// ===== Invoice番号: 請求先ごとに固定の識別子を生成 =====
+// 請求先(Agent)名から、Invoice番号の接尾辞(例: INV-967-TC)に使う短い識別子を生成する。
+// 「normalizeAgentName」という名前の既存関数は無いため、この採番専用に新規作成した
+// (business_partners重複判定用のnormalizePartnerCompanyName/normPartnerJaNameは別目的
+// で使われており、正規化ルールを変えると無関係な会社名マッチング挙動に影響するため
+// 流用しない)。
+const AGENT_INVOICE_HONORIFIC_RE = /^(M\/S\.?|MESSRS\.?|THE)\s+/i;
+// 英字の法人格サフィックスは単語境界(\b)付きで判定する(境界無しだと、例えば
+// "COOK"の中の"CO"のように、単語の一部を誤って法人格サフィックスとして
+// 削ってしまう不具合が起きるため)。
+const AGENT_INVOICE_CORP_SUFFIX_RE = /(株式会社|有限会社|合同会社|一般社団法人|公益社団法人|一般財団法人|公益財団法人)|\b(CO\.,?\s*LTD\.?|PVT\.?\s*LTD\.?|INCORPORATED|INC\.?|CORP(?:ORATION)?\.?|LTD\.?|LLC|CO\.?)\b/g;
+const AGENT_INVOICE_GENERIC_WORDS = new Set(['TRAVEL','TRAVELS','TOUR','TOURS','HOLIDAY','HOLIDAYS','GROUP','GROUPS','INTERNATIONAL','SERVICE','SERVICES','AGENCY','AGENCIES']);
+
+function agentInvoiceCode(name){
+  const original = String(name||'').normalize('NFKC').trim();
+  // 先頭の敬称接頭辞・括弧内(補足)を除去
+  let s = original.replace(AGENT_INVOICE_HONORIFIC_RE, '').replace(/[(（][^)）]*[)）]/g, ' ').trim().toUpperCase();
+  // 法人格サフィックスを除去
+  s = s.replace(AGENT_INVOICE_CORP_SUFFIX_RE, ' ');
+  // 業種を表す一般語を除去したうえで、残った単語から識別子を作る
+  // (2語以上→最初の2語の頭文字、1語→先頭2文字、0語→元の文字列の先頭2英数字にフォールバック)
+  const words = s.split(/[^A-Z0-9]+/).filter(w=>w && !AGENT_INVOICE_GENERIC_WORDS.has(w));
+  if(words.length>=2) return (words[0][0]+words[1][0]).toUpperCase();
+  if(words.length===1) return words[0].slice(0,2).toUpperCase();
+  const alnum = original.replace(/[^A-Za-z0-9]/g,'');
+  return (alnum.slice(0,2) || 'XX').toUpperCase();
+}
+
+// 同一予約内で識別子が重複する請求先にだけ、末尾に連番を付与する(初出はそのまま)。
+function buildAgentInvoiceSuffixes(agentNames){
+  const seen = {};
+  const result = {};
+  agentNames.forEach(name=>{
+    const code = agentInvoiceCode(name);
+    seen[code] = (seen[code]||0) + 1;
+    result[name] = seen[code]>1 ? `${code}${seen[code]}` : code;
+  });
+  return result;
+}
+
+// 予約に紐づく請求先(Agent)の一覧を、booking_sales行から重複無しで求める。
+// getDistinctSalesAgents()と同じロジックだが、bdSalesItems(予約詳細モーダルの
+// 編集中の状態)ではなく引数で渡された行データを使う。Invoice一覧側の「発行」
+// 「再発行」ボタンはモーダルを開かずgenerateInvoiceを直接呼ぶため、bdSalesItemsが
+// 別の予約のデータを指したままになっている可能性があり、そちらには依存できない。
+function distinctBookingAgents(salesRows, bookingAgentName){
+  const defaultAgent = (bookingAgentName||'').trim();
+  const set = new Set();
+  (salesRows||[]).forEach(r=>{
+    const a = (r.agent_name && r.agent_name.trim()) ? r.agent_name.trim() : defaultAgent;
+    if(a) set.add(a);
+  });
+  return Array.from(set);
+}
+
 async function generateInvoice(bookingId, currency, agentFilter){
   const bookings = await fetchBookingsListLight();
   const booking = bookings.find(b=>b.id===bookingId);
   if(!booking){ alert('予約データが見つかりません'); return; }
 
-  // 既存のPending請求書の確認(Paidは対象外なので取得しない)
-  const {data: existingPending, error: pendingErr} = await sb.from('invoices').select('*').eq('booking_id', bookingId).eq('status','pending').order('created_at',{ascending:false});
-  if(pendingErr){ alert('既存の請求書確認に失敗しました: '+pendingErr.message); return; }
-
-  let voidIds = [], voidMemo = '';
-  if(existingPending && existingPending.length>0){
-    const choice = await askInvVoidChoice(existingPending);
-    if(!choice || !choice.action) return; // キャンセル: 何もせず終了
-    if(choice.action==='void'){
-      if(!choice.selectedIds.length){ alert('失効させる請求書が選択されていません。'); return; }
-      voidIds = choice.selectedIds;
-      voidMemo = choice.memo;
-    }
-    // choice.action==='keep' の場合は失効させず、そのまま新規発行のみ進む
-  }
-
-  if(voidIds.length){
-    try{
-      await invoicesApiCall('updateByIds', { ids: voidIds, fields: {status:'void'} });
-    }catch(e){ alert('請求書の失効処理に失敗したため、新規発行を中止しました: '+e.message); return; }
-    for(const id of voidIds){
-      const target = existingPending.find(i=>i.id===id);
-      await logAction('請求書を失効', (target?target.invoice_no:id) + (voidMemo?(' / 理由: '+voidMemo):''));
-    }
-  }
-
   const today = new Date();
   const issue = today.toISOString().slice(0,10);
 
-  // Invoice No. は REF# をベースにした形式（例: INV-1060）
+  // Invoice No. は REF# をベースにした形式（例: INV-967）。請求先が複数ある予約は、
+  // 請求先ごとに固定の識別子を付けて区別する（例: INV-967-TC）。番号は請求先ごとに
+  // 固定であり、再発行のたびに増えることはない(同じ番号の既存行をUPDATEするため)。
   const refNum = (booking.ref_no||'').replace(/[^0-9]/g,'') || (booking.ref_no||'').replace(/[^A-Za-z0-9]/g,'');
   const base = `INV-${refNum}`;
-  const {data: existingInvoices} = await sb.from('invoices').select('invoice_no').or(`invoice_no.eq.${base},invoice_no.like.${base}-%`);
-  const invoiceNo = (existingInvoices && existingInvoices.length>0) ? `${base}-${existingInvoices.length+1}` : base;
 
-  // 請求先で金額を絞り込み（売上明細が登録されている場合）
+  // 請求先で金額を絞り込み（売上明細が登録されている場合）。請求先の一覧・件数も
+  // ここから求める(理由は distinctBookingAgents のコメント参照)。
+  const {data: salesRows} = await sb.from('booking_sales').select('*').eq('booking_id', bookingId).order('created_at');
+  const distinctAgents = distinctBookingAgents(salesRows, booking.agent_name);
+  const targetAgentName = (agentFilter && agentFilter.trim()) || (booking.agent_name||'').trim() || null;
+
+  let invoiceNo = base;
+  if(distinctAgents.length > 1){
+    const suffixByAgent = buildAgentInvoiceSuffixes(distinctAgents);
+    const suffix = (targetAgentName && suffixByAgent[targetAgentName]) || agentInvoiceCode(targetAgentName||'');
+    invoiceNo = `${base}-${suffix}`;
+  }
+
   let amount;
   let agentId = null;
-  const {data: salesRows} = await sb.from('booking_sales').select('*').eq('booking_id', bookingId);
   if(salesRows && salesRows.length>0){
     const filtered = salesRows.filter(r=>salesItemBelongsToAgent(r, agentFilter, booking.agent_name));
     amount = filtered.reduce((s,r)=>s+Number(r.amount||0),0);
@@ -26869,33 +26922,40 @@ async function generateInvoice(bookingId, currency, agentFilter){
   }
   if(currency==='USD') amount = Math.round((amount/USD_RATE)*100)/100;
 
+  // 同じ請求先(同じinvoice_no)の既存行があればUPDATE(番号は増やさない)、
+  // 無ければ新規INSERTする。既存行の有無はinvoice_noで直接SELECTして確認する
+  // (前回調査で推奨された案A方式。invoice_no用の新規APIアクションは追加しない)。
+  // UPDATE時は金額等の請求内容のみを上書きし、Invoiceプレビューで個別に手動編集・
+  // 保存された項目(due_date/name_group/itinerary/note/address/person_in_charge)
+  // には触れない(再発行のたびに手入力内容が消えてしまう回帰を避けるため)。
+  const corePayload = {
+    currency: currency,
+    amount: amount,
+    issue_date: issue,
+    status: 'pending',
+    agent_name: targetAgentName,
+    agent_id: agentId
+  };
+
   let data;
   try{
-    const result = await invoicesApiCall('insert', { rows: [{
-      invoice_no: invoiceNo,
-      booking_id: bookingId,
-      currency: currency,
-      amount: amount,
-      issue_date: issue,
-      due_date: null,
-      status: 'pending',
-      agent_name: agentFilter || booking.agent_name || null,
-      agent_id: agentId,
-      person_in_charge: booking.staff_in_charge || null
-    }] });
-    data = (result.rows||[])[0];
-  }catch(e){
-    // 新規発行に失敗した場合、直前に失効させた分は元に戻す(両方成功して初めて完了とする)。
-    if(voidIds.length){
-      try{
-        await invoicesApiCall('updateByIds', { ids: voidIds, fields: {status:'pending'} });
-        alert('Invoice発行に失敗したため、失効させた請求書は元(Pending)に戻しました: '+e.message);
-      }catch(e2){
-        alert('Invoice発行に失敗し、さらに失効の取り消しにも失敗しました。手動で確認してください。\n発行エラー: '+e.message+'\n取り消しエラー: '+e2.message);
-      }
+    const {data: existingInv, error: existingErr} = await sb.from('invoices').select('id').eq('invoice_no', invoiceNo).maybeSingle();
+    if(existingErr) throw existingErr;
+    if(existingInv && existingInv.id){
+      const updateResult = await invoicesApiCall('updateById', { id: existingInv.id, fields: corePayload });
+      data = (updateResult.rows||[])[0];
     }else{
-      alert('Invoice発行に失敗しました: '+e.message);
+      const insertResult = await invoicesApiCall('insert', { rows: [{
+        invoice_no: invoiceNo,
+        booking_id: bookingId,
+        due_date: null,
+        person_in_charge: booking.staff_in_charge || null,
+        ...corePayload
+      }] });
+      data = (insertResult.rows||[])[0];
     }
+  }catch(e){
+    alert('Invoice発行に失敗しました: '+e.message);
     return;
   }
 
