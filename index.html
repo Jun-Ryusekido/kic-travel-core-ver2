@@ -27299,8 +27299,6 @@ function _calcNightsDaysEn(inDate, outDate){
 async function showInvoicePreview(inv, booking){
   window._currentInvoicePreview = inv;
   const isUSD = inv.currency==='USD';
-  const amount = Number(inv.amount);
-  const amountStr = isUSD ? '$'+amount.toLocaleString(undefined,{minimumFractionDigits:2}) : yen(amount);
   const dateStr = _fmtSlashDate(inv.issue_date);
   const invNoDisplay = (inv.invoice_no || '').replace(/^INV-/i, '');
 
@@ -27317,6 +27315,19 @@ async function showInvoicePreview(inv, booking){
   }else{
     items = [{item_name: booking.tour_name||'Tour Fee', unit_price: Number(inv.amount), pax:1, qty: 1, amount: Number(inv.amount)}];
   }
+
+  // Total/TOTAL AMOUNTは、invoices.amount(Invoice発行時点のスナップショット)ではなく、
+  // 今この場で表示している明細行(items、請求先で絞り込み済み)の合計をその場で
+  // 再計算した値を使う。明細行自体は常に最新のbooking_salesを表示するのに対し、
+  // 発行後に売上明細が編集されてもinvoices.amountは自動更新されないため、
+  // スナップショットのままだと明細行の合計とTotalが食い違う不具合があった
+  // (REF#967でReduction行を発行後に追加した際に実際に発生・発覚)。
+  // これにより、Invoiceを開くたびに必ず「今表示されている明細行の合計」と
+  // Totalが一致することを保証する。invoices.amount列自体は発行時の記録・検索用
+  // として引き続き保存するが、表示にはこの再計算値のみを使う。
+  const salesTotalJPY = items.reduce((s,r)=>s+Number(r.amount||0),0);
+  const amount = isUSD ? Math.round((salesTotalJPY/USD_RATE)*100)/100 : salesTotalJPY;
+  const amountStr = isUSD ? '$'+amount.toLocaleString(undefined,{minimumFractionDigits:2}) : yen(amount);
 
   // 入金額は、このInvoiceの明細(items、請求先で絞り込み済み)に紐づく行の入金記録のみを
   // 合算する。以前は予約全体のbooking_sales.paymentsを無条件に合算していたため、
