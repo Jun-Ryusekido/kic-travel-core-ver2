@@ -1669,9 +1669,7 @@ input[type=number]{-moz-appearance:textfield}
 
         <div class="card">
           <div class="card-title">検索・絞り込み（入金リスト / 出金リスト 共通）</div>
-          <div class="form-grid" style="--fg-cols:2fr 1fr">
-            <div class="form-field"><label>検索（REF# / Agent / 仕入先 / 項目）</label><input id="pay-search" placeholder="例: #1374, Kesari, 輝岩商事" oninput="filterPaymentLists()"></div>
-          </div>
+          <input id="pay-search" placeholder="🔍 REF# / Agent / 仕入先 / 項目で検索... （例: #1374, Kesari, 輝岩商事）" oninput="filterPaymentLists()" style="width:100%;max-width:520px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;box-sizing:border-box">
         </div>
 
         <div class="card">
@@ -19630,7 +19628,8 @@ function printGuideSettlementListDoc(){
 // ===== 入出金管理（売上明細の入金日・仕入明細の出金日ベース） =====
 let salesPaymentsCache = [];
 let costPaymentsCache = [];
-const payState = { pin:{sortField:null,sortDir:1,page:1}, pout:{sortField:null,sortDir:1,page:1} };
+// デフォルトは日付(入金日/出金日)の昇順
+const payState = { pin:{sortField:'payment_date',sortDir:1,page:1}, pout:{sortField:'payment_date',sortDir:1,page:1} };
 const PAY_PAGE_SIZE = 50;
 const PIN_COLUMNS  = [['payment_date','入金日',true,'12%'],['ref_no','REF#',true,'10%'],['agent_name','Agent',true,'33%'],['item_name','項目',true,'33%'],['amount','金額',true,'12%']];
 const POUT_COLUMNS = [['payment_date','出金日',true,'12%'],['ref_no','REF#',true,'10%'],['item_name','仕入先',true,'33%'],['amount','金額',true,'12%'],['memo','備考',true,'33%']];
@@ -19809,8 +19808,9 @@ function poutGoPage(p){ payState.pout.page=p; renderPaymentLists(); }
 function printPaymentSummary(){
   const from = document.getElementById('pay-from').value;
   const to = document.getElementById('pay-to').value;
-  const inList = salesPaymentsCache;
-  const outList = costPaymentsCache;
+  // 画面の入金リスト・出金リストと同じソート順(既定は日付昇順)で出力する
+  const inList = genericSort(salesPaymentsCache, payState.pin);
+  const outList = genericSort(costPaymentsCache, payState.pout);
   const totalIn = inList.reduce((s,r)=>s+Number(r.amount||0),0);
   const totalOut = outList.reduce((s,r)=>s+Number(r.amount||0),0);
   const net = totalIn - totalOut;
