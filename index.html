@@ -11491,7 +11491,7 @@ function renderHotelTable(){
         <td data-label="部屋数"><input type="number" value="${it.rooms||1}" onchange="bdHotelItems[${i}].rooms=Number(this.value);hotelCalc(${i})" style="width:100%"></td>
         <td data-label="泊数" style="text-align:center" data-hotel-nights="${i}">${nights}</td>
         <td data-label="朝食" style="text-align:center"><input type="checkbox" ${it.breakfast?'checked':''} onchange="bdHotelItems[${i}].breakfast=this.checked"></td>
-        <td data-label="単価"><input type="text" inputmode="numeric" value="${Number(it.unit_price||0).toLocaleString('ja-JP')}" onchange="bdHotelItems[${i}].unit_price=parseNum(this.value);this.value=bdHotelItems[${i}].unit_price.toLocaleString('ja-JP');hotelCalc(${i})"></td>
+        <td data-label="単価"><input type="text" inputmode="numeric" value="${fmtAmt(it.unit_price)}" onfocus="amtFocus(this)" onblur="amtBlur(this)" onchange="bdHotelItems[${i}].unit_price=parseAmt(this.value);hotelCalc(${i})" style="text-align:right"></td>
         <td data-label="金額" style="text-align:right;white-space:nowrap" data-hotel-amount="${i}">${yen(it.amount||0)}</td>
         ${arrPaymentMethodSelectHtml('bdHotelItems', i, it.payment_method)}
         <td data-label="確認番号"><input value="${escAttr(it.confirmation_no)}" oninput="bdHotelItems[${i}].confirmation_no=this.value" placeholder="確認番号" style="width:100%"></td>
@@ -11604,18 +11604,15 @@ async function saveHotelItems(){
 
 // テーブル全体を再描画せずに合計のみ更新するヘルパー（フォーカス中の日付入力を破壊しない）
 function busAmountCalc(i, el){
-  bdBusItems[i].amount = parseNum(el.value);
-  el.value = bdBusItems[i].amount.toLocaleString('ja-JP');
+  bdBusItems[i].amount = parseAmt(el.value);
   document.getElementById('bd-buses-total').textContent = yen(bdBusItems.reduce((s,h)=>s+Number(h.amount||0),0));
 }
 function restaurantAmountCalc(i, el){
-  bdRestaurantItems[i].amount = parseNum(el.value);
-  el.value = bdRestaurantItems[i].amount.toLocaleString('ja-JP');
+  bdRestaurantItems[i].amount = parseAmt(el.value);
   document.getElementById('bd-restaurants-total').textContent = yen(bdRestaurantItems.reduce((s,h)=>s+Number(h.amount||0),0));
 }
 function facilityAmountCalc(i, el){
-  bdFacilityItems[i].amount = parseNum(el.value);
-  el.value = bdFacilityItems[i].amount.toLocaleString('ja-JP');
+  bdFacilityItems[i].amount = parseAmt(el.value);
   document.getElementById('bd-facilities-total').textContent = yen(bdFacilityItems.reduce((s,h)=>s+Number(h.amount||0),0));
 }
 
@@ -11633,7 +11630,7 @@ function renderBusTable(){
       <td data-label="台数"><input type="number" value="${it.buses||1}" onchange="bdBusItems[${i}].buses=Number(this.value)" style="width:100%"></td>
       <td data-label="開始日"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.start_date||''}" onchange="bdBusItems[${i}].start_date=this.value"></td>
       <td data-label="終了日"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.end_date||''}" onchange="bdBusItems[${i}].end_date=this.value"></td>
-      <td data-label="金額"><input type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="busAmountCalc(${i},this)"></td>
+      <td data-label="金額"><input type="text" inputmode="numeric" value="${fmtAmt(it.amount)}" onfocus="amtFocus(this)" onblur="amtBlur(this)" onchange="busAmountCalc(${i},this)" style="text-align:right"></td>
       ${arrPaymentMethodSelectHtml('bdBusItems', i, it.payment_method)}
       <td data-label="ステータス">${statusDropdownHtml(o=>`bdBusItems[${i}].status='${o}';renderBusTable()`, it.status, ['未予約','問い合わせ中','手配OK','FNL済','NG回答','キャンセル'], '問い合わせ中')}</td>
       <td data-label="確認番号"><input value="${escAttr(it.confirmation_no)}" oninput="bdBusItems[${i}].confirmation_no=this.value" style="width:100%"></td>
@@ -14828,7 +14825,7 @@ function renderRestaurantTable(){
       <td data-label="日付"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.date||''}" onchange="bdRestaurantItems[${i}].date=this.value"></td>
       <td data-label="時刻"><input type="time" value="${it.reservation_time||''}" onchange="bdRestaurantItems[${i}].reservation_time=this.value" style="width:100%"></td>
       <td data-label="人数"><input type="number" value="${it.pax||0}" onchange="bdRestaurantItems[${i}].pax=Number(this.value)" style="width:100%"></td>
-      <td data-label="金額"><input type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="restaurantAmountCalc(${i},this)"></td>
+      <td data-label="金額"><input type="text" inputmode="numeric" value="${fmtAmt(it.amount)}" onfocus="amtFocus(this)" onblur="amtBlur(this)" onchange="restaurantAmountCalc(${i},this)" style="text-align:right"></td>
       <td data-label="ステータス">${statusDropdownHtml(o=>`bdRestaurantItems[${i}].status='${o}';renderRestaurantTable()`, it.status, ['未予約','問い合わせ中','手配OK','FNL済','NG回答','キャンセル'], '問い合わせ中')}</td>
       <td data-label="支払方法"><select onchange="bdRestaurantItems[${i}].payment_method=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px"><option value="" ${!it.payment_method?'selected':''}></option><option value="請求書払い" ${it.payment_method==='請求書払い'?'selected':''}>請求書払い</option><option value="現金払い" ${it.payment_method==='現金払い'?'selected':''}>現金払い</option><option value="その他" ${it.payment_method==='その他'?'selected':''}>その他</option></select></td>
       <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdRestaurantItems[${i}].memo=this.value" style="width:100%"></td>
@@ -15495,7 +15492,7 @@ function renderFacilityTable(){
       <td data-label="施設名" style="position:relative"><div style="display:flex;gap:3px;align-items:center"><input value="${escAttr(it.facility_name)}" oninput="bdFacilityItems[${i}].facility_name=this.value;showFacilitySuggest(this,${i})" onfocus="showFacilitySuggest(this,${i})" onblur="setTimeout(hideFacilitySuggest,150)" style="flex:1;min-width:0"><button class="btn" style="font-size:10px;padding:2px 5px;flex-shrink:0" title="営業日・営業時間を確認" onclick="openFacilityOperatingInfo(${i})">🕐</button></div>${facilityClosedDayWarnHtml(it)}</td>
       <td data-label="日付"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.date||''}" onchange="bdFacilityItems[${i}].date=this.value"></td>
       <td data-label="人数"><input type="number" value="${it.pax||0}" onchange="bdFacilityItems[${i}].pax=Number(this.value)" style="width:100%"></td>
-      <td data-label="金額"><input type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="facilityAmountCalc(${i},this)"></td>
+      <td data-label="金額"><input type="text" inputmode="numeric" value="${fmtAmt(it.amount)}" onfocus="amtFocus(this)" onblur="amtBlur(this)" onchange="facilityAmountCalc(${i},this)" style="text-align:right"></td>
       <td data-label="ステータス">${statusDropdownHtml(o=>`bdFacilityItems[${i}].status='${o}';renderFacilityTable()`, it.status, ['未予約','問い合わせ中','手配OK','FNL済','NG回答','予約不要','キャンセル'], '問い合わせ中')}</td>
       <td data-label="確認番号"><input value="${escAttr(it.confirmation_no)}" oninput="bdFacilityItems[${i}].confirmation_no=this.value" style="width:100%"></td>
       <td data-label="期限日"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.deadline_date||''}" onchange="bdFacilityItems[${i}].deadline_date=this.value"></td>
@@ -15625,7 +15622,7 @@ function renderWaterTable(){
       <td data-label="品名"><input value="${escAttr(it.item_name)}" oninput="bdWaterItems[${i}].item_name=this.value" style="width:100%"></td>
       <td data-label="日付"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.date||''}" onchange="bdWaterItems[${i}].date=this.value"></td>
       <td data-label="数量"><input type="number" value="${it.qty||0}" onchange="bdWaterItems[${i}].qty=Number(this.value);waterAmountCalc(${i})" style="width:100%"></td>
-      <td data-label="単価"><input type="text" inputmode="numeric" value="${Number(it.unit_price||0).toLocaleString('ja-JP')}" onchange="bdWaterItems[${i}].unit_price=parseNum(this.value);this.value=bdWaterItems[${i}].unit_price.toLocaleString('ja-JP');waterAmountCalc(${i})"></td>
+      <td data-label="単価"><input type="text" inputmode="numeric" value="${fmtAmt(it.unit_price)}" onfocus="amtFocus(this)" onblur="amtBlur(this)" onchange="bdWaterItems[${i}].unit_price=parseAmt(this.value);waterAmountCalc(${i})" style="text-align:right"></td>
       <td data-label="金額" style="text-align:right;white-space:nowrap" data-water-amount="${i}">${yen(it.amount||0)}</td>
       ${arrPaymentMethodSelectHtml('bdWaterItems', i, it.payment_method)}
       <td data-label="ステータス">${statusDropdownHtml(o=>`bdWaterItems[${i}].status='${o}';renderWaterTable()`, it.status, ['未予約','問い合わせ中','手配OK','FNL済','NG回答','予約不要','キャンセル'], '問い合わせ中')}</td>
@@ -16335,7 +16332,7 @@ function renderBulletTrainTable(){
     <td data-label="小人"><input type="number" value="${it.pax_child||0}" onchange="bdBulletTrainItems[${i}].pax_child=Number(this.value)" style="width:100%;text-align:right"></td>
     <td data-label="無賃"><input type="number" value="${it.pax_free||0}" onchange="bdBulletTrainItems[${i}].pax_free=Number(this.value)" style="width:100%;text-align:right"></td>
     <td data-label="割引率(%)"><input type="number" value="${it.discount_rate||0}" onchange="bdBulletTrainItems[${i}].discount_rate=Number(this.value)" style="width:100%;text-align:right"></td>
-    <td data-label="金額"><input type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="bulletTrainAmountCalc(${i},this)"></td>
+    <td data-label="金額"><input type="text" inputmode="numeric" value="${fmtAmt(it.amount)}" onfocus="amtFocus(this)" onblur="amtBlur(this)" onchange="bulletTrainAmountCalc(${i},this)" style="text-align:right"></td>
     ${arrPaymentMethodSelectHtml('bdBulletTrainItems', i, it.payment_method)}
     <td data-label="ステータス">${statusDropdownHtml(o=>`bdBulletTrainItems[${i}].status='${o}';renderBulletTrainTable()`, it.status, ['未予約','回答待ち','手配OK','FNL済','NG回答','キャンセル'], '回答待ち')}</td>
     <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdBulletTrainItems[${i}].memo=this.value" style="width:100%"></td>
@@ -16345,8 +16342,7 @@ function renderBulletTrainTable(){
 }
 
 function bulletTrainAmountCalc(i, el){
-  bdBulletTrainItems[i].amount = parseNum(el.value);
-  el.value = bdBulletTrainItems[i].amount.toLocaleString('ja-JP');
+  bdBulletTrainItems[i].amount = parseAmt(el.value);
   document.getElementById('bd-bullet-total').textContent = yen(bdBulletTrainItems.reduce((s,it)=>s+Number(it.amount||0),0));
 }
 
@@ -16585,7 +16581,7 @@ function renderGuideTable(){
       ${guideCell}
       <td data-label="担当日(From)"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.start_date||''}" onchange="bdGuideItems[${i}].start_date=this.value"></td>
       <td data-label="担当日(To)"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.end_date||''}" onchange="bdGuideItems[${i}].end_date=this.value"></td>
-      <td data-label="金額"><input type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="guideAmountCalc(${i},this)"></td>
+      <td data-label="金額"><input type="text" inputmode="numeric" value="${fmtAmt(it.amount)}" onfocus="amtFocus(this)" onblur="amtBlur(this)" onchange="guideAmountCalc(${i},this)" style="text-align:right"></td>
       ${arrPaymentMethodSelectHtml('bdGuideItems', i, it.payment_method)}
       <td data-label="ステータス">${statusDropdownHtml(o=>`bdGuideItems[${i}].status='${o}';renderGuideTable()`, it.status, ['未予約','回答待ち','手配OK','FNL済','NG回答','キャンセル'], '回答待ち')}</td>
       <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdGuideItems[${i}].memo=this.value" style="width:100%"></td>
@@ -16596,8 +16592,7 @@ function renderGuideTable(){
 }
 
 function guideAmountCalc(i, el){
-  bdGuideItems[i].amount = parseNum(el.value);
-  el.value = bdGuideItems[i].amount.toLocaleString('ja-JP');
+  bdGuideItems[i].amount = parseAmt(el.value);
   document.getElementById('bd-guides-total').textContent = yen(bdGuideItems.reduce((s,it)=>s+Number(it.amount||0),0));
 }
 
