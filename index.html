@@ -27268,6 +27268,11 @@ async function showInvoicePreview(inv, booking){
   const depositJPY = items.reduce((s,r)=>s+(r.payments||[]).reduce((ps,p)=>ps+(Number(p.amount)||0),0),0);
   const depositConverted = isUSD ? depositJPY/USD_RATE : depositJPY;
   const balance = amount - depositConverted;
+  // 上部の大きな「TOTAL AMOUNT」枠は、明細合計(amountStr)ではなく入金済み分を
+  // 差し引いた残額(Remaining balanceと同じ値)を表示する。明細テーブル内の
+  // 「Total」行(明細の満額合計)・Received deposit・Remaining balanceは従来通り。
+  // 入金が0円の場合はbalance===amountとなり見た目は変わらない。
+  const totalAmountBoxStr = fmtMoney(balance);
 
   // 請求先名・住所を取得。取引先マスタ(agents、取引先/エージェントマスタ管理画面が
   // 読み書きしている実体)を参照する。以前はagent_infoという別テーブル
@@ -27346,7 +27351,7 @@ async function showInvoicePreview(inv, booking){
 
       <div style="display:flex;align-items:center;gap:16px;margin:16px 0 6px">
         <div style="font-size:20px;font-weight:700">TOTAL AMOUNT:</div>
-        <div style="border:2px solid #000;padding:8px 20px;font-size:22px;font-weight:700;text-align:center;min-width:200px">${amountStr}</div>
+        <div style="border:2px solid #000;padding:8px 20px;font-size:22px;font-weight:700;text-align:center;min-width:200px">${totalAmountBoxStr}</div>
       </div>
 
       <div style="margin-bottom:2px">From&nbsp;: &nbsp;<strong>${escHtml(booking.in_date||'')}</strong> &nbsp;&nbsp; To: <strong>${escHtml(booking.out_date||'')}</strong> &nbsp;&nbsp;&nbsp; No of pax: &nbsp;<strong>${booking.pax||0}</strong></div>
