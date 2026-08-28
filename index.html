@@ -1204,6 +1204,7 @@ input[type=number]{-moz-appearance:textfield}
           </div>
           <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
             <span style="font-size:11px;color:var(--text3)" id="db-count"></span>
+            <span id="db-date-filter-note" style="display:none;font-size:11px;color:var(--amber)">🔍 検索中は日付範囲を無視して全期間を検索します</span>
             <div style="display:flex;gap:8px;align-items:center;margin-left:auto">
               <button class="btn" onclick="resetBookingFilter('db')">条件クリア</button>
               <!-- モバイルのシート表示時のみ出る導線。シートを閉じて一覧の先頭まで
@@ -1326,8 +1327,9 @@ input[type=number]{-moz-appearance:textfield}
               </label>
             </div>
           </div>
-          <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center">
+          <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
             <span style="font-size:11px;color:var(--text3)" id="bl-count"></span>
+            <span id="bl-date-filter-note" style="display:none;font-size:11px;color:var(--amber)">🔍 検索中は日付範囲を無視して全期間を検索します</span>
             <button class="btn" onclick="resetBookingFilter('bl')">条件クリア</button>
           </div>
         </div>
@@ -4703,8 +4705,18 @@ function toHalfWidth(str){
 
 function filterBookingListGeneric(prefix){
   const q = toHalfWidth(document.getElementById(prefix+'-search').value.trim().toLowerCase());
-  const from = document.getElementById(prefix+'-from').value;
-  const to = document.getElementById(prefix+'-to').value;
+  const fromInput = document.getElementById(prefix+'-from').value;
+  const toInput = document.getElementById(prefix+'-to').value;
+  // 検索語(REF#/Agent/Tour)が入力されている場合は、出発日(From/To)のフィルタを
+  // 一時的に無視し、日付範囲を問わず全期間から検索する。出発日Fromには非管理者向けの
+  // 既定値(TEMP_DEFAULT_FROM)が自動設定されるため、それより古い予約が検索語に一致
+  // していても一律で除外され「検索してもヒットしない」と誤解される不具合があった
+  // (REF#1011で発覚)。検索語が空の場合は従来通り日付フィルタ(既定値含む)を適用する。
+  const from = q ? '' : fromInput;
+  const to = q ? '' : toInput;
+  const dateFilterIgnored = !!q && !!(fromInput || toInput);
+  const noteEl = document.getElementById(prefix+'-date-filter-note');
+  if(noteEl) noteEl.style.display = dateFilterIgnored ? '' : 'none';
   const status = document.getElementById(prefix+'-status').value;
   // 除外モード(bl画面のみ現状存在。他prefixにはチェックボックス自体が無いため常にfalse)。
   // ONの場合、選択したステータスの予約を「除いて」表示する(例: 中止+除外ON→中止以外を表示)。
@@ -6703,11 +6715,14 @@ function hideItemNameSuggestionsForSales(){
 async function loadBusCompaniesCache(){
   if(busCompaniesCache.length>0) return;
   const {data} = await sb.from('business_partners')
-    .select('company_name,phone')
+    .select('id,company_name')
     .eq('category','バス・ハイヤー等')
     .or('is_deleted.is.null,is_deleted.eq.false')
     .order('company_name');
-  busCompaniesCache = data||[];
+  // 電話番号はbusiness_partner_contacts(代表担当者)側の値を使う(business_partners.phone
+  // は担当者情報一本化により廃止列のため参照しない)。
+  if(businessPartnerContactsIndex.size===0) await loadBusinessPartnerContactsIndex();
+  busCompaniesCache = (data||[]).map(p=>({ company_name: p.company_name, phone: getDisplayContactForPartner(p).phone||'' }));
 }
 // onSelect省略時は従来通り: idx>=0ならbdBusItems[idx]を直接書き換え(保存済み一覧テーブル向け)、
 // idx<0なら何もしない(取引先マスタ・駐車場予約モーダル等の単独欄向け、既存動作)。
@@ -6760,11 +6775,14 @@ function hideBusCompanySuggest(){
 async function loadHotelPartnersCache(){
   if(hotelPartnersCache.length>0) return;
   const {data} = await sb.from('business_partners')
-    .select('company_name,phone')
+    .select('id,company_name')
     .eq('category','ホテル')
     .or('is_deleted.is.null,is_deleted.eq.false')
     .order('company_name');
-  hotelPartnersCache = data||[];
+  // 電話番号はbusiness_partner_contacts(代表担当者)側の値を使う(business_partners.phone
+  // は担当者情報一本化により廃止列のため参照しない)。
+  if(businessPartnerContactsIndex.size===0) await loadBusinessPartnerContactsIndex();
+  hotelPartnersCache = (data||[]).map(p=>({ company_name: p.company_name, phone: getDisplayContactForPartner(p).phone||'' }));
 }
 async function showHotelSuggest(inputEl, idx, arr){
   hideHotelSuggest();
@@ -6799,11 +6817,14 @@ function hideHotelSuggest(){
 async function loadFacilityPartnersCache(){
   if(facilityPartnersCache.length>0) return;
   const {data} = await sb.from('business_partners')
-    .select('company_name,phone')
+    .select('id,company_name')
     .eq('category','その他')
     .or('is_deleted.is.null,is_deleted.eq.false')
     .order('company_name');
-  facilityPartnersCache = data||[];
+  // 電話番号はbusiness_partner_contacts(代表担当者)側の値を使う(business_partners.phone
+  // は担当者情報一本化により廃止列のため参照しない)。
+  if(businessPartnerContactsIndex.size===0) await loadBusinessPartnerContactsIndex();
+  facilityPartnersCache = (data||[]).map(p=>({ company_name: p.company_name, phone: getDisplayContactForPartner(p).phone||'' }));
 }
 // onSelect省略時は従来通りbdFacilityItems[idx]を直接書き換える(保存済み一覧テーブル向け)。
 // AI読み取り確認モーダル(showFacilityConfirmDialog)は別配列(window._pendingFacilities)を
@@ -6847,11 +6868,14 @@ function hideFacilitySuggest(){
 async function loadRestaurantPartnersCache(){
   if(restaurantPartnersCache.length>0) return;
   const {data} = await sb.from('business_partners')
-    .select('company_name,company_name_en,phone')
+    .select('id,company_name,company_name_en')
     .eq('category','レストラン')
     .or('is_deleted.is.null,is_deleted.eq.false')
     .order('company_name');
-  restaurantPartnersCache = data||[];
+  // 電話番号はbusiness_partner_contacts(代表担当者)側の値を使う(business_partners.phone
+  // は担当者情報一本化により廃止列のため参照しない)。
+  if(businessPartnerContactsIndex.size===0) await loadBusinessPartnerContactsIndex();
+  restaurantPartnersCache = (data||[]).map(p=>({ company_name: p.company_name, company_name_en: p.company_name_en, phone: getDisplayContactForPartner(p).phone||'' }));
 }
 // レストラン名（日本語）からbusiness_partnersに登録されている英語名を引く（NFKC正規化で全角/半角ゆれを吸収）
 function restaurantPartnerEnName(jpName){
@@ -13700,15 +13724,15 @@ function renderEmailPartnerMatchModal(){
         </div>`;
       return;
     }
-    const rows = candidates.map(c=>`
+    const rows = candidates.map(c=>{ const dc = getDisplayContactForPartner(c); return `
       <tr>
         <td data-label="会社名">${escHtml(c.company_name||c.company_name_en||'')}</td>
-        <td data-label="担当者">${escHtml(c.contact_person||'')}</td>
-        <td data-label="電話">${escHtml(c.phone||c.department_phone||c.company_phone||'')}</td>
+        <td data-label="担当者">${escHtml(dc.contact_person||'')}</td>
+        <td data-label="電話">${escHtml(dc.phone||dc.department_phone||c.company_phone||'')}</td>
         <td data-label="メール">${escHtml(c.email||'')}</td>
         <td data-label="種別">${escHtml(c.category||'')}</td>
         <td data-label=""><button class="btn btn-p" style="font-size:11px" onclick="selectEmailPartnerCandidate('${c.id}')">この候補を選ぶ</button></td>
-      </tr>`).join('');
+      </tr>`; }).join('');
     body.innerHTML = `
       <div style="font-size:12px;color:var(--amber);margin-bottom:8px">⚠ 会社名/メールアドレスが一致する取引先が複数見つかりました。どのレコードを更新するか選んでください（自動では選びません）。</div>
       <div class="tbl-wrap"><table class="confirm-table" style="width:100%">
@@ -13721,9 +13745,10 @@ function renderEmailPartnerMatchModal(){
 
   // 差分確認画面
   const c = selectedCandidate;
+  const dcMerged = {...c, ...getDisplayContactForPartner(c)};
   const catMismatch = p.category && c.category && p.category !== c.category;
   const diffRows = PARTNER_DIFF_FIELDS.map(f=>{
-    const cur = c[f.key] || '';
+    const cur = dcMerged[f.key] || '';
     const next = emailPartnerAiValue(p, senderEmail, f.key);
     const changeable = !!next && next !== cur;
     const checkboxHtml = changeable
@@ -13834,11 +13859,11 @@ function renderEmailPartnerPickerResults(q){
 
 // 新規登録扱いにする: 空欄の編集モーダルにAIの抽出結果をそのまま反映する
 // (既存データが無い=上書きの危険がないため、差分確認は不要)。
-function chooseEmailPartnerNewRegistration(){
+async function chooseEmailPartnerNewRegistration(){
   const st = emailPartnerMatchState;
   if(!st) return;
   const { emailId, p, senderEmail } = st;
-  openPartnerEditor(null);
+  await openPartnerEditor(null);
   const setIfPresent = (id, val) => { if(val){ const el = document.getElementById(id); if(el) el.value = val; } };
   PARTNER_DIFF_FIELDS.forEach(f=>setIfPresent(f.elId, emailPartnerAiValue(p, senderEmail, f.key)));
   if(['ホテル','レストラン','バス・ハイヤー等','その他'].includes(p.category)){
@@ -13852,11 +13877,11 @@ function chooseEmailPartnerNewRegistration(){
 
 // チェックされた項目だけを既存レコードに反映し、通常の編集モーダルを開いて
 // (保存自体は既存のsavePartner()に任せる)最終確認・保存させる。
-function applyEmailPartnerDiffAndOpenEditor(){
+async function applyEmailPartnerDiffAndOpenEditor(){
   const st = emailPartnerMatchState;
   if(!st || !st.selectedCandidate) return;
   const { emailId, p, senderEmail, selectedCandidate } = st;
-  openPartnerEditor(selectedCandidate.id);
+  await openPartnerEditor(selectedCandidate.id);
   PARTNER_DIFF_FIELDS.forEach(f=>{
     const cb = document.getElementById('pt-diff-apply-'+f.key);
     if(cb && cb.checked){
@@ -23150,7 +23175,7 @@ async function generateMealVoucher(){
     let supRows = [], from = 0;
     const PAGE = 1000;
     while(true){
-      const {data: page, error: supErr} = await sb.from('business_partners').select('id,company_name,company_name_en,phone,company_phone').range(from, from+PAGE-1);
+      const {data: page, error: supErr} = await sb.from('business_partners').select('id,company_name,company_name_en,company_phone').range(from, from+PAGE-1);
       if(supErr){ logError('取引先マスタの読み込み(business_partners)', supErr); break; }
       supRows = supRows.concat(page||[]);
       if(!page || page.length < PAGE) break;
@@ -23202,11 +23227,10 @@ async function generateMealVoucher(){
       payment_method: document.getElementById(`vc-r-payment-${i}`)?.value||'請求書払い',
       memo:        document.getElementById(`vc-r-memo-${i}`)?.value||'',
       restaurant_name_en: sup ? (sup.company_name_en||'') : '',
-      // 会社の代表電話(company_phone)を最優先し、無ければ代表担当者(rep)個人の電話、
-      // それも無ければbusiness_partners自身のphone(移行対象外・担当者0件の会社向け
-      // フォールバック)を使う。マッチしなかった場合は無理に埋めず空欄のままにする
-      // (printArrangementSummaryList等の既存の他印刷機能と同じ安全なフォールバック)。
-      restaurant_phone: (sup && sup.company_phone) || (rep && rep.phone) || (sup ? (sup.phone||'') : ''),
+      // 会社の代表電話(company_phone)を最優先し、無ければ代表担当者(rep)個人の電話を
+      // 使う。マッチしなかった場合は無理に埋めず空欄のままにする(printArrangementSummaryList
+      // 等の既存の他印刷機能と同じ安全なフォールバック)。
+      restaurant_phone: (sup && sup.company_phone) || (rep && rep.phone) || '',
     };
   });
   // 印刷物一式の最後のページに余白が残る場合、現地での手書き対応用の予備バウチャーで
@@ -23244,7 +23268,7 @@ async function printRestaurantList(){
     let supRows = [], from = 0;
     const PAGE = 1000;
     while(true){
-      const {data: page, error: supErr} = await sb.from('business_partners').select('id,company_name,address,phone,company_phone').range(from, from+PAGE-1);
+      const {data: page, error: supErr} = await sb.from('business_partners').select('id,company_name,address,company_phone').range(from, from+PAGE-1);
       if(supErr){ logError('取引先マスタの読み込み(business_partners)', supErr); break; }
       supRows = supRows.concat(page||[]);
       if(!page || page.length < PAGE) break;
@@ -23276,7 +23300,7 @@ async function printRestaurantList(){
   const rows = sorted.map(r=>{
     const sup = supplierByName[normName(r.restaurant_name)];
     const rep = sup ? repContactsByPartnerId.get(sup.id) : null;
-    const phoneVal = (sup && sup.company_phone) || (rep && rep.phone) || (sup ? (sup.phone||'') : '');
+    const phoneVal = (sup && sup.company_phone) || (rep && rep.phone) || '';
     const mealEn = MEAL_TYPE_EN[r.meal_type||'']||'';
     return `<tr>
     <td ${tdS()}>${escHtml(r.date||'')}</td>
@@ -23402,7 +23426,7 @@ async function printArrangementSummaryList(){
     let partnerRows = [], from = 0;
     const PAGE = 1000;
     while(true){
-      const {data: page, error: partnerErr} = await sb.from('business_partners').select('id,company_name,phone,department_phone,company_phone,show_contact_phone,show_department_phone,show_company_phone').range(from, from+PAGE-1);
+      const {data: page, error: partnerErr} = await sb.from('business_partners').select('id,company_name,company_phone,show_company_phone').range(from, from+PAGE-1);
       if(partnerErr){ logError('取引先マスタの読み込み(business_partners)', partnerErr); break; }
       partnerRows = partnerRows.concat(page||[]);
       if(!page || page.length < PAGE) break;
@@ -23441,15 +23465,14 @@ async function printArrangementSummaryList(){
     // 会社の代表電話が表示可(show_company_phone)かつ登録済みなら、それだけを使う
     // (現地の手配先への連絡・確認用の帳票のため、個人の携帯より会社の代表電話を優先する)。
     if(p.show_company_phone && p.company_phone) return p.company_phone;
-    // 会社の代表電話が無い/非表示の場合のみ、代表担当者(rep、無ければbusiness_partners
-    // 自身)の電話番号にフォールバックする。表示可否はこれまで通りshow_contact_phone/
-    // show_department_phoneに従う(repがいればrep側のフラグ、いなければbusiness_partners
-    // 自身のフラグ)。
+    // 会社の代表電話が無い/非表示の場合のみ、代表担当者(business_partner_contacts)の
+    // 電話番号にフォールバックする。表示可否も代表担当者側のshow_contact_phone/
+    // show_department_phoneに従う(代表担当者が居ない会社は電話番号なしとして扱う)。
     const rep = arrRepContactsByPartnerId.get(p.id);
-    const contactPhone = (rep && rep.phone) || p.phone;
-    const deptPhone = (rep && rep.department_phone) || p.department_phone;
-    const showContact = rep ? !!rep.show_contact_phone : !!p.show_contact_phone;
-    const showDept = rep ? !!rep.show_department_phone : !!p.show_department_phone;
+    const contactPhone = rep && rep.phone;
+    const deptPhone = rep && rep.department_phone;
+    const showContact = !!(rep && rep.show_contact_phone);
+    const showDept = !!(rep && rep.show_department_phone);
     const nums = [];
     if(showContact && contactPhone) nums.push(contactPhone);
     if(showDept && deptPhone) nums.push(deptPhone);
@@ -24621,14 +24644,35 @@ async function resolvePartnerMergePending(pendingId, action){
       const {data: current, error} = await sb.from('business_partners').select('*').eq('id', item.candidate_partner_id).maybeSingle();
       if(error) throw error;
       if(!current){ alert('対象の取引先が見つかりません（削除された可能性があります）。「新規登録する」か「破棄する」を選んでください。'); return; }
-      const fields = {};
-      ['company_name','company_name_en','branch_name','branch_name_en','contact_person','contact_person_en',
-       'position','position_en','company_phone','phone','fax','email','address','address_en'].forEach(k=>{
-        if(!current[k] && ocr[k]) fields[k] = ocr[k];
+      // 会社そのものの情報(business_partners)は、これまで通り現在の値が空欄の項目のみ補完する。
+      const companyFields = {};
+      ['company_name','company_name_en','company_phone','fax','email','address','address_en'].forEach(k=>{
+        if(!current[k] && ocr[k]) companyFields[k] = ocr[k];
       });
-      if(Object.keys(fields).length){
-        fields.updated_at = new Date().toISOString();
-        await businessPartnersApiCall('updateById', { id: item.candidate_partner_id, fields });
+      if(Object.keys(companyFields).length){
+        companyFields.updated_at = new Date().toISOString();
+        await businessPartnersApiCall('updateById', { id: item.candidate_partner_id, fields: companyFields });
+      }
+      // 担当者情報(business_partner_contacts)は、代表担当者行の空欄項目のみ補完する。
+      // 代表担当者行が無い会社は、OCRの担当者情報があれば新規に1件作成する(is_primary:true)。
+      const contactOcr = {};
+      PARTNER_CONTACT_FIELD_KEYS.forEach(k=>{ if(ocr[k]) contactOcr[k] = ocr[k]; });
+      if(Object.keys(contactOcr).length){
+        const repContact = await fetchRepresentativeContact(item.candidate_partner_id);
+        if(repContact){
+          const contactFieldsToFill = {};
+          Object.keys(contactOcr).forEach(k=>{ if(!repContact[k] && contactOcr[k]) contactFieldsToFill[k] = contactOcr[k]; });
+          if(Object.keys(contactFieldsToFill).length){
+            await businessPartnerContactsApiCall('updateById', { id: repContact.id, fields: contactFieldsToFill });
+          }
+        }else{
+          await businessPartnerContactsApiCall('insert', { rows: [{
+            business_partner_id: item.candidate_partner_id,
+            ...contactOcr,
+            is_primary: true,
+            created_by: currentUser ? currentUser.email : null,
+          }] });
+        }
       }
     } else if(action==='new'){
       const company = ocr.company_name || ocr.company_name_en;
@@ -24637,14 +24681,7 @@ async function resolvePartnerMergePending(pendingId, action){
         category: ocr.category || 'その他',
         company_name: company,
         company_name_en: ocr.company_name_en || null,
-        branch_name: ocr.branch_name || null,
-        branch_name_en: ocr.branch_name_en || null,
-        contact_person: ocr.contact_person || null,
-        contact_person_en: ocr.contact_person_en || null,
-        position: ocr.position || null,
-        position_en: ocr.position_en || null,
         company_phone: ocr.company_phone || null,
-        phone: ocr.phone || null,
         fax: ocr.fax || null,
         email: ocr.email || null,
         address: ocr.address || null,
@@ -24652,7 +24689,18 @@ async function resolvePartnerMergePending(pendingId, action){
         created_by: currentUser ? currentUser.email : null,
         updated_at: new Date().toISOString(),
       };
-      await businessPartnersApiCall('insert', { rows: [payload] });
+      const result = await businessPartnersApiCall('insert', { rows: [payload] });
+      const newId = (result.rows||[])[0]?.id;
+      const contactOcr = {};
+      PARTNER_CONTACT_FIELD_KEYS.forEach(k=>{ if(ocr[k]) contactOcr[k] = ocr[k]; });
+      if(newId && Object.keys(contactOcr).length){
+        await businessPartnerContactsApiCall('insert', { rows: [{
+          business_partner_id: newId,
+          ...contactOcr,
+          is_primary: true,
+          created_by: currentUser ? currentUser.email : null,
+        }] });
+      }
     }
     // discardはbusiness_partners側への書き込みなし、resolvedへの更新のみ
     await partnerMergePendingApiCall('updateById', { id: pendingId, fields: { status: 'resolved', resolved_at: new Date().toISOString() } });
@@ -24729,9 +24777,9 @@ function renderPartnersRows(){
     return `
     <tr>
       <td>${escHtml(p.category||'')}</td>
-      <td>${escHtml(p.company_name||'')}${copyBtn(p.company_name)}${p.branch_name?(' / '+escHtml(p.branch_name)):''}${(p.company_name_en||p.branch_name_en)?('<br><span style="color:var(--text3);font-size:10px">'+escHtml([p.company_name_en,p.branch_name_en].filter(Boolean).join(' / '))+'</span>'):''}</td>
+      <td>${escHtml(p.company_name||'')}${copyBtn(p.company_name)}${dc.branch_name?(' / '+escHtml(dc.branch_name)):''}${(p.company_name_en||dc.branch_name_en)?('<br><span style="color:var(--text3);font-size:10px">'+escHtml([p.company_name_en,dc.branch_name_en].filter(Boolean).join(' / '))+'</span>'):''}</td>
       <td>${escHtml(dc.contact_person||'')}${kanaSuffix}${copyBtn(dc.contact_person)}${dc.position?(' / '+escHtml(dc.position)):''}${(dc.contact_person_en||dc.position_en)?('<br><span style="color:var(--text3);font-size:10px">'+escHtml([dc.contact_person_en,dc.position_en].filter(Boolean).join(' / '))+'</span>'):''}</td>
-      <td>${escHtml(p.phone||p.department_phone||p.company_phone||'')}${copyBtn(p.phone||p.department_phone||p.company_phone||'')}</td>
+      <td>${escHtml(dc.phone||dc.department_phone||p.company_phone||'')}${copyBtn(dc.phone||dc.department_phone||p.company_phone||'')}</td>
       <td style="white-space:normal;font-size:10px;color:var(--text3)">${escHtml(p.notes||'')}${copyBtn(p.notes)}</td>
       <td style="white-space:nowrap">
         <button class="btn" style="font-size:11px" onclick="showPartnerDetail('${p.id}')">照会</button>
@@ -24744,11 +24792,11 @@ function renderPartnersRows(){
   // スマホ カード(同じくgetDisplayContactForPartnerで代表担当者を反映)
   cards.innerHTML = filtered.map(p=>{
     const dc = getDisplayContactForPartner(p);
-    const companyLine = [p.company_name, p.branch_name].filter(Boolean).join(' / ');
-    const enLine      = [p.company_name_en, p.branch_name_en].filter(Boolean).join(' / ');
+    const companyLine = [p.company_name, dc.branch_name].filter(Boolean).join(' / ');
+    const enLine      = [p.company_name_en, dc.branch_name_en].filter(Boolean).join(' / ');
     const personLine  = [dc.contact_person, dc.position].filter(Boolean).join(' / ');
     const kanaSuffix  = dc.contact_person_kana ? ` <span style="color:var(--text3);font-size:10px">（${escHtml(dc.contact_person_kana)}）</span>` : '';
-    const phone       = p.phone || p.department_phone || p.company_phone || '';
+    const phone       = dc.phone || dc.department_phone || p.company_phone || '';
     return `<div class="pt-card">
       <div class="pt-card-main">
         <div class="pt-card-body">
@@ -24792,8 +24840,8 @@ async function showPartnerDetail(id){
     ['担当者（英語）', dc.contact_person_en],
     ['役職',         dc.position],
     ['役職（英語）',  dc.position_en],
-    ['携帯',         p.phone],
-    ['部署直通',     p.department_phone],
+    ['携帯',         dc.phone],
+    ['部署直通',     dc.department_phone],
     ['会社電話',     p.company_phone],
     ['FAX',          p.fax],
     ['メール',       p.email],
@@ -24825,15 +24873,13 @@ async function showPartnerDetail(id){
 // 他の一覧読み込みと同様supabaseクライアントから直接取得する。
 let currentPartnerContactsCache = [];
 
-// フェーズ2: business_partners.contact_person等に元々入っていた担当者情報
-// (scripts/migrate_business_partner_contacts_phase2.sqlの実行前、または移行対象外の
-// データ)を、business_partner_contacts側に行が無い場合に限り「元からの担当者」として
-// 先頭に固定表示する(business_partners自体は一切変更しない、表示専用のフォールバック)。
-// 移行SQL実行後はbusiness_partner_contacts側に実データとして1行入るため、通常の
-// 担当者行として表示され、このフォールバックとは二重に表示されない。
-//
 // フェーズ3: 代表担当者(is_primary)が常に先頭に来るよう並び替える。代表が
 // 未設定の会社は今まで通りcreated_at(登録順)で並べる。
+//
+// 【2026-08 フェーズ4】以前はbusiness_partner_contacts側に行が無い場合、
+// business_partners.contact_person等(移行前の古い列)を「元からの担当者」として
+// 表示するフォールバックがあったが、2026-08のフェーズ3一括移行で全件
+// business_partner_contactsへ移行済み・フェーズ4で該当列自体を削除したため削除した。
 async function renderPartnerContactsList(partner){
   const el = document.getElementById('pt-detail-contacts');
   if(!el) return;
@@ -24843,19 +24889,7 @@ async function renderPartnerContactsList(partner){
   if(error){ el.innerHTML = `<span style="color:var(--red)">読み込みエラー: ${escHtml(error.message)}</span>`; return; }
   currentPartnerContactsCache = data || [];
 
-  const legacyHasContact = !currentPartnerContactsCache.length && !!(partner.contact_person || partner.contact_person_en);
-  const legacyHtml = legacyHasContact ? (()=>{
-    const nameLine = [partner.contact_person, partner.position].filter(Boolean).join(' / ');
-    const phone = partner.phone || partner.department_phone || '';
-    return `<div style="padding:7px 0;border-bottom:1px solid var(--border)">
-      <div style="font-weight:600">${escHtml(nameLine || '（名前未登録）')} <span style="font-size:10px;color:var(--text3);font-weight:normal">（元からの担当者）</span></div>
-      ${partner.branch_name ? `<div style="color:var(--text3)">${escHtml(partner.branch_name)}</div>` : ''}
-      ${phone ? `<div>📞 ${escHtml(phone)}</div>` : ''}
-      ${partner.email ? `<div>✉️ ${escHtml(partner.email)}</div>` : ''}
-    </div>`;
-  })() : '';
-
-  if(!currentPartnerContactsCache.length && !legacyHtml){ el.innerHTML = '<span style="color:var(--text3)">担当者はまだ登録されていません。</span>'; return; }
+  if(!currentPartnerContactsCache.length){ el.innerHTML = '<span style="color:var(--text3)">担当者はまだ登録されていません。</span>'; return; }
 
   const contactsHtml = currentPartnerContactsCache.map(c=>{
     const nameLine = [c.contact_person, c.position].filter(Boolean).join(' / ');
@@ -24880,7 +24914,7 @@ async function renderPartnerContactsList(partner){
     </div>`;
   }).join('');
 
-  el.innerHTML = legacyHtml + contactsHtml;
+  el.innerHTML = contactsHtml;
 }
 
 // 代表担当者は1社につき常に1人まで。対象をtrueにし、同じ会社の他の担当者は
@@ -25007,7 +25041,7 @@ let businessPartnerContactsIndex = new Map();
 
 async function loadBusinessPartnerContactsIndex(){
   const {data, error} = await sb.from('business_partner_contacts')
-    .select('business_partner_id,contact_person,contact_person_en,contact_person_kana,position,position_en,branch_name,branch_name_en,is_primary,created_at')
+    .select('business_partner_id,contact_person,contact_person_en,contact_person_kana,position,position_en,branch_name,branch_name_en,phone,department_phone,is_primary,created_at')
     .eq('is_deleted', false).order('created_at', {ascending:true});
   businessPartnerContactsIndex = new Map();
   if(error){ logError('取引先一覧・代表担当者表示用データの読み込み', error, {toast:false}); return; }
@@ -25030,12 +25064,85 @@ function getDisplayContactForPartner(p){
       contact_person: c.contact_person, contact_person_en: c.contact_person_en,
       contact_person_kana: c.contact_person_kana, position: c.position, position_en: c.position_en,
       branch_name: c.branch_name, branch_name_en: c.branch_name_en,
+      phone: c.phone, department_phone: c.department_phone,
     };
   }
+  // business_partner_contactsに代表担当者行が無い会社(担当者情報自体が元から
+  // 無い会社)。business_partners側の担当者関連の列は2026-08のフェーズ3一括移行で
+  // 全件business_partner_contactsへ移行済み・フェーズ4で削除済みのため、
+  // ここでは空値を返す(フォールバック先が存在しない)。
   return {
-    contact_person: p.contact_person, contact_person_en: p.contact_person_en,
-    contact_person_kana: null, position: p.position, position_en: p.position_en,
-    branch_name: p.branch_name, branch_name_en: p.branch_name_en,
+    contact_person: null, contact_person_en: null, contact_person_kana: null,
+    position: null, position_en: null, branch_name: null, branch_name_en: null,
+    phone: null, department_phone: null,
+  };
+}
+
+// ─── 取引先マスタ「編集」モーダル(openPartnerEditor/savePartner)の担当者情報一本化 ─────
+// 担当者関連フィールド(business_partner_contactsへ保存する項目)。email(pt-email)は
+// 元々「会社全体」の連絡先(business_partners.email)であり、担当者個人のメール
+// (business_partner_contacts.emailは担当者管理モーダル専用の項目)とは別物のため含めない。
+const PARTNER_CONTACT_FIELD_KEYS = ['branch_name','branch_name_en','contact_person','contact_person_en','position','position_en','phone','department_phone','show_contact_phone','show_department_phone'];
+// 「内容がある」かどうかの判定に使うキー(show_contact_phone/show_department_phoneは
+// ON/OFFの真偽値のため、これだけで担当者情報が入っているとは判定しない)。
+const PARTNER_CONTACT_CONTENT_KEYS = ['branch_name','branch_name_en','contact_person','contact_person_en','position','position_en','phone','department_phone'];
+
+// savePartner()等のフォームpayloadから、business_partner_contacts側に保存すべき
+// 担当者フィールドだけを取り出す。
+function extractPartnerContactFields(payload){
+  const fields = {};
+  PARTNER_CONTACT_FIELD_KEYS.forEach(k=>{ if(payload[k]!==undefined) fields[k] = payload[k]; });
+  return fields;
+}
+function partnerContactFieldsHaveContent(fields){
+  return PARTNER_CONTACT_CONTENT_KEYS.some(k=>fields[k]);
+}
+
+// 代表担当者行(is_primary優先、無ければ登録順1人目)を取得する。無ければnull。
+// loadRepresentativeContactsByPartnerIds(複数id一括版、帳票用)の単一id版。保存時の
+// 「更新すべき行があるか」の判定は都度フレッシュに取得して行う(一覧用の
+// businessPartnerContactsIndexは更新タイミングによっては古い可能性があるため)。
+async function fetchRepresentativeContact(businessPartnerId){
+  if(!businessPartnerId) return null;
+  const {data, error} = await sb.from('business_partner_contacts').select('*')
+    .eq('business_partner_id', businessPartnerId).eq('is_deleted', false)
+    .order('is_primary', {ascending:false}).order('created_at', {ascending:true}).limit(1);
+  if(error){ logError('代表担当者の取得', error, {toast:false}); return null; }
+  return (data && data[0]) || null;
+}
+
+// 代表担当者へ担当者情報を保存する。既存の代表担当者行があれば内容を丸ごと上書きする
+// (編集画面で項目を空にして保存した場合は空で反映される=意図的な削除を反映する)。
+// 代表担当者行が無い会社は、内容がある場合のみ新規にis_primary:trueの担当者行を作成する
+// (入力が無いのに空の担当者行を作らないため)。
+async function saveRepresentativeContact(businessPartnerId, contactFields){
+  const existing = await fetchRepresentativeContact(businessPartnerId);
+  if(existing){
+    await businessPartnerContactsApiCall('updateById', { id: existing.id, fields: contactFields });
+  }else if(partnerContactFieldsHaveContent(contactFields)){
+    await businessPartnerContactsApiCall('insert', { rows: [{
+      business_partner_id: businessPartnerId,
+      ...contactFields,
+      is_primary: true,
+      created_by: currentUser ? currentUser.email : null,
+    }] });
+  }
+}
+
+// 編集モーダル表示用: 代表担当者(business_partner_contacts)の全項目(電話番号・表示可否
+// 含む)を取得する。該当行が無い会社(担当者情報自体が元から無い会社)は空値を返す
+// (business_partners側の担当者関連の列は2026-08のフェーズ3一括移行で全件
+// business_partner_contactsへ移行済み・フェーズ4で削除済みのため、フォールバック先が
+// 存在しない)。保存時はfetchRepresentativeContact/saveRepresentativeContactが改めて
+// 判定し、無ければ新規に担当者行を作成する。
+async function loadContactFormValues(partner){
+  if(!partner) return {};
+  const c = await fetchRepresentativeContact(partner.id);
+  if(c) return c;
+  return {
+    contact_person: null, contact_person_en: null, position: null, position_en: null,
+    branch_name: null, branch_name_en: null, phone: null, department_phone: null,
+    show_contact_phone: false, show_department_phone: false,
   };
 }
 
@@ -25422,7 +25529,7 @@ const rotateImage = (b64, mt, deg) => new Promise((resolve)=>{
         if(choice==='merge'){
           if(dup.viaAi) await recordPartnerMergeLearning(_candidate1, dup.id);
           // openPartnerEditor でフォームを既存データで正しく初期化してからOCRデータを空欄補完
-          openPartnerEditor(dup.id);
+          await openPartnerEditor(dup.id);
           document.getElementById('partner-modal-title').textContent = '取引先編集（マージ）';
           const _mif = (id, val) => { const el = document.getElementById(id); if(el && !el.value && val) el.value = val; };
           _mif('pt-company',       parsed.company_name || '');
@@ -25801,16 +25908,26 @@ async function batchSaveAndNext(){
     }
     // choice==='new' はこのまま下の新規登録処理に進む
   }
+  // 担当者関連(contact_person等)はbusiness_partner_contacts側に保存する(savePartner()と同じ方式)。
+  const contactFields = extractPartnerContactFields(payload);
+  const companyPayload = {...payload};
+  PARTNER_CONTACT_FIELD_KEYS.forEach(k=>{ delete companyPayload[k]; });
+
   const saveBtn = document.getElementById('pt-batch-save-btn');
   const saveBtnOrigHtml = saveBtn ? saveBtn.innerHTML : null;
   if(saveBtn){ saveBtn.disabled = true; saveBtn.innerHTML = '⏳ 保存中...'; }
   try{
-    try{ await businessPartnersApiCall('insert', { rows: [payload] }); }
+    let newId;
+    try{
+      const result = await businessPartnersApiCall('insert', { rows: [companyPayload] });
+      newId = (result.rows||[])[0]?.id;
+    }
     catch(e){
       const added = await handleBusinessPartnerSaveError(e, payload);
       if(added){ multiLocBatch.savedCount++; batchAdvance(); }
       return;
     }
+    if(newId) await saveRepresentativeContact(newId, contactFields);
     await logAction('取引先登録更新', payload.company_name);
     multiLocBatch.savedCount++;
     try{
@@ -25871,24 +25988,28 @@ function batchCancel(){
   }
 }
 
-function openPartnerEditor(id){
+async function openPartnerEditor(id){
   currentPartnerEditId = id;
   const p = id ? (partnersFilteredRows.find(x=>x.id===id) || partnersCache.find(x=>x.id===id)) : null;
+  // 担当者関連の項目はbusiness_partner_contacts(代表担当者)を正として表示する。
+  // 該当行が無い会社(移行前の古いデータ)はbusiness_partners側の値にフォールバックする
+  // (loadContactFormValues参照)。
+  const dc = await loadContactFormValues(p);
   document.getElementById('partner-modal-title').textContent = id ? '取引先編集' : '取引先登録';
   document.getElementById('pt-category').value = (p && p.category) ? p.category : 'その他';
   document.getElementById('pt-company').value = p ? (p.company_name||'') : '';
   document.getElementById('pt-company-en').value = p ? (p.company_name_en||'') : '';
-  document.getElementById('pt-branch').value = p ? (p.branch_name||'') : '';
-  document.getElementById('pt-branch-en').value = p ? (p.branch_name_en||'') : '';
-  document.getElementById('pt-contact').value = p ? (p.contact_person||'') : '';
-  document.getElementById('pt-contact-en').value = p ? (p.contact_person_en||'') : '';
-  document.getElementById('pt-position').value = p ? (p.position||'') : '';
-  document.getElementById('pt-position-en').value = p ? (p.position_en||'') : '';
+  document.getElementById('pt-branch').value = dc.branch_name || '';
+  document.getElementById('pt-branch-en').value = dc.branch_name_en || '';
+  document.getElementById('pt-contact').value = dc.contact_person || '';
+  document.getElementById('pt-contact-en').value = dc.contact_person_en || '';
+  document.getElementById('pt-position').value = dc.position || '';
+  document.getElementById('pt-position-en').value = dc.position_en || '';
   document.getElementById('pt-company-phone').value = p ? (p.company_phone||'') : '';
-  document.getElementById('pt-phone').value = p ? (p.phone||'') : '';
-  document.getElementById('pt-department-phone').value = p ? (p.department_phone||'') : '';
-  document.getElementById('pt-show-contact-phone').checked = !!(p && p.show_contact_phone);
-  document.getElementById('pt-show-department-phone').checked = !!(p && p.show_department_phone);
+  document.getElementById('pt-phone').value = dc.phone || '';
+  document.getElementById('pt-department-phone').value = dc.department_phone || '';
+  document.getElementById('pt-show-contact-phone').checked = !!dc.show_contact_phone;
+  document.getElementById('pt-show-department-phone').checked = !!dc.show_department_phone;
   document.getElementById('pt-show-company-phone').checked = !!(p && p.show_company_phone);
   document.getElementById('pt-fax').value = p ? (p.fax||'') : '';
   document.getElementById('pt-email').value = p ? (p.email||'') : '';
@@ -26008,7 +26129,7 @@ const fmtPhone = s => {
         // 空欄のみ補完する(processCardFileの名刺マージ判定と同じ流れ)。ここではまだ保存せず、
         // 内容確認の上で改めて保存ボタンを押してもらう。
         const typed = payload;
-        openPartnerEditor(dup.id);
+        await openPartnerEditor(dup.id);
         document.getElementById('partner-modal-title').textContent = '取引先編集（マージ）';
         const _mif = (id, val) => { const el = document.getElementById(id); if(el && !el.value && val) el.value = val; };
         _mif('pt-company',       typed.company_name || '');
@@ -26040,15 +26161,26 @@ const fmtPhone = s => {
     }
   }
 
+  // 担当者関連(contact_person等)はbusiness_partner_contacts側に保存する。
+  // payload自体は引き続きcontact_personを保持したまま(handleBusinessPartnerSaveErrorが
+  // 重複時に担当者として追加する際に参照するため)、business_partnersへ送るのは
+  // 担当者フィールドを除いたcompanyPayloadのみとする。
+  const contactFields = extractPartnerContactFields(payload);
+  const companyPayload = {...payload};
+  PARTNER_CONTACT_FIELD_KEYS.forEach(k=>{ delete companyPayload[k]; });
+
   const saveBtn = document.getElementById('pt-save-btn');
   const saveBtnOrigHtml = saveBtn ? saveBtn.innerHTML : null;
   if(saveBtn){ saveBtn.disabled = true; saveBtn.innerHTML = '⏳ 保存中...'; }
   try{
     if(currentPartnerEditId){
-      await businessPartnersApiCall('updateById', { id: currentPartnerEditId, fields: payload });
+      await businessPartnersApiCall('updateById', { id: currentPartnerEditId, fields: companyPayload });
+      await saveRepresentativeContact(currentPartnerEditId, contactFields);
     }else{
-      payload.created_by = currentUser ? currentUser.email : null;
-      await businessPartnersApiCall('insert', { rows: [payload] });
+      companyPayload.created_by = currentUser ? currentUser.email : null;
+      const result = await businessPartnersApiCall('insert', { rows: [companyPayload] });
+      const newId = (result.rows||[])[0]?.id;
+      if(newId) await saveRepresentativeContact(newId, contactFields);
     }
   }catch(e){
     const added = await handleBusinessPartnerSaveError(e, payload);
@@ -26085,16 +26217,16 @@ async function loadDeletedPartners(){
   const {data, error} = await sb.from('business_partners').select('*').eq('is_deleted', true).order('deleted_at', {ascending:false});
   if(error){ tbody.innerHTML = `<tr><td colspan="4" class="empty">読み込みエラー: ${error.message}</td></tr>`; return; }
   if(!data || data.length===0){ tbody.innerHTML = '<tr><td colspan="4" class="empty">削除済みの取引先はありません</td></tr>'; return; }
-  tbody.innerHTML = data.map(p=>`
+  tbody.innerHTML = data.map(p=>{ const dc = getDisplayContactForPartner(p); return `
     <tr>
       <td>${escHtml(p.company_name||'')}</td>
       <td>${p.deleted_at ? new Date(p.deleted_at).toLocaleString('ja-JP') : ''}</td>
       <td>${escHtml(p.deleted_by||'')}</td>
       <td style="white-space:nowrap;display:flex;flex-direction:column;gap:4px">
         <button class="btn btn-p" style="font-size:11px" onclick="restorePartner('${p.id}')">復元</button>
-        <button class="btn" style="font-size:11px;color:var(--red)" onclick="permanentlyDeletePartner('${p.id}','${escAttr(p.company_name||'')}','${escAttr(p.contact_person||'')}')">完全削除</button>
+        <button class="btn" style="font-size:11px;color:var(--red)" onclick="permanentlyDeletePartner('${p.id}','${escAttr(p.company_name||'')}','${escAttr(dc.contact_person||'')}')">完全削除</button>
       </td>
-    </tr>`).join('');
+    </tr>`; }).join('');
 }
 
 async function permanentlyDeletePartner(id, companyName, contactPerson){
