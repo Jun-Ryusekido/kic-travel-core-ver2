@@ -14,5 +14,8 @@ _dryrun/
 scripts/data/*
 !scripts/data/access_booking_merge_exclude_list.json
 
+# 本番データの一時バックアップ(顧客名・住所・金額等を含むため追跡しない)
+scripts/backups/
+
 .vercel
 .env*

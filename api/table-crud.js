@@ -340,10 +340,13 @@ const TABLE_CONFIG = {
   // 有効化する。insertReturningではなくinsertを使うのは、doInsert()内のコメントの通り
   // auditLog:true時はどのみちreturn=representationで挿入後の行(採番id含む)を取得して
   // いるため、それをそのままrowsとして呼び出し元に返せる(insertReturningはauditLog非対応)。
-  // ステータス変更(pending→void、void→pendingのロールバック)はfields:{status:...}を渡す
-  // updateById/updateByIds(複数件の一括void)で表現できるため、専用actionは不要と判断した。
+  // 請求先ごとに1件・番号固定方式(2026-08〜)への移行に伴い、「同じinvoice_noの既存行が
+  // あればUPDATE、無ければINSERT」はフロント側でinvoice_noによる存在確認(直接SELECT)を
+  // 行ってから、既存のupdateById/insertのどちらかを呼ぶ方式にした(前回調査で推奨された
+  // 案A方式。invoice_no用の新規action追加は不要と判断)。deleteById/deleteByIdsは、
+  // 移行時の旧採番レコード一括削除、および将来の個別削除用に追加する。
   invoices: {
-    actions: ['insert', 'updateById', 'updateByIds', 'deleteByBooking'],
+    actions: ['insert', 'updateById', 'updateByIds', 'deleteById', 'deleteByIds', 'deleteByBooking'],
     label: '請求書',
     auditLog: true,
   },
