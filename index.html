@@ -2589,6 +2589,7 @@ input[type=number]{-moz-appearance:textfield}
           <th>備考</th>
           <th style="width:70px">仕入明細へ</th>
           <th class="li-del"></th>
+          <th class="li-reorder" style="width:60px"></th>
         </tr></thead>
         <tbody id="bd-hotels-tbody"></tbody>
       </table></div>
@@ -2628,6 +2629,7 @@ input[type=number]{-moz-appearance:textfield}
           <th>備考</th>
           <th style="width:70px">仕入明細へ</th>
           <th class="li-del" style="width:66px"></th>
+          <th class="li-reorder" style="width:60px"></th>
         </tr></thead>
         <tbody id="bd-buses-tbody"></tbody>
       </table></div>
@@ -2670,6 +2672,7 @@ input[type=number]{-moz-appearance:textfield}
           <th style="width:220px">備考</th>
           <th style="width:70px">仕入明細へ</th>
           <th class="li-del" style="width:66px"></th>
+          <th class="li-reorder" style="width:60px"></th>
         </tr></thead>
         <tbody id="bd-restaurants-tbody"></tbody>
       </table></div>
@@ -2709,6 +2712,7 @@ input[type=number]{-moz-appearance:textfield}
           <th>備考</th>
           <th style="width:70px">仕入明細へ</th>
           <th class="li-del" style="width:66px"></th>
+          <th class="li-reorder" style="width:60px"></th>
         </tr></thead>
         <tbody id="bd-facilities-tbody"></tbody>
       </table></div>
@@ -2730,6 +2734,7 @@ input[type=number]{-moz-appearance:textfield}
           <th>備考</th>
           <th style="width:70px">仕入明細へ</th>
           <th class="li-del" style="width:66px"></th>
+          <th class="li-reorder" style="width:60px"></th>
         </tr></thead>
         <tbody id="bd-water-tbody"></tbody>
       </table></div>
@@ -2757,6 +2762,7 @@ input[type=number]{-moz-appearance:textfield}
           <th style="width:88px">ステータス</th>
           <th>備考</th>
           <th class="li-del" style="width:66px"></th>
+          <th class="li-reorder" style="width:60px"></th>
         </tr></thead>
         <tbody id="bd-bullet-tbody"></tbody>
       </table></div>
@@ -2777,6 +2783,7 @@ input[type=number]{-moz-appearance:textfield}
           <th style="width:90px">ステータス</th>
           <th>備考</th>
           <th class="li-del"></th>
+          <th class="li-reorder" style="width:60px"></th>
         </tr></thead>
         <tbody id="bd-guides-tbody"></tbody>
       </table></div>
@@ -2873,7 +2880,7 @@ input[type=number]{-moz-appearance:textfield}
           <span id="bd-inv-empty-hint" style="display:none;font-size:10px;color:var(--text3)">関連するInvoiceはありません</span>
         </div>
         <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:1080px">
-          <thead><tr><th style="width:11%">項目名</th><th style="width:24%">追記事項</th><th style="width:7%;text-align:right">単価</th><th style="width:4%;text-align:right">人数</th><th style="width:4%;text-align:right">数量</th><th class="li-amt" style="width:7%;text-align:right">金額</th><th style="width:120px">入金日</th><th style="width:8%" class="li-amt">入金金額</th><th style="width:9%">入金先銀行</th><th style="width:10%">入金備考</th><th style="width:6%" class="li-amt">未収</th><th class="bd-agent-col" style="width:120px">請求先</th><th class="li-del" style="width:3%"></th></tr></thead>
+          <thead><tr><th class="li-reorder" style="width:3%"></th><th style="width:11%">項目名</th><th style="width:24%">追記事項</th><th style="width:7%;text-align:right">単価</th><th style="width:4%;text-align:right">人数</th><th style="width:4%;text-align:right">数量</th><th class="li-amt" style="width:7%;text-align:right">金額</th><th style="width:120px">入金日</th><th style="width:8%" class="li-amt">入金金額</th><th style="width:9%">入金先銀行</th><th style="width:10%">入金備考</th><th style="width:6%" class="li-amt">未収</th><th class="bd-agent-col" style="width:120px">請求先</th><th class="li-del" style="width:3%"></th></tr></thead>
           <tbody id="bd-sales-tbody"></tbody>
         </table></div>
         <button class="btn" id="bd-sales-add-btn" style="font-size:10px;margin-top:4px" onclick="addSalesRow()">＋ 行追加</button>
@@ -6403,10 +6410,11 @@ function renderSalesTable(){
   const tbody = document.getElementById('bd-sales-tbody');
   const dis = bdLocked ? 'disabled' : '';
   if(bdSalesItems.length===0){
-    tbody.innerHTML = '<tr><td colspan="11" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="12" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
   }else{
     tbody.innerHTML = bdSalesItems.map((it,i)=>`
-      <tr class="${bdSalesExpandedRows.has(i)?'expanded':''}">
+      <tr class="${bdSalesExpandedRows.has(i)?'expanded':''}"${arrRowDropHtml('bdSalesItems',i,'renderSalesTable')}>
+        ${arrReorderHtml('bdSalesItems',i,bdSalesItems.length,'renderSalesTable',bdLocked)}
         <td class="bd-sales-summary-cell" onclick="if(event.target.tagName!=='INPUT')toggleBdSalesRowExpand(${i},this.closest('tr'))">
           <span class="bd-sales-chevron">▸</span><input ${dis} value="${(it.item_name||'').replace(/"/g,'&quot;')}" title="${(it.item_name||'').replace(/"/g,'&quot;')}" oninput="bdSalesItems[${i}].item_name=this.value;showItemNameSuggestionsForSales(this,${i})" onblur="setTimeout(hideItemNameSuggestionsForSales,150)" onfocus="showItemNameSuggestionsForSales(this,${i})"><span class="bd-sales-summary-amt" id="bd-sales-summary-amt-${i}">${yen(it.amount||0)}</span>
         </td>
@@ -7008,10 +7016,10 @@ function bdCostRowCalc(i, el){
 }
 
 function buildSalesRows(bookingId){
-  return bdSalesItems.filter(it=>it.item_name||Number(it.amount)||it.memo||it.agent_name||it.payment_date||(it.payments&&it.payments.length)).map(it=>({
+  return bdSalesItems.filter(it=>it.item_name||Number(it.amount)||it.memo||it.agent_name||it.payment_date||(it.payments&&it.payments.length)).map((it,i)=>({
     booking_id: bookingId, item_name: it.item_name||'', memo: it.memo||null, unit_price: Number(it.unit_price)||0,
     pax: Number(it.pax)||1, qty: Number(it.qty)||1, amount: Number(it.amount)||0, payment_date: sanitizeDateField(it.payment_date),
-    agent_name: it.agent_name||null, agent_id: it.agent_id||null, payments: it.payments||[]
+    agent_name: it.agent_name||null, agent_id: it.agent_id||null, payments: it.payments||[], sort_order: i
   }));
 }
 function buildCostRows(bookingId){
@@ -7837,7 +7845,7 @@ async function openBookingDetail(id, opts){
   document.getElementById('bd-cost-tbody').innerHTML = '<tr><td colspan="5" class="empty" style="padding:6px;font-size:10px">読み込み中...</td></tr>';
 
   const [{data: salesRows}, {data: costRows}] = await Promise.all([
-    sb.from('booking_sales').select('*').eq('booking_id', id).order('created_at'),
+    sb.from('booking_sales').select('*').eq('booking_id', id).order('sort_order').order('created_at'),
     sb.from('booking_costs').select('*').eq('booking_id', id).order('created_at')
   ]);
   if(_stale()) return;
@@ -7884,7 +7892,7 @@ async function openBookingDetail(id, opts){
   bdNewGuideList = [];  renderBdNewGuideList();
 
   // ガイドを読み込み（guideRegistryCacheは直前のpopulateGuideRegistrySelects()で読み込み済み）
-  const {data: guideRows, error: guideFetchErr} = await sb.from('booking_guides').select('*').eq('booking_id', id).order('created_at');
+  const {data: guideRows, error: guideFetchErr} = await sb.from('booking_guides').select('*').eq('booking_id', id).order('sort_order').order('created_at');
   if(_stale()) return;
   // booking_guidesはDDL未実行の環境ではテーブルが存在せずエラーになるため、他の明細と異なり
   // alert()では出さずconsole.warnに留める（新規テーブルのため既存データ消失リスクがない）。
@@ -7897,7 +7905,7 @@ async function openBookingDetail(id, opts){
   checkGuideDoubleBookings().catch(e=>logError('ガイド二重アサインチェック', e, {toast:false}));
 
 // ホテル割り当てを読み込み
-  const {data: hotelRows, error: hotelFetchErr} = await sb.from('booking_hotels').select('*').eq('booking_id', id).order('sort_order');
+  const {data: hotelRows, error: hotelFetchErr} = await sb.from('booking_hotels').select('*').eq('booking_id', id).order('sort_order').order('created_at');
   if(_stale()) return;
   if(hotelFetchErr){ alert('ホテル明細の読み込みに失敗しました。このまま保存すると既存データが消える危険があるため、画面を再読み込みしてください。\n'+hotelFetchErr.message); }
   bdHotelItems = (hotelRows||[]).map(mapHotelDbRow);
@@ -7906,11 +7914,11 @@ async function openBookingDetail(id, opts){
   renderHotelTable();
   // バス・レストラン・観光施設・ミネラルウォーター・新幹線を読み込み
   const [{data: busRows, error: busFetchErr}, {data: restRows, error: restFetchErr}, {data: facRows, error: facFetchErr}, {data: waterRows, error: waterFetchErr}, {data: btRows}] = await Promise.all([
-    sb.from('booking_buses').select('*').eq('booking_id', id).order('created_at'),
-    sb.from('booking_restaurants').select('*').eq('booking_id', id).order('created_at'),
-    sb.from('booking_facilities').select('*').eq('booking_id', id).order('created_at'),
-    sb.from('booking_water_items').select('*').eq('booking_id', id).order('created_at'),
-    sb.from('bullet_train_arrangements').select('*').eq('booking_ref', b.ref_no).order('sort_order'),
+    sb.from('booking_buses').select('*').eq('booking_id', id).order('sort_order').order('created_at'),
+    sb.from('booking_restaurants').select('*').eq('booking_id', id).order('sort_order').order('created_at'),
+    sb.from('booking_facilities').select('*').eq('booking_id', id).order('sort_order').order('created_at'),
+    sb.from('booking_water_items').select('*').eq('booking_id', id).order('sort_order').order('created_at'),
+    sb.from('bullet_train_arrangements').select('*').eq('booking_ref', b.ref_no).order('sort_order').order('created_at'),
   ]);
   if(_stale()) return;
   if(busFetchErr||restFetchErr||facFetchErr||waterFetchErr){ alert('手配明細の読み込みに一部失敗しました。このまま保存すると既存データが消える危険があるため、画面を再読み込みしてください。\n'+(busFetchErr||restFetchErr||facFetchErr||waterFetchErr).message); }
@@ -11501,11 +11509,11 @@ function renderHotelTable(){
   if(!tbody) return;
   const total = bdHotelItems.reduce((s,it)=>s+Number(it.amount||0),0);
   if(bdHotelItems.length===0){
-    tbody.innerHTML='<tr><td colspan="15" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
+    tbody.innerHTML='<tr><td colspan="16" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
   }else{
     tbody.innerHTML = bdHotelItems.map((it,i)=>{
       const nights = calcHotelNights(it.check_in, it.check_out);
-      return `<tr>
+      return `<tr${arrRowDropHtml('bdHotelItems',i,'renderHotelTable')}>
         <td data-label="ホテル名" style="position:relative"><input value="${escAttr(it.hotel_name)}" oninput="bdHotelItems[${i}].hotel_name=this.value;showHotelSuggest(this,${i},bdHotelItems)" onfocus="showHotelSuggest(this,${i},bdHotelItems)" onblur="setTimeout(hideHotelSuggest,150)" style="width:100%"></td>
         <td data-label="ｲﾝ"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.check_in}" onchange="bdHotelItems[${i}].check_in=this.value;hotelCalc(${i})"></td>
         <td data-label="ｱｳﾄ"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.check_out}" onchange="bdHotelItems[${i}].check_out=this.value;hotelCalc(${i})"></td>
@@ -11521,6 +11529,7 @@ function renderHotelTable(){
         <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdHotelItems[${i}].memo=this.value" placeholder="備考" style="width:100%"></td>
         ${arrCostCheckboxHtml('bdHotelItems', i, it, 'hotel')}
         ${arrDelBtnHtml('bdHotelItems', i, 'renderHotelTable', escAttr([it.hotel_name, it.room_type, [it.check_in, it.check_out].filter(Boolean).join('〜')].filter(Boolean).join(' '))+' の行を削除しますか？')}
+        ${arrReorderHtml('bdHotelItems', i, bdHotelItems.length, 'renderHotelTable')}
       </tr>`;
     }).join('');
   }
@@ -11597,7 +11606,13 @@ function buildHotelRows(bookingId, items){
 // (呼び出し元がrunSkippableならタブ単体で保存全体を中断、runSkippableIsolatedならこの
 // タブだけ失敗として分離される。既存のフォールトアイソレーションの粒度をそのまま踏襲)。
 async function checkNoSaveConflict(snapshotKey, tabLabel, table, bookingId, orderCol, mapFn, buildFn){
-  const {data, error} = await sb.from(table).select('*').eq('booking_id', bookingId).order(orderCol);
+  // orderColがsort_order等、created_at以外の場合はcreated_atを第2キーとして必ず付ける。
+  // 初回保存前(sort_orderが未設定=NULL)の行同士は同順位になり、これを第2キー無しで
+  // 取得すると、ロード時のクエリ(こちらもsort_order,created_atの2段)と行の並びが
+  // 食い違い、内容は変わっていないのに「内容が更新されています」という誤検知を
+  // 起こしてしまうため。
+  const query = sb.from(table).select('*').eq('booking_id', bookingId).order(orderCol);
+  const {data, error} = await (orderCol==='created_at' ? query : query.order('created_at'));
   if(error){
     // 再取得自体に失敗した場合、食い違いの有無を判定できないため安全側に倒して保存を中止する
     // (判定できないまま保存を続行して無言上書きになるより、保存が止まる方が安全なため)。
@@ -11644,9 +11659,9 @@ function renderBusTable(){
   if(!tbody) return;
   const total = bdBusItems.reduce((s,it)=>s+Number(it.amount||0),0);
   if(bdBusItems.length===0){
-    tbody.innerHTML='<tr><td colspan="12" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
+    tbody.innerHTML='<tr><td colspan="13" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
   }else{
-    tbody.innerHTML = bdBusItems.map((it,i)=>`<tr>
+    tbody.innerHTML = bdBusItems.map((it,i)=>`<tr${arrRowDropHtml('bdBusItems',i,'renderBusTable')}>
       <td data-label="バス会社" style="position:relative"><input value="${escAttr(it.bus_company)}" oninput="bdBusItems[${i}].bus_company=this.value;showBusCompanySuggest(this,${i})" onfocus="showBusCompanySuggest(this,${i})" onblur="setTimeout(hideBusCompanySuggest,150)" style="width:100%"></td>
       <td data-label="バスタイプ"><input value="${escAttr(it.bus_type)}" oninput="bdBusItems[${i}].bus_type=this.value" style="width:100%"></td>
       <td data-label="台数"><input type="number" value="${it.buses||1}" onchange="bdBusItems[${i}].buses=Number(this.value)" style="width:100%"></td>
@@ -11659,6 +11674,7 @@ function renderBusTable(){
       <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdBusItems[${i}].memo=this.value" style="width:100%"></td>
       ${arrCostCheckboxHtml('bdBusItems', i, it, 'bus')}
       ${arrDelBtnHtml('bdBusItems', i, 'renderBusTable', escAttr([it.bus_company, it.bus_type, [it.start_date, it.end_date].filter(Boolean).join('〜')].filter(Boolean).join(' '))+' の行を削除しますか？', 'duplicateBusRow')}
+      ${arrReorderHtml('bdBusItems', i, bdBusItems.length, 'renderBusTable')}
     </tr>`).join('');
   }
   document.getElementById('bd-buses-total').textContent = yen(total);
@@ -11681,7 +11697,7 @@ function mapBusDbRow(r){
 // (DBから再取得した最新行との比較)でも、DB行をmapBusDbRow()でこの関数と同じ入力形に
 // 変換した配列を渡すことで、同一の変換ロジックを再利用できるようにしている。
 function buildBusRows(bookingId, items){
-  return (items||bdBusItems).filter(it=>it.bus_company||it.bus_type||it.start_date||it.end_date||it.amount||it.confirmation_no||it.memo).map(it=>({
+  return (items||bdBusItems).filter(it=>it.bus_company||it.bus_type||it.start_date||it.end_date||it.amount||it.confirmation_no||it.memo).map((it,i)=>({
     booking_id: bookingId,
     bus_company: it.bus_company||'', bus_type: it.bus_type||'',
     buses: Number(it.buses)||1,
@@ -11691,14 +11707,15 @@ function buildBusRows(bookingId, items){
     confirmation_no: it.confirmation_no||'',
     memo: it.memo||'',
     payment_method: it.payment_method||'',
-    cost_added: !!it.cost_added
+    cost_added: !!it.cost_added,
+    sort_order: i
   }));
 }
 async function saveBusItems(){
   if(!currentDetailId) return;
   const bookingId = currentDetailId; // await中のcurrentDetailId変更に影響されないようスナップショットを保持
   const rows = buildBusRows(bookingId);
-  await checkNoSaveConflict('buses', 'バス', 'booking_buses', bookingId, 'created_at', mapBusDbRow, buildBusRows);
+  await checkNoSaveConflict('buses', 'バス', 'booking_buses', bookingId, 'sort_order', mapBusDbRow, buildBusRows);
   await bookingBusesApiCall('replace', { bookingId, rows });
   bdLoadSnapshot.buses = JSON.stringify(rows);
   // 保存後に同一予約内の重複登録を再チェックする(警告表示のみで、保存自体はブロックしない)
@@ -14824,18 +14841,17 @@ const MEAL_TYPE_ORDER = {'朝食':0,'昼食':1,'夕食':2};
 function renderRestaurantTable(){
   const tbody = document.getElementById('bd-restaurants-tbody');
   if(!tbody) return;
-  bdRestaurantItems.sort((a,b)=>{
-    const ad = a.date||'', bd = b.date||'';
-    if(ad !== bd) return ad < bd ? -1 : 1;
-    const am = MEAL_TYPE_ORDER[a.meal_type] ?? 99, bm = MEAL_TYPE_ORDER[b.meal_type] ?? 99;
-    return am - bm;
-  });
+  // 以前は日付+食事種別で毎回自動的に並び替えていたが、ドラッグ&ドロップによる
+  // 手動並び替え機能の追加に伴い削除した(再描画のたびに自動ソートされると、
+  // ドロップした瞬間に順序が元に戻ってしまい並び替えが機能しなくなるため)。
+  // 日付順に揃えたい場合は、他タブと同じ「日付」列見出しクリック(sortRestaurantTable)
+  // で明示的に並び替える。
   const total = bdRestaurantItems.reduce((s,it)=>s+Number(it.amount||0),0);
   if(bdRestaurantItems.length===0){
-    tbody.innerHTML='<tr><td colspan="11" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
+    tbody.innerHTML='<tr><td colspan="12" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
   }else{
     tbody.innerHTML = bdRestaurantItems.map((it,i)=>{
-      return `<tr>
+      return `<tr${arrRowDropHtml('bdRestaurantItems',i,'renderRestaurantTable')}>
       <td data-label="店名" style="position:relative">
         <input value="${escAttr(it.restaurant_name)}" oninput="bdRestaurantItems[${i}].restaurant_name=this.value;showRestaurantSuggest(this,${i})" onfocus="showRestaurantSuggest(this,${i})" onblur="setTimeout(hideRestaurantSuggest,200)" style="width:100%">
         ${restaurantPartnerEnName(it.restaurant_name) ? `<div style="font-size:9px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(restaurantPartnerEnName(it.restaurant_name))}</div>` : ''}
@@ -14854,6 +14870,7 @@ function renderRestaurantTable(){
       <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdRestaurantItems[${i}].memo=this.value" style="width:100%"></td>
       ${arrCostCheckboxHtml('bdRestaurantItems', i, it, 'rest')}
       ${arrDelBtnHtml('bdRestaurantItems', i, 'renderRestaurantTable', escAttr([it.date, it.meal_type, it.restaurant_name].filter(Boolean).join(' '))+' の行を削除しますか？', 'duplicateRestaurantRow')}
+      ${arrReorderHtml('bdRestaurantItems', i, bdRestaurantItems.length, 'renderRestaurantTable')}
     </tr>`;
     }).join('');
   }
@@ -14912,7 +14929,7 @@ function generateRestaurantTemplateRowsClick(){
   alert(added>0 ? added+'件の空行を追加しました。' : '追加する行はありませんでした（既に全ての日付・食事種別が揃っています）。');
 }
 function buildRestaurantRows(bookingId){
-  return bdRestaurantItems.filter(it=>it.restaurant_name||it.date||it.reservation_time||it.amount||it.payment_method||it.memo).map(it=>({
+  return bdRestaurantItems.filter(it=>it.restaurant_name||it.date||it.reservation_time||it.amount||it.payment_method||it.memo).map((it,i)=>({
     booking_id: bookingId,
     restaurant_name: it.restaurant_name||'', meal_type: it.meal_type||'昼食',
     date: sanitizeDateField(it.date), pax: Number(it.pax)||0,
@@ -14920,7 +14937,8 @@ function buildRestaurantRows(bookingId){
     status: it.status||'問い合わせ中', payment_method: it.payment_method||null,
     reservation_time: it.reservation_time||null, memo: it.memo||'',
     guide_id: it.guide_id||null, guide_name_freetext: it.guide_id ? '' : (it.guide_name_freetext||''),
-    cost_added: !!it.cost_added
+    cost_added: !!it.cost_added,
+    sort_order: i
   }));
 }
 async function saveRestaurantItems(){
@@ -15509,9 +15527,9 @@ function renderFacilityTable(){
   if(!tbody) return;
   const total = bdFacilityItems.reduce((s,it)=>s+Number(it.amount||0),0);
   if(bdFacilityItems.length===0){
-    tbody.innerHTML='<tr><td colspan="11" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
+    tbody.innerHTML='<tr><td colspan="12" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
   }else{
-    tbody.innerHTML = bdFacilityItems.map((it,i)=>`<tr>
+    tbody.innerHTML = bdFacilityItems.map((it,i)=>`<tr${arrRowDropHtml('bdFacilityItems',i,'renderFacilityTable')}>
       <td data-label="施設名" style="position:relative"><div style="display:flex;gap:3px;align-items:center"><input value="${escAttr(it.facility_name)}" oninput="bdFacilityItems[${i}].facility_name=this.value;showFacilitySuggest(this,${i})" onfocus="showFacilitySuggest(this,${i})" onblur="setTimeout(hideFacilitySuggest,150)" style="flex:1;min-width:0"><button class="btn" style="font-size:10px;padding:2px 5px;flex-shrink:0" title="営業日・営業時間を確認" onclick="openFacilityOperatingInfo(${i})">🕐</button></div>${facilityClosedDayWarnHtml(it)}</td>
       <td data-label="日付"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.date||''}" onchange="bdFacilityItems[${i}].date=this.value"></td>
       <td data-label="人数"><input type="number" value="${it.pax||0}" onchange="bdFacilityItems[${i}].pax=Number(this.value)" style="width:100%"></td>
@@ -15523,6 +15541,7 @@ function renderFacilityTable(){
       <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdFacilityItems[${i}].memo=this.value" style="width:100%"></td>
       ${arrCostCheckboxHtml('bdFacilityItems', i, it, 'fac')}
       ${arrDelBtnHtml('bdFacilityItems', i, 'renderFacilityTable', escAttr([it.facility_name, it.date].filter(Boolean).join(' '))+' の行を削除しますか？', 'duplicateFacilityRow')}
+      ${arrReorderHtml('bdFacilityItems', i, bdFacilityItems.length, 'renderFacilityTable')}
     </tr>`).join('');
   }
   document.getElementById('bd-facilities-total').textContent = yen(total);
@@ -15550,6 +15569,38 @@ function arrDelBtnHtml(arrVarName, i, renderFnName, confirmMsg, dupFnName){
   const msg = confirmMsg || 'この行を削除しますか？';
   const dupBtn = dupFnName ? `<button class="btn" style="font-size:10px;padding:1px 6px;margin-right:4px" onclick="${dupFnName}(${i})" title="この行を複製します(2班体制等で同じ内容をもう1件登録したい場合に使用)">⧉</button>` : '';
   return `<td class="li-del">${dupBtn}<button class="btn" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="if(confirm('${msg}')){${arrVarName}.splice(${i},1);${renderFnName}()}">✕</button></td>`;
+}
+
+// 配列内の要素を並び替える純粋関数(from位置の要素をto位置へ移動する)。ドラッグ&ドロップ・
+// ▲▼移動ボタンの両方から共通で呼ぶ。実際の保存(sort_order列への反映)は各build*Rows()が
+// 配列の現在順からindexを振り直す形で行うため、ここでは配列の並びを変えるだけでよい。
+function moveArrItem(arr, from, to){
+  if(!arr || isNaN(from) || isNaN(to) || from===to || from<0 || to<0 || from>=arr.length || to>=arr.length) return;
+  const [moved] = arr.splice(from, 1);
+  arr.splice(to, 0, moved);
+}
+
+// 手配管理タブ共通の並び替えセル(ホテル/バス/レストラン/観光施設等/ミネラルウォーター/
+// 新幹線/ガイド/売上明細の全タブで共用)。PC(マウス操作)向けにドラッグハンドル(⠿)による
+// HTML5標準Drag&Dropを、スマホ(タッチ操作)向けに▲▼移動ボタンを併設する
+// (HTML5のネイティブDrag&Dropはタッチ操作にほぼ対応していないため、375px幅でも
+// 確実に並び替えられるよう▲▼ボタンを主手段として用意する。CLAUDE.md「運用者は
+// スマホ中心」の方針に沿う)。どちらの操作もmoveArrItem()を呼ぶ点は共通。
+// len: 配列の現在の行数(先頭行の▲・末尾行の▼を無効化するために使う)。
+function arrReorderHtml(arrVarName, i, len, renderFnName, locked){
+  if(locked) return `<td class="li-reorder"></td>`;
+  const upDisabled = i<=0 ? 'disabled' : '';
+  const downDisabled = i>=len-1 ? 'disabled' : '';
+  return `<td class="li-reorder" style="white-space:nowrap;text-align:center">
+    <span draggable="true" class="arr-drag-handle" title="ドラッグして並び替え" style="cursor:grab;padding:2px 4px;display:inline-block"
+      ondragstart="event.dataTransfer.setData('text/plain','${i}');event.dataTransfer.effectAllowed='move'"
+    >⠿</span><button class="btn" style="font-size:10px;padding:1px 4px" ${upDisabled} onclick="moveArrItem(${arrVarName},${i},${i}-1);${renderFnName}()" title="上へ移動">▲</button><button class="btn" style="font-size:10px;padding:1px 4px" ${downDisabled} onclick="moveArrItem(${arrVarName},${i},${i}+1);${renderFnName}()" title="下へ移動">▼</button>
+  </td>`;
+}
+// arrReorderHtml()が生成する<tr>側に付与するドラッグの受け皿。行のどこにドロップしても
+// (ハンドル自体でなくても)その行の位置へ移動できるよう、<tr>単位でdragover/dropを拾う。
+function arrRowDropHtml(arrVarName, i, renderFnName){
+  return ` ondragover="event.preventDefault()" ondrop="event.preventDefault();moveArrItem(${arrVarName},Number(event.dataTransfer.getData('text/plain')),${i});${renderFnName}()"`;
 }
 
 // 「(N班)」ラベルを検出する正規表現(仮払い一覧表の一括複製で使っているものと同じ考え方)。
@@ -15610,7 +15661,7 @@ function addFacilityRow(){
   renderFacilityTable();
 }
 function buildFacilityRows(bookingId){
-  return bdFacilityItems.filter(it=>it.facility_name||it.date||it.amount||it.confirmation_no||it.deadline_date||it.payment_method||it.memo).map(it=>({
+  return bdFacilityItems.filter(it=>it.facility_name||it.date||it.amount||it.confirmation_no||it.deadline_date||it.payment_method||it.memo).map((it,i)=>({
     booking_id: bookingId,
     facility_name: it.facility_name||'',
     date: sanitizeDateField(it.date), pax: Number(it.pax)||0,
@@ -15622,7 +15673,8 @@ function buildFacilityRows(bookingId){
     memo: it.memo||'',
     deadline_completed: it.deadline_completed||false,
     deadline_completed_at: it.deadline_completed_at||null,
-    cost_added: !!it.cost_added
+    cost_added: !!it.cost_added,
+    sort_order: i
   }));
 }
 async function saveFacilityItems(){
@@ -15639,9 +15691,9 @@ function renderWaterTable(){
   if(!tbody) return;
   const total = bdWaterItems.reduce((s,it)=>s+Number(it.amount||0),0);
   if(bdWaterItems.length===0){
-    tbody.innerHTML='<tr><td colspan="10" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
+    tbody.innerHTML='<tr><td colspan="11" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
   }else{
-    tbody.innerHTML = bdWaterItems.map((it,i)=>`<tr>
+    tbody.innerHTML = bdWaterItems.map((it,i)=>`<tr${arrRowDropHtml('bdWaterItems',i,'renderWaterTable')}>
       <td data-label="品名"><input value="${escAttr(it.item_name)}" oninput="bdWaterItems[${i}].item_name=this.value" style="width:100%"></td>
       <td data-label="日付"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.date||''}" onchange="bdWaterItems[${i}].date=this.value"></td>
       <td data-label="数量"><input type="number" value="${it.qty||0}" onchange="bdWaterItems[${i}].qty=Number(this.value);waterAmountCalc(${i})" style="width:100%"></td>
@@ -15652,6 +15704,7 @@ function renderWaterTable(){
       <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdWaterItems[${i}].memo=this.value" style="width:100%"></td>
       ${arrCostCheckboxHtml('bdWaterItems', i, it, 'water')}
       ${arrDelBtnHtml('bdWaterItems', i, 'renderWaterTable', escAttr([it.item_name, it.date].filter(Boolean).join(' '))+' の行を削除しますか？', 'duplicateWaterRow')}
+      ${arrReorderHtml('bdWaterItems', i, bdWaterItems.length, 'renderWaterTable')}
     </tr>`).join('');
   }
   document.getElementById('bd-water-total').textContent = yen(total);
@@ -15673,7 +15726,7 @@ function addWaterRow(){
 }
 
 function buildWaterRows(bookingId){
-  return bdWaterItems.filter(it=>it.item_name||it.date||it.qty||it.unit_price||it.memo).map(it=>({
+  return bdWaterItems.filter(it=>it.item_name||it.date||it.qty||it.unit_price||it.memo).map((it,i)=>({
     booking_id: bookingId,
     item_name: it.item_name||'',
     date: sanitizeDateField(it.date), qty: Number(it.qty)||0,
@@ -15682,7 +15735,8 @@ function buildWaterRows(bookingId){
     status: it.status||'問い合わせ中',
     memo: it.memo||'',
     payment_method: it.payment_method||'',
-    cost_added: !!it.cost_added
+    cost_added: !!it.cost_added,
+    sort_order: i
   }));
 }
 async function saveWaterItems(){
@@ -16339,11 +16393,11 @@ function renderBulletTrainTable(){
   const rideDateArrow = document.getElementById('bullet-ride-date-sort-arrow');
   if(rideDateArrow) rideDateArrow.textContent = bdSortArrow(bulletTrainSortState, 'ride_date');
   if(bdBulletTrainItems.length===0){
-    tbody.innerHTML='<tr><td colspan="16" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
+    tbody.innerHTML='<tr><td colspan="17" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
     document.getElementById('bd-bullet-total').textContent = yen(0);
     return;
   }
-  tbody.innerHTML = bdBulletTrainItems.map((it,i)=>`<tr>
+  tbody.innerHTML = bdBulletTrainItems.map((it,i)=>`<tr${arrRowDropHtml('bdBulletTrainItems',i,'renderBulletTrainTable')}>
     <td data-label="乗車日"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.ride_date||''}" onchange="bdBulletTrainItems[${i}].ride_date=this.value"></td>
     <td data-label="列車名"><input value="${escAttr(it.train_name)}" oninput="bdBulletTrainItems[${i}].train_name=this.value" style="width:100%" placeholder="のぞみ"></td>
     <td data-label="号数"><input value="${escAttr(it.train_number)}" oninput="bdBulletTrainItems[${i}].train_number=this.value" style="width:100%" placeholder="123号"></td>
@@ -16360,6 +16414,7 @@ function renderBulletTrainTable(){
     <td data-label="ステータス">${statusDropdownHtml(o=>`bdBulletTrainItems[${i}].status='${o}';renderBulletTrainTable()`, it.status, ['未予約','回答待ち','手配OK','FNL済','NG回答','キャンセル'], '回答待ち')}</td>
     <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdBulletTrainItems[${i}].memo=this.value" style="width:100%"></td>
     ${arrDelBtnHtml('bdBulletTrainItems', i, 'renderBulletTrainTable', escAttr([it.ride_date, it.train_name, it.train_number, [it.departure_station, it.arrival_station].filter(Boolean).join('→')].filter(Boolean).join(' '))+' の行を削除しますか？', 'duplicateBulletTrainRow')}
+    ${arrReorderHtml('bdBulletTrainItems', i, bdBulletTrainItems.length, 'renderBulletTrainTable')}
   </tr>`).join('');
   document.getElementById('bd-bullet-total').textContent = yen(bdBulletTrainItems.reduce((s,it)=>s+Number(it.amount||0),0));
 }
@@ -16583,7 +16638,7 @@ function renderGuideTable(){
   const tbody = document.getElementById('bd-guides-tbody');
   if(!tbody) return;
   if(bdGuideItems.length===0){
-    tbody.innerHTML = '<tr><td colspan="8" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
     document.getElementById('bd-guides-total').textContent = yen(0);
     return;
   }
@@ -16600,7 +16655,7 @@ function renderGuideTable(){
                  oninput="filterGuideSuggest(${i})" onfocus="showGuideSuggest(${i})" onblur="setTimeout(()=>hideGuideSuggest(${i}),200)" style="width:100%">
           <div id="guide-dd-${i}" style="display:none;position:fixed;background:var(--card,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:99999;max-height:220px;overflow-y:auto"></div>
         </td>`;
-    return `<tr>
+    return `<tr${arrRowDropHtml('bdGuideItems',i,'renderGuideTable')}>
       ${guideCell}
       <td data-label="担当日(From)"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.start_date||''}" onchange="bdGuideItems[${i}].start_date=this.value"></td>
       <td data-label="担当日(To)"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.end_date||''}" onchange="bdGuideItems[${i}].end_date=this.value"></td>
@@ -16609,6 +16664,7 @@ function renderGuideTable(){
       <td data-label="ステータス">${statusDropdownHtml(o=>`bdGuideItems[${i}].status='${o}';renderGuideTable()`, it.status, ['未予約','回答待ち','手配OK','FNL済','NG回答','キャンセル'], '回答待ち')}</td>
       <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdGuideItems[${i}].memo=this.value" style="width:100%"></td>
       ${arrDelBtnHtml('bdGuideItems', i, 'renderGuideTable', escAttr([guideRowDisplayName(it), [it.start_date, it.end_date].filter(Boolean).join('〜')].filter(Boolean).join(' '))+' の行を削除しますか？')}
+      ${arrReorderHtml('bdGuideItems', i, bdGuideItems.length, 'renderGuideTable')}
     </tr>`;
   }).join('');
   document.getElementById('bd-guides-total').textContent = yen(bdGuideItems.reduce((s,it)=>s+Number(it.amount||0),0));
@@ -16769,7 +16825,7 @@ function mapGuideDbRow(r){
 // (DBから再取得した最新行との比較)でも、DB行をmapGuideDbRow()でこの関数と同じ入力形に
 // 変換した配列を渡すことで、同一の変換ロジックを再利用できるようにしている。
 function buildGuideRows(bookingId, items){
-  return (items||bdGuideItems).filter(it=>it.guide_id||it.guide_name_freetext||it.start_date||it.end_date||it.memo||it.amount).map(it=>({
+  return (items||bdGuideItems).filter(it=>it.guide_id||it.guide_name_freetext||it.start_date||it.end_date||it.memo||it.amount).map((it,i)=>({
     booking_id: bookingId,
     guide_id: it.guide_id||null,
     guide_name_freetext: it.guide_id ? '' : (it.guide_name_freetext||''),
@@ -16778,14 +16834,15 @@ function buildGuideRows(bookingId, items){
     status: it.status||'回答待ち',
     memo: it.memo||'',
     payment_method: it.payment_method||'',
-    amount: Number(it.amount)||0
+    amount: Number(it.amount)||0,
+    sort_order: i
   }));
 }
 async function saveGuideItems(){
   if(!currentDetailId) return;
   const bookingId = currentDetailId; // await中のcurrentDetailId変更に影響されないようスナップショットを保持
   const rows = buildGuideRows(bookingId);
-  await checkNoSaveConflict('guides', 'ガイド', 'booking_guides', bookingId, 'created_at', mapGuideDbRow, buildGuideRows);
+  await checkNoSaveConflict('guides', 'ガイド', 'booking_guides', bookingId, 'sort_order', mapGuideDbRow, buildGuideRows);
   await bookingGuidesApiCall('replace', { bookingId, rows });
   bdLoadSnapshot.guides = JSON.stringify(rows);
   // 保存後に他予約との二重アサインを再チェックする(警告表示のみで、保存自体はブロックしない)
@@ -27250,7 +27307,7 @@ async function showInvoicePreview(inv, booking){
   const fmtMoney = v => isUSD ? '$'+(Number(v)/USD_RATE).toLocaleString(undefined,{minimumFractionDigits:2}) : yen(v);
 
   // 売上明細を取得（請求先で絞り込み）
-  const {data: salesRows} = await sb.from('booking_sales').select('*').eq('booking_id', booking.id).order('created_at');
+  const {data: salesRows} = await sb.from('booking_sales').select('*').eq('booking_id', booking.id).order('sort_order').order('created_at');
   let items;
   if(salesRows && salesRows.length>0){
     items = inv.agent_name
