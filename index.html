@@ -1204,6 +1204,7 @@ input[type=number]{-moz-appearance:textfield}
           </div>
           <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
             <span style="font-size:11px;color:var(--text3)" id="db-count"></span>
+            <span id="db-date-filter-note" style="display:none;font-size:11px;color:var(--amber)">🔍 検索中は日付範囲を無視して全期間を検索します</span>
             <div style="display:flex;gap:8px;align-items:center;margin-left:auto">
               <button class="btn" onclick="resetBookingFilter('db')">条件クリア</button>
               <!-- モバイルのシート表示時のみ出る導線。シートを閉じて一覧の先頭まで
@@ -1326,8 +1327,9 @@ input[type=number]{-moz-appearance:textfield}
               </label>
             </div>
           </div>
-          <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center">
+          <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
             <span style="font-size:11px;color:var(--text3)" id="bl-count"></span>
+            <span id="bl-date-filter-note" style="display:none;font-size:11px;color:var(--amber)">🔍 検索中は日付範囲を無視して全期間を検索します</span>
             <button class="btn" onclick="resetBookingFilter('bl')">条件クリア</button>
           </div>
         </div>
@@ -4703,8 +4705,18 @@ function toHalfWidth(str){
 
 function filterBookingListGeneric(prefix){
   const q = toHalfWidth(document.getElementById(prefix+'-search').value.trim().toLowerCase());
-  const from = document.getElementById(prefix+'-from').value;
-  const to = document.getElementById(prefix+'-to').value;
+  const fromInput = document.getElementById(prefix+'-from').value;
+  const toInput = document.getElementById(prefix+'-to').value;
+  // 検索語(REF#/Agent/Tour)が入力されている場合は、出発日(From/To)のフィルタを
+  // 一時的に無視し、日付範囲を問わず全期間から検索する。出発日Fromには非管理者向けの
+  // 既定値(TEMP_DEFAULT_FROM)が自動設定されるため、それより古い予約が検索語に一致
+  // していても一律で除外され「検索してもヒットしない」と誤解される不具合があった
+  // (REF#1011で発覚)。検索語が空の場合は従来通り日付フィルタ(既定値含む)を適用する。
+  const from = q ? '' : fromInput;
+  const to = q ? '' : toInput;
+  const dateFilterIgnored = !!q && !!(fromInput || toInput);
+  const noteEl = document.getElementById(prefix+'-date-filter-note');
+  if(noteEl) noteEl.style.display = dateFilterIgnored ? '' : 'none';
   const status = document.getElementById(prefix+'-status').value;
   // 除外モード(bl画面のみ現状存在。他prefixにはチェックボックス自体が無いため常にfalse)。
   // ONの場合、選択したステータスの予約を「除いて」表示する(例: 中止+除外ON→中止以外を表示)。
