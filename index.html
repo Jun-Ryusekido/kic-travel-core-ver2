@@ -1635,7 +1635,10 @@ input[type=number]{-moz-appearance:textfield}
       <!-- Payment -->
       <div id="pg-payment" class="page" style="display:none">
         <div class="card">
-          <div class="card-title">期間指定</div>
+          <div class="card-title" style="display:flex;align-items:center;justify-content:space-between">
+            <span>期間指定</span>
+            <button class="btn" onclick="printPaymentSummary()">🖨 印刷</button>
+          </div>
           <div class="form-grid" style="--fg-cols:1fr 1fr 1fr 1fr">
             <div class="form-field"><label>From</label><input id="pay-from" type="date" min="1900-01-01" max="9999-12-31" onblur="loadPayments()"></div>
             <div class="form-field"><label>To</label><input id="pay-to" type="date" min="1900-01-01" max="9999-12-31" onblur="loadPayments()"></div>
@@ -19694,6 +19697,76 @@ function sortPaymentList_pout(field){
 }
 function pinGoPage(p){ payState.pin.page=p; renderPaymentLists(); }
 function poutGoPage(p){ payState.pout.page=p; renderPaymentLists(); }
+
+function printPaymentSummary(){
+  const from = document.getElementById('pay-from').value;
+  const to = document.getElementById('pay-to').value;
+  const inList = salesPaymentsCache;
+  const outList = costPaymentsCache;
+  const totalIn = inList.reduce((s,r)=>s+Number(r.amount||0),0);
+  const totalOut = outList.reduce((s,r)=>s+Number(r.amount||0),0);
+  const net = totalIn - totalOut;
+
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit'})+' '+now.toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'});
+
+  const thStyle = 'style="border:1px solid #999;padding:4px 5px;background:#dce4f0;font-weight:700;white-space:nowrap"';
+  const tdStyle = 'style="border:1px solid #bbb;padding:3px 5px;vertical-align:top;word-break:break-all"';
+  const tdR = 'style="border:1px solid #bbb;padding:3px 5px;vertical-align:top;text-align:right"';
+
+  const buildTable = (title, list, columns) => {
+    const totalAmount = list.reduce((s,r)=>s+Number(r.amount||0),0);
+    const rows = list.length===0
+      ? `<tr><td colspan="${columns.length}" style="border:1px solid #bbb;padding:8px;text-align:center;color:#777">データがありません</td></tr>`
+      : list.map(r=>'<tr>'+columns.map(([f])=>{
+          if(f==='amount') return `<td ${tdR}>${Number(r.amount||0).toLocaleString('ja-JP')}</td>`;
+          return `<td ${tdStyle}>${escHtml(r[f]||'')}</td>`;
+        }).join('')+'</tr>').join('');
+    const totalRow = list.length===0 ? '' : `<tr style="font-weight:700;background:#dce4f0">
+        <td colspan="${columns.length-1}" style="border:1px solid #999;padding:3px 5px;text-align:right">合計</td>
+        <td style="border:1px solid #999;padding:3px 5px;text-align:right">${totalAmount.toLocaleString('ja-JP')}</td>
+      </tr>`;
+    return `<div style="font-size:12pt;font-weight:700;margin:10px 0 4px">${escHtml(title)}（${list.length}件）</div>
+    <table style="width:100%;border-collapse:collapse;font-size:8.5pt;table-layout:fixed">
+      <colgroup>${columns.map(([,,,w])=>`<col style="width:${w}">`).join('')}</colgroup>
+      <thead><tr>${columns.map(([,label])=>`<th ${thStyle}>${label}</th>`).join('')}</tr></thead>
+      <tbody>${rows}${totalRow}</tbody>
+    </table>`;
+  };
+
+  const headerHtml = `<div style="text-align:center;font-size:15pt;font-weight:700;letter-spacing:0.05em;margin-bottom:4px">入出金一覧表</div>
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:6px">
+      <div style="font-size:10pt;font-weight:700">KIC Co.,Ltd.</div>
+      <div style="font-size:9pt;text-align:right;line-height:1.6">
+        <div>期間：${escHtml(from||'')} ～ ${escHtml(to||'')}</div>
+        <div>出力：${dateStr}</div>
+      </div>
+    </div>`;
+
+  const summaryHtml = `<table style="width:100%;border-collapse:collapse;font-size:9pt;margin-bottom:8px">
+    <tr>
+      <td style="border:1px solid #999;padding:5px 8px;background:#f2f4f8;font-weight:700;width:25%">期間内入金合計</td>
+      <td style="border:1px solid #999;padding:5px 8px;text-align:right;width:25%">${totalIn.toLocaleString('ja-JP')}</td>
+      <td style="border:1px solid #999;padding:5px 8px;background:#f2f4f8;font-weight:700;width:25%">期間内出金合計</td>
+      <td style="border:1px solid #999;padding:5px 8px;text-align:right;width:25%">${totalOut.toLocaleString('ja-JP')}</td>
+    </tr>
+    <tr>
+      <td style="border:1px solid #999;padding:5px 8px;background:#f2f4f8;font-weight:700">差引</td>
+      <td style="border:1px solid #999;padding:5px 8px;text-align:right;color:${net<0?'#c0392b':'#000'}">${net.toLocaleString('ja-JP')}</td>
+      <td style="border:1px solid #999;padding:5px 8px;background:#f2f4f8;font-weight:700">件数（入金/出金）</td>
+      <td style="border:1px solid #999;padding:5px 8px;text-align:right">${inList.length} / ${outList.length}</td>
+    </tr>
+  </table>`;
+
+  const inTableHtml = buildTable('入金リスト', inList, [['payment_date','入金日',true,'12%'],['ref_no','REF#',true,'12%'],['agent_name','Agent',true,'34%'],['item_name','項目',true,'26%'],['amount','金額',true,'16%']]);
+  const outTableHtml = buildTable('出金リスト', outList, [['payment_date','出金日',true,'12%'],['ref_no','REF#',true,'12%'],['item_name','仕入先',true,'30%'],['amount','金額',true,'16%'],['memo','備考',true,'30%']]);
+
+  const html = `<div style="font-family:'Meiryo','Noto Sans JP',sans-serif;font-size:9.5pt;color:#000">${headerHtml}${summaryHtml}${inTableHtml}${outTableHtml}</div>`;
+
+  const win = window.open('','_blank','width=900,height=1000');
+  win.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><style>@page{size:A4 portrait;margin:10mm}body{margin:0;padding:8mm}table{page-break-inside:auto}tr{page-break-inside:avoid}<\/style><\/head><body>'+html+'<script>window.onload=function(){window.print();window.close()}<\/script><\/body><\/html>');
+  win.document.close();
+}
 
 
 // ===================================================
