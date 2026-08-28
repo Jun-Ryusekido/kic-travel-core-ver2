@@ -110,7 +110,9 @@ export default async function handler(req, res) {
       cardstatementImageBase64, cardstatementMediaType, cardstatementPdfBase64, cardstatementText,
       receiptImageBase64, receiptMediaType,
       multiLocBase64, multiLocMediaType, multiLocReturnJson,
-      partnerText } = req.body;
+      partnerText,
+      guideCardImageBase64, guideCardMediaType, guideCardPdfBase64, guideCardText,
+      guideBankImageBase64, guideBankMediaType } = req.body;
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
       return res.status(500).json({ error: 'サーバー側にAPIキーが設定されていません' });
@@ -216,6 +218,53 @@ export default async function handler(req, res) {
       ], 1000);
       const text = data.content?.[0]?.text || '';
       return res.status(200).json({ text });
+    }
+
+    // ─── ガイド登録：名刺・履歴書OCRモード（氏名・カタカナ・携帯番号等を抽出） ───
+    const resolvedGuideCardContent = guideCardPdfBase64
+      ? {type:'document', source:{type:'base64', media_type:'application/pdf', data:guideCardPdfBase64}}
+      : guideCardText
+      ? {type:'text', text: guideCardText}
+      : guideCardImageBase64
+      ? {type:'image', source:{type:'base64', media_type:guideCardMediaType||'image/jpeg', data:guideCardImageBase64}}
+      : null;
+    if (resolvedGuideCardContent) {
+      const data = await callClaude([
+        resolvedGuideCardContent,
+        {type:'text', text:`この名刺または履歴書から、ガイド登録用の個人情報を抽出してください。
+以下のJSON形式のみで返してください（前置き・コードブロック記号は不要）。
+{"name":"氏名(日本語表記。姓と名の間に半角スペース、例:田中 太郎)","name_kana":"氏名のカタカナ読み(例:タナカ タロウ)","phone":"携帯電話番号","birthday":"生年月日(YYYY-MM-DD形式。和暦のみの記載は西暦に変換して構いません。記載が無ければnull)","age":"年齢(数値。記載が無く生年月日からも算出できなければnull)"}
+・記載がない項目はnullにしてください（推測で埋めないこと）
+・本人以外の第三者の氏名(紹介者・保証人・勤務先の担当者等)は抽出しないこと
+・マイナンバー等の機密情報は抽出しないでください（このJSONに含めないこと）`}
+      ], 800);
+      const raw = data.content?.[0]?.text || '';
+      const cleaned = raw.replace(/```json|```/g, '').trim();
+      let result;
+      try { result = JSON.parse(cleaned); } catch { result = null; }
+      if (!result || typeof result !== 'object' || Array.isArray(result)) {
+        return res.status(500).json({ error: 'AIの応答を解析できませんでした' });
+      }
+      return res.status(200).json({ result });
+    }
+
+    // ─── ガイド登録：口座情報OCRモード（通帳・キャッシュカード等から銀行口座情報を抽出） ───
+    if (guideBankImageBase64) {
+      const data = await callClaude([
+        {type:'image', source:{type:'base64', media_type:guideBankMediaType||'image/jpeg', data:guideBankImageBase64}},
+        {type:'text', text:`この通帳の表紙・見開き、またはキャッシュカードの画像から、銀行口座情報を抽出してください。
+以下のJSON形式のみで返してください（前置き・コードブロック記号は不要）。
+{"bank_name":"銀行名(例:三井住友銀行)","branch_name":"支店名(例:渋谷支店)","account_type":"普通 または 当座(不明ならnull)","account_number":"口座番号(数字のみ)","account_holder":"口座名義(通帳・カードの表記通り。カタカナのことが多い)"}
+・記載がない・読み取れない項目はnullにしてください（推測で埋めないこと）`}
+      ], 500);
+      const raw = data.content?.[0]?.text || '';
+      const cleaned = raw.replace(/```json|```/g, '').trim();
+      let result;
+      try { result = JSON.parse(cleaned); } catch { result = null; }
+      if (!result || typeof result !== 'object' || Array.isArray(result)) {
+        return res.status(500).json({ error: 'AIの応答を解析できませんでした' });
+      }
+      return res.status(200).json({ result });
     }
 
     // ─── クレジットカード明細OCRモード（旧 /api/extract-cardstatement.js を統合） ───

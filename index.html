@@ -19301,11 +19301,124 @@ function openGuideEditor(id){
   document.getElementById('gr-memo').value = g ? [g.languages, g.memo].filter(Boolean).join(g.languages&&g.memo?'\n':'') : '';
   document.getElementById('gr-bank').value = g ? (g.bank_info||'') : '';   document.getElementById('gr-mynumber').value = g ? (g.my_number||'') : '';
   document.getElementById('gr-msg').style.display='none';
+  document.getElementById('gr-card-status').textContent = '';
+  document.getElementById('gr-bank-status').textContent = '';
   document.getElementById('guide-modal').classList.add('open');
 }
 
 function closeGuideEditor(){
   document.getElementById('guide-modal').classList.remove('open');
+}
+
+// ガイド登録: 名刺・履歴書の読み取り(取引先マスタのprocessCardFile()と同じAPI・エラー処理
+// パターンを踏襲。空欄のみ補完し、読み取り失敗時も既存の入力内容は保持する)。
+async function handleGuideCardUpload(event){
+  const file = event.target.files[0];
+  if(file) await processGuideCardFile(file);
+  event.target.value = '';
+}
+async function processGuideCardFile(file){
+  if(!file) return;
+  if(!checkOcrUploadSize(file)) return;
+  const statusEl = document.getElementById('gr-card-status');
+  statusEl.textContent = '⏳ 読み取り中...';
+  statusEl.classList.add('ocr-loading');
+  statusEl.style.color = '';
+  showGlobalOcrBanner();
+  try{
+    const name = (file.name||'').toLowerCase();
+    const isPdf = name.endsWith('.pdf') || file.type==='application/pdf';
+    const isExcel = name.match(/\.(xlsx|xls)$/);
+    const isWord = name.endsWith('.docx');
+    let body;
+    if(isExcel){ body = { guideCardText: await parseExcelToSheetsText(file) }; }
+    else if(isWord){ body = { guideCardText: await extractDocxText(file) }; }
+    else if(isPdf){ body = { guideCardPdfBase64: await readFileAsBase64(file) }; }
+    else { body = { guideCardImageBase64: await compressImageToBase64(file), guideCardMediaType: 'image/jpeg' }; }
+
+    const response = await fetch('/api/extract-card', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
+    });
+    if(!response.ok){
+      const errData = await response.json();
+      throw new Error(errData.error || 'サーバーエラー');
+    }
+    const data = await response.json();
+    const parsed = data.result || {};
+
+    const setIfEmpty = (id, val) => { const el = document.getElementById(id); if(el && !el.value && val) el.value = val; };
+    setIfEmpty('gr-name', parsed.name || '');
+    setIfEmpty('gr-kana', parsed.name_kana || '');
+    setIfEmpty('gr-phone', parsed.phone || '');
+    if(parsed.birthday && /^\d{4}-\d{2}-\d{2}$/.test(parsed.birthday)) setIfEmpty('gr-birthday', parsed.birthday);
+    if(parsed.age!=null && parsed.age!=='') setIfEmpty('gr-age', String(Number(parsed.age)||''));
+
+    statusEl.textContent = '✓ 読み取り完了。内容を確認して保存してください。';
+    statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
+    statusEl.style.color = 'var(--green)';
+  }catch(e){
+    statusEl.textContent = '読み取りに失敗しました: '+(e.message||e)+' 手動で入力してください。';
+    statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
+    statusEl.style.color = 'var(--red)';
+    logError('ガイド名刺・履歴書の読み取り(OCR)', e, {toast:false});
+  }
+}
+
+// ガイド登録: 通帳・キャッシュカード等からの口座情報読み取り。銀行口座欄(gr-bank)は
+// 単一のフリーテキスト欄のため、抽出した項目を「銀行名 支店名 種別口座番号 名義」の
+// 1行に組み立てて反映する。欄に既に入力がある場合は上書きしない。
+async function handleGuideBankUpload(event){
+  const file = event.target.files[0];
+  if(file) await processGuideBankFile(file);
+  event.target.value = '';
+}
+async function processGuideBankFile(file){
+  if(!file) return;
+  if(!checkOcrUploadSize(file)) return;
+  const statusEl = document.getElementById('gr-bank-status');
+  statusEl.textContent = '⏳ 読み取り中...';
+  statusEl.classList.add('ocr-loading');
+  statusEl.style.color = '';
+  showGlobalOcrBanner();
+  try{
+    const base64 = await compressImageToBase64(file);
+    const response = await fetch('/api/extract-card', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ guideBankImageBase64: base64, guideBankMediaType: 'image/jpeg' })
+    });
+    if(!response.ok){
+      const errData = await response.json();
+      throw new Error(errData.error || 'サーバーエラー');
+    }
+    const data = await response.json();
+    const parsed = data.result || {};
+
+    const parts = [];
+    if(parsed.bank_name) parts.push(parsed.bank_name);
+    if(parsed.branch_name) parts.push(parsed.branch_name);
+    if(parsed.account_type || parsed.account_number) parts.push([parsed.account_type||'', parsed.account_number||''].filter(Boolean).join(''));
+    if(parsed.account_holder) parts.push(parsed.account_holder);
+    const formatted = parts.join(' ');
+
+    const bankEl = document.getElementById('gr-bank');
+    if(bankEl && !bankEl.value.trim() && formatted) bankEl.value = formatted;
+
+    statusEl.textContent = formatted ? '✓ 読み取り完了。内容を確認して保存してください。' : '読み取れませんでした。手動で入力してください。';
+    statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
+    statusEl.style.color = formatted ? 'var(--green)' : 'var(--text3)';
+  }catch(e){
+    statusEl.textContent = '読み取りに失敗しました: '+(e.message||e)+' 手動で入力してください。';
+    statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
+    statusEl.style.color = 'var(--red)';
+    logError('ガイド口座情報の読み取り(OCR)', e, {toast:false});
+  }
 }
 
 async function saveGuide(){
@@ -27254,6 +27367,38 @@ function setDateInputValue(el, d){
     <div class="modal-header">
       <div class="modal-title" id="guide-modal-title">ガイド登録</div>
       <div class="modal-close" onclick="closeGuideEditor()">✕</div>
+    </div>
+    <div style="border:1px dashed var(--border);border-radius:8px;padding:8px;background:var(--bg);margin-bottom:8px">
+      <div style="font-size:10px;color:var(--text3);margin-bottom:4px;font-weight:600">名刺・履歴書を読み取り（氏名・カタカナ・携帯番号等を自動入力）</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">
+        <label class="btn btn-p" style="font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;text-align:center">
+          📷 カメラで撮影
+          <input type="file" accept="image/*" capture="environment" id="gr-card-input-camera" style="display:none" onchange="handleGuideCardUpload(event)">
+        </label>
+        <label class="btn" style="font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;text-align:center">
+          🖼 ギャラリーから選択
+          <input type="file" accept="image/*" id="gr-card-input-gallery" style="display:none" onchange="handleGuideCardUpload(event)">
+        </label>
+        <label class="btn" style="font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;text-align:center">
+          📎 Excel/PDF/Wordから読み取り
+          <input type="file" accept=".xlsx,.xls,.pdf,.docx" id="gr-card-input-doc" style="display:none" onchange="handleGuideCardUpload(event)">
+        </label>
+      </div>
+      <div id="gr-card-status" style="font-size:11px;color:var(--text3);margin-top:4px"></div>
+    </div>
+    <div style="border:1px dashed var(--border);border-radius:8px;padding:8px;background:var(--bg);margin-bottom:8px">
+      <div style="font-size:10px;color:var(--text3);margin-bottom:4px;font-weight:600">口座情報を読み取り（通帳・キャッシュカード等から銀行口座欄を自動入力）</div>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px">
+        <label class="btn btn-p" style="font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;text-align:center">
+          📷 カメラで撮影
+          <input type="file" accept="image/*" capture="environment" id="gr-bank-input-camera" style="display:none" onchange="handleGuideBankUpload(event)">
+        </label>
+        <label class="btn" style="font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;text-align:center">
+          🖼 ギャラリーから選択
+          <input type="file" accept="image/*" id="gr-bank-input-gallery" style="display:none" onchange="handleGuideBankUpload(event)">
+        </label>
+      </div>
+      <div id="gr-bank-status" style="font-size:11px;color:var(--text3);margin-top:4px"></div>
     </div>
     <div class="form-grid">
       <div class="form-field"><label>氏名</label><input id="gr-name" placeholder="例: 田中 太郎"></div>
