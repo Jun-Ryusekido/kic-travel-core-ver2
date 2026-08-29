@@ -27502,12 +27502,13 @@ async function showInvoicePreview(inv, booking){
     <tr>
       <td style="border-right:1px solid #000;border-bottom:1px solid #999;padding:8px 6px">
         <div style="display:flex;gap:10px;align-items:center">
-          <span style="flex:1">${(it.item_name||'').replace(/</g,'&lt;')}</span>
-          <span style="width:90px;text-align:right">${fmtMoney(it.unit_price||0)}</span>
+          <span style="flex:1;min-width:100px">${(it.item_name||'').replace(/</g,'&lt;')}</span>
+          <span style="width:75px;text-align:right">${fmtMoney(it.unit_price||0)}</span>
           <span style="width:36px;text-align:center">${it.pax||1}</span>
           <span style="width:36px;text-align:center">${it.qty||1}</span>
         </div>
       </td>
+      <td style="border-right:1px solid #000;border-bottom:1px solid #999;padding:8px 6px;width:100px;text-align:left;word-break:break-word">${(it.memo||'').replace(/</g,'&lt;')}</td>
       <td style="border-bottom:1px solid #999;padding:8px 6px;text-align:right">${fmtMoney(it.amount||0)}</td>
     </tr>`).join('');
 
@@ -27551,13 +27552,14 @@ async function showInvoicePreview(inv, booking){
       <table style="width:100%;border-collapse:collapse;font-size:11px;border:1px solid #000">
         <thead><tr>
           <th style="border-right:1px solid #000;border-bottom:1px solid #000;padding:6px;font-weight:400">DISCRIPTION</th>
+          <th style="border-right:1px solid #000;border-bottom:1px solid #000;padding:6px;font-weight:400;width:100px">REMARKS</th>
           <th style="border-bottom:1px solid #000;padding:6px;font-weight:400;width:130px">AMOUNT</th>
         </tr></thead>
         <tbody>
           ${itemRows}
-          <tr><td style="border-right:1px solid #000;border-bottom:1px solid #000;padding:8px 6px;text-align:center">Total</td><td style="border-bottom:1px solid #000;padding:8px 6px;text-align:right">${amountStr}</td></tr>
-          <tr><td style="border-right:1px solid #000;border-bottom:1px solid #000;padding:8px 6px;text-align:center">Received deposit</td><td style="border-bottom:1px solid #000;padding:8px 6px;text-align:right">${fmtMoney(depositConverted)}</td></tr>
-          <tr><td style="border-right:1px solid #000;padding:8px 6px;text-align:center">Remaining balance</td><td style="padding:8px 6px;text-align:right">${fmtMoney(balance)}</td></tr>
+          <tr><td style="border-right:1px solid #000;border-bottom:1px solid #000;padding:8px 6px;text-align:center">Total</td><td style="border-right:1px solid #000;border-bottom:1px solid #000;padding:8px 6px"></td><td style="border-bottom:1px solid #000;padding:8px 6px;text-align:right">${amountStr}</td></tr>
+          <tr><td style="border-right:1px solid #000;border-bottom:1px solid #000;padding:8px 6px;text-align:center">Received deposit</td><td style="border-right:1px solid #000;border-bottom:1px solid #000;padding:8px 6px"></td><td style="border-bottom:1px solid #000;padding:8px 6px;text-align:right">${fmtMoney(depositConverted)}</td></tr>
+          <tr><td style="border-right:1px solid #000;padding:8px 6px;text-align:center">Remaining balance</td><td style="border-right:1px solid #000;padding:8px 6px"></td><td style="padding:8px 6px;text-align:right">${fmtMoney(balance)}</td></tr>
         </tbody>
       </table>
 
