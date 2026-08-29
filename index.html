@@ -22399,6 +22399,21 @@ async function saveInvoiceConfirm(){
     await bookingsApiCall('updateById', { id: currentDetailId, fields: {gross_cost:newGross, updated_at:new Date().toISOString()} });
     const bk=findBookingById(currentDetailId); if(bk) bk.gross_cost=newGross;
   }
+  // この請求書読み取りは複数のREF#(予約)にまたがって仕入明細を振り分けられる設計のため、
+  // 「今開いている予約詳細モーダルの予約」以外にも今回明細行を追加した予約が残っている
+  // 場合がある。それらは予約詳細モーダルを開いていない(bdCostItemsに反映されない)ため、
+  // booking_costsをDBから直接全件再取得してgross_costを再計算・更新する
+  // (取り込んだ全予約でgross_costが必ず最新化されるようにするため。以前はcurrentDetailId
+  // の1件だけしか更新されず、他の予約のgross_costが古いまま=粗利が過大表示され続ける
+  // 不具合があった)。
+  const otherBookingIds = [...savedIds].filter(bid=>bid && bid!==currentDetailId);
+  for(const bid of otherBookingIds){
+    const {data: costsForBid, error: costsErr} = await sb.from('booking_costs').select('amount').eq('booking_id', bid);
+    if(costsErr){ logError('請求書取込後のgross_cost再計算', costsErr, {toast:false}); continue; }
+    const newGross = (costsForBid||[]).reduce((s,r)=>s+Number(r.amount||0),0);
+    await bookingsApiCall('updateById', { id: bid, fields: {gross_cost:newGross, updated_at:new Date().toISOString()} });
+    const bk = findBookingById(bid); if(bk) bk.gross_cost = newGross;
+  }
 
   // 保存後、REF#を検索して予約詳細を開き直す手間を無くすため、REF#ごとの保存件数と
   // 予約詳細への直接リンク(既存のREF#リンクと同じopenBookingDetail()を使用)を表示する。
