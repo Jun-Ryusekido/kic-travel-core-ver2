@@ -767,6 +767,14 @@ input[type=number]{-moz-appearance:textfield}
      共通ルールの薄いvar(--text3)より読みやすいvar(--text2)にする(以前の
      売上明細カード整列修正での改善を、ラベルが残る項目分についても維持)。 */
   #bd-sales-tbody td.bd-sales-detail[data-label]::before{color:var(--text2)}
+  /* 並び替え(⠿ドラッグハンドル+▲▼)セルは、明示的なgrid-column/rowを持たないと
+     CSS Gridの自動配置で幅わずか1/12(約20px)の狭い列に押し込まれ、.li-table td{overflow:hidden}
+     (PC向けの基本ルール)によって▲▼ボタンが見切れて非表示になってしまっていた(⠿だけが
+     ギリギリ収まって見える状態。2026-08点検で発見)。フル幅(grid-column:1/13)の専用行を
+     与えて解消する。grid-rowは指定しない(=自動配置に任せる)ことで、折りたたみ中は
+     サマリー行の直下(bd-sales-detailを持たないため引き続き常時表示)、展開中は他の
+     詳細項目より後ろ(DOM上も末尾に置いたため)に自然と配置される。 */
+  #bd-sales-tbody td.li-reorder{grid-column:1/13;overflow:visible!important}
 
   /* ホテル項目のみ、他タブと違う専用のコンパクトレイアウトにする(#bd-hotels-tbodyで
      スコープし、bus/restaurant/facility等の他confirm-tableには一切影響させない)。
@@ -872,6 +880,12 @@ input[type=number]{-moz-appearance:textfield}
 
   /* 6行目: 備考(placeholderのみでラベル無し、フル幅) */
   #bd-hotels-tbody td:nth-child(13){grid-row:6;grid-column:1/13}
+
+  /* 7行目: 並び替え(⠿ドラッグハンドル+▲▼)。明示的なgrid-column/rowを持たないと
+     CSS Gridの自動配置で幅わずか1/12(約20px)の狭い列に押し込まれ、.li-table td{overflow:hidden}
+     (PC向けの基本ルール)によって▲▼ボタンが見切れて非表示になってしまっていた(売上明細
+     タブと同じ原因、2026-08点検で発見)。フル幅(grid-column:1/13)の専用行を与えて解消する。 */
+  #bd-hotels-tbody td.li-reorder{grid-row:7;grid-column:1/13;overflow:visible!important}
 
   /* クレジットカード明細OCR確認画面(#cc-ocr-results)専用のモバイル調整。
      他のOCR確認画面(請求書・ホテル等)のconfirm-tableには一切影響させない。
@@ -2898,7 +2912,7 @@ input[type=number]{-moz-appearance:textfield}
           <span id="bd-inv-empty-hint" style="display:none;font-size:10px;color:var(--text3)">関連するInvoiceはありません</span>
         </div>
         <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:1080px">
-          <thead><tr><th class="li-reorder" style="width:3%"></th><th style="width:11%">項目名</th><th style="width:24%">追記事項</th><th style="width:7%;text-align:right">単価</th><th style="width:4%;text-align:right">人数</th><th style="width:4%;text-align:right">数量</th><th class="li-amt" style="width:7%;text-align:right">金額</th><th style="width:120px">入金日</th><th style="width:8%" class="li-amt">入金金額</th><th style="width:9%">入金先銀行</th><th style="width:10%">入金備考</th><th style="width:6%" class="li-amt">未収</th><th class="bd-agent-col" style="width:120px">請求先</th><th class="li-del" style="width:3%"></th></tr></thead>
+          <thead><tr><th style="width:11%">項目名</th><th style="width:24%">追記事項</th><th style="width:7%;text-align:right">単価</th><th style="width:4%;text-align:right">人数</th><th style="width:4%;text-align:right">数量</th><th class="li-amt" style="width:7%;text-align:right">金額</th><th style="width:120px">入金日</th><th style="width:8%" class="li-amt">入金金額</th><th style="width:9%">入金先銀行</th><th style="width:10%">入金備考</th><th style="width:6%" class="li-amt">未収</th><th class="bd-agent-col" style="width:120px">請求先</th><th class="li-del" style="width:3%"></th><th class="li-reorder" style="width:3%"></th></tr></thead>
           <tbody id="bd-sales-tbody"></tbody>
         </table></div>
         <button class="btn" id="bd-sales-add-btn" style="font-size:10px;margin-top:4px" onclick="addSalesRow()">＋ 行追加</button>
@@ -6484,7 +6498,6 @@ function renderSalesTable(){
   }else{
     tbody.innerHTML = bdSalesItems.map((it,i)=>`
       <tr class="${bdSalesExpandedRows.has(i)?'expanded':''}"${arrRowDropHtml('bdSalesItems',i,'renderSalesTable')}>
-        ${arrReorderHtml('bdSalesItems',i,bdSalesItems.length,'renderSalesTable',bdLocked)}
         <td class="bd-sales-summary-cell" onclick="if(event.target.tagName!=='INPUT')toggleBdSalesRowExpand(${i},this.closest('tr'))">
           <span class="bd-sales-chevron">▸</span><input ${dis} value="${(it.item_name||'').replace(/"/g,'&quot;')}" title="${(it.item_name||'').replace(/"/g,'&quot;')}" oninput="bdSalesItems[${i}].item_name=this.value;showItemNameSuggestionsForSales(this,${i})" onblur="setTimeout(hideItemNameSuggestionsForSales,150)" onfocus="showItemNameSuggestionsForSales(this,${i})"><span class="bd-sales-summary-amt" id="bd-sales-summary-amt-${i}">${yen(it.amount||0)}</span>
         </td>
@@ -6500,6 +6513,7 @@ function renderSalesTable(){
           <div id="sales-row-agent-dd-${i}" style="display:none;position:fixed;top:0;left:0;min-width:200px;background:var(--card,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:99999;max-height:180px;overflow-y:auto"></div>
         </td>
         <td class="li-del bd-sales-detail">${bdLocked?'':`<span class="lnk" style="font-size:10px" onclick="removeSalesRow(${i})">削除</span>`}</td>
+        ${arrReorderHtml('bdSalesItems',i,bdSalesItems.length,'renderSalesTable',bdLocked)}
       </tr>`).join('');
   }
   updateDetailGrossPreview();
