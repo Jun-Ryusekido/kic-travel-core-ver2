@@ -772,8 +772,9 @@ input[type=number]{-moz-appearance:textfield}
      (PC向けの基本ルール)によって▲▼ボタンが見切れて非表示になってしまっていた(⠿だけが
      ギリギリ収まって見える状態。2026-08点検で発見)。フル幅(grid-column:1/13)の専用行を
      与えて解消する。grid-rowは指定しない(=自動配置に任せる)ことで、折りたたみ中は
-     サマリー行の直下(bd-sales-detailを持たないため引き続き常時表示)、展開中は他の
-     詳細項目より後ろ(DOM上も末尾に置いたため)に自然と配置される。 */
+     サマリー行の直下(bd-sales-detailを持たないため引き続き常時表示)、展開中も他の
+     詳細項目より先(DOM上も先頭に置いているため。PC幅で右端が画面幅を超えて見切れる
+     問題を避けるため、他7タブと同じく先頭に統一した)に自然と配置される。 */
   #bd-sales-tbody td.li-reorder{grid-column:1/13;overflow:visible!important}
 
   /* ホテル項目のみ、他タブと違う専用のコンパクトレイアウトにする(#bd-hotels-tbodyで
@@ -807,39 +808,50 @@ input[type=number]{-moz-appearance:textfield}
   #bd-hotels-tbody td .st-dd-btn{width:100%;height:28px;box-sizing:border-box}
   #bd-hotels-tbody td.empty{grid-column:1/13;display:block}
 
-  /* 1行目: ホテル名(col1-11=トラック1-11) + 削除ボタン(col12=トラック11-12、
-     1トラック分の狭い幅にして入力欄のすぐ右に来るようにする) */
-  #bd-hotels-tbody td:nth-child(1){grid-row:1;grid-column:1/12}
-  #bd-hotels-tbody td.li-del{grid-row:1;grid-column:12/13;justify-content:center}
+  /* 0行目(最上段): 並び替え(⠿ドラッグハンドル+▲▼)。PC幅で右端が画面幅を超えて
+     見切れる問題を避けるため、他7タブと同じく先頭(左側)に統一する(2026-08、
+     一度末尾に統一していたものを先頭へ再度統一)。フル幅(grid-column:1/13)の
+     専用行を与える(明示的なgrid-column/rowが無いとCSS Gridの自動配置で幅わずか
+     1/12の狭い列に押し込まれ、.li-table td{overflow:hidden}によって▲▼ボタンが
+     見切れて非表示になってしまうため)。並び替え行の追加に伴い、以下の各項目の
+     grid-rowを全て1つずつ後ろにずらしている。 */
+  #bd-hotels-tbody td.li-reorder{grid-row:1;grid-column:1/13;overflow:visible!important}
+
+  /* 1行目(並び替え行の次): ホテル名(col1-11=トラック1-11) + 削除ボタン(col12=
+     トラック11-12、1トラック分の狭い幅にして入力欄のすぐ右に来るようにする)。
+     並び替えセルがDOM上も先頭のtdになったため、以降の項目のnth-childは
+     全て+1する(nth-child(1)=ホテル名だったものがnth-child(2)になる、等)。 */
+  #bd-hotels-tbody td:nth-child(2){grid-row:2;grid-column:1/12}
+  #bd-hotels-tbody td.li-del{grid-row:2;grid-column:12/13;justify-content:center}
 
   /* 2行目: イン(col1) / アウト(col2) / 泊数(col3、背景色付きバッジ)。ラベル「イン」
      「アウト」は日付欄自体で分かるため非表示のまま。泊数は元のテキストは変更せず
      (PC表示に影響させないため)CSSの::afterで「泊」を付与する。 */
-  #bd-hotels-tbody td:nth-child(2){grid-row:2;grid-column:1/6}
-  #bd-hotels-tbody td:nth-child(3){grid-row:2;grid-column:6/11}
-  #bd-hotels-tbody td:nth-child(6){
-    grid-row:2;grid-column:11/13;justify-content:center;
+  #bd-hotels-tbody td:nth-child(3){grid-row:3;grid-column:1/6}
+  #bd-hotels-tbody td:nth-child(4){grid-row:3;grid-column:6/11}
+  #bd-hotels-tbody td:nth-child(7){
+    grid-row:3;grid-column:11/13;justify-content:center;
     background:var(--bg2,#EEF1F4);border-radius:6px;font-size:11px;font-weight:700;color:var(--text2)
   }
   #bd-hotels-tbody td[data-hotel-nights]::after{content:"泊";font-size:9px;font-weight:400;margin-left:1px}
 
   /* 3行目: 部屋タイプ(col1、placeholderのみでラベル無し) / 部屋数(col2、入力欄の
      右側に「室」を並べて表示、ラベル無し) / 朝食(col3、チェックボックスのみ・背景色付き) */
-  #bd-hotels-tbody td:nth-child(4){grid-row:3;grid-column:1/6}
-  #bd-hotels-tbody td:nth-child(5){grid-row:3;grid-column:6/11;gap:4px}
-  #bd-hotels-tbody td:nth-child(7){
-    grid-row:3;grid-column:11/13;justify-content:center;
+  #bd-hotels-tbody td:nth-child(5){grid-row:4;grid-column:1/6}
+  #bd-hotels-tbody td:nth-child(6){grid-row:4;grid-column:6/11;gap:4px}
+  #bd-hotels-tbody td:nth-child(8){
+    grid-row:4;grid-column:11/13;justify-content:center;
     background:var(--bg2,#EEF1F4);border-radius:6px
   }
   /* 「室」はflexアイテムとして入力欄の後ろ(右)に実際に並べる。DOM順は
      input→::afterのため、::afterは自動的に最後(右側)に配置される。 */
-  #bd-hotels-tbody td:nth-child(5)::after{
+  #bd-hotels-tbody td:nth-child(6)::after{
     content:"室";display:block;font-size:10px;font-weight:400;color:var(--text3);
     flex:0 0 auto;white-space:nowrap
   }
-  #bd-hotels-tbody td:nth-child(5) input{-moz-appearance:textfield;width:auto!important;flex:1;min-width:0}
-  #bd-hotels-tbody td:nth-child(5) input::-webkit-outer-spin-button,
-  #bd-hotels-tbody td:nth-child(5) input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+  #bd-hotels-tbody td:nth-child(6) input{-moz-appearance:textfield;width:auto!important;flex:1;min-width:0}
+  #bd-hotels-tbody td:nth-child(6) input::-webkit-outer-spin-button,
+  #bd-hotels-tbody td:nth-child(6) input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 
   /* 4行目: 単価(入力欄の前(左)に「¥」を並べて表示、ラベル無し) / 金額(「金額」ラベル+
      値を1つの塊で表示) / 支払方法(広め)。3行目までの1fr:1fr:0.4fr共有グリッドとは
@@ -847,45 +859,39 @@ input[type=number]{-moz-appearance:textfield}
      ※元の指示には金額(単価×部屋数×泊数の計算結果)の配置が明記されていなかったが、
      省略すると合計金額が画面から見えなくなる回帰になるため、単価と支払方法の間に
      残している。 */
-  #bd-hotels-tbody td:nth-child(8){grid-row:4;grid-column:1/5;gap:4px}
-  #bd-hotels-tbody td:nth-child(9){grid-row:4;grid-column:5/8;gap:4px;font-size:11px;white-space:nowrap;overflow:hidden}
-  #bd-hotels-tbody td:nth-child(10){grid-row:4;grid-column:8/13}
+  #bd-hotels-tbody td:nth-child(9){grid-row:5;grid-column:1/5;gap:4px}
+  #bd-hotels-tbody td:nth-child(10){grid-row:5;grid-column:5/8;gap:4px;font-size:11px;white-space:nowrap;overflow:hidden}
+  #bd-hotels-tbody td:nth-child(11){grid-row:5;grid-column:8/13}
   /* 「¥」はflexアイテムとして入力欄の前(左)に実際に並べる。::beforeはDOM順で
      input(実要素)より必ず前に生成されるため、自動的に左側に配置される。 */
-  #bd-hotels-tbody td:nth-child(8)::before{
+  #bd-hotels-tbody td:nth-child(9)::before{
     content:"¥";display:block;font-size:10px;font-weight:400;color:var(--text3);
     flex:0 0 auto;white-space:nowrap
   }
-  #bd-hotels-tbody td:nth-child(8) input{width:auto!important;flex:1;min-width:0}
-  #bd-hotels-tbody td:nth-child(9)::before{
+  #bd-hotels-tbody td:nth-child(9) input{width:auto!important;flex:1;min-width:0}
+  #bd-hotels-tbody td:nth-child(10)::before{
     content:"金額";display:block;font-size:10px;font-weight:600;color:var(--text3);
     flex:0 0 auto;white-space:nowrap
   }
 
   /* 5行目: 確認番号(placeholderのみ) / ステータス / 仕入明細(ラベル+バッジを
      1つの枠にまとめ、バッジをラベルのすぐ右に寄せる)の均等3分割(4:4:4)。 */
-  #bd-hotels-tbody td:nth-child(11){grid-row:5;grid-column:1/5}
-  #bd-hotels-tbody td:nth-child(12){grid-row:5;grid-column:5/9}
-  #bd-hotels-tbody td:nth-child(14){
-    grid-row:5;grid-column:9/13;justify-content:flex-start;gap:6px;
+  #bd-hotels-tbody td:nth-child(12){grid-row:6;grid-column:1/5}
+  #bd-hotels-tbody td:nth-child(13){grid-row:6;grid-column:5/9}
+  #bd-hotels-tbody td:nth-child(15){
+    grid-row:6;grid-column:9/13;justify-content:flex-start;gap:6px;
     background:var(--bg2,#EEF1F4);border-radius:6px;padding:0 8px!important
   }
   /* PC側の見出し(th)は「仕入明細へ」のままだが、data-label属性を変えるとbus/rest/fac等の
      共通ヘルパー(arrCostCheckboxHtml)全体に影響してしまうため、属性値は変更せず、
      ホテルのモバイル表示に限定してこのセレクタだけ表示文言をCSSで差し替える。 */
-  #bd-hotels-tbody td:nth-child(14)::before{
+  #bd-hotels-tbody td:nth-child(15)::before{
     content:"仕入明細";display:block;font-size:10px;font-weight:600;color:var(--text3);
     flex:0 0 auto;white-space:nowrap
   }
 
   /* 6行目: 備考(placeholderのみでラベル無し、フル幅) */
-  #bd-hotels-tbody td:nth-child(13){grid-row:6;grid-column:1/13}
-
-  /* 7行目: 並び替え(⠿ドラッグハンドル+▲▼)。明示的なgrid-column/rowを持たないと
-     CSS Gridの自動配置で幅わずか1/12(約20px)の狭い列に押し込まれ、.li-table td{overflow:hidden}
-     (PC向けの基本ルール)によって▲▼ボタンが見切れて非表示になってしまっていた(売上明細
-     タブと同じ原因、2026-08点検で発見)。フル幅(grid-column:1/13)の専用行を与えて解消する。 */
-  #bd-hotels-tbody td.li-reorder{grid-row:7;grid-column:1/13;overflow:visible!important}
+  #bd-hotels-tbody td:nth-child(14){grid-row:7;grid-column:1/13}
 
   /* クレジットカード明細OCR確認画面(#cc-ocr-results)専用のモバイル調整。
      他のOCR確認画面(請求書・ホテル等)のconfirm-tableには一切影響させない。
@@ -2606,6 +2612,7 @@ input[type=number]{-moz-appearance:textfield}
       </div>
       <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:970px">
         <thead><tr>
+          <th class="li-reorder" style="width:60px"></th>
           <th style="width:160px">ホテル名</th>
           <th style="width:100px;cursor:pointer;user-select:none" onclick="sortHotelTable('check_in')">チェックイン <span id="hotel-checkin-sort-arrow"></span></th>
           <th style="width:100px;cursor:pointer;user-select:none" onclick="sortHotelTable('check_out')">チェックアウト <span id="hotel-checkout-sort-arrow"></span></th>
@@ -2621,7 +2628,6 @@ input[type=number]{-moz-appearance:textfield}
           <th>備考</th>
           <th style="width:70px">仕入明細へ</th>
           <th class="li-del"></th>
-          <th class="li-reorder" style="width:60px"></th>
         </tr></thead>
         <tbody id="bd-hotels-tbody"></tbody>
       </table></div>
@@ -2649,6 +2655,7 @@ input[type=number]{-moz-appearance:textfield}
       </div>
       <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:900px">
         <thead><tr>
+          <th class="li-reorder" style="width:60px"></th>
           <th style="width:160px">バス会社</th>
           <th style="width:90px">バスタイプ</th>
           <th style="width:35px">台数</th>
@@ -2661,7 +2668,6 @@ input[type=number]{-moz-appearance:textfield}
           <th>備考</th>
           <th style="width:70px">仕入明細へ</th>
           <th class="li-del" style="width:66px"></th>
-          <th class="li-reorder" style="width:60px"></th>
         </tr></thead>
         <tbody id="bd-buses-tbody"></tbody>
       </table></div>
@@ -2693,6 +2699,7 @@ input[type=number]{-moz-appearance:textfield}
       </div>
       <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:1080px">
         <thead><tr>
+          <th class="li-reorder" style="width:60px"></th>
           <th style="width:160px">店名</th>
           <th style="width:70px">食事種別</th>
           <th style="width:100px;cursor:pointer;user-select:none" onclick="sortRestaurantTable('date')">日付 <span id="rest-date-sort-arrow"></span></th>
@@ -2704,7 +2711,6 @@ input[type=number]{-moz-appearance:textfield}
           <th style="width:220px">備考</th>
           <th style="width:70px">仕入明細へ</th>
           <th class="li-del" style="width:66px"></th>
-          <th class="li-reorder" style="width:60px"></th>
         </tr></thead>
         <tbody id="bd-restaurants-tbody"></tbody>
       </table></div>
@@ -2733,6 +2739,7 @@ input[type=number]{-moz-appearance:textfield}
       </div>
       <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:920px">
         <thead><tr>
+          <th class="li-reorder" style="width:60px"></th>
           <th style="width:180px">施設名</th>
           <th style="width:100px;cursor:pointer;user-select:none" onclick="sortFacilityTable('date')">日付 <span id="fac-date-sort-arrow"></span></th>
           <th style="width:45px">人数</th>
@@ -2744,7 +2751,6 @@ input[type=number]{-moz-appearance:textfield}
           <th>備考</th>
           <th style="width:70px">仕入明細へ</th>
           <th class="li-del" style="width:66px"></th>
-          <th class="li-reorder" style="width:60px"></th>
         </tr></thead>
         <tbody id="bd-facilities-tbody"></tbody>
       </table></div>
@@ -2756,6 +2762,7 @@ input[type=number]{-moz-appearance:textfield}
     <div id="arrtab-water" style="display:none">
       <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:860px">
         <thead><tr>
+          <th class="li-reorder" style="width:60px"></th>
           <th style="width:180px">品名</th>
           <th style="width:100px">日付</th>
           <th style="width:60px">数量</th>
@@ -2766,7 +2773,6 @@ input[type=number]{-moz-appearance:textfield}
           <th>備考</th>
           <th style="width:70px">仕入明細へ</th>
           <th class="li-del" style="width:66px"></th>
-          <th class="li-reorder" style="width:60px"></th>
         </tr></thead>
         <tbody id="bd-water-tbody"></tbody>
       </table></div>
@@ -2778,6 +2784,7 @@ input[type=number]{-moz-appearance:textfield}
     <div id="arrtab-bullet" style="display:none">
       <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:1230px">
         <thead><tr>
+          <th class="li-reorder" style="width:60px"></th>
           <th style="width:90px;cursor:pointer;user-select:none" onclick="sortBulletTrainTable('ride_date')">乗車日 <span id="bullet-ride-date-sort-arrow"></span></th>
           <th style="width:80px">列車名</th>
           <th style="width:55px">号数</th>
@@ -2794,7 +2801,6 @@ input[type=number]{-moz-appearance:textfield}
           <th style="width:88px">ステータス</th>
           <th>備考</th>
           <th class="li-del" style="width:66px"></th>
-          <th class="li-reorder" style="width:60px"></th>
         </tr></thead>
         <tbody id="bd-bullet-tbody"></tbody>
       </table></div>
@@ -2807,6 +2813,7 @@ input[type=number]{-moz-appearance:textfield}
     <div id="arrtab-guide" style="display:none">
       <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:760px">
         <thead><tr>
+          <th class="li-reorder" style="width:60px"></th>
           <th style="width:220px">ガイド</th>
           <th style="width:110px">担当日(From)</th>
           <th style="width:110px">担当日(To)</th>
@@ -2815,7 +2822,6 @@ input[type=number]{-moz-appearance:textfield}
           <th style="width:90px">ステータス</th>
           <th>備考</th>
           <th class="li-del"></th>
-          <th class="li-reorder" style="width:60px"></th>
         </tr></thead>
         <tbody id="bd-guides-tbody"></tbody>
       </table></div>
@@ -2912,7 +2918,7 @@ input[type=number]{-moz-appearance:textfield}
           <span id="bd-inv-empty-hint" style="display:none;font-size:10px;color:var(--text3)">関連するInvoiceはありません</span>
         </div>
         <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:1080px">
-          <thead><tr><th style="width:11%">項目名</th><th style="width:24%">追記事項</th><th style="width:7%;text-align:right">単価</th><th style="width:4%;text-align:right">人数</th><th style="width:4%;text-align:right">数量</th><th class="li-amt" style="width:7%;text-align:right">金額</th><th style="width:120px">入金日</th><th style="width:8%" class="li-amt">入金金額</th><th style="width:9%">入金先銀行</th><th style="width:10%">入金備考</th><th style="width:6%" class="li-amt">未収</th><th class="bd-agent-col" style="width:120px">請求先</th><th class="li-del" style="width:3%"></th><th class="li-reorder" style="width:3%"></th></tr></thead>
+          <thead><tr><th class="li-reorder" style="width:60px"></th><th style="width:11%">項目名</th><th style="width:24%">追記事項</th><th style="width:7%;text-align:right">単価</th><th style="width:4%;text-align:right">人数</th><th style="width:4%;text-align:right">数量</th><th class="li-amt" style="width:7%;text-align:right">金額</th><th style="width:120px">入金日</th><th style="width:8%" class="li-amt">入金金額</th><th style="width:9%">入金先銀行</th><th style="width:10%">入金備考</th><th style="width:6%" class="li-amt">未収</th><th class="bd-agent-col" style="width:120px">請求先</th><th class="li-del" style="width:3%"></th></tr></thead>
           <tbody id="bd-sales-tbody"></tbody>
         </table></div>
         <button class="btn" id="bd-sales-add-btn" style="font-size:10px;margin-top:4px" onclick="addSalesRow()">＋ 行追加</button>
@@ -6498,6 +6504,7 @@ function renderSalesTable(){
   }else{
     tbody.innerHTML = bdSalesItems.map((it,i)=>`
       <tr class="${bdSalesExpandedRows.has(i)?'expanded':''}"${arrRowDropHtml('bdSalesItems',i,'renderSalesTable')}>
+        ${arrReorderHtml('bdSalesItems',i,bdSalesItems.length,'renderSalesTable',bdLocked)}
         <td class="bd-sales-summary-cell" onclick="if(event.target.tagName!=='INPUT')toggleBdSalesRowExpand(${i},this.closest('tr'))">
           <span class="bd-sales-chevron">▸</span><input ${dis} value="${(it.item_name||'').replace(/"/g,'&quot;')}" title="${(it.item_name||'').replace(/"/g,'&quot;')}" oninput="bdSalesItems[${i}].item_name=this.value;showItemNameSuggestionsForSales(this,${i})" onblur="setTimeout(hideItemNameSuggestionsForSales,150)" onfocus="showItemNameSuggestionsForSales(this,${i})"><span class="bd-sales-summary-amt" id="bd-sales-summary-amt-${i}">${yen(it.amount||0)}</span>
         </td>
@@ -6513,7 +6520,6 @@ function renderSalesTable(){
           <div id="sales-row-agent-dd-${i}" style="display:none;position:fixed;top:0;left:0;min-width:200px;background:var(--card,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:99999;max-height:180px;overflow-y:auto"></div>
         </td>
         <td class="li-del bd-sales-detail">${bdLocked?'':`<span class="lnk" style="font-size:10px" onclick="removeSalesRow(${i})">削除</span>`}</td>
-        ${arrReorderHtml('bdSalesItems',i,bdSalesItems.length,'renderSalesTable',bdLocked)}
       </tr>`).join('');
   }
   updateDetailGrossPreview();
@@ -11608,6 +11614,7 @@ function renderHotelTable(){
     tbody.innerHTML = bdHotelItems.map((it,i)=>{
       const nights = calcHotelNights(it.check_in, it.check_out);
       return `<tr${arrRowDropHtml('bdHotelItems',i,'renderHotelTable')}>
+        ${arrReorderHtml('bdHotelItems', i, bdHotelItems.length, 'renderHotelTable')}
         <td data-label="ホテル名" style="position:relative"><input value="${escAttr(it.hotel_name)}" oninput="bdHotelItems[${i}].hotel_name=this.value;showHotelSuggest(this,${i},bdHotelItems)" onfocus="showHotelSuggest(this,${i},bdHotelItems)" onblur="setTimeout(hideHotelSuggest,150)" style="width:100%"></td>
         <td data-label="ｲﾝ"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.check_in}" onchange="bdHotelItems[${i}].check_in=this.value;hotelCalc(${i})"></td>
         <td data-label="ｱｳﾄ"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.check_out}" onchange="bdHotelItems[${i}].check_out=this.value;hotelCalc(${i})"></td>
@@ -11623,7 +11630,6 @@ function renderHotelTable(){
         <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdHotelItems[${i}].memo=this.value" placeholder="備考" style="width:100%"></td>
         ${arrCostCheckboxHtml('bdHotelItems', i, it, 'hotel')}
         ${arrDelBtnHtml('bdHotelItems', i, 'renderHotelTable', escAttr([it.hotel_name, it.room_type, [it.check_in, it.check_out].filter(Boolean).join('〜')].filter(Boolean).join(' '))+' の行を削除しますか？')}
-        ${arrReorderHtml('bdHotelItems', i, bdHotelItems.length, 'renderHotelTable')}
       </tr>`;
     }).join('');
   }
@@ -11756,6 +11762,7 @@ function renderBusTable(){
     tbody.innerHTML='<tr><td colspan="13" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
   }else{
     tbody.innerHTML = bdBusItems.map((it,i)=>`<tr${arrRowDropHtml('bdBusItems',i,'renderBusTable')}>
+      ${arrReorderHtml('bdBusItems', i, bdBusItems.length, 'renderBusTable')}
       <td data-label="バス会社" style="position:relative"><input value="${escAttr(it.bus_company)}" oninput="bdBusItems[${i}].bus_company=this.value;showBusCompanySuggest(this,${i})" onfocus="showBusCompanySuggest(this,${i})" onblur="setTimeout(hideBusCompanySuggest,150)" style="width:100%"></td>
       <td data-label="バスタイプ"><input value="${escAttr(it.bus_type)}" oninput="bdBusItems[${i}].bus_type=this.value" style="width:100%"></td>
       <td data-label="台数"><input type="number" value="${it.buses||1}" onchange="bdBusItems[${i}].buses=Number(this.value)" style="width:100%"></td>
@@ -11768,7 +11775,6 @@ function renderBusTable(){
       <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdBusItems[${i}].memo=this.value" style="width:100%"></td>
       ${arrCostCheckboxHtml('bdBusItems', i, it, 'bus')}
       ${arrDelBtnHtml('bdBusItems', i, 'renderBusTable', escAttr([it.bus_company, it.bus_type, [it.start_date, it.end_date].filter(Boolean).join('〜')].filter(Boolean).join(' '))+' の行を削除しますか？', 'duplicateBusRow')}
-      ${arrReorderHtml('bdBusItems', i, bdBusItems.length, 'renderBusTable')}
     </tr>`).join('');
   }
   document.getElementById('bd-buses-total').textContent = yen(total);
@@ -14946,6 +14952,7 @@ function renderRestaurantTable(){
   }else{
     tbody.innerHTML = bdRestaurantItems.map((it,i)=>{
       return `<tr${arrRowDropHtml('bdRestaurantItems',i,'renderRestaurantTable')}>
+      ${arrReorderHtml('bdRestaurantItems', i, bdRestaurantItems.length, 'renderRestaurantTable')}
       <td data-label="店名" style="position:relative">
         <input value="${escAttr(it.restaurant_name)}" oninput="bdRestaurantItems[${i}].restaurant_name=this.value;showRestaurantSuggest(this,${i})" onfocus="showRestaurantSuggest(this,${i})" onblur="setTimeout(hideRestaurantSuggest,200)" style="width:100%">
         ${restaurantPartnerEnName(it.restaurant_name) ? `<div style="font-size:9px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(restaurantPartnerEnName(it.restaurant_name))}</div>` : ''}
@@ -14964,7 +14971,6 @@ function renderRestaurantTable(){
       <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdRestaurantItems[${i}].memo=this.value" style="width:100%"></td>
       ${arrCostCheckboxHtml('bdRestaurantItems', i, it, 'rest')}
       ${arrDelBtnHtml('bdRestaurantItems', i, 'renderRestaurantTable', escAttr([it.date, it.meal_type, it.restaurant_name].filter(Boolean).join(' '))+' の行を削除しますか？', 'duplicateRestaurantRow')}
-      ${arrReorderHtml('bdRestaurantItems', i, bdRestaurantItems.length, 'renderRestaurantTable')}
     </tr>`;
     }).join('');
   }
@@ -15624,6 +15630,7 @@ function renderFacilityTable(){
     tbody.innerHTML='<tr><td colspan="12" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
   }else{
     tbody.innerHTML = bdFacilityItems.map((it,i)=>`<tr${arrRowDropHtml('bdFacilityItems',i,'renderFacilityTable')}>
+      ${arrReorderHtml('bdFacilityItems', i, bdFacilityItems.length, 'renderFacilityTable')}
       <td data-label="施設名" style="position:relative"><div style="display:flex;gap:3px;align-items:center"><input value="${escAttr(it.facility_name)}" oninput="bdFacilityItems[${i}].facility_name=this.value;showFacilitySuggest(this,${i})" onfocus="showFacilitySuggest(this,${i})" onblur="setTimeout(hideFacilitySuggest,150)" style="flex:1;min-width:0"><button class="btn" style="font-size:10px;padding:2px 5px;flex-shrink:0" title="営業日・営業時間を確認" onclick="openFacilityOperatingInfo(${i})">🕐</button></div>${facilityClosedDayWarnHtml(it)}</td>
       <td data-label="日付"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.date||''}" onchange="bdFacilityItems[${i}].date=this.value"></td>
       <td data-label="人数"><input type="number" value="${it.pax||0}" onchange="bdFacilityItems[${i}].pax=Number(this.value)" style="width:100%"></td>
@@ -15635,7 +15642,6 @@ function renderFacilityTable(){
       <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdFacilityItems[${i}].memo=this.value" style="width:100%"></td>
       ${arrCostCheckboxHtml('bdFacilityItems', i, it, 'fac')}
       ${arrDelBtnHtml('bdFacilityItems', i, 'renderFacilityTable', escAttr([it.facility_name, it.date].filter(Boolean).join(' '))+' の行を削除しますか？', 'duplicateFacilityRow')}
-      ${arrReorderHtml('bdFacilityItems', i, bdFacilityItems.length, 'renderFacilityTable')}
     </tr>`).join('');
   }
   document.getElementById('bd-facilities-total').textContent = yen(total);
@@ -15788,6 +15794,7 @@ function renderWaterTable(){
     tbody.innerHTML='<tr><td colspan="11" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
   }else{
     tbody.innerHTML = bdWaterItems.map((it,i)=>`<tr${arrRowDropHtml('bdWaterItems',i,'renderWaterTable')}>
+      ${arrReorderHtml('bdWaterItems', i, bdWaterItems.length, 'renderWaterTable')}
       <td data-label="品名"><input value="${escAttr(it.item_name)}" oninput="bdWaterItems[${i}].item_name=this.value" style="width:100%"></td>
       <td data-label="日付"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.date||''}" onchange="bdWaterItems[${i}].date=this.value"></td>
       <td data-label="数量"><input type="number" value="${it.qty||0}" onchange="bdWaterItems[${i}].qty=Number(this.value);waterAmountCalc(${i})" style="width:100%"></td>
@@ -15798,7 +15805,6 @@ function renderWaterTable(){
       <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdWaterItems[${i}].memo=this.value" style="width:100%"></td>
       ${arrCostCheckboxHtml('bdWaterItems', i, it, 'water')}
       ${arrDelBtnHtml('bdWaterItems', i, 'renderWaterTable', escAttr([it.item_name, it.date].filter(Boolean).join(' '))+' の行を削除しますか？', 'duplicateWaterRow')}
-      ${arrReorderHtml('bdWaterItems', i, bdWaterItems.length, 'renderWaterTable')}
     </tr>`).join('');
   }
   document.getElementById('bd-water-total').textContent = yen(total);
@@ -16492,6 +16498,7 @@ function renderBulletTrainTable(){
     return;
   }
   tbody.innerHTML = bdBulletTrainItems.map((it,i)=>`<tr${arrRowDropHtml('bdBulletTrainItems',i,'renderBulletTrainTable')}>
+    ${arrReorderHtml('bdBulletTrainItems', i, bdBulletTrainItems.length, 'renderBulletTrainTable')}
     <td data-label="乗車日"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.ride_date||''}" onchange="bdBulletTrainItems[${i}].ride_date=this.value"></td>
     <td data-label="列車名"><input value="${escAttr(it.train_name)}" oninput="bdBulletTrainItems[${i}].train_name=this.value" style="width:100%" placeholder="のぞみ"></td>
     <td data-label="号数"><input value="${escAttr(it.train_number)}" oninput="bdBulletTrainItems[${i}].train_number=this.value" style="width:100%" placeholder="123号"></td>
@@ -16508,7 +16515,6 @@ function renderBulletTrainTable(){
     <td data-label="ステータス">${statusDropdownHtml(o=>`bdBulletTrainItems[${i}].status='${o}';renderBulletTrainTable()`, it.status, ['未予約','回答待ち','手配OK','FNL済','NG回答','キャンセル'], '回答待ち')}</td>
     <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdBulletTrainItems[${i}].memo=this.value" style="width:100%"></td>
     ${arrDelBtnHtml('bdBulletTrainItems', i, 'renderBulletTrainTable', escAttr([it.ride_date, it.train_name, it.train_number, [it.departure_station, it.arrival_station].filter(Boolean).join('→')].filter(Boolean).join(' '))+' の行を削除しますか？', 'duplicateBulletTrainRow')}
-    ${arrReorderHtml('bdBulletTrainItems', i, bdBulletTrainItems.length, 'renderBulletTrainTable')}
   </tr>`).join('');
   document.getElementById('bd-bullet-total').textContent = yen(bdBulletTrainItems.reduce((s,it)=>s+Number(it.amount||0),0));
 }
@@ -16750,6 +16756,7 @@ function renderGuideTable(){
           <div id="guide-dd-${i}" style="display:none;position:fixed;background:var(--card,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:99999;max-height:220px;overflow-y:auto"></div>
         </td>`;
     return `<tr${arrRowDropHtml('bdGuideItems',i,'renderGuideTable')}>
+      ${arrReorderHtml('bdGuideItems', i, bdGuideItems.length, 'renderGuideTable')}
       ${guideCell}
       <td data-label="担当日(From)"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.start_date||''}" onchange="bdGuideItems[${i}].start_date=this.value"></td>
       <td data-label="担当日(To)"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.end_date||''}" onchange="bdGuideItems[${i}].end_date=this.value"></td>
@@ -16758,7 +16765,6 @@ function renderGuideTable(){
       <td data-label="ステータス">${statusDropdownHtml(o=>`bdGuideItems[${i}].status='${o}';renderGuideTable()`, it.status, ['未予約','回答待ち','手配OK','FNL済','NG回答','キャンセル'], '回答待ち')}</td>
       <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdGuideItems[${i}].memo=this.value" style="width:100%"></td>
       ${arrDelBtnHtml('bdGuideItems', i, 'renderGuideTable', escAttr([guideRowDisplayName(it), [it.start_date, it.end_date].filter(Boolean).join('〜')].filter(Boolean).join(' '))+' の行を削除しますか？')}
-      ${arrReorderHtml('bdGuideItems', i, bdGuideItems.length, 'renderGuideTable')}
     </tr>`;
   }).join('');
   document.getElementById('bd-guides-total').textContent = yen(bdGuideItems.reduce((s,it)=>s+Number(it.amount||0),0));
