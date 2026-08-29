@@ -25540,7 +25540,13 @@ const rotateImage = (b64, mt, deg) => new Promise((resolve)=>{
           statusEl.classList.remove('ocr-loading');
           hideGlobalOcrBanner();
           statusEl.style.color = 'var(--green)';
-          event.target.value = '';
+          // 入力欄(<input type=file>)のリセットは、processCardFile(file)自体がevent引数を
+          // 受け取っておらず、ここで`event`を参照すると非推奨のグローバルwindow.eventに
+          // 依存してしまう(呼び出し元が実イベントを介さないenablePasteUpload経由の場合は
+          // 常にundefinedで即クラッシュ。<input>経由でも複数のawaitを挟んだ後では
+          // window.eventが確実に残っている保証が無い)。実際にevent.target(<input>要素)を
+          // 確実に持っている呼び出し元handleCardUpload()側で、processCardFile()の完了後に
+          // 一元的にリセットする(2026-08点検で発見、実機で確実に再現したバグの修正)。
           return;
         }
         // choice==='new' はこのまま下の「空欄のみ補完」処理に進む(従来のキャンセル相当)
