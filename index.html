@@ -2208,6 +2208,24 @@ input[type=number]{-moz-appearance:textfield}
         </div>
       </div>
 
+      <!-- 期限直近アラートモーダル: 期限が前々日〜当日(_days 0〜2)に迫った対応が
+           必要な予約がある場合、ログイン直後に1日1回だけ表示する(maybeShowUrgentDeadlineModal
+           参照)。既存の赤帯バナー(常時・件数のみ)とは別に、特に緊急度の高いものだけを
+           具体的な予約名付きで能動的に知らせる役割。 -->
+      <div class="modal-overlay" id="urgent-deadline-modal">
+        <div class="modal-box" style="max-width:520px">
+          <div class="modal-header">
+            <div class="modal-title">⚠ 期限が差し迫っている対応があります</div>
+            <div class="modal-close" onclick="closeUrgentDeadlineModal()">✕</div>
+          </div>
+          <div id="urgent-deadline-modal-body" style="font-size:12px"></div>
+          <div style="margin-top:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button class="btn btn-p" onclick="closeUrgentDeadlineModal();go('todo')">一覧で確認する</button>
+            <button class="btn" onclick="closeUrgentDeadlineModal()">確認しました（閉じる）</button>
+          </div>
+        </div>
+      </div>
+
       <!-- メール受信箱 -->
       <div id="pg-email-inbox" class="page" style="display:none">
         <div class="card">
@@ -4410,7 +4428,17 @@ async function fetchFacilityDeadlineItems(maxDays){
       if(f.status === 'キャンセル') return false;
       return true;
     })
-    .sort((a,b)=> a._days - b._days);
+    // 「期限日が近い順」(_days昇順)だと、118日前から放置されている古い期限超過が
+    // 直近発生した緊急度の高い期限超過より上に来てしまう(_daysが負に大きいほど先頭に
+    // 来るため)。「期限を超過してからの経過日数が少ない順(直近発生したものが上)」に
+    // するため、超過経過日数(未超過は0)を第一キーにする。未超過同士(超過経過日数が
+    // 同じ0)は、従来通り期限が近い順(_days昇順)にフォールバックする。
+    .sort((a,b)=>{
+      const overdueA = Math.max(0, -a._days);
+      const overdueB = Math.max(0, -b._days);
+      if(overdueA !== overdueB) return overdueA - overdueB;
+      return a._days - b._days;
+    });
 
   const incompleteAll = allItems.filter(f=>!f.deadline_completed);
   const completed = allItems.filter(f=>f.deadline_completed)
@@ -4634,6 +4662,7 @@ async function refreshGlobalDeadlineBanner(){
   updateDeadlineBannerHeightVar();
 
   maybeNotifyDeadlineTomorrow(items);
+  maybeShowUrgentDeadlineModal(items);
 }
 
 // バナーの実際の高さ(狭い画面では文言が2行に折り返され34pxを超える)をCSS変数に
@@ -4701,6 +4730,47 @@ async function maybeNotifyDeadlineTomorrow(items){
 
   store.notifiedIds = [...alreadyNotified, ...freshItems.map(f=>f.id)];
   localStorage.setItem(DEADLINE_NOTIFY_STORAGE_KEY, JSON.stringify(store));
+}
+
+// 期限が前々日〜当日(_days 0〜2)に迫った対応が必要な予約がある場合、ログイン直後に
+// ポップアップモーダルで能動的に知らせる。ブラウザの通知許可(maybeNotifyDeadlineTomorrow)
+// に依存せず確実に届く手段として、常時表示の赤帯バナー(件数のみ・全ページ表示)とは
+// 別に用意する。同じ設計(localStorageで当日分の表示済みIDを記録)で1日1回まで
+// (かつ未表示の新規該当項目がある場合のみ再表示)に抑制する。
+const URGENT_DEADLINE_MODAL_STORAGE_KEY = 'kic_deadline_urgent_modal_v1';
+function maybeShowUrgentDeadlineModal(items){
+  const urgentItems = (items||[]).filter(f=>f._days>=0 && f._days<=2);
+  if(!urgentItems.length) return;
+
+  const todayStr = localDateStr();
+  let store;
+  try{ store = JSON.parse(localStorage.getItem(URGENT_DEADLINE_MODAL_STORAGE_KEY)||'{}'); }catch(e){ store = {}; }
+  if(store.date !== todayStr) store = { date: todayStr, shownIds: [] };
+  const alreadyShown = new Set(store.shownIds||[]);
+  const freshItems = urgentItems.filter(f=>!alreadyShown.has(f.id));
+  if(!freshItems.length) return;
+
+  renderUrgentDeadlineModal(urgentItems);
+  document.getElementById('urgent-deadline-modal').classList.add('open');
+
+  store.shownIds = [...alreadyShown, ...urgentItems.map(f=>f.id)];
+  localStorage.setItem(URGENT_DEADLINE_MODAL_STORAGE_KEY, JSON.stringify(store));
+}
+function renderUrgentDeadlineModal(urgentItems){
+  const body = document.getElementById('urgent-deadline-modal-body');
+  const rows = urgentItems.slice(0,5).map(f=>{
+    const bk = f._booking||{};
+    const dLabel = f._days===0 ? '本日' : (f._days===1 ? '明日' : 'あさって');
+    return `<div style="padding:8px 0;border-bottom:1px solid var(--border)">
+      <div style="font-weight:600">${escHtml(bk.ref_no||'')} ${escHtml(bkTourLabel(bk))}</div>
+      <div style="color:var(--text3)">${escHtml(f.facility_name||'（名称未設定）')} ／ 対応期限日: ${escHtml(f.deadline_date||'')}（${dLabel}）</div>
+    </div>`;
+  }).join('');
+  const moreCount = urgentItems.length - 5;
+  body.innerHTML = `<div style="margin-bottom:8px">対応期限が本日〜2日以内に迫っている予約が${urgentItems.length}件あります。</div>${rows}${moreCount>0 ? `<div style="padding-top:8px;color:var(--text3)">他${moreCount}件</div>` : ''}`;
+}
+function closeUrgentDeadlineModal(){
+  document.getElementById('urgent-deadline-modal').classList.remove('open');
 }
 
 // 全角英数記号を半角に変換（検索用）
