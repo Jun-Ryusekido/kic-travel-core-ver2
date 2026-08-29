@@ -2311,11 +2311,6 @@ input[type=number]{-moz-appearance:textfield}
 
       <!-- 取引先マスタ -->
       <div id="pg-partners" class="page" style="display:none">
-        <!-- 未確認の名刺マージ候補バナー(名刺スキャン自動マージ・確認バナー機能) -->
-        <div id="partner-merge-banner" style="display:none;margin-bottom:10px;padding:10px 14px;background:#FFF6E0;border:1px solid #F0D48A;border-radius:10px;font-size:12px;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
-          <span>⚠ 未確認の名刺マージ候補が <b id="partner-merge-banner-count">0</b>件あります</span>
-          <button class="btn btn-p" style="font-size:11px" onclick="openPartnerMergePendingModal()">確認する</button>
-        </div>
         <!-- 検索エリア（スティッキー） -->
         <div class="card" style="position:sticky;top:50px;z-index:10;margin-bottom:0;border-radius:12px 12px 0 0">
           <div class="card-title">取引先マスタ
@@ -5147,9 +5142,6 @@ async function tourArrangementHeadersApiCall(action, payload){ return tableCrudA
 // 差分置き換えロジックを、service_role経由に置き換えたもの)。
 async function arrangementDocumentDaysApiCall(action, payload){ return tableCrudApiCall('arrangement_document_days', action, payload); }
 async function arrangementDocumentNotesApiCall(action, payload){ return tableCrudApiCall('arrangement_document_notes', action, payload); }
-// partner_merge_pending(名刺スキャン自動マージ・確認バナー機能)。新設テーブルのため
-// 最初からservice_role専用API経由のみ(anonへのinsert/update/delete GRANTは無い)。
-async function partnerMergePendingApiCall(action, payload){ return tableCrudApiCall('partner_merge_pending', action, payload); }
 // credit_card_statements(クレジットカード明細機能の再設計、フェーズ1)。経理・原価計算に
 // 関わるデータのため監査ログ対象とし、書き込みはこのAPI経由に統一する(anon直接書き込みは
 // 段階的に廃止予定。DB側の権限自体はscripts/redesign_credit_card_statements.sql参照)。
@@ -24669,35 +24661,6 @@ async function loadPartners(){
   partnersCache = data;
   await loadBusinessPartnerContactsIndex();
   await fetchAndRenderPartners();
-  loadPartnerMergePendingCache();
-}
-
-// ─── 名刺スキャン自動マージ・確認バナー(保留候補の一覧・解決) ─────────────────
-let partnerMergePendingCache = [];
-
-// 確認バナーの件数表示・保留一覧の元データ。取得失敗時(テーブル未作成等)は
-// バナーを単に表示しないだけにし、取引先マスタ画面全体には影響させない。
-async function loadPartnerMergePendingCache(){
-  try{
-    const {data, error} = await sb.from('partner_merge_pending').select('*').eq('status','pending').order('created_at',{ascending:false});
-    if(error) throw error;
-    partnerMergePendingCache = data||[];
-  }catch(e){
-    partnerMergePendingCache = [];
-  }
-  renderPartnerMergeBanner();
-}
-
-function renderPartnerMergeBanner(){
-  const el = document.getElementById('partner-merge-banner');
-  if(!el) return;
-  const n = partnerMergePendingCache.length;
-  if(n>0){
-    document.getElementById('partner-merge-banner-count').textContent = n;
-    el.style.display = 'flex';
-  } else {
-    el.style.display = 'none';
-  }
 }
 
 // business_partners insert時、サーバー側の会社名完全一致チェック
@@ -24733,166 +24696,6 @@ async function handleBusinessPartnerSaveError(e, payload){
   }
   alert('保存に失敗しました: '+(e && e.message));
   return false;
-}
-
-// 名刺スキャンで検出された重複候補を、その場で決めず保留リストに記録する。
-// ocrPayload: business_partnersのinsert/update時と同じ列名構成のオブジェクト。
-// 同一の重複候補(candidatePartnerId)への保留が既にpending状態で存在する場合は、
-// 保留データが際限なく増えないよう新規insertせず既存分の案内に留める。
-async function postponePartnerMergeCandidate(ocrPayload, candidatePartnerId){
-  await loadPartnerMergePendingCache();
-  const already = partnerMergePendingCache.find(p=>p.candidate_partner_id===candidatePartnerId);
-  if(already){
-    alert('この重複候補は既に保留リストにあります。「未確認の名刺マージ候補」から確認してください。');
-    return;
-  }
-  try{
-    await partnerMergePendingApiCall('insert', { rows: [{
-      ocr_data: ocrPayload,
-      candidate_partner_id: candidatePartnerId,
-      status: 'pending',
-    }] });
-  }catch(e){
-    alert('保留の保存に失敗しました: '+e.message);
-    return;
-  }
-  await loadPartnerMergePendingCache();
-}
-
-// 保留中の名刺マージ候補一覧モーダル。1件ずつ「マージする/新規登録する/破棄する」を選べる。
-async function openPartnerMergePendingModal(){
-  await loadPartnerMergePendingCache();
-  document.getElementById('partner-merge-pending-modal')?.remove();
-  const modal = document.createElement('div');
-  modal.id = 'partner-merge-pending-modal';
-  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:300;display:flex;align-items:flex-start;justify-content:center;padding:12px;overflow-y:auto';
-  modal.innerHTML = `
-    <div style="background:#fff;border-radius:12px;padding:16px;width:100%;max-width:640px;box-sizing:border-box">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-        <div style="font-size:14px;font-weight:700">未確認の名刺マージ候補</div>
-        <button class="btn" onclick="document.getElementById('partner-merge-pending-modal').remove()">✕ 閉じる</button>
-      </div>
-      <div id="partner-merge-pending-list"></div>
-    </div>`;
-  document.body.appendChild(modal);
-  await renderPartnerMergePendingList();
-}
-
-async function renderPartnerMergePendingList(){
-  const el = document.getElementById('partner-merge-pending-list');
-  if(!el) return;
-  if(!partnerMergePendingCache.length){
-    el.innerHTML = '<div style="font-size:12px;color:var(--text3)">保留中の候補はありません。</div>';
-    return;
-  }
-  // 対象取引先が削除されている可能性があるため、候補が参照するidをまとめて再確認する
-  // (partnersCacheは全件キャッシュだが、他画面での削除直後は古い可能性があるため
-  // ここだけ都度フレッシュに取得する)。
-  const candidateIds = [...new Set(partnerMergePendingCache.map(p=>p.candidate_partner_id).filter(Boolean))];
-  let candidateById = {};
-  if(candidateIds.length){
-    const {data} = await sb.from('business_partners').select('*').in('id', candidateIds);
-    (data||[]).forEach(p=>{ candidateById[p.id] = p; });
-  }
-  el.innerHTML = partnerMergePendingCache.map(p=>{
-    const ocr = p.ocr_data||{};
-    const candidate = p.candidate_partner_id ? candidateById[p.candidate_partner_id] : null;
-    const candidateMissing = !!p.candidate_partner_id && !candidate;
-    const scannedAt = p.created_at ? new Date(p.created_at).toLocaleString('ja-JP') : '';
-    return `<div class="gs-card" style="padding:10px 12px;margin-bottom:8px">
-      <div style="font-size:12px;margin-bottom:4px"><b>${escHtml(ocr.company_name||ocr.company_name_en||'(会社名不明)')}</b> ${ocr.contact_person?('／ '+escHtml(ocr.contact_person)):''}</div>
-      <div style="font-size:10px;color:var(--text3);margin-bottom:6px">読み取り日時: ${scannedAt}${p.scanned_by?(' ／ '+escHtml(p.scanned_by)):''}</div>
-      ${candidateMissing
-        ? `<div style="font-size:11px;color:var(--red);margin-bottom:6px">⚠ 対象の取引先が見つかりません（削除された可能性があります）</div>`
-        : candidate ? `<div style="font-size:11px;color:var(--text2);margin-bottom:6px">重複候補: <b>${escHtml(candidate.company_name||'')}</b></div>` : ''
-      }
-      <div style="display:flex;gap:6px;flex-wrap:wrap">
-        ${!candidateMissing && candidate ? `<button class="btn btn-p" style="font-size:11px" onclick="resolvePartnerMergePending('${p.id}','merge')">✓ マージする</button>` : ''}
-        <button class="btn" style="font-size:11px" onclick="resolvePartnerMergePending('${p.id}','new')">＋ 新規登録する</button>
-        <button class="btn" style="font-size:11px" onclick="resolvePartnerMergePending('${p.id}','discard')">🗑 破棄する</button>
-      </div>
-    </div>`;
-  }).join('');
-}
-
-// 保留候補1件を解決する。action: 'merge'(既存取引先へ空欄のみ補完更新) / 'new'(新規登録) / 'discard'(何もせず破棄)。
-async function resolvePartnerMergePending(pendingId, action){
-  const item = partnerMergePendingCache.find(p=>p.id===pendingId);
-  if(!item) return;
-  const ocr = item.ocr_data||{};
-  try{
-    if(action==='merge'){
-      if(!item.candidate_partner_id){ alert('マージ対象の取引先が指定されていません'); return; }
-      const {data: current, error} = await sb.from('business_partners').select('*').eq('id', item.candidate_partner_id).maybeSingle();
-      if(error) throw error;
-      if(!current){ alert('対象の取引先が見つかりません（削除された可能性があります）。「新規登録する」か「破棄する」を選んでください。'); return; }
-      // 会社そのものの情報(business_partners)は、これまで通り現在の値が空欄の項目のみ補完する。
-      const companyFields = {};
-      ['company_name','company_name_en','company_phone','fax','email','address','address_en'].forEach(k=>{
-        if(!current[k] && ocr[k]) companyFields[k] = ocr[k];
-      });
-      if(Object.keys(companyFields).length){
-        companyFields.updated_at = new Date().toISOString();
-        await businessPartnersApiCall('updateById', { id: item.candidate_partner_id, fields: companyFields });
-      }
-      // 担当者情報(business_partner_contacts)は、代表担当者行の空欄項目のみ補完する。
-      // 代表担当者行が無い会社は、OCRの担当者情報があれば新規に1件作成する(is_primary:true)。
-      const contactOcr = {};
-      PARTNER_CONTACT_FIELD_KEYS.forEach(k=>{ if(ocr[k]) contactOcr[k] = ocr[k]; });
-      if(Object.keys(contactOcr).length){
-        const repContact = await fetchRepresentativeContact(item.candidate_partner_id);
-        if(repContact){
-          const contactFieldsToFill = {};
-          Object.keys(contactOcr).forEach(k=>{ if(!repContact[k] && contactOcr[k]) contactFieldsToFill[k] = contactOcr[k]; });
-          if(Object.keys(contactFieldsToFill).length){
-            await businessPartnerContactsApiCall('updateById', { id: repContact.id, fields: contactFieldsToFill });
-          }
-        }else{
-          await businessPartnerContactsApiCall('insert', { rows: [{
-            business_partner_id: item.candidate_partner_id,
-            ...contactOcr,
-            is_primary: true,
-            created_by: currentUser ? currentUser.email : null,
-          }] });
-        }
-      }
-    } else if(action==='new'){
-      const company = ocr.company_name || ocr.company_name_en;
-      if(!company){ alert('会社名が無いため新規登録できません。破棄してください。'); return; }
-      const payload = {
-        category: ocr.category || 'その他',
-        company_name: company,
-        company_name_en: ocr.company_name_en || null,
-        company_phone: ocr.company_phone || null,
-        fax: ocr.fax || null,
-        email: ocr.email || null,
-        address: ocr.address || null,
-        address_en: ocr.address_en || null,
-        created_by: currentUser ? currentUser.email : null,
-        updated_at: new Date().toISOString(),
-      };
-      const result = await businessPartnersApiCall('insert', { rows: [payload] });
-      const newId = (result.rows||[])[0]?.id;
-      const contactOcr = {};
-      PARTNER_CONTACT_FIELD_KEYS.forEach(k=>{ if(ocr[k]) contactOcr[k] = ocr[k]; });
-      if(newId && Object.keys(contactOcr).length){
-        await businessPartnerContactsApiCall('insert', { rows: [{
-          business_partner_id: newId,
-          ...contactOcr,
-          is_primary: true,
-          created_by: currentUser ? currentUser.email : null,
-        }] });
-      }
-    }
-    // discardはbusiness_partners側への書き込みなし、resolvedへの更新のみ
-    await partnerMergePendingApiCall('updateById', { id: pendingId, fields: { status: 'resolved', resolved_at: new Date().toISOString() } });
-  }catch(e){
-    alert('処理に失敗しました: '+e.message);
-    return;
-  }
-  await loadPartners();
-  await loadPartnerMergePendingCache();
-  await renderPartnerMergePendingList();
 }
 
 let partnersFilteredRows = [];
@@ -25541,13 +25344,19 @@ function showChoiceModal(title, messageHtml, choices){
     const modal = document.createElement('div');
     modal.id = 'choice-modal';
     modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:400;display:flex;align-items:center;justify-content:center;padding:16px';
-    // 選択肢は横スクロール可能な帯にまとめ、推奨(primary)の選択肢をアクセント色(btn-p)で
-    // 強調する。タップ領域確保のため最小高さ44pxを確保する。
-    const btnHtml = choices.map((c,i)=>`<button class="btn ${c.primary?'btn-p':''}" data-choice-i="${i}" style="flex:0 0 auto;min-height:44px;padding:0 16px;white-space:nowrap">${escHtml(c.label)}</button>`).join('');
+    // 選択肢は常に縦積みで表示する(推奨(primary)の選択肢をアクセント色(btn-p)で
+    // 強調し、choices配列の順番どおり最上段に表示)。タップ領域確保のため最小高さ44pxを
+    // 確保する。以前はflex横並び+overflow-x:autoで横スクロール可能な帯にしていたが、
+    // 375px幅ではラベルが長い選択肢(特に1つ目)だけでほぼ表示領域いっぱいになり、
+    // 2つ目以降のボタンが画面外に隠れて横スクロールしないと見えず、選択肢の存在に
+    // 気づけない不具合があった(2026-08点検で発見)。縦積み化によりスクロール無しで
+    // 全選択肢が見える。長文ラベルが2行に折り返しても崩れないよう、高さはmin-heightのみ
+    // (固定しない)。
+    const btnHtml = choices.map((c,i)=>`<button class="btn ${c.primary?'btn-p':''}" data-choice-i="${i}" style="width:100%;min-height:44px;padding:8px 16px;line-height:1.4">${escHtml(c.label)}</button>`).join('');
     modal.innerHTML = `<div style="background:#fff;border-radius:12px;padding:18px;width:100%;max-width:420px;box-sizing:border-box">
       <div style="font-size:13px;font-weight:700;margin-bottom:8px">${escHtml(title)}</div>
       <div style="font-size:12px;color:var(--text2);margin-bottom:14px;white-space:pre-wrap">${messageHtml}</div>
-      <div style="display:flex;gap:8px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:2px">${btnHtml}</div>
+      <div style="display:flex;flex-direction:column;gap:8px">${btnHtml}</div>
     </div>`;
     document.body.appendChild(modal);
     choices.forEach((c,i)=>{
@@ -25705,7 +25514,6 @@ const rotateImage = (b64, mt, deg) => new Promise((resolve)=>{
           [
             {label:'✓ 既存データにマージする（空欄のみ上書き）', value:'merge', primary:true},
             {label:'＋ 別の新規取引先として登録', value:'new'},
-            {label:'⏸ 後で確認する（保留にする）', value:'postpone'},
           ]
         );
         if(choice==='merge'){
@@ -25732,24 +25540,6 @@ const rotateImage = (b64, mt, deg) => new Promise((resolve)=>{
           statusEl.classList.remove('ocr-loading');
           hideGlobalOcrBanner();
           statusEl.style.color = 'var(--green)';
-          event.target.value = '';
-          return;
-        }
-        if(choice==='postpone'){
-          await postponePartnerMergeCandidate({
-            category: document.getElementById('pt-category').value,
-            company_name: parsed.company_name || null, company_name_en: parsed.company_name_en || null,
-            branch_name: parsed.branch_name || null, branch_name_en: parsed.branch_name_en || null,
-            contact_person: parsed.contact_person || null, contact_person_en: parsed.contact_person_en || null,
-            position: parsed.position || null, position_en: parsed.position_en || null,
-            company_phone: formatPhoneJP(parsed.company_phone) || null, phone: formatPhoneJP(parsed.phone) || null,
-            fax: formatPhoneJP(parsed.fax) || null, email: parsed.email || null,
-            address: parsed.address || null, address_en: parsed.address_en || null,
-          }, dup.id);
-          statusEl.textContent = '⏸ 保留にしました。「未確認の名刺マージ候補」から後で確認できます。';
-          statusEl.classList.remove('ocr-loading');
-          hideGlobalOcrBanner();
-          statusEl.style.color = 'var(--text3)';
           event.target.value = '';
           return;
         }
@@ -26078,16 +25868,9 @@ async function batchSaveAndNext(){
       [
         {label:'⏭ スキップして次へ', value:'skip', primary:true},
         {label:'＋ このまま新規登録する', value:'new'},
-        {label:'⏸ 後で確認する（保留にする）', value:'postpone'},
       ]
     );
     if(choice==='skip'){ batchSkip(); return; }
-    if(choice==='postpone'){
-      const {category, notes, created_by, updated_at, ...ocrPayload} = payload;
-      await postponePartnerMergeCandidate(ocrPayload, dup.id);
-      batchSkip();
-      return;
-    }
     // choice==='new' はこのまま下の新規登録処理に進む
   }
   // 担当者関連(contact_person等)はbusiness_partner_contacts側に保存する(savePartner()と同じ方式)。
@@ -26302,7 +26085,6 @@ const fmtPhone = s => {
         [
           {label:'✓ 既存データにマージする（空欄のみ上書き）', value:'merge', primary:true},
           {label:'＋ このまま新規登録する', value:'new'},
-          {label:'⏸ 後で確認する（保留にする）', value:'postpone'},
         ]
       );
       if(choice==='merge'){
@@ -26331,12 +26113,6 @@ const fmtPhone = s => {
         _mif('pt-address-en',    typed.address_en || '');
         _mif('pt-notes',         typed.notes || '');
         alert('既存の取引先にマージしました。内容を確認して保存してください。');
-        return;
-      }
-      if(choice==='postpone'){
-        const {category, notes, updated_at, ...ocrPayload} = payload;
-        await postponePartnerMergeCandidate(ocrPayload, dup.id);
-        closePartnerEditor();
         return;
       }
       // choice==='new' はこのまま下の新規登録処理に進む
