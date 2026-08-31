@@ -21832,23 +21832,13 @@ async function processInvoiceImportFile(file){
     }
 
     const data = await fetchExtractCardWithPasswordSupport(pw => pw ? {...bodyBase, password: pw} : bodyBase, statusEl);
-    const textBlock = data.content.find(b=>b.type==='text');
-    const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
-    const parsed = JSON.parse(cleaned);
-    let expenses, invoiceTotal = 0;
-    if(Array.isArray(parsed)){
-      expenses = parsed;
-    } else {
-      expenses = Array.isArray(parsed.items) ? parsed.items : [parsed];
-      invoiceTotal = Number(parsed.invoice_total_amount)||0;
-    }
+    const { expenses, invoiceTotal, taxAppliedNote } = parseInvoiceOcrResponse(data);
     statusEl.textContent = '✓ '+expenses.length+'件を読み取りました。内容を確認してください。';
     statusEl.classList.remove('ocr-loading');
     hideGlobalOcrBanner();
     statusEl.style.color = 'var(--green)';
-    statusEl.textContent += checkInvoiceTotalMismatch(expenses, invoiceTotal);
-    if(checkInvoiceTotalMismatch(expenses, invoiceTotal)) statusEl.style.color = 'var(--orange, #d97706)';
-    showInvoiceConfirmDialog(expenses, invoiceTotal);
+    appendInvoiceOcrStatusExtras(statusEl, expenses, invoiceTotal, taxAppliedNote);
+    showInvoiceConfirmDialog(expenses, invoiceTotal, taxAppliedNote);
   }catch(e){
     logError('AI読み取り(OCR)', e, {toast:false});
     statusEl.textContent = '読み取り失敗: '+e.message;
@@ -21863,6 +21853,94 @@ function toggleInvOcrArea(){
   a.style.display = a.style.display === 'none' ? '' : 'none';
 }
 
+// 請求書OCR(AI)は明細(items)・税率別消費税額(tax_breakdown)・請求書合計(invoice_total_amount)を
+// “転記”するだけで、税込⇔税抜の換算や消費税額の算出は一切行わない(既存の「AIには計算を
+// させず、構造化出力のみ担当させる」原則)。税抜明細のみ抽出され消費税分が取り込まれない不具合
+// (REF#876等。明細合計と請求書合計が消費税分だけ食い違う)への対応として、税込/税抜の判定と
+// 消費税行の追加はここで機械的に行う。
+// 判定パターン:
+//   a) 明細合計＝請求書合計                     → 明細は税込表記。変更なし
+//   b) 明細合計＋tax_breakdown合計＝請求書合計   → 明細は税抜表記。税率ごとに消費税行を追加
+//   c) tax_breakdownが無い/合わない場合、明細合計×1.08 or ×1.10(四捨五入)＝請求書合計
+//                                                → 消費税額をコード側で算出し、消費税行を追加
+//   d) いずれにも一致しない                      → 変更なし(従来通り合計不一致警告に委ねる)
+// 追加する消費税行は既存の明細行と全く同じフィールド形状(supplier_name/expense_date/
+// invoice_no/amount等)で作るため、showCostConfirmDialog/showInvoiceConfirmDialogの
+// 表示・チェック外し・金額編集・REF#自動マッチ・「まとめる」処理に追加のコード変更なしで
+// そのまま乗る(仕入先名を他の明細と揃えているため、まとめた際の金額は自動的に
+// 明細＋消費税＝invoice_total_amountになる)。_isTaxLineは「まとめる」時の備考に
+// 「税込」と表示するための目印としてのみ使う(判定ロジック自体には使わない)。
+function applyInvoiceTaxLines(expenses, parsed){
+  const invoiceTotal = Number(parsed && parsed.invoice_total_amount) || 0;
+  if(!invoiceTotal || !Array.isArray(expenses) || !expenses.length) return { expenses, taxAppliedNote:'' };
+  const TOLERANCE = 1;
+  const itemSum = expenses.reduce((s,e)=>s+(Number(e.amount)||0), 0);
+
+  // a. 明細合計＝請求書合計 → 税込表記。従来通り(消費税行を追加しない)
+  if(Math.abs(itemSum - invoiceTotal) <= TOLERANCE){
+    return { expenses, taxAppliedNote:'' };
+  }
+
+  const first = f => (expenses.find(e=>e && e[f]) || {})[f] || '';
+  const supplierName = first('supplier_name');
+  const baseDate = first('expense_date');
+  const invoiceNo = first('invoice_no');
+  const category = (expenses[0] && expenses[0].category) || 'その他';
+  const paymentMethod = (expenses[0] && expenses[0].payment_method) || '後請求';
+
+  const makeTaxLine = (rate, amount) => ({
+    supplier_name: supplierName, expense_date: baseDate, invoice_no: invoiceNo,
+    content: `消費税(${rate}%)`, category, unit_price: amount, qty: 1, amount,
+    payment_method: paymentMethod, _isTaxLine: true,
+  });
+
+  // b. 請求書に税率別の消費税額が明記されている場合、その通りに消費税行を追加して整合確認
+  const taxBreakdown = Array.isArray(parsed && parsed.tax_breakdown)
+    ? parsed.tax_breakdown.filter(t=>t && Number(t.tax_amount) > 0)
+    : [];
+  if(taxBreakdown.length){
+    const taxSum = taxBreakdown.reduce((s,t)=>s+(Number(t.tax_amount)||0), 0);
+    if(Math.abs(itemSum + taxSum - invoiceTotal) <= TOLERANCE){
+      const taxLines = taxBreakdown.map(t=>makeTaxLine(Number(t.rate)||0, Number(t.tax_amount)||0));
+      return { expenses: [...expenses, ...taxLines], taxAppliedNote:'' };
+    }
+    // tax_breakdownはあるが計算が合わない場合はd(不一致警告)にフォールスルーする
+  }
+
+  // c. tax_breakdownが無い/合わない場合、8%・10%どちらかの税込換算で請求書合計と一致するか試す
+  for(const rate of [8, 10]){
+    const roundedTotal = Math.round(itemSum * (1 + rate/100));
+    if(Math.abs(roundedTotal - invoiceTotal) <= TOLERANCE){
+      const taxAmount = invoiceTotal - itemSum;
+      return {
+        expenses: [...expenses, makeTaxLine(rate, taxAmount)],
+        taxAppliedNote: `ℹ 消費税額(${rate}%・¥${taxAmount.toLocaleString()})は明細合計から算出しました。`,
+      };
+    }
+  }
+
+  // d. いずれにも一致しない → 消費税行は追加せず、従来通りの不一致警告に委ねる(運用者が手で直す)
+  return { expenses, taxAppliedNote:'' };
+}
+
+// 請求書OCR(/api/extract-card)のレスポンスをパースし、消費税行の追加まで行う共通処理。
+// 呼び出し元(processInvoiceImportFile/extractInvoiceFromText/extractInvoiceFromFile/
+// extractCostFromText/extractCostFromFile)が全て同じ判定ロジックを通るよう、ここに集約する。
+function parseInvoiceOcrResponse(data){
+  const textBlock = data.content.find(b=>b.type==='text');
+  const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
+  const parsed = JSON.parse(cleaned);
+  let expenses, invoiceTotal = 0;
+  if(Array.isArray(parsed)){
+    expenses = parsed;
+  } else {
+    expenses = Array.isArray(parsed.items) ? parsed.items : [parsed];
+    invoiceTotal = Number(parsed.invoice_total_amount)||0;
+  }
+  const { expenses: adjustedExpenses, taxAppliedNote } = applyInvoiceTaxLines(expenses, parsed);
+  return { expenses: adjustedExpenses, invoiceTotal, taxAppliedNote };
+}
+
 function checkInvoiceTotalMismatch(expenses, invoiceTotal){
   if(!invoiceTotal) return '';
   const sum = expenses.reduce((s,e)=>s+(Number(e.amount)||0),0);
@@ -21870,6 +21948,17 @@ function checkInvoiceTotalMismatch(expenses, invoiceTotal){
     return ` ⚠ 合計金額不一致（読取合計: ¥${sum.toLocaleString()} / 請求書記載の合計: ¥${invoiceTotal.toLocaleString()}）。内容をご確認ください。`;
   }
   return '';
+}
+
+// 合計金額不一致の警告・消費税額を明細合計から算出した旨の注記を、OCR完了メッセージの末尾に
+// 追記する共通処理(呼び出し元5箇所で表示内容が食い違わないようにする)。
+function appendInvoiceOcrStatusExtras(statusEl, expenses, invoiceTotal, taxAppliedNote){
+  if(taxAppliedNote) statusEl.textContent += ' ' + taxAppliedNote;
+  const mismatch = checkInvoiceTotalMismatch(expenses, invoiceTotal);
+  if(mismatch){
+    statusEl.textContent += mismatch;
+    statusEl.style.color = 'var(--orange, #d97706)';
+  }
 }
 
 async function extractInvoiceFromText(){
@@ -21888,23 +21977,13 @@ async function extractInvoiceFromText(){
     });
     if(!response.ok){ const e = await response.json(); throw new Error(e.error||'サーバーエラー'); }
     const data = await response.json();
-    const textBlock = data.content.find(b=>b.type==='text');
-    const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
-    const parsed = JSON.parse(cleaned);
-    let expenses, invoiceTotal = 0;
-    if(Array.isArray(parsed)){
-      expenses = parsed;
-    } else {
-      expenses = Array.isArray(parsed.items) ? parsed.items : [parsed];
-      invoiceTotal = Number(parsed.invoice_total_amount)||0;
-    }
+    const { expenses, invoiceTotal, taxAppliedNote } = parseInvoiceOcrResponse(data);
     statusEl.textContent = '✓ '+expenses.length+'件を読み取りました。内容を確認してください。';
     statusEl.classList.remove('ocr-loading');
     hideGlobalOcrBanner();
     statusEl.style.color = 'var(--green)';
-    statusEl.textContent += checkInvoiceTotalMismatch(expenses, invoiceTotal);
-    if(checkInvoiceTotalMismatch(expenses, invoiceTotal)) statusEl.style.color = 'var(--orange, #d97706)';
-    showInvoiceConfirmDialog(expenses, invoiceTotal);
+    appendInvoiceOcrStatusExtras(statusEl, expenses, invoiceTotal, taxAppliedNote);
+    showInvoiceConfirmDialog(expenses, invoiceTotal, taxAppliedNote);
   }catch(e){
     logError('AI読み取り(OCR)', e, {toast:false});
     statusEl.textContent = '読み取り失敗: '+e.message;
@@ -21943,23 +22022,13 @@ async function extractInvoiceFromFile(event, mode){
     });
     if(!response.ok){ const e = await response.json(); throw new Error(e.error||'サーバーエラー'); }
     const data = await response.json();
-    const textBlock = data.content.find(b=>b.type==='text');
-    const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
-    const parsed = JSON.parse(cleaned);
-    let expenses, invoiceTotal = 0;
-    if(Array.isArray(parsed)){
-      expenses = parsed;
-    } else {
-      expenses = Array.isArray(parsed.items) ? parsed.items : [parsed];
-      invoiceTotal = Number(parsed.invoice_total_amount)||0;
-    }
+    const { expenses, invoiceTotal, taxAppliedNote } = parseInvoiceOcrResponse(data);
     statusEl.textContent = '✓ '+expenses.length+'件を読み取りました。内容を確認してください。';
     statusEl.classList.remove('ocr-loading');
     hideGlobalOcrBanner();
     statusEl.style.color = 'var(--green)';
-    statusEl.textContent += checkInvoiceTotalMismatch(expenses, invoiceTotal);
-    if(checkInvoiceTotalMismatch(expenses, invoiceTotal)) statusEl.style.color = 'var(--orange, #d97706)';
-    showInvoiceConfirmDialog(expenses, invoiceTotal);
+    appendInvoiceOcrStatusExtras(statusEl, expenses, invoiceTotal, taxAppliedNote);
+    showInvoiceConfirmDialog(expenses, invoiceTotal, taxAppliedNote);
   }catch(e){
     logError('AI読み取り(OCR)', e, {toast:false});
     statusEl.textContent = '読み取り失敗: '+e.message;
@@ -21978,17 +22047,7 @@ async function _callInvoiceApi(bodyData){
   });
   if(!response.ok){ const e = await response.json(); throw new Error(e.error||'サーバーエラー'); }
   const data = await response.json();
-  const textBlock = data.content.find(b=>b.type==='text');
-  const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
-  const parsed = JSON.parse(cleaned);
-  let expenses, invoiceTotal = 0;
-  if(Array.isArray(parsed)){
-    expenses = parsed;
-  } else {
-    expenses = Array.isArray(parsed.items) ? parsed.items : [parsed];
-    invoiceTotal = Number(parsed.invoice_total_amount)||0;
-  }
-  return { expenses, invoiceTotal };
+  return parseInvoiceOcrResponse(data);
 }
 
 // 仕入明細セクションのAI読み取り（booking_costs に直接追加）
@@ -22034,15 +22093,14 @@ async function extractCostFromText(){
   statusEl.textContent = '⏳ 読み取り中...'; statusEl.classList.add('ocr-loading'); statusEl.style.color = '';
   showGlobalOcrBanner();
   try{
-    const {expenses, invoiceTotal} = await _callInvoiceApi({ invoiceText: text });
+    const {expenses, invoiceTotal, taxAppliedNote} = await _callInvoiceApi({ invoiceText: text });
     statusEl.textContent = '✓ '+expenses.length+'件読み取り完了';
     statusEl.classList.remove('ocr-loading');
     hideGlobalOcrBanner();
     statusEl.style.color = 'var(--green)';
-    statusEl.textContent += checkInvoiceTotalMismatch(expenses, invoiceTotal);
-    if(checkInvoiceTotalMismatch(expenses, invoiceTotal)) statusEl.style.color = 'var(--orange, #d97706)';
+    appendInvoiceOcrStatusExtras(statusEl, expenses, invoiceTotal, taxAppliedNote);
     document.getElementById('cost-ocr-modal')?.remove();
-    showCostConfirmDialog(expenses, invoiceTotal);
+    showCostConfirmDialog(expenses, invoiceTotal, taxAppliedNote);
   }catch(e){
     logError('AI読み取り(OCR)', e, {toast:false});
     statusEl.textContent = '読み取り失敗: '+e.message; statusEl.classList.remove('ocr-loading'); statusEl.style.color = 'var(--red)';
@@ -22090,19 +22148,14 @@ async function extractCostFromFile(event, mode){
     }
 
     const data = await fetchExtractCardWithPasswordSupport(pw => pw ? {...bodyBase, password: pw} : bodyBase, statusEl);
-    const textBlock = data.content.find(b=>b.type==='text');
-    const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
-    const parsed = JSON.parse(cleaned);
-    const expenses = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.items) ? parsed.items : [parsed]);
-    const invoiceTotal = Array.isArray(parsed) ? 0 : (Number(parsed.invoice_total_amount)||0);
+    const { expenses, invoiceTotal, taxAppliedNote } = parseInvoiceOcrResponse(data);
     statusEl.textContent = '✓ '+expenses.length+'件読み取り完了';
     statusEl.classList.remove('ocr-loading');
     hideGlobalOcrBanner();
     statusEl.style.color = 'var(--green)';
-    statusEl.textContent += checkInvoiceTotalMismatch(expenses, invoiceTotal);
-    if(checkInvoiceTotalMismatch(expenses, invoiceTotal)) statusEl.style.color = 'var(--orange, #d97706)';
+    appendInvoiceOcrStatusExtras(statusEl, expenses, invoiceTotal, taxAppliedNote);
     document.getElementById('cost-ocr-modal')?.remove();
-    showCostConfirmDialog(expenses, invoiceTotal);
+    showCostConfirmDialog(expenses, invoiceTotal, taxAppliedNote);
   }catch(e){
     logError('AI読み取り(OCR)', e, {toast:false});
     statusEl.textContent = '読み取り失敗: '+e.message; statusEl.classList.remove('ocr-loading'); statusEl.style.color = 'var(--red)';
@@ -22111,11 +22164,14 @@ async function extractCostFromFile(event, mode){
   event.target.value = '';
 }
 
-function showCostConfirmDialog(expenses, invoiceTotal){
+function showCostConfirmDialog(expenses, invoiceTotal, taxAppliedNote){
   const b = findBookingById(currentDetailId)||{};
   const mismatchMsg = checkInvoiceTotalMismatch(expenses, invoiceTotal);
   const mismatchBanner = mismatchMsg
     ? `<div style="background:#fef2f2;border:2px solid var(--red,#c0392b);color:var(--red,#c0392b);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:12px;font-weight:700">${escHtml(mismatchMsg.trim())}</div>`
+    : '';
+  const taxNoteBanner = taxAppliedNote
+    ? `<div style="background:var(--bg);border:1px solid var(--border);color:var(--text2);border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:11px">${escHtml(taxAppliedNote)}</div>`
     : '';
   document.getElementById('cost-confirm-modal')?.remove();
   const modal = document.createElement('div');
@@ -22124,7 +22180,10 @@ function showCostConfirmDialog(expenses, invoiceTotal){
   const rows = expenses.map((e,i)=>{
     const itemName = escAttr(e.supplier_name||'');
     const amount = e.amount||0;
-    const payDate = sanitizeDateField(e.expense_date)||'';
+    // 出金日は経理担当が実際に支払った後に入力する項目であり、読み取り時点では支払いは
+    // 済んでいないため、AIが読み取ったexpense_date(請求書の発行日・費用日付等)を流用せず
+    // 常に空欄で初期表示する(運用者が任意に入力した場合のみその値を取り込む)。
+    const payDate = '';
     // 費用内容(content)に加え、請求書番号(invoice_no)があれば備考として併記する（保存前に確認・編集可能）
     const memoParts = [e.content||'', e.invoice_no?('請求書番号: '+e.invoice_no):''].filter(Boolean);
     const memo = escAttr(memoParts.join(' / '));
@@ -22134,6 +22193,7 @@ function showCostConfirmDialog(expenses, invoiceTotal){
       <td data-col="amount" style="padding:4px 3px"><input type="number" id="cost-amount-${i}" value="${amount}" style="font-size:10px;width:100%;text-align:right;box-sizing:border-box"></td>
       <td data-col="date" style="padding:4px 3px"><input type="date" id="cost-date-${i}" value="${payDate}" style="font-size:10px;width:100%;box-sizing:border-box"></td>
       <td data-col="memo" style="padding:4px 3px"><input type="text" id="cost-memo-${i}" value="${memo}" placeholder="備考" style="font-size:10px;width:100%;box-sizing:border-box"></td>
+      <td data-col="istax" style="display:none"><input type="hidden" id="cost-istax-${i}" value="${e._isTaxLine?'1':''}"></td>
     </tr>`;
   }).join('');
   modal.innerHTML = `
@@ -22143,6 +22203,7 @@ function showCostConfirmDialog(expenses, invoiceTotal){
         <button class="btn" onclick="document.getElementById('cost-confirm-modal').remove()">✕</button>
       </div>
       ${mismatchBanner}
+      ${taxNoteBanner}
       <label style="display:flex;align-items:center;gap:6px;font-size:11px;margin-bottom:8px;cursor:pointer">
         <input type="checkbox" id="cost-confirm-merge-same-supplier">
         同じ仕入先の行をまとめて1件にする
@@ -22178,8 +22239,9 @@ async function saveCostFromOcr(count){
     const amount = Number(document.getElementById(`cost-amount-${i}`)?.value)||0;
     const payment_date = sanitizeDateField(document.getElementById(`cost-date-${i}`)?.value);
     const memo = (document.getElementById(`cost-memo-${i}`)?.value||'').trim();
+    const isTaxLine = document.getElementById(`cost-istax-${i}`)?.value === '1';
     if(!item_name && !amount) continue;
-    rawRows.push({ booking_id: currentDetailId, item_name, amount, payment_date, memo });
+    rawRows.push({ booking_id: currentDetailId, item_name, amount, payment_date, memo, isTaxLine });
   }
 
   const mergeChecked = document.getElementById('cost-confirm-merge-same-supplier')?.checked;
@@ -22194,13 +22256,16 @@ async function saveCostFromOcr(count){
     });
     rows = order.map(key=>{
       const g = groups[key];
-      if(g.length===1) return g[0];
+      if(g.length===1){ const { isTaxLine, ...row } = g[0]; return row; }
       const amount = g.reduce((s,r)=>s+(r.amount||0),0);
-      const memo = g.map(r=>r.memo).filter(Boolean).join('、');
+      let memo = g.map(r=>r.memo).filter(Boolean).join('、');
+      // グループ内に消費税行(OCRのtax_breakdown/明細合計から算出した消費税額)が含まれる場合、
+      // まとめた金額が明細＋消費税(税込)であることが備考から分かるようにする。
+      if(g.some(r=>r.isTaxLine)) memo = memo ? memo+'（税込）' : '税込';
       return { booking_id: currentDetailId, item_name: key, amount, payment_date: g[0].payment_date, memo };
     });
   } else {
-    rows = rawRows;
+    rows = rawRows.map(({isTaxLine, ...row}) => row);
   }
 
   if(!rows.length){ alert('追加する行がありません'); return; }
@@ -22222,7 +22287,7 @@ async function saveCostFromOcr(count){
   setTimeout(()=>{ document.getElementById('cost-confirm-modal')?.remove(); }, 2000);
 }
 
-async function showInvoiceConfirmDialog(expenses, invoiceTotal){
+async function showInvoiceConfirmDialog(expenses, invoiceTotal, taxAppliedNote){
   window._pendingInvoiceExpenses = expenses;
   window._invConfirmInvoiceTotal = Number(invoiceTotal)||0;
   // 金額確認(請求書記載の合計金額 vs 読み取った明細の合計)を、REF#選択・行編集より先に
@@ -22232,6 +22297,7 @@ async function showInvoiceConfirmDialog(expenses, invoiceTotal){
     ${window._invConfirmInvoiceTotal ? `<div style="font-size:13px;color:var(--text2)">請求書記載の合計金額: <span style="font-size:20px;font-weight:800;color:var(--text1,#111)">¥${window._invConfirmInvoiceTotal.toLocaleString()}</span></div>` : ''}
     <div style="font-size:12px;color:var(--text3);margin-top:4px">読み取った明細の合計: <span id="inv-confirm-sum-display" style="font-size:15px;font-weight:700;color:var(--text2)"></span></div>
     <div id="inv-confirm-match-display" style="margin-top:6px;font-size:13px"></div>
+    ${taxAppliedNote ? `<div style="margin-top:6px;font-size:11px;color:var(--text3)">${escHtml(taxAppliedNote)}</div>` : ''}
   </div>`;
 
   bookingsListCache = await fetchBookingsListLight();
