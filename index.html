@@ -1664,12 +1664,8 @@ input[type=number]{-moz-appearance:textfield}
           <div class="form-grid" style="--fg-cols:1fr 1fr 1fr 1fr">
             <div class="form-field"><label>From</label><input id="pay-from" type="date" min="1900-01-01" max="9999-12-31" onblur="loadPayments()"></div>
             <div class="form-field"><label>To</label><input id="pay-to" type="date" min="1900-01-01" max="9999-12-31" onblur="loadPayments()"></div>
-            <div class="form-field" style="align-self:end"><button class="btn" onclick="setPaymentRangeThisMonth()">今月</button></div>
             <div class="form-field"><label>決算年度</label>
-              <div style="display:flex;gap:6px">
-                <select id="pay-fy" style="flex:1"></select>
-                <button class="btn" onclick="setPaymentRangeFiscalYear()">適用</button>
-              </div>
+              <select id="pay-fy" onchange="setPaymentRangeFiscalYear()"></select>
             </div>
           </div>
         </div>
@@ -19818,15 +19814,6 @@ const PAY_PAGE_SIZE = 50;
 const PIN_COLUMNS  = [['payment_date','入金日',true,'12%'],['ref_no','REF#',true,'10%'],['agent_name','Agent',true,'33%'],['item_name','項目',true,'33%'],['amount','金額',true,'12%']];
 const POUT_COLUMNS = [['payment_date','出金日',true,'12%'],['ref_no','REF#',true,'10%'],['item_name','仕入先',true,'33%'],['amount','金額',true,'12%'],['memo','備考',true,'33%']];
 
-function setPaymentRangeThisMonth(){
-  const now = new Date();
-  const pad = n => String(n).padStart(2,'0');
-  const y = now.getFullYear(), m = now.getMonth()+1, d = now.getDate();
-  document.getElementById('pay-from').value = `${y}-${pad(m)}-01`;
-  document.getElementById('pay-to').value = `${y}-${pad(m)}-${pad(d)}`;
-  loadPayments();
-}
-
 function initPaymentFiscalYearSelect(){
   const sel = document.getElementById('pay-fy');
   if(sel.options.length>0) return;
@@ -19865,8 +19852,10 @@ async function fetchAllRpcPages(fnName, params, errLabel){
 async function loadPayments(){
   initPaymentFiscalYearSelect();
   if(!document.getElementById('pay-from').value || !document.getElementById('pay-to').value){
-    setPaymentRangeThisMonth();
-    return;
+    const {from, to} = fiscalYearRange(currentFiscalYear());
+    document.getElementById('pay-from').value = from;
+    document.getElementById('pay-to').value = to;
+    return loadPayments();
   }
 
   document.getElementById('pin-tbody').innerHTML='<tr><td colspan="5" class="empty">読み込み中...</td></tr>';
