@@ -26,8 +26,18 @@ const SHEET = '予約台帳テーブル';
 
 // Access列名のうち、reconcile JSONに含める列(dry_run_access_booking_merge.jsの
 // ACCESS_FIELD_MAP/STATUS_ACCESS_KEYと対応)。日付列は正規化対象。
-const KEEP_COLUMNS = ['担当者', '出発日', '帰国予定日', 'ADT', 'CHD', 'INF', '会社名', '行程', '国名', '種別', '手配完了'];
+// 【2026-08-31追記】'請求金額'・'確定粗利'は予約台帳テーブル上の情報列として追加した
+// (新規追加候補の内容確認用。ACCESS_FIELD_MAPには含めないため、dry_run/applyの
+// 本番bookingsへの反映判定ロジックには一切影響しない、あくまで参考情報)。
+const KEEP_COLUMNS = ['担当者', '出発日', '帰国予定日', 'ADT', 'CHD', 'INF', '会社名', '行程', '国名', '種別', '手配完了', '請求金額', '確定粗利'];
 const DATE_COLUMNS = new Set(['出発日', '帰国予定日']);
+// 予約台帳テーブルとは別シート(仕入明細テーブル/請求明細テーブル)の金額を、
+// 予約台帳IDで集計してA/B各レコードに付与する(こちらも参考情報のみ。ACCESS_FIELD_MAPには
+// 含めないため反映判定には影響しない)。
+const AGGREGATE_SHEETS = [
+  { sheet: '仕入明細テーブル', amountCol: '仕入額', outKey: '仕入合計' },
+  { sheet: '請求明細テーブル', amountCol: '金額', outKey: '売上合計' },
+];
 
 function parseArgs(argv) {
   const args = { a: DEFAULT_A, b: DEFAULT_B, out: DEFAULT_OUT };
@@ -71,15 +81,36 @@ function extractRecord(row) {
   return out;
 }
 
+// 仕入明細テーブル/請求明細テーブルの金額列を予約台帳IDで合計する。値が無い/数値化できない
+// 行は0として扱う(合計自体が無意味になるのを避けるため、行単位でスキップはしない)。
+function readAggregates(wb, sheetName, amountCol) {
+  const sums = new Map();
+  if (!wb.SheetNames.includes(sheetName)) return sums;
+  const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: null });
+  for (const row of rows) {
+    const id = String(row['予約台帳ID'] ?? '').trim();
+    if (!/^\d+$/.test(id)) continue;
+    const amount = Number(row[amountCol]);
+    sums.set(id, (sums.get(id) || 0) + (Number.isFinite(amount) ? amount : 0));
+  }
+  return sums;
+}
+
 function readSheet(filePath) {
   const wb = XLSX.readFile(filePath);
   if (!wb.SheetNames.includes(SHEET)) throw new Error(`${filePath} にシート「${SHEET}」がありません`);
   const rows = XLSX.utils.sheet_to_json(wb.Sheets[SHEET], { defval: null });
+  const aggregates = AGGREGATE_SHEETS.map((a) => ({ ...a, sums: readAggregates(wb, a.sheet, a.amountCol) }));
   const byId = new Map();
   for (const row of rows) {
     const id = String(row['予約台帳ID'] ?? '').trim();
     if (!/^\d+$/.test(id)) continue;
-    byId.set(id, extractRecord(row));
+    const rec = extractRecord(row);
+    for (const a of aggregates) {
+      const sum = a.sums.get(id);
+      if (sum !== undefined) rec[a.outKey] = sum;
+    }
+    byId.set(id, rec);
   }
   return byId;
 }
