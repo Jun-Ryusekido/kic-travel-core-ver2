@@ -1274,7 +1274,7 @@ input[type=number]{-moz-appearance:textfield}
             <div class="form-field"><label>REF#</label>
               <div style="display:flex;gap:6px">
                 <input id="nb-ref" placeholder="例: #1001" style="flex:1">
-                <button class="btn" type="button" onclick="autoGenRef()" style="white-space:nowrap">自動採番</button>
+                <button class="btn" type="button" onclick="autoGenRef(this)" style="white-space:nowrap">自動採番</button>
               </div>
             </div>
             <div class="form-field" style="position:relative"><label>Agent / Group</label><input id="nb-agent" placeholder="e.g. Kesari Tours Pvt. Ltd." autocomplete="off"
@@ -18989,8 +18989,7 @@ async function saveBookingDetail(){
 }
 
 // ===== New Booking =====
-async function autoGenRef(){
-  const btn = event.target;
+async function autoGenRef(btn){
   btn.textContent='採番中...'; btn.disabled=true;
   try{
     const data = await fetchBookingsListLight();
