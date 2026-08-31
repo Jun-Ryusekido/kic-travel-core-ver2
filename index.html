@@ -20066,6 +20066,13 @@ function printPaymentSummary(){
 // ===================================================
 let partnersCache = [];
 let currentPartnerEditId = null;
+// 名刺スキャン(processCardFile)で類似候補が出た際に「＋ 別の新規取引先として登録」を
+// 選んだ場合、その候補のidを記憶しておく。savePartner()側の重複チェックで同じ候補が
+// 再検出された場合はポップアップを出さず素通りさせる(読み取り時に既に「別取引先」と
+// 判断済みのユーザーへ同じ質問を保存時にもう一度出すと、誤ってマージを選んでしまう
+// 混乱の原因になっていたため)。フォームを開き直す(openPartnerEditor)・閉じる
+// (closePartnerEditor)の両方でクリアし、次の新規登録や別の取引先編集に持ち越さない。
+let partnerFormAcknowledgedDupId = null;
 const PARTNER_CATEGORIES = ['バス会社','レストラン','ホテル','その他'];
 
 // AIレスポンスからJSONを取り出してパースする防御的ヘルパー。
@@ -25549,7 +25556,12 @@ const rotateImage = (b64, mt, deg) => new Promise((resolve)=>{
           // 一元的にリセットする(2026-08点検で発見、実機で確実に再現したバグの修正)。
           return;
         }
-        // choice==='new' はこのまま下の「空欄のみ補完」処理に進む(従来のキャンセル相当)
+        // choice==='new'：この候補は「別取引先」と判断済みとして記憶しておき、保存時の
+        // savePartner()の重複チェックで同じ候補が再検出されてもポップアップを出さず
+        // 素通りさせる(読み取り時に既に判断したのに保存時にもう一度同じ質問をされ、
+        // 誤ってマージを選んでしまう混乱があったため)。このまま下の「空欄のみ補完」
+        // 処理に進む(従来のキャンセル相当)。
+        partnerFormAcknowledgedDupId = dup.id;
       }
     }
 
@@ -25961,6 +25973,7 @@ function batchCancel(){
 
 async function openPartnerEditor(id){
   currentPartnerEditId = id;
+  partnerFormAcknowledgedDupId = null;
   const p = id ? (partnersFilteredRows.find(x=>x.id===id) || partnersCache.find(x=>x.id===id)) : null;
   // 担当者関連の項目はbusiness_partner_contacts(代表担当者)を正として表示する。
   // 該当行が無い会社(移行前の古いデータ)はbusiness_partners側の値にフォールバックする
@@ -26007,6 +26020,7 @@ function closePartnerEditor(){
   // 保存されずにキャンセルされた場合、次回以降の無関係な保存が誤って
   // このメールの「登録済み」扱いにならないよう、送信元メールidをクリアする。
   emailInboxPartnerSourceId = null;
+  partnerFormAcknowledgedDupId = null;
   if(multiLocBatch){
     if(!confirm('一括登録を中止しますか？')) return;
     multiLocBatch = null;
@@ -26084,7 +26098,11 @@ const fmtPhone = s => {
       category: payload.category || '',
     };
     const dup = await findSimilarPartnerWithAi(_candidate3, partnersCache, null);
-    if(dup){
+    // 名刺読み取り時に同じ候補へ既に「＋ 別の新規取引先として登録」を選んでいる場合は、
+    // 保存時に同じ質問を繰り返さず素通りさせる(partnerFormAcknowledgedDupId参照)。
+    // 読み取り時と異なる候補が新たに検出された場合は、その候補は未確認のため
+    // 従来通りポップアップを出す。
+    if(dup && dup.id !== partnerFormAcknowledgedDupId){
       const choice = await showChoiceModal(
         '類似する取引先が見つかりました',
         `類似する取引先「${escHtml(dup.company_name)}」が既に登録されています。`+(dup.viaAi?' <span style="font-size:10px;color:var(--text3)">（AIによる類似候補です）</span>':''),
