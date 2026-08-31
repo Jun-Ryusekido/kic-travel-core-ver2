@@ -22180,7 +22180,10 @@ function showCostConfirmDialog(expenses, invoiceTotal, taxAppliedNote){
   const rows = expenses.map((e,i)=>{
     const itemName = escAttr(e.supplier_name||'');
     const amount = e.amount||0;
-    const payDate = sanitizeDateField(e.expense_date)||'';
+    // 出金日は経理担当が実際に支払った後に入力する項目であり、読み取り時点では支払いは
+    // 済んでいないため、AIが読み取ったexpense_date(請求書の発行日・費用日付等)を流用せず
+    // 常に空欄で初期表示する(運用者が任意に入力した場合のみその値を取り込む)。
+    const payDate = '';
     // 費用内容(content)に加え、請求書番号(invoice_no)があれば備考として併記する（保存前に確認・編集可能）
     const memoParts = [e.content||'', e.invoice_no?('請求書番号: '+e.invoice_no):''].filter(Boolean);
     const memo = escAttr(memoParts.join(' / '));
