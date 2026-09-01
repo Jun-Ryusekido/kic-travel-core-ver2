@@ -4327,10 +4327,10 @@ function renderDbArrivalAlert(){
   const el = document.getElementById('db-arrival-alert');
   if(!el) return;
   const today = new Date(); today.setHours(0,0,0,0);
-  const todayStr = today.toISOString().slice(0,10);
+  const todayStr = localDateStr(today);
   const inDays = dateStr => Math.floor((new Date(dateStr) - today) / 86400000);
 
-  const active = allBookingsCache.filter(b => {
+  const active = bookingsListCache.filter(b => {
     if(!b.in_date || b.in_date < todayStr) return false;
     if(normalizeStatus(b.status) === 'cancelled' || normalizeStatus(b.status) === 'closed') return false;
     return inDays(b.in_date) <= 90;
