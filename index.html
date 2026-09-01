@@ -3935,6 +3935,10 @@ function go(id){
   if(id==='card-holders' && !isCardHolderAdmin()) return;
   if(id==='payment' && !isAccountingUser()) return;
   if(!document.getElementById('pg-'+id)) return;
+  // 「対応が必要な予約」の選択状態は別画面に移動した時点でクリアする(前の画面の選択を
+  // 引きずらないため)。
+  todoSelectedIds.clear();
+  todoDeadlineEditOpen = false;
   currentPageId = id;
   document.querySelectorAll('.page').forEach(el=>el.style.display='none');
   document.getElementById('pg-'+id).style.display='';
@@ -4486,15 +4490,22 @@ function todoRow(f, tierFg, done){
   const dLabel = done ? '' : (f._days < 0 ? `期限超過${-f._days}日` : (f._days===0 ? '本日' : `あと${f._days}日`));
   const nameStyle = done ? 'text-decoration:line-through;color:var(--text3)' : '';
   const delBtn = done ? `<button class="btn" style="font-size:10px;padding:2px 6px;color:var(--red)" onclick="event.stopPropagation();deleteFacilityTodoItem('${f.id}', ${JSON.stringify(f.facility_name||'').replace(/"/g,'&quot;')}, ${JSON.stringify(bk.ref_no||'').replace(/"/g,'&quot;')}, ${JSON.stringify(f.deadline_date||'').replace(/"/g,'&quot;')})">✕ 削除</button>` : '';
+  // 完了済み行(✓ 完了)は選択対象外(☑を出さない)。代わりに完了を取り消す手段を用意する。
+  const undoBtn = done ? `<button class="btn" style="font-size:10px;padding:2px 6px" onclick="event.stopPropagation();undoFacilityTodoComplete('${f.id}')">完了を取り消す</button>` : '';
+  // ☑はDB更新せず、選択状態(todoSelectedIds)を切り替えるだけ。実際の更新は操作バーの
+  // 一括操作ボタン(runTodoBatchAction等)からのみ行う。
+  const selectCell = done
+    ? `<td data-label="選択" style="padding:5px 6px;text-align:center"></td>`
+    : `<td data-label="選択" style="padding:5px 6px;text-align:center"><input type="checkbox" ${todoSelectedIds.has(f.id)?'checked':''} onclick="event.stopPropagation();toggleTodoSelect('${f.id}')" style="cursor:pointer;width:16px;height:16px"></td>`;
   return `<tr style="${done?'opacity:.7':''}">
-    <td data-label="完了" style="padding:5px 6px;text-align:center"><input type="checkbox" ${done?'checked':''} onclick="event.stopPropagation();toggleFacilityTodoComplete('${f.id}', ${!done})" style="cursor:pointer;width:16px;height:16px"></td>
+    ${selectCell}
     <td data-label="REF#" class="lnk" style="padding:5px 8px;white-space:nowrap;cursor:pointer" onclick="openBookingDetail('${f.booking_id}')">${escHtml(bk.ref_no||'')}</td>
     <td data-label="ツアー名" style="padding:5px 8px;cursor:pointer" onclick="openBookingDetail('${f.booking_id}')">${escHtml(bkTourLabel(bk))}</td>
     <td data-label="施設名" style="padding:5px 8px;cursor:pointer;${nameStyle}" onclick="openBookingDetail('${f.booking_id}')">${escHtml(f.facility_name||'（名称未設定）')}</td>
     <td data-label="利用日" style="padding:5px 8px;white-space:nowrap;cursor:pointer" onclick="openBookingDetail('${f.booking_id}')">${escHtml(f.date||'')}</td>
     <td data-label="対応期限日" style="padding:5px 8px;white-space:nowrap;cursor:pointer" onclick="openBookingDetail('${f.booking_id}')">${escHtml(f.deadline_date||'')}</td>
     <td data-label="残り" style="padding:5px 8px;text-align:center;font-weight:700;color:${done?'var(--text3)':tierFg};white-space:nowrap">
-      <span style="cursor:pointer" onclick="openBookingDetail('${f.booking_id}')">${done?'✓ 完了':dLabel}</span>${delBtn?' '+delBtn:''}
+      <span style="cursor:pointer" onclick="openBookingDetail('${f.booking_id}')">${done?'✓ 完了':dLabel}</span>${undoBtn?' '+undoBtn:''}${delBtn?' '+delBtn:''}
     </td>
   </tr>`;
 }
@@ -4510,7 +4521,7 @@ const TODO_TABLE_COLGROUP_HTML = `<colgroup>
       <col style="width:20%"><col style="width:10%"><col style="width:8%"><col style="width:8%">
     </colgroup>`;
 const TODO_TABLE_THEAD_HTML = `<thead><tr style="background:var(--bg)">
-      <th style="padding:4px 6px"></th>
+      <th style="padding:4px 6px;white-space:nowrap">選択</th>
       <th style="padding:4px 8px;text-align:left;white-space:nowrap">REF#</th>
       <th style="padding:4px 8px;text-align:left">ツアー名</th>
       <th style="padding:4px 8px;text-align:left">施設名</th>
@@ -4534,6 +4545,115 @@ function toggleDbTodoTier(idx){
   dbTodoOpenTiers[idx] = !dbTodoOpenTiers[idx];
   renderDbTodoSummaryFromCache();
 }
+
+// ===== 「対応が必要な予約」: ☑は選択のみ(DB更新なし)、選択後に操作バーで一括操作する方式 =====
+// 選択状態はダッシュボードの「対応が必要な予約」カードと「すべて表示」ページの両方で共有する
+// (区分をまたいで選択できる)。予約詳細を開いた・別画面へ移動した時点でクリアする(go()・
+// openBookingDetail()参照)。
+let todoSelectedIds = new Set();
+// 「対応期限日を変更」ボタンで日付入力を展開しているかどうか(操作バー自体の開閉ではない)。
+let todoDeadlineEditOpen = false;
+
+function toggleTodoSelect(facilityId){
+  if(todoSelectedIds.has(facilityId)) todoSelectedIds.delete(facilityId);
+  else todoSelectedIds.add(facilityId);
+  renderDbTodoSummaryFromCache();
+  renderTodoPageFromCache();
+}
+function clearTodoSelection(){
+  todoSelectedIds.clear();
+  todoDeadlineEditOpen = false;
+  renderDbTodoSummaryFromCache();
+  renderTodoPageFromCache();
+}
+function toggleTodoDeadlineEdit(){
+  todoDeadlineEditOpen = !todoDeadlineEditOpen;
+  renderDbTodoSummaryFromCache();
+  renderTodoPageFromCache();
+}
+// 選択中のfacility行の実データを、ダッシュボードの区分別キャッシュ(dbTodoSummaryCache)と
+// 「すべて表示」ページのキャッシュ(todoPageDataCache.incompleteAll)の両方から探す
+// (区分をまたいだ選択・どちらの画面から選択したかに関わらず解決できるようにするため)。
+function getSelectedTodoItems(){
+  const map = new Map();
+  (dbTodoSummaryCache||[]).forEach(b=>b.items.forEach(f=>map.set(f.id,f)));
+  if(todoPageDataCache && todoPageDataCache.incompleteAll) todoPageDataCache.incompleteAll.forEach(f=>map.set(f.id,f));
+  return Array.from(todoSelectedIds).map(id=>map.get(id)).filter(Boolean);
+}
+// 確認ダイアログに列挙する対象行(「REF# 施設名 (利用日)」)。先頭10件まで、11件以上は「他N件」。
+function todoItemLines(items){
+  const lines = items.slice(0,10).map(f=>`${(f._booking&&f._booking.ref_no)||''} ${f.facility_name||'（名称未設定）'} (${f.date||''})`);
+  const more = items.length - 10;
+  if(more>0) lines.push(`他${more}件`);
+  return lines.join('\n');
+}
+// 操作バーHTML(ダッシュボード/「すべて表示」ページの両方で共通)。同じHTMLが2箇所
+// (db-todo-summary・todo-page-list)に同時に描画されても<input id>が重複しないよう、
+// contextで区別する('db'|'page')。
+function todoActionBarHtml(context){
+  const n = todoSelectedIds.size;
+  if(n===0) return '';
+  const dateInputId = `todo-deadline-input-${context}`;
+  return `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:8px">
+    <span style="font-size:12px;font-weight:700;white-space:nowrap">選択中 ${n}件</span>
+    <button class="btn btn-p" style="font-size:11px" onclick="runTodoBatchAction('markDoneWithStatus')">手配OKにして完了</button>
+    <button class="btn" style="font-size:11px" onclick="runTodoBatchAction('markDoneOnly')">完了のみ(ステータスは変えない)</button>
+    <button class="btn" style="font-size:11px" onclick="toggleTodoDeadlineEdit()">対応期限日を変更</button>
+    <button class="btn" style="font-size:11px;color:var(--red)" onclick="clearTodoSelection()">選択解除</button>
+    ${todoDeadlineEditOpen ? `<span style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+      <input type="date" id="${dateInputId}" min="1900-01-01" max="9999-12-31" style="font-size:11px;padding:3px 6px;border:1px solid var(--border);border-radius:5px">
+      <button class="btn btn-p" style="font-size:11px" onclick="runTodoDeadlineChange('${context}')">変更する</button>
+    </span>` : ''}
+  </div>`;
+}
+async function runTodoBatchAction(kind){
+  const items = getSelectedTodoItems();
+  if(!items.length) return;
+  const isStatus = kind==='markDoneWithStatus';
+  const label = isStatus ? '手配OKにして完了' : '完了(ステータスは変更しません)';
+  const msg = `${items.length}件を${label}にします:\n${todoItemLines(items)}\nよろしいですか？`;
+  if(!confirm(msg)) return;
+  const now = new Date().toISOString();
+  const fields = isStatus
+    ? { status:'手配OK', deadline_completed:true, deadline_completed_at:now }
+    : { deadline_completed:true, deadline_completed_at:now };
+  await execTodoBatchUpdate(items, fields);
+}
+async function runTodoDeadlineChange(context){
+  const input = document.getElementById(`todo-deadline-input-${context}`);
+  const dateVal = input ? input.value : '';
+  if(!dateVal){ alert('対応期限日を入力してください'); return; }
+  const items = getSelectedTodoItems();
+  if(!items.length) return;
+  const msg = `${items.length}件の対応期限日を${dateVal}に変更します:\n${todoItemLines(items)}\nよろしいですか？`;
+  if(!confirm(msg)) return;
+  await execTodoBatchUpdate(items, { deadline_date: dateVal });
+}
+// 選択行をbookingFacilitiesApiCall('updateById')で1行ずつ更新する。途中で失敗した行があっても
+// 残りは続行し、成功した行のみ選択状態から外す(失敗分だけ選択状態に残す)。
+async function execTodoBatchUpdate(items, fields){
+  const failed = [];
+  let successCount = 0;
+  for(const f of items){
+    try{
+      await bookingFacilitiesApiCall('updateById', { id: f.id, fields });
+      todoSelectedIds.delete(f.id);
+      successCount++;
+    }catch(e){
+      failed.push({ f, message: e.message });
+    }
+  }
+  todoDeadlineEditOpen = false;
+  if(failed.length){
+    const lines = failed.map(({f,message})=>`${(f._booking&&f._booking.ref_no)||''} ${f.facility_name||'（名称未設定）'}: ${message}`).join('\n');
+    alert(`${successCount}件成功、${failed.length}件失敗しました。\n\n${lines}`);
+  }
+  // ダッシュボード・「すべて表示」ページのどちらから実行したかに関わらず両方を再取得して
+  // 最新化する(展開中の区分の開閉状態dbTodoOpenTiersはそのまま維持される)。
+  await renderDashboardTodoSummary();
+  await renderTodoPage();
+  await refreshGlobalDeadlineBanner();
+}
 async function renderDashboardTodoSummary(){
   const card = document.getElementById('db-todo-summary-card');
   const el = document.getElementById('db-todo-summary');
@@ -4548,7 +4668,7 @@ function renderDbTodoSummaryFromCache(){
   const el = document.getElementById('db-todo-summary');
   if(!el || !dbTodoSummaryCache) return;
   const totalCount = dbTodoSummaryCache.reduce((s,b)=>s+b.items.length, 0);
-  el.innerHTML = dbTodoSummaryCache.map((b,idx) => {
+  el.innerHTML = todoActionBarHtml('db') + dbTodoSummaryCache.map((b,idx) => {
     const isOpen = !!dbTodoOpenTiers[idx];
     const previewRefs = b.items.slice(0,3).map(f=>escHtml((f._booking&&f._booking.ref_no)||'')).join('、');
     const moreCount = b.items.length - 3;
@@ -4619,17 +4739,20 @@ function renderTodoPageFromCache(){
       <button class="btn" onclick="go('dashboard')">← ダッシュボードに戻る</button>
       <span style="font-size:11px;color:var(--text3)">全${allFlat.length}件を対応期限日順に表示中</span>
     </div>
+    ${todoActionBarHtml('page')}
     <div class="tbl-wrap"><table class="confirm-table" style="width:100%;border-collapse:collapse;font-size:12px">
       ${TODO_TABLE_COLGROUP_HTML}${TODO_TABLE_THEAD_HTML}
       <tbody>${flatRows}</tbody>
     </table></div>`;
 }
 
-async function toggleFacilityTodoComplete(facilityId, completed){
+// 「完了を取り消す」ボタン(✓ 完了行のみに表示)専用。選択方式の一括操作バーとは別の、
+// 対象1件だけの即時操作(既存の「✕ 削除」ボタンと同じ設計)。
+async function undoFacilityTodoComplete(facilityId){
   try{
     await bookingFacilitiesApiCall('updateById', { id: facilityId, fields: {
-      deadline_completed: completed,
-      deadline_completed_at: completed ? new Date().toISOString() : null
+      deadline_completed: false,
+      deadline_completed_at: null
     }});
   }catch(e){
     alert('更新に失敗しました: '+e.message);
@@ -7875,6 +7998,8 @@ async function openBookingDetail(id, opts){
   bdCurrentRefNo = b.ref_no;
   bdLoadSnapshot = {}; // 予約を開き直すたびに差分保存のスナップショットをリセットする
   facilitySortState = { field: null, dir: 1 }; // 観光施設タブの表示専用ソートも予約ごとにリセットする(前の予約のソートを引き継がない)
+  todoSelectedIds.clear(); // 「対応が必要な予約」の選択状態も、予約詳細を開いた時点でクリアする
+  todoDeadlineEditOpen = false;
   startBdPresenceHeartbeat(id); // 「編集中表示」のハートビート開始(気づきのみ、編集操作はブロックしない)
 
   // 手配管理タブのOCR貼り付け欄は予約に紐づかない共有DOM要素のため、前に開いていた別予約の
