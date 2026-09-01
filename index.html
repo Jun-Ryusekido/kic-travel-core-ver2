@@ -2601,12 +2601,13 @@ input[type=number]{-moz-appearance:textfield}
           <span id="hotel-ocr-status" style="font-size:11px;color:var(--text3)"></span>
         </div>
       </div>
+      <div id="hotel-sort-banner" style="display:none;font-size:11px;color:var(--text3);margin-bottom:4px"></div>
       <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:970px">
         <thead><tr>
           <th class="li-reorder" style="width:60px"></th>
           <th style="width:160px">ホテル名</th>
-          <th style="width:100px;cursor:pointer;user-select:none" onclick="sortHotelTable('check_in')">チェックイン <span id="hotel-checkin-sort-arrow"></span></th>
-          <th style="width:100px;cursor:pointer;user-select:none" onclick="sortHotelTable('check_out')">チェックアウト <span id="hotel-checkout-sort-arrow"></span></th>
+          <th style="width:100px;cursor:pointer;user-select:none" onclick="sortHotelTable('check_in')">チェックイン <span id="hotel-checkin-sort-arrow" style="color:var(--text3)">⇅</span></th>
+          <th style="width:100px;cursor:pointer;user-select:none" onclick="sortHotelTable('check_out')">チェックアウト <span id="hotel-checkout-sort-arrow" style="color:var(--text3)">⇅</span></th>
           <th style="width:70px">部屋タイプ</th>
           <th style="width:35px">部屋数</th>
           <th style="width:35px">泊数</th>
@@ -2644,14 +2645,15 @@ input[type=number]{-moz-appearance:textfield}
           <span id="bus-ocr-status" style="font-size:11px;color:var(--text3)"></span>
         </div>
       </div>
+      <div id="bus-sort-banner" style="display:none;font-size:11px;color:var(--text3);margin-bottom:4px"></div>
       <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:900px">
         <thead><tr>
           <th class="li-reorder" style="width:60px"></th>
           <th style="width:160px">バス会社</th>
           <th style="width:90px">バスタイプ</th>
           <th style="width:35px">台数</th>
-          <th style="width:100px;cursor:pointer;user-select:none" onclick="sortBusTable('start_date')">開始日 <span id="bus-start-sort-arrow"></span></th>
-          <th style="width:100px;cursor:pointer;user-select:none" onclick="sortBusTable('end_date')">終了日 <span id="bus-end-sort-arrow"></span></th>
+          <th style="width:100px;cursor:pointer;user-select:none" onclick="sortBusTable('start_date')">開始日 <span id="bus-start-sort-arrow" style="color:var(--text3)">⇅</span></th>
+          <th style="width:100px;cursor:pointer;user-select:none" onclick="sortBusTable('end_date')">終了日 <span id="bus-end-sort-arrow" style="color:var(--text3)">⇅</span></th>
           <th style="width:80px">金額</th>
           <th style="width:90px">支払方法</th>
           <th style="width:80px">ステータス</th>
@@ -2688,12 +2690,13 @@ input[type=number]{-moz-appearance:textfield}
           <span id="rest-ocr-status" style="font-size:11px;color:var(--text3)"></span>
         </div>
       </div>
+      <div id="rest-sort-banner" style="display:none;font-size:11px;color:var(--text3);margin-bottom:4px"></div>
       <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:1080px">
         <thead><tr>
           <th class="li-reorder" style="width:60px"></th>
           <th style="width:160px">店名</th>
           <th style="width:70px">食事種別</th>
-          <th style="width:100px;cursor:pointer;user-select:none" onclick="sortRestaurantTable('date')">日付 <span id="rest-date-sort-arrow"></span></th>
+          <th style="width:100px;cursor:pointer;user-select:none" onclick="sortRestaurantTable('date')">日付 <span id="rest-date-sort-arrow" style="color:var(--text3)">⇅</span></th>
           <th style="width:90px">予約時刻</th>
           <th style="width:45px">人数</th>
           <th style="width:80px">金額</th>
@@ -2774,10 +2777,11 @@ input[type=number]{-moz-appearance:textfield}
     </div>
 
     <div id="arrtab-bullet" style="display:none">
+      <div id="bullet-sort-banner" style="display:none;font-size:11px;color:var(--text3);margin-bottom:4px"></div>
       <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:1230px">
         <thead><tr>
           <th class="li-reorder" style="width:60px"></th>
-          <th style="width:90px;cursor:pointer;user-select:none" onclick="sortBulletTrainTable('ride_date')">乗車日 <span id="bullet-ride-date-sort-arrow"></span></th>
+          <th style="width:90px;cursor:pointer;user-select:none" onclick="sortBulletTrainTable('ride_date')">乗車日 <span id="bullet-ride-date-sort-arrow" style="color:var(--text3)">⇅</span></th>
           <th style="width:80px">列車名</th>
           <th style="width:55px">号数</th>
           <th style="width:75px">出発駅</th>
@@ -8052,7 +8056,13 @@ async function openBookingDetail(id, opts){
   currentDetailId = id;
   bdCurrentRefNo = b.ref_no;
   bdLoadSnapshot = {}; // 予約を開き直すたびに差分保存のスナップショットをリセットする
-  facilitySortState = { field: null, dir: 1 }; // 観光施設タブの表示専用ソートも予約ごとにリセットする(前の予約のソートを引き継がない)
+  // 観光施設・ホテル・バス・レストラン・新幹線の各タブの表示専用ソートも予約ごとにリセットする
+  // (前の予約のソートを引き継がない)。
+  facilitySortState = { field: null, dir: 1 };
+  hotelSortState = { field: null, dir: 1 };
+  busSortState = { field: null, dir: 1 };
+  restaurantSortState = { field: null, dir: 1 };
+  bulletTrainSortState = { field: null, dir: 1 };
   todoSelectedIds.clear(); // 「対応が必要な予約」の選択状態も、予約詳細を開いた時点でクリアする
   todoDeadlineEditOpen = false;
   startBdPresenceHeartbeat(id); // 「編集中表示」のハートビート開始(気づきのみ、編集操作はブロックしない)
@@ -11781,10 +11791,12 @@ function renderHotelTable(){
   if(bdHotelItems.length===0){
     tbody.innerHTML='<tr><td colspan="16" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
   }else{
-    tbody.innerHTML = bdHotelItems.map((it,i)=>{
+    const sorted = hotelSortState.field !== null;
+    tbody.innerHTML = arrSortedOrder(hotelArrSortConfig).map(i=>{
+      const it = bdHotelItems[i];
       const nights = calcHotelNights(it.check_in, it.check_out);
-      return `<tr${arrRowDropHtml('bdHotelItems',i,'renderHotelTable')}>
-        ${arrReorderHtml('bdHotelItems', i, bdHotelItems.length, 'renderHotelTable')}
+      return `<tr${sorted ? '' : arrRowDropHtml('bdHotelItems',i,'renderHotelTable')}>
+        ${arrReorderHtml('bdHotelItems', i, bdHotelItems.length, 'renderHotelTable', sorted)}
         <td data-label="ホテル名" style="position:relative"><input value="${escAttr(it.hotel_name)}" oninput="bdHotelItems[${i}].hotel_name=this.value;showHotelSuggest(this,${i},bdHotelItems)" onfocus="showHotelSuggest(this,${i},bdHotelItems)" onblur="setTimeout(hideHotelSuggest,150)" style="width:100%"></td>
         <td data-label="ｲﾝ"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.check_in}" onchange="bdHotelItems[${i}].check_in=this.value;hotelCalc(${i})"></td>
         <td data-label="ｱｳﾄ"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.check_out}" onchange="bdHotelItems[${i}].check_out=this.value;hotelCalc(${i})"></td>
@@ -11804,10 +11816,7 @@ function renderHotelTable(){
     }).join('');
   }
   document.getElementById('bd-hotels-total').textContent = yen(total);
-  const ciArrow = document.getElementById('hotel-checkin-sort-arrow');
-  if(ciArrow) ciArrow.textContent = bdSortArrow(hotelSortState, 'check_in');
-  const coArrow = document.getElementById('hotel-checkout-sort-arrow');
-  if(coArrow) coArrow.textContent = bdSortArrow(hotelSortState, 'check_out');
+  updateArrSortUI(hotelArrSortConfig);
 }
 
 function hotelCalc(i){
@@ -11931,8 +11940,11 @@ function renderBusTable(){
   if(bdBusItems.length===0){
     tbody.innerHTML='<tr><td colspan="13" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
   }else{
-    tbody.innerHTML = bdBusItems.map((it,i)=>`<tr${arrRowDropHtml('bdBusItems',i,'renderBusTable')}>
-      ${arrReorderHtml('bdBusItems', i, bdBusItems.length, 'renderBusTable')}
+    const sorted = busSortState.field !== null;
+    tbody.innerHTML = arrSortedOrder(busArrSortConfig).map(i=>{
+      const it = bdBusItems[i];
+      return `<tr${sorted ? '' : arrRowDropHtml('bdBusItems',i,'renderBusTable')}>
+      ${arrReorderHtml('bdBusItems', i, bdBusItems.length, 'renderBusTable', sorted)}
       <td data-label="バス会社" style="position:relative"><input value="${escAttr(it.bus_company)}" oninput="bdBusItems[${i}].bus_company=this.value;showBusCompanySuggest(this,${i})" onfocus="showBusCompanySuggest(this,${i})" onblur="setTimeout(hideBusCompanySuggest,150)" style="width:100%"></td>
       <td data-label="バスタイプ"><input value="${escAttr(it.bus_type)}" oninput="bdBusItems[${i}].bus_type=this.value" style="width:100%"></td>
       <td data-label="台数"><input type="number" value="${it.buses||1}" onchange="bdBusItems[${i}].buses=Number(this.value)" style="width:100%"></td>
@@ -11945,13 +11957,11 @@ function renderBusTable(){
       <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdBusItems[${i}].memo=this.value" style="width:100%"></td>
       ${arrCostCheckboxHtml('bdBusItems', i, it, 'bus')}
       ${arrDelBtnHtml('bdBusItems', i, 'renderBusTable', escAttr([it.bus_company, it.bus_type, [it.start_date, it.end_date].filter(Boolean).join('〜')].filter(Boolean).join(' '))+' の行を削除しますか？', 'duplicateBusRow')}
-    </tr>`).join('');
+    </tr>`;
+    }).join('');
   }
   document.getElementById('bd-buses-total').textContent = yen(total);
-  const startArrow = document.getElementById('bus-start-sort-arrow');
-  if(startArrow) startArrow.textContent = bdSortArrow(busSortState, 'start_date');
-  const endArrow = document.getElementById('bus-end-sort-arrow');
-  if(endArrow) endArrow.textContent = bdSortArrow(busSortState, 'end_date');
+  updateArrSortUI(busArrSortConfig);
 }
 function addBusRow(){
   bdBusItems.push({bus_company:'',bus_type:'',buses:1,start_date:'',end_date:'',amount:0,status:'問い合わせ中',confirmation_no:'',memo:'',payment_method:''});
@@ -15120,9 +15130,11 @@ function renderRestaurantTable(){
   if(bdRestaurantItems.length===0){
     tbody.innerHTML='<tr><td colspan="12" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
   }else{
-    tbody.innerHTML = bdRestaurantItems.map((it,i)=>{
-      return `<tr${arrRowDropHtml('bdRestaurantItems',i,'renderRestaurantTable')}>
-      ${arrReorderHtml('bdRestaurantItems', i, bdRestaurantItems.length, 'renderRestaurantTable')}
+    const sorted = restaurantSortState.field !== null;
+    tbody.innerHTML = arrSortedOrder(restaurantArrSortConfig).map(i=>{
+      const it = bdRestaurantItems[i];
+      return `<tr${sorted ? '' : arrRowDropHtml('bdRestaurantItems',i,'renderRestaurantTable')}>
+      ${arrReorderHtml('bdRestaurantItems', i, bdRestaurantItems.length, 'renderRestaurantTable', sorted)}
       <td data-label="店名" style="position:relative">
         <input value="${escAttr(it.restaurant_name)}" oninput="bdRestaurantItems[${i}].restaurant_name=this.value;showRestaurantSuggest(this,${i})" onfocus="showRestaurantSuggest(this,${i})" onblur="setTimeout(hideRestaurantSuggest,200)" style="width:100%">
         ${restaurantPartnerEnName(it.restaurant_name) ? `<div style="font-size:9px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(restaurantPartnerEnName(it.restaurant_name))}</div>` : ''}
@@ -15145,8 +15157,7 @@ function renderRestaurantTable(){
     }).join('');
   }
   document.getElementById('bd-restaurants-total').textContent = yen(total);
-  const dateArrow = document.getElementById('rest-date-sort-arrow');
-  if(dateArrow) dateArrow.textContent = bdSortArrow(restaurantSortState, 'date');
+  updateArrSortUI(restaurantArrSortConfig);
 }
 function addRestaurantRow(){
   const b = findBookingById(currentDetailId);
@@ -15793,7 +15804,7 @@ async function searchNewFacilityOpInfoFromAdmin(){
 }
 
 // 観光施設・バス駐車場等タブのソートは「表示専用」。bdFacilityItems配列自体は
-// ⠿▲▼(moveArrItem)が決めた順序のまま一切並び替えず、描画順だけをfacilitySortedOrder()
+// ⠿▲▼(moveArrItem)が決めた順序のまま一切並び替えず、描画順だけをarrSortedOrder()
 // で計算したインデックス配列に沿って入れ替える。保存時のsort_order(buildFacilityRows)は
 // 配列順を見るため、ソート中に保存しても配列順=⠿▲▼の順のまま保存される。
 const FAC_SORT_LABELS = { facility_name:'施設名', date:'日付', status:'ステータス', deadline_date:'対応期限日', payment_method:'支払方法' };
@@ -15811,31 +15822,6 @@ const FAC_SORT_REAL_COMPARATORS = {
   deadline_date: (a,b)=> a<b?-1:(a>b?1:0),
   payment_method: (a,b)=> LOCAL_EXPENSE_PAYMENT_METHODS.indexOf(a) - LOCAL_EXPENSE_PAYMENT_METHODS.indexOf(b),
 };
-// 元のインデックス配列(0..length-1)を、ソート未指定ならそのまま、指定時のみ比較関数で
-// 並べ替えて返す。Array.prototype.sortは安定ソートのため、同値(空欄同士含む)の行は
-// 常に元の配列順(⠿▲▼の順)を保つ。空欄/nullは昇順で末尾・降順で先頭になるよう、
-// 「実値同士の比較」を先に行い、最後にdirを掛けて向きを決める。
-function facilitySortedOrder(){
-  const order = bdFacilityItems.map((_,i)=>i);
-  const field = facilitySortState.field;
-  if(!field) return order;
-  const getVal = FAC_SORT_VALUE_GETTERS[field];
-  const realCmp = FAC_SORT_REAL_COMPARATORS[field];
-  const dir = facilitySortState.dir;
-  const isEmpty = v => v===null || v===undefined || v==='';
-  order.sort((ia, ib) => {
-    const va = getVal(bdFacilityItems[ia]);
-    const vb = getVal(bdFacilityItems[ib]);
-    const ea = isEmpty(va), eb = isEmpty(vb);
-    let base;
-    if(ea && eb) base = 0;
-    else if(ea) base = 1;
-    else if(eb) base = -1;
-    else base = realCmp(va, vb);
-    return base * dir;
-  });
-  return order;
-}
 function renderFacilityTable(){
   const tbody = document.getElementById('bd-facilities-tbody');
   if(!tbody) return;
@@ -15844,7 +15830,7 @@ function renderFacilityTable(){
     tbody.innerHTML='<tr><td colspan="12" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
   }else{
     const sorted = facilitySortState.field !== null;
-    tbody.innerHTML = facilitySortedOrder().map(i=>{
+    tbody.innerHTML = arrSortedOrder(facilityArrSortConfig).map(i=>{
       const it = bdFacilityItems[i];
       return `<tr${sorted ? '' : arrRowDropHtml('bdFacilityItems',i,'renderFacilityTable')}>
       ${arrReorderHtml('bdFacilityItems', i, bdFacilityItems.length, 'renderFacilityTable', sorted)}
@@ -15863,43 +15849,8 @@ function renderFacilityTable(){
     }).join('');
   }
   document.getElementById('bd-facilities-total').textContent = yen(total);
-  updateFacilitySortUI();
+  updateArrSortUI(facilityArrSortConfig);
 }
-function updateFacilitySortUI(){
-  Object.keys(FAC_SORT_LABELS).forEach(f=>{
-    const el = document.getElementById('fac-sort-arrow-'+f);
-    if(!el) return;
-    if(facilitySortState.field === f){
-      el.textContent = facilitySortState.dir===1 ? '▲' : '▼';
-      el.style.color = '';
-    }else{
-      el.textContent = '⇅';
-      el.style.color = 'var(--text3)';
-    }
-  });
-  const banner = document.getElementById('fac-sort-banner');
-  if(!banner) return;
-  if(facilitySortState.field){
-    banner.style.display = '';
-    banner.innerHTML = `${escHtml(FAC_SORT_LABELS[facilitySortState.field])}で${facilitySortState.dir===1?'昇順':'降順'}表示中(元の順序は変わりません)　<span class="lnk" style="cursor:pointer" onclick="clearFacilitySort()">元の順に戻す</span>`;
-  }else{
-    banner.style.display = 'none';
-    banner.innerHTML = '';
-  }
-}
-// 観光施設・バス駐車場等タブの「日付」列見出しクリックによる昇順/降順ソート
-// 手配管理タブ共通の列ソート処理（同じ列見出しを連続クリックすると昇順⇔降順をトグル）
-function sortBdItems(items, field, state, renderFn){
-  if(state.field === field){ state.dir = -state.dir; }
-  else { state.field = field; state.dir = 1; }
-  items.sort((a,b)=>{
-    const av = a[field]||''; const bv = b[field]||'';
-    if(av === bv) return 0;
-    return (av < bv ? -1 : 1) * state.dir;
-  });
-  renderFn();
-}
-function bdSortArrow(state, field){ return state.field===field ? (state.dir===1?'▲':'▼') : ''; }
 
 // 手配管理タブ共通の明細行削除ボタン（ホテル/バス/レストラン/観光施設等/ミネラルウォーター/
 // 新幹線の全タブで共用）。確認ダイアログ後、対象配列から該当行を取り除いて再描画するのみで、
@@ -15980,37 +15931,164 @@ function duplicateFacilityRow(i){ duplicateArrRow(bdFacilityItems, i, 'facility_
 function duplicateWaterRow(i){ duplicateArrRow(bdWaterItems, i, 'item_name', renderWaterTable); }
 function duplicateBulletTrainRow(i){ duplicateArrRow(bdBulletTrainItems, i, 'train_name', renderBulletTrainTable); }
 
-// 施設タブは表示専用ソートのため、配列を直接並べ替えるsortBdItems()は使わない
-// (他タブ(ホテル/バス/レストラン/新幹線)のsortBdItems()自体はそのまま流用)。
+// ===== 手配管理タブ共通の「表示専用」列ソート =====
+// 観光施設・ホテル・バス・レストラン・新幹線の5タブすべてがこの実装を共有する。各タブの
+// 配列(bdFacilityItems等)自体は⠿▲▼(moveArrItem)が決めた順序のまま一切並び替えず、
+// 描画順だけをarrSortedOrder()で計算したインデックス配列に沿って入れ替える。保存時の
+// sort_orderは各タブのbuild*Rows()が配列順を見て振り直すため、ソート中に保存しても
+// 配列順=⠿▲▼の順のまま保存される。
+//
+// config: { getItems: ()=>配列, getState: ()=>{field,dir}, labels: {field:見出しラベル},
+//   arrowIds: {field:見出しの⇅/▲▼を表示するspanのid}, getVal: (it,field)=>値,
+//   cmp: (a,b,field)=>数値(実値同士の比較。空欄判定はarrSortedOrder側で共通に行う),
+//   renderFn: 再描画関数, bannerId: 「元の順に戻す」バナーのdiv id, clearFnName: バナーの
+//   リンクから呼ぶ、そのタブの解除関数名(文字列。onclick属性に埋め込むため) }
+// getItems/getStateをその都度呼ぶ関数にしているのは、予約を開き直すたびに各state変数が
+// (facilitySortState = {...}のように)新しいオブジェクトへ再代入されるため、config生成時に
+// 一度だけ配列やstateの参照を固定してしまうと、以後の再代入が反映されなくなるのを防ぐため。
+
+// 元のインデックス配列(0..length-1)を、ソート未指定ならそのまま、指定時のみ比較関数で
+// 並べ替えて返す。Array.prototype.sortは安定ソートのため、同値(空欄同士含む)の行は
+// 常に元の配列順(⠿▲▼の順)を保つ。空欄/nullは昇順で末尾・降順で先頭になるよう、
+// 「実値同士の比較」を先に行い、最後にdirを掛けて向きを決める。
+function arrSortedOrder(config){
+  const items = config.getItems();
+  const order = items.map((_,i)=>i);
+  const state = config.getState();
+  const field = state.field;
+  if(!field) return order;
+  const dir = state.dir;
+  const isEmpty = v => v===null || v===undefined || v==='';
+  order.sort((ia, ib) => {
+    const va = config.getVal(items[ia], field);
+    const vb = config.getVal(items[ib], field);
+    const ea = isEmpty(va), eb = isEmpty(vb);
+    let base;
+    if(ea && eb) base = 0;
+    else if(ea) base = 1;
+    else if(eb) base = -1;
+    else base = config.cmp(va, vb, field);
+    return base * dir;
+  });
+  return order;
+}
 // 見出しクリックの3段階サイクル: 未ソート→昇順→降順→解除(元の順)。別列クリックは昇順から。
-let facilitySortState = { field: null, dir: 1 };
-function sortFacilityTable(field){
-  if(facilitySortState.field === field){
-    facilitySortState.dir = facilitySortState.dir === 1 ? -1 : null;
-    if(facilitySortState.dir === null){ facilitySortState.field = null; facilitySortState.dir = 1; }
+function arrSortCycle(config, field){
+  const state = config.getState();
+  if(state.field === field){
+    state.dir = state.dir === 1 ? -1 : null;
+    if(state.dir === null){ state.field = null; state.dir = 1; }
   }else{
-    facilitySortState.field = field;
-    facilitySortState.dir = 1;
+    state.field = field;
+    state.dir = 1;
   }
-  renderFacilityTable();
+  config.renderFn();
 }
-function clearFacilitySort(){
-  facilitySortState.field = null;
-  facilitySortState.dir = 1;
-  renderFacilityTable();
+function arrSortClear(config){
+  const state = config.getState();
+  state.field = null;
+  state.dir = 1;
+  config.renderFn();
+}
+// 見出しの⇅/▲▼表示と「○○で昇順表示中 元の順に戻す」バナーの更新。
+function updateArrSortUI(config){
+  const state = config.getState();
+  Object.keys(config.arrowIds).forEach(f=>{
+    const el = document.getElementById(config.arrowIds[f]);
+    if(!el) return;
+    if(state.field === f){
+      el.textContent = state.dir===1 ? '▲' : '▼';
+      el.style.color = '';
+    }else{
+      el.textContent = '⇅';
+      el.style.color = 'var(--text3)';
+    }
+  });
+  const banner = document.getElementById(config.bannerId);
+  if(!banner) return;
+  if(state.field){
+    banner.style.display = '';
+    banner.innerHTML = `${escHtml(config.labels[state.field])}で${state.dir===1?'昇順':'降順'}表示中(元の順序は変わりません)　<span class="lnk" style="cursor:pointer" onclick="${config.clearFnName}()">元の順に戻す</span>`;
+  }else{
+    banner.style.display = 'none';
+    banner.innerHTML = '';
+  }
 }
 
+let facilitySortState = { field: null, dir: 1 };
 let hotelSortState = { field: null, dir: 1 };
-function sortHotelTable(field){ sortBdItems(bdHotelItems, field, hotelSortState, renderHotelTable); }
-
 let busSortState = { field: null, dir: 1 };
-function sortBusTable(field){ sortBdItems(bdBusItems, field, busSortState, renderBusTable); }
-
 let restaurantSortState = { field: null, dir: 1 };
-function sortRestaurantTable(field){ sortBdItems(bdRestaurantItems, field, restaurantSortState, renderRestaurantTable); }
-
 let bulletTrainSortState = { field: null, dir: 1 };
-function sortBulletTrainTable(field){ sortBdItems(bdBulletTrainItems, field, bulletTrainSortState, renderBulletTrainTable); }
+
+const facilityArrSortConfig = {
+  getItems: () => bdFacilityItems,
+  getState: () => facilitySortState,
+  labels: FAC_SORT_LABELS,
+  arrowIds: { facility_name:'fac-sort-arrow-facility_name', date:'fac-sort-arrow-date', status:'fac-sort-arrow-status', deadline_date:'fac-sort-arrow-deadline_date', payment_method:'fac-sort-arrow-payment_method' },
+  getVal: (it, field) => FAC_SORT_VALUE_GETTERS[field](it),
+  cmp: (a, b, field) => FAC_SORT_REAL_COMPARATORS[field](a, b),
+  renderFn: () => renderFacilityTable(),
+  bannerId: 'fac-sort-banner',
+  clearFnName: 'clearFacilitySort',
+};
+// 日付のみを対象とする4タブ(ホテル/バス/レストラン/新幹線)共通の比較関数(YYYY-MM-DD文字列比較)。
+const ARR_DATE_ONLY_CMP = (a,b) => a<b?-1:(a>b?1:0);
+const hotelArrSortConfig = {
+  getItems: () => bdHotelItems,
+  getState: () => hotelSortState,
+  labels: { check_in:'チェックイン', check_out:'チェックアウト' },
+  arrowIds: { check_in:'hotel-checkin-sort-arrow', check_out:'hotel-checkout-sort-arrow' },
+  getVal: (it, field) => it[field],
+  cmp: ARR_DATE_ONLY_CMP,
+  renderFn: () => renderHotelTable(),
+  bannerId: 'hotel-sort-banner',
+  clearFnName: 'clearHotelSort',
+};
+const busArrSortConfig = {
+  getItems: () => bdBusItems,
+  getState: () => busSortState,
+  labels: { start_date:'開始日', end_date:'終了日' },
+  arrowIds: { start_date:'bus-start-sort-arrow', end_date:'bus-end-sort-arrow' },
+  getVal: (it, field) => it[field],
+  cmp: ARR_DATE_ONLY_CMP,
+  renderFn: () => renderBusTable(),
+  bannerId: 'bus-sort-banner',
+  clearFnName: 'clearBusSort',
+};
+const restaurantArrSortConfig = {
+  getItems: () => bdRestaurantItems,
+  getState: () => restaurantSortState,
+  labels: { date:'日付' },
+  arrowIds: { date:'rest-date-sort-arrow' },
+  getVal: (it, field) => it[field],
+  cmp: ARR_DATE_ONLY_CMP,
+  renderFn: () => renderRestaurantTable(),
+  bannerId: 'rest-sort-banner',
+  clearFnName: 'clearRestaurantSort',
+};
+const bulletTrainArrSortConfig = {
+  getItems: () => bdBulletTrainItems,
+  getState: () => bulletTrainSortState,
+  labels: { ride_date:'乗車日' },
+  arrowIds: { ride_date:'bullet-ride-date-sort-arrow' },
+  getVal: (it, field) => it[field],
+  cmp: ARR_DATE_ONLY_CMP,
+  renderFn: () => renderBulletTrainTable(),
+  bannerId: 'bullet-sort-banner',
+  clearFnName: 'clearBulletTrainSort',
+};
+
+function sortFacilityTable(field){ arrSortCycle(facilityArrSortConfig, field); }
+function clearFacilitySort(){ arrSortClear(facilityArrSortConfig); }
+function sortHotelTable(field){ arrSortCycle(hotelArrSortConfig, field); }
+function clearHotelSort(){ arrSortClear(hotelArrSortConfig); }
+function sortBusTable(field){ arrSortCycle(busArrSortConfig, field); }
+function clearBusSort(){ arrSortClear(busArrSortConfig); }
+function sortRestaurantTable(field){ arrSortCycle(restaurantArrSortConfig, field); }
+function clearRestaurantSort(){ arrSortClear(restaurantArrSortConfig); }
+function sortBulletTrainTable(field){ arrSortCycle(bulletTrainArrSortConfig, field); }
+function clearBulletTrainSort(){ arrSortClear(bulletTrainArrSortConfig); }
 function addFacilityRow(){
   const b = findBookingById(currentDetailId);
   bdFacilityItems.push({facility_name:'',date:'',pax:getBillablePax(b),amount:0,status:'問い合わせ中',confirmation_no:'',deadline_date:'',payment_method:'',memo:''});
@@ -16746,15 +16824,17 @@ async function saveFmFacilityConfirm(){
 function renderBulletTrainTable(){
   const tbody = document.getElementById('bd-bullet-tbody');
   if(!tbody) return;
-  const rideDateArrow = document.getElementById('bullet-ride-date-sort-arrow');
-  if(rideDateArrow) rideDateArrow.textContent = bdSortArrow(bulletTrainSortState, 'ride_date');
   if(bdBulletTrainItems.length===0){
     tbody.innerHTML='<tr><td colspan="17" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
     document.getElementById('bd-bullet-total').textContent = yen(0);
+    updateArrSortUI(bulletTrainArrSortConfig);
     return;
   }
-  tbody.innerHTML = bdBulletTrainItems.map((it,i)=>`<tr${arrRowDropHtml('bdBulletTrainItems',i,'renderBulletTrainTable')}>
-    ${arrReorderHtml('bdBulletTrainItems', i, bdBulletTrainItems.length, 'renderBulletTrainTable')}
+  const sorted = bulletTrainSortState.field !== null;
+  tbody.innerHTML = arrSortedOrder(bulletTrainArrSortConfig).map(i=>{
+    const it = bdBulletTrainItems[i];
+    return `<tr${sorted ? '' : arrRowDropHtml('bdBulletTrainItems',i,'renderBulletTrainTable')}>
+    ${arrReorderHtml('bdBulletTrainItems', i, bdBulletTrainItems.length, 'renderBulletTrainTable', sorted)}
     <td data-label="乗車日"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.ride_date||''}" onchange="bdBulletTrainItems[${i}].ride_date=this.value"></td>
     <td data-label="列車名"><input value="${escAttr(it.train_name)}" oninput="bdBulletTrainItems[${i}].train_name=this.value" style="width:100%" placeholder="のぞみ"></td>
     <td data-label="号数"><input value="${escAttr(it.train_number)}" oninput="bdBulletTrainItems[${i}].train_number=this.value" style="width:100%" placeholder="123号"></td>
@@ -16771,8 +16851,10 @@ function renderBulletTrainTable(){
     <td data-label="ステータス">${statusDropdownHtml(o=>`bdBulletTrainItems[${i}].status='${o}';renderBulletTrainTable()`, it.status, ['未予約','回答待ち','手配OK','FNL済','NG回答','キャンセル'], '回答待ち')}</td>
     <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdBulletTrainItems[${i}].memo=this.value" style="width:100%"></td>
     ${arrDelBtnHtml('bdBulletTrainItems', i, 'renderBulletTrainTable', escAttr([it.ride_date, it.train_name, it.train_number, [it.departure_station, it.arrival_station].filter(Boolean).join('→')].filter(Boolean).join(' '))+' の行を削除しますか？', 'duplicateBulletTrainRow')}
-  </tr>`).join('');
+  </tr>`;
+  }).join('');
   document.getElementById('bd-bullet-total').textContent = yen(bdBulletTrainItems.reduce((s,it)=>s+Number(it.amount||0),0));
+  updateArrSortUI(bulletTrainArrSortConfig);
 }
 
 function bulletTrainAmountCalc(i, el){
