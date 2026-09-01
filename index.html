@@ -4412,8 +4412,18 @@ const FACILITY_DEADLINE_TIERS_FULL = FACILITY_DEADLINE_TIERS.concat([
 
 // 観光施設・バス駐車場等の対応期限日が近い（または超過した）明細を取得し、
 // ダッシュボードのToDoリスト・画面上部の常時バナーの両方で共有する。
-// maxDaysを指定すると、その日数以内(超過含む)の未完了分のみに絞り込む（省略時は全件対象）。
-async function fetchFacilityDeadlineItems(maxDays){
+// 取得(DBへの問い合わせ)と加工(maxDaysによる絞り込み・区分分け)を分離している。
+// これは、同じ操作の中でmaxDaysの異なる複数の画面(ダッシュボードサマリー=7、
+// 「すべて表示」ページ=null等)を続けて再描画する箇所(execTodoBatchUpdate等)で、
+// 全件取得(1000件ページングのDB問い合わせ)を1回で済ませ、加工だけをmaxDaysごとに
+// 繰り返せるようにするため(Supabase Freeプランのegress対策)。
+//
+// fetchAllFacilityDeadlineItems(): DBへ問い合わせ、_booking/_daysを付与した全件配列
+// (allItems、maxDaysによる絞り込み前)を返す。エラー時は{error}を返す。
+// buildFacilityDeadlineResult(allItems, maxDays): allItemsから、既存の
+// fetchFacilityDeadlineItems(maxDays)と同じ形の{items, buckets, bucketsFull,
+// completed, incompleteAll}を組み立てる純関数(DBへは問い合わせない)。
+async function fetchAllFacilityDeadlineItems(){
   const today = new Date(); today.setHours(0,0,0,0);
   const inDays = dateStr => Math.floor((new Date(dateStr+'T00:00:00') - today) / 86400000);
 
@@ -4456,6 +4466,9 @@ async function fetchFacilityDeadlineItems(maxDays){
       return a._days - b._days;
     });
 
+  return { allItems };
+}
+function buildFacilityDeadlineResult(allItems, maxDays){
   const incompleteAll = allItems.filter(f=>!f.deadline_completed);
   const completed = allItems.filter(f=>f.deadline_completed)
     .sort((a,b)=>(b.deadline_date||'').localeCompare(a.deadline_date||''));
@@ -4464,6 +4477,22 @@ async function fetchFacilityDeadlineItems(maxDays){
   const buckets = FACILITY_DEADLINE_TIERS.map(t => ({ ...t, items: items.filter(f=>t.test(f._days)) }));
   const bucketsFull = FACILITY_DEADLINE_TIERS_FULL.map(t => ({ ...t, items: incompleteAll.filter(f=>t.test(f._days)) }));
   return { items, buckets, bucketsFull, completed, incompleteAll };
+}
+// maxDaysを指定すると、その日数以内(超過含む)の未完了分のみに絞り込む（省略時は全件対象）。
+// 既存の呼び出し元との互換性のため、戻り値の形はfetchAllFacilityDeadlineItems+
+// buildFacilityDeadlineResultへの分割前と変えていない。
+async function fetchFacilityDeadlineItems(maxDays){
+  const { allItems, error } = await fetchAllFacilityDeadlineItems();
+  if(error) return { error };
+  return buildFacilityDeadlineResult(allItems, maxDays);
+}
+// 同じ操作の中でrenderDashboardTodoSummary/renderTodoPage/refreshGlobalDeadlineBannerを
+// 複数続けて呼ぶ箇所(execTodoBatchUpdate等)で、全件取得を1回だけ行うためのヘルパー。
+// エラー時はnullを返す(呼び出し元は各関数のprefetched省略時の従来通りの取得・
+// エラー処理にフォールバックする)。
+async function prefetchFacilityDeadlineAllItems(){
+  const { allItems, error } = await fetchAllFacilityDeadlineItems();
+  return error ? null : allItems;
 }
 
 // TOUR CODE・TOUR NAMEを「KIC1110_TC / 8泊 Tokyo-Kobe」のように併記する
@@ -4650,15 +4679,22 @@ async function execTodoBatchUpdate(items, fields){
   }
   // ダッシュボード・「すべて表示」ページのどちらから実行したかに関わらず両方を再取得して
   // 最新化する(展開中の区分の開閉状態dbTodoOpenTiersはそのまま維持される)。
-  await renderDashboardTodoSummary();
-  await renderTodoPage();
-  await refreshGlobalDeadlineBanner();
+  // 3箇所とも同じ対応期限データを見るため、全件取得(1000件ページングのDB問い合わせ)は
+  // ここで1回だけ行い、各関数にはその結果(allItems)を渡す(egress対策)。
+  const prefetched = await prefetchFacilityDeadlineAllItems();
+  await renderDashboardTodoSummary(prefetched);
+  await renderTodoPage(prefetched);
+  await refreshGlobalDeadlineBanner(prefetched);
 }
-async function renderDashboardTodoSummary(){
+// prefetched: fetchAllFacilityDeadlineItems()/prefetchFacilityDeadlineAllItems()で
+// 取得済みのallItems配列。省略時は従来通りこの関数が自前で取得する。
+async function renderDashboardTodoSummary(prefetched){
   const card = document.getElementById('db-todo-summary-card');
   const el = document.getElementById('db-todo-summary');
   if(!card || !el) return;
-  const {buckets, items, error} = await fetchFacilityDeadlineItems(7); // maxDays=7 → 期限当日〜7日以内
+  const {buckets, items, error} = prefetched
+    ? buildFacilityDeadlineResult(prefetched, 7) // maxDays=7 → 期限当日〜7日以内
+    : await fetchFacilityDeadlineItems(7);
   if(error || !items || !items.length){ card.style.display = 'none'; return; }
   card.style.display = '';
   dbTodoSummaryCache = buckets;
@@ -4690,10 +4726,13 @@ function renderDbTodoSummaryFromCache(){
   }).join('') + `<button class="btn" style="margin-top:4px;font-size:12px" onclick="go('todo')">すべて表示（全${totalCount}件）</button>`;
 }
 
-async function renderTodoPage(){
+// prefetched: renderDashboardTodoSummary()と同じ(省略時は従来通り自前で取得)。
+async function renderTodoPage(prefetched){
   const el = document.getElementById('todo-page-list');
   if(!el) return;
-  const {completed, incompleteAll, error} = await fetchFacilityDeadlineItems(null);
+  const {completed, incompleteAll, error} = prefetched
+    ? buildFacilityDeadlineResult(prefetched, null)
+    : await fetchFacilityDeadlineItems(null);
   if(error){ el.innerHTML = '<div style="color:var(--red);font-size:12px">読み込みエラー: '+escHtml(error.message)+'</div>'; return; }
   todoPageDataCache = {completed, incompleteAll};
   renderTodoPageFromCache();
@@ -4713,8 +4752,9 @@ async function deleteFacilityTodoItem(facilityId, facilityName, refNo, deadlineD
     alert('削除に失敗しました: '+e.message);
     return;
   }
-  await renderTodoPage();
-  await refreshGlobalDeadlineBanner();
+  const prefetched = await prefetchFacilityDeadlineAllItems();
+  await renderTodoPage(prefetched);
+  await refreshGlobalDeadlineBanner(prefetched);
 }
 
 function renderTodoPageFromCache(){
@@ -4758,17 +4798,19 @@ async function undoFacilityTodoComplete(facilityId){
     alert('更新に失敗しました: '+e.message);
     return;
   }
-  await renderTodoPage();
-  await refreshGlobalDeadlineBanner();
+  const prefetched = await prefetchFacilityDeadlineAllItems();
+  await renderTodoPage(prefetched);
+  await refreshGlobalDeadlineBanner(prefetched);
 }
 
 // 画面上部の常時警告バナー：ログイン後・どのページを開いていても対応期限日が近い予約の件数を表示する
-async function refreshGlobalDeadlineBanner(){
+// prefetched: renderDashboardTodoSummary()と同じ(省略時は従来通り自前で取得)。
+async function refreshGlobalDeadlineBanner(prefetched){
   const banner = document.getElementById('global-deadline-banner');
   if(!banner) return;
   let result;
   try{
-    result = await fetchFacilityDeadlineItems(7);
+    result = prefetched ? buildFacilityDeadlineResult(prefetched, 7) : await fetchFacilityDeadlineItems(7);
   }catch(e){
     result = { error: e };
   }
