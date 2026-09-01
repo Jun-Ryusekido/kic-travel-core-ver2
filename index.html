@@ -3698,7 +3698,10 @@ function applyLoggedInUI(data){
   const cardHolderItem = document.getElementById('sb-card-holders');
   if(cardHolderItem) cardHolderItem.style.display = isCardHolderAdmin() ? '' : 'none';
 
-  refreshGlobalDeadlineBanner();
+  // 対応期限バナーの初回取得は、この直後に必ず呼ばれるgo('dashboard')側
+  // (loadBookingListGenericのprefix==='db'分岐)でrenderDashboardTodoSummaryと
+  // 合わせて1回にまとめて取得する(ここでは呼ばない。呼び出し元はdoLogin/restoreSessionの
+  // 2箇所のみで、いずれも直後に必ずgo('dashboard')を呼ぶため、二重取得を避けられる)。
 }
 
 // ===== エラーログ閲覧ページ（管理者のみ） =====
@@ -4246,7 +4249,17 @@ async function loadBookingListGeneric(prefix){
   const isAdmin = currentUser && currentUser.role==='admin';
   if(fromEl && !fromEl.value && !isAdmin) fromEl.value = TEMP_DEFAULT_FROM;
   filterBookingListGeneric(prefix);
-  if(prefix === 'db'){ renderDbArrivalAlert(); renderDashboardTodoSummary(); }
+  if(prefix === 'db'){
+    renderDbArrivalAlert();
+    // ダッシュボード初期表示では、renderDashboardTodoSummary()とrefreshGlobalDeadlineBanner()
+    // (本来はapplyLoggedInUI側で呼んでいたが、go('dashboard')経由でここへ必ず来るため
+    // そちらから移設した)が同じ対応期限データ(booking_facilities)を見るため、
+    // 全件取得をここで1回だけ行い、両方にprefetchedとして渡す(egress対策)。
+    // 他のprefix('bl'等)の経路はここを通らないため影響しない。
+    const prefetched = await prefetchFacilityDeadlineAllItems();
+    await renderDashboardTodoSummary(prefetched);
+    await refreshGlobalDeadlineBanner(prefetched);
+  }
 }
 
 function resetBookingFilter(prefix){
