@@ -137,7 +137,7 @@ export default async function handler(req, res) {
   }
   try {
     const { variants, mediaType, base64, hotelText, hotelPdfBase64, hotelExcelBase64, hotelImageBase64, hotelImageMediaType, facilityText, facilityPdfBase64, facilityExcelBase64, facilityImageBase64, facilityImageMediaType, busText, busPdfBase64, busExcelBase64, busImageBase64, busImageMediaType, restaurantText, restaurantPdfBase64, restaurantExcelBase64, restaurantImageBase64, restaurantImageMediaType, invoiceText, invoicePdfBase64, invoiceExcelBase64, invoiceImageBase64, invoiceImageMediaType, targetCheckIn, targetCheckOut, password,
-      bankbookImageBase64, bankbookMediaType, bankbookPdfBase64, bankbookText,
+      bankbookImageBase64, bankbookMediaType, bankbookPdfBase64, bankbookText, bankbookEra,
       cardstatementImageBase64, cardstatementMediaType, cardstatementPdfBase64, cardstatementText,
       receiptImageBase64, receiptMediaType,
       multiLocBase64, multiLocMediaType, multiLocReturnJson,
@@ -235,6 +235,15 @@ export default async function handler(req, res) {
 
     // ─── 通帳OCRモード（旧 /api/extract-bankbook.js を統合。Vercel Hobbyプランの
     // サーバーレス関数数上限(12個)対策で、役割の近いAI抽出系エンドポイントを1つに集約した） ───
+    // 【日付の和暦/西暦変換について】以前はプロンプトで「日付はYYYY-MM-DD形式」とだけ指示し、
+    // 和暦→西暦の変換計算(+2018等)をAI自身にやらせていたが、クレジットカード明細OCR(このAPIの
+    // 別モード、上記参照)で同じ方式が月日を取り違える誤読を繰り返し起こしたため、PR #75で
+    // 「AIは印字された数字をそのまま転記するだけ、西暦への変換算術はコード側(index.html)で行う」
+    // 方式に改めた経緯がある。通帳もこの構造に統一する。ただし通帳はクレジットカード明細と異なり、
+    // 和暦/西暦のどちらで記帳されるかは銀行ごとに固定(KICが使う5行は既知)であり、AIに
+    // era_type(和暦/西暦の判定)まで行わせる必要が無い。アップロード時に選んだ銀行の設定
+    // (bankbookEra、'reiwa'|'western')に応じて西暦への変換をindex.html側で機械的に行うため、
+    // ここでは年・月・日それぞれの生の数字をそのまま報告させることだけを求める。
     const resolvedBankbookContent = bankbookPdfBase64
       ? {type:'document', source:{type:'base64', media_type:'application/pdf', data:bankbookPdfBase64}}
       : bankbookText
@@ -243,9 +252,34 @@ export default async function handler(req, res) {
       ? {type:'image', source:{type:'base64', media_type:bankbookMediaType, data:bankbookImageBase64}}
       : null;
     if (resolvedBankbookContent) {
+      // bankbookEraは西暦への変換算術には使わない(それはindex.html側の仕事)が、この銀行が
+      // 年を何桁で記帳するかのヒントとしてプロンプトに含める(和暦なら1〜2桁、西暦なら2桁または
+      // 4桁が典型的なため、AIが数字を読み違えにくくなる)。変換自体は禁止のまま。
+      const eraHint = bankbookEra === 'reiwa'
+        ? 'この通帳・明細を発行した銀行は、年を和暦（元号）の年数のみ（1〜2桁の数字）で記帳するのが通例です。年欄に「8」のような1〜2桁の数字が見えたら、それはそのままyear_rawの値です（西暦への変換はしないこと）。'
+        : bankbookEra === 'western'
+        ? 'この通帳・明細を発行した銀行は、年を西暦（2桁または4桁の数字）で記帳するのが通例です。年欄に見える数字（2桁または4桁）をそのままyear_rawの値としてください。'
+        : '';
       const data = await callClaude([
         resolvedBankbookContent,
-        {type:'text', text:'この通帳または銀行明細から入金（振込入金・着金）の記録のみを読み取ってください。出金・引き出しは除外してください。各入金について日付・金額・振込元または取引内容を読み取り、以下のJSON形式のみで返してください。日付はYYYY-MM-DD形式。読み取れない項目はnullにしてください。他のテキストは一切含めないでください。\n[{"date":"2026-05-20","amount":1000000,"bank":"〇〇株式会社"},{"date":"2026-05-25","amount":500000,"bank":null}]'}
+        {type:'text', text:`この通帳または銀行明細から入金（振込入金・着金）の記録のみを読み取ってください。出金・引き出しは除外してください。各入金について日付・金額・振込元または取引内容を読み取り、以下のJSON形式のみで返してください。他のテキストは一切含めないでください。
+${eraHint ? `\n${eraHint}\n` : ''}
+【日付の読み取りルール（最重要・厳守）】
+このセクションで求めるのは「年・月・日それぞれの生の数字を正しく特定して報告すること」だけです。
+西暦への変換計算は一切行わないこと（最重要）。"year_raw"には、印字されている年の数字をそのまま
+入れること（和暦・西暦のどちらであるかの判断や、西暦への変換（+2018等の計算）は絶対に行わないこと。
+変換はこの後プログラム側で機械的に行うため、AIが暗算する必要はありません。暗算はむしろ誤りの原因に
+なるため行わないこと）。印字されている桁数のまま（1〜2桁ならその桁数、4桁なら4桁）"year_raw"に
+入れてください。
+- 通帳は年が省略され月日のみが印字されている行が多い。その場合は"year_raw"をnullにしてください
+  （空欄のまま前の行の年を引き継ぐ、といった補完はこの後プログラム側で行うため、AI側で推測して
+  値を埋めないこと）。
+- 年欄と月日欄が離れた位置に別々に印字されている場合、それらを不用意に連結して1つの数字にしない
+  こと（例: 年欄の「8」と月日欄の「2 19」を混同して「8219」のような無意味な数値を作らない）。
+  年・月・日は必ずyear_raw・month・dayの別々のフィールドに報告すること。
+- 読み取れない・印字されていない項目（金額・振込元等）はnullにしてください。
+
+[{"year_raw":8,"month":2,"day":19,"amount":1000000,"bank":"〇〇株式会社"},{"year_raw":null,"month":2,"day":25,"amount":500000,"bank":null}]`}
       ], 1000);
       const text = data.content?.[0]?.text || '';
       return res.status(200).json({ text });

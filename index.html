@@ -1177,6 +1177,10 @@ input[type=number]{-moz-appearance:textfield}
           </div>
           <div id="db-bankbook-ocr-area" style="display:none;margin-top:10px">
             <div style="font-size:12px;color:var(--text3);margin-bottom:8px">通帳・銀行明細の画像・PDF・Excel・Wordをアップロードして入金記録を自動読み取りします</div>
+            <div style="margin-bottom:10px;max-width:100%">
+              <label for="db-bankbook-bank-select" style="font-size:11px;color:var(--text3);display:block;margin-bottom:3px">銀行（和暦/西暦の判断に使用。必須）</label>
+              <select id="db-bankbook-bank-select" onchange="saveDashboardBankbookBankSelection()" style="font-size:12px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);width:100%;max-width:320px;box-sizing:border-box"></select>
+            </div>
             <label class="btn btn-p" style="cursor:pointer;font-size:12px;display:inline-flex">📷 カメラで撮影
               <input type="file" accept="image/*" capture="environment" style="display:none" onchange="extractDashboardBankbook(event)">
             </label>
@@ -7331,6 +7335,93 @@ function toggleBdCollapseSection(bodyId, titleEl){
 
 // ===== ダッシュボード 通帳OCR =====
 let dbBankbookExtracted = [];
+// この読み取りで実際に使われた銀行設定(renderDashboardBankbookResults()の
+// 「◯◯銀行・和暦として日付を変換しました」表示に使う)。
+let dbBankbookUsedBank = null;
+
+// KICが使う銀行は5行で、和暦/西暦は銀行ごとに固定(通帳自体にどちらの元号で記帳されるかは
+// 銀行のシステム側の仕様であり、明細を見て都度AIに判定させる必要がない)。クレジットカード
+// 明細OCR(PR #75、ccAssembleTransactionDate参照)で「AIに和暦/西暦の判定・変換算術まで
+// やらせると、月日を取り違える誤読が起きる」と分かったため、通帳はそもそもAIに判定させず、
+// アップロード時に選んだ銀行の設定で機械的に変換する。
+const BANKBOOK_BANKS = [
+  {key:'smbc', name:'三井住友銀行', era:'reiwa'},
+  {key:'mufg', name:'三菱UFJ銀行', era:'reiwa'},
+  {key:'tokyobay', name:'東京ベイ信用金庫', era:'reiwa'},
+  {key:'mizuho', name:'みずほ銀行', era:'western'},
+  {key:'gmo', name:'GMOあおぞらNET銀行', era:'western'},
+];
+const BANKBOOK_BANK_STORAGE_KEY = 'kic_bankbook_bank_v1';
+function bankbookEraLabel(era){ return era==='reiwa' ? '和暦' : '西暦'; }
+// #db-bankbook-bank-select の選択肢をBANKBOOK_BANKSから組み立て、前回選択した銀行
+// (localStorage)を初期選択として復元する。
+function initDashboardBankbookBankSelect(){
+  const sel = document.getElementById('db-bankbook-bank-select');
+  if(!sel) return;
+  sel.innerHTML = '<option value="">銀行を選択してください</option>' +
+    BANKBOOK_BANKS.map(b=>`<option value="${b.key}">${escHtml(b.name)}（${bankbookEraLabel(b.era)}）</option>`).join('');
+  let saved = '';
+  try{ saved = localStorage.getItem(BANKBOOK_BANK_STORAGE_KEY) || ''; }catch(e){}
+  if(saved && BANKBOOK_BANKS.some(b=>b.key===saved)) sel.value = saved;
+}
+function saveDashboardBankbookBankSelection(){
+  const sel = document.getElementById('db-bankbook-bank-select');
+  if(!sel) return;
+  try{ localStorage.setItem(BANKBOOK_BANK_STORAGE_KEY, sel.value||''); }catch(e){}
+}
+// 現在選択されている銀行(BANKBOOK_BANKSの要素、未選択ならnull)を返す。
+function getDashboardBankbookBank(){
+  const sel = document.getElementById('db-bankbook-bank-select');
+  const key = sel ? sel.value : '';
+  return BANKBOOK_BANKS.find(b=>b.key===key) || null;
+}
+initDashboardBankbookBankSelect();
+
+// 通帳OCRの日付組み立て(純粋関数)。AIには「印字されている年・月・日の生の数字をそのまま
+// 報告する」ことだけを求め(year_raw/month/day)、和暦→西暦の算術は一切AIにやらせず、ここで
+// 機械的に計算する(ccAssembleTransactionDateと同じ考え方。通帳はクレカと異なり和暦/西暦が
+// アップロード時に選んだ銀行設定(era)で固定されているため、era自体の判定は不要)。
+// prevYear: 直前の行で確定した年(通帳は年が省略されている行が多く、その場合は直前行の年を
+// 引き継ぐ)。先頭行でyear_rawが無い場合は今年(JST)を仮置きし、warningを付ける。
+// 戻り値: { date: 'YYYY-MM-DD'|null, year: 数値|null, warning: 文字列|null }
+function assembleBankbookDate(yearRaw, month, day, era, prevYear){
+  const m = Number(month), d = Number(day);
+  let year = null;
+  let yearIsGuessed = false;
+  if(yearRaw !== null && yearRaw !== undefined && yearRaw !== ''){
+    const yr = Number(yearRaw);
+    if(Number.isInteger(yr) && yr > 0){
+      year = era === 'reiwa' ? (2018 + yr) : (yr < 100 ? 2000 + yr : yr);
+    }
+  }
+  if(year === null){
+    if(prevYear !== null && prevYear !== undefined){
+      year = prevYear;
+    }else{
+      year = Number(new Date().toLocaleDateString('sv-SE', {timeZone:'Asia/Tokyo'}).slice(0,4));
+      yearIsGuessed = true;
+    }
+  }
+  const validParts = Number.isInteger(year) && Number.isInteger(m) && m>=1 && m<=12 && Number.isInteger(d) && d>=1 && d<=31;
+  if(!validParts){
+    return { date: null, year, warning: '日付を特定できませんでした(年・月・日を確認してください)' };
+  }
+  const dateStr = `${year}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+  const dt = new Date(dateStr+'T00:00:00');
+  const isValidCalendarDate = !isNaN(dt) && dt.getFullYear()===year && (dt.getMonth()+1)===m && dt.getDate()===d;
+  if(!isValidCalendarDate){
+    return { date: dateStr, year, warning: '存在しない日付です(年・月・日を確認してください)' };
+  }
+  const todayJst = new Date(new Date().toLocaleDateString('sv-SE', {timeZone:'Asia/Tokyo'})+'T00:00:00');
+  const diffYears = (dt - todayJst) / (365.25*86400000);
+  let warning = null;
+  if(diffYears > 2 || diffYears < -2){
+    warning = `今日から前後2年の範囲外です(${dateStr})。年の変換を確認してください`;
+  }else if(yearIsGuessed){
+    warning = `年が読み取れなかったため今年(${year}年)として仮表示しています。確認してください`;
+  }
+  return { date: dateStr, year, warning };
+}
 
 function toggleDashboardBankbookOcr(){
   const el = document.getElementById('db-bankbook-ocr-area');
@@ -7349,6 +7440,13 @@ async function extractDashboardBankbook(event){
 
 async function processDashboardBankbookFile(file){
   if(!file) return;
+  // 銀行未選択のままでは和暦/西暦の判断が付かないため、ファイル選択・ペースト・ドロップの
+  // どの経路でもここで一律に拒否する(この関数は全経路が最終的に通る共通の入口のため)。
+  const bank = getDashboardBankbookBank();
+  if(!bank){
+    alert('銀行を選択してください');
+    return;
+  }
   if(!checkOcrUploadSize(file)) return;
   const statusEl = document.getElementById('db-bankbook-file-status');
   statusEl.textContent = '⏳ 読み取り中...';
@@ -7375,6 +7473,7 @@ async function processDashboardBankbookFile(file){
       const base64 = await readFileAsBase64(file);
       body = {bankbookImageBase64: base64, bankbookMediaType: file.type};
     }
+    body.bankbookEra = bank.era;
     const response = await fetch('/api/extract-card', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
@@ -7384,7 +7483,18 @@ async function processDashboardBankbookFile(file){
     const data = await response.json();
     const cleaned = (data.text||'').replace(/```json|```/g,'').trim();
     const parsed = JSON.parse(cleaned);
-    dbBankbookExtracted = Array.isArray(parsed) ? parsed : [parsed];
+    const rawRows = Array.isArray(parsed) ? parsed : [parsed];
+    // 年が省略された行(通帳では頻出)は直前行の年を引き継ぐため、配列の並び順のまま
+    // 1行ずつ逐次組み立てる(reduceでprevYearを引き渡す)。既存の突き合わせ・保存処理
+    // (renderDashboardBankbookResults/applyDashboardBankbookEntry等)はp.dateキーを
+    // そのまま参照するため、組み立て後の日付も同じ"date"キーに格納する。
+    dbBankbookUsedBank = bank;
+    dbBankbookExtracted = rawRows.reduce((acc, p)=>{
+      const prevYear = acc.length ? acc[acc.length-1]._year : null;
+      const assembled = assembleBankbookDate(p.year_raw, p.month, p.day, bank.era, prevYear);
+      acc.push({ ...p, date: assembled.date, _year: assembled.year, _dateWarning: assembled.warning });
+      return acc;
+    }, []);
     bookingsListCache = await fetchBookingsListLight();
     // F16: 振込人名等(bank欄のテキスト)とREF#の学習(bankbook_payer)を、行ごとに都度
     // 問い合わせるのではなく一括取得してマップ化する(cc_merchantの学習参照と同じ考え方)。
@@ -7468,9 +7578,17 @@ function renderDashboardBankbookResults(){
       <input type="hidden" id="db-bb-booking-${k}" value="${hiddenVal}">
       <div id="db-bb-dd-${k}" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--card,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:999;max-height:180px;overflow-y:auto;margin-top:2px"></div>
     </div>${candidateNoteHtml}`;
+    // 通帳OCRの日付は銀行設定(era)による機械変換の結果であり、警告(_dateWarning)が
+    // 付いている行は「自動確定しない」(赤枠+理由表示のみで、確定した体で見せない)。
+    const dateCellHtml = p._dateWarning
+      ? `<td style="padding:6px 8px;white-space:nowrap;border:2px solid var(--red);border-radius:4px">
+           <div>${escHtml(p.date||'—')}</div>
+           <div style="font-size:9px;color:var(--red);white-space:normal;max-width:140px">⚠ ${escHtml(p._dateWarning)}</div>
+         </td>`
+      : `<td style="padding:6px 8px;white-space:nowrap">${escHtml(p.date||'—')}</td>`;
     return `
     <tr id="db-bankbook-entry-${k}" style="border-bottom:1px solid var(--border)">
-      <td style="padding:6px 8px;white-space:nowrap">${p.date||'—'}</td>
+      ${dateCellHtml}
       <td style="padding:6px 8px;text-align:right;white-space:nowrap"><strong>${yen(p.amount||0)}</strong></td>
       <td style="padding:6px 8px">${(p.bank||'—').replace(/</g,'&lt;')}</td>
       <td style="padding:6px 8px;min-width:200px">${comboHtml}</td>
@@ -7481,7 +7599,12 @@ function renderDashboardBankbookResults(){
     </tr>`;
   }).join('');
 
-  el.innerHTML = `<div style="font-size:12px;font-weight:600;margin-bottom:8px">${dbBankbookExtracted.length}件の入金データを読み取りました</div>
+  // どの銀行設定(和暦/西暦)で日付を変換したかを常時表示する(このタブを閉じずに複数枚
+  // アップロードすることもあるため、結果一覧ごとに毎回表示し直す)。
+  const bankNoteHtml = dbBankbookUsedBank
+    ? `<div style="font-size:11px;color:var(--text3);margin-bottom:6px">${escHtml(dbBankbookUsedBank.name)}・${bankbookEraLabel(dbBankbookUsedBank.era)}として日付を変換しました</div>`
+    : '';
+  el.innerHTML = `${bankNoteHtml}<div style="font-size:12px;font-weight:600;margin-bottom:8px">${dbBankbookExtracted.length}件の入金データを読み取りました</div>
     <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
     <thead><tr style="border-bottom:2px solid var(--border);background:var(--bg2)">
       <th style="text-align:left;padding:5px 8px;white-space:nowrap">日付</th>
