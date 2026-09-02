@@ -557,6 +557,13 @@ input[type=number]{-moz-appearance:textfield}
   /* 明細行が多いInvoiceで、他の帳票印刷(ガイド精算書等)と同様に行の途中でページが
      分割されないようにする(1行単位で改ページする)。 */
   #inv-preview-card tr{page-break-inside:avoid}
+  /* ガイド精算一覧画面の他のカード(発行済みリンクの説明文・ガイド精算一覧の表)も、
+     Invoiceと全く同じ理由(#pg-invoice > .cardの説明参照)でガイド精算書プレビュー
+     (#gsl-print-card)の兄弟要素として不可視のままレイアウト上の高さを残し、
+     一覧の件数が多いと白紙ページが増える不具合があった(PR #137調査時に判明、
+     合成テストで300行時21ページを確認)。PR #137と同じ方式で解消する。 */
+  #pg-guide-settlements > .card:not(#gsl-print-card){display:none !important}
+  #gsl-print-card tr{page-break-inside:avoid}
   #inv-preview-card .card-title, #inv-preview-card button,
   #arr-preview-card .card-title, #arr-preview-card button,
   #gs-print-card .card-title, #gs-print-card button,
