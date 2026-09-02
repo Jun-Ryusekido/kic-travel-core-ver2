@@ -2970,8 +2970,9 @@ input[type=number]{-moz-appearance:textfield}
       </span>
     </div>
     <div id="local-expenses-print-area" style="display:none">
-    <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:830px">
+    <div class="tbl-wrap arr-tbl-sticky"><table class="li-table confirm-table" style="min-width:830px">
       <thead><tr>
+        <th class="li-reorder" style="width:60px"></th>
         <th style="width:100px">日付</th>
         <th style="width:90px">費用種類</th>
         <th>内容</th>
@@ -7785,10 +7786,11 @@ function renderLocalExpenses(){
   if(!tbody) return;
   const total = bdLocalExpenses.reduce((s,it)=>s+Number(it.amount||0),0);
   if(bdLocalExpenses.length===0){
-    tbody.innerHTML='<tr><td colspan="9" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
+    tbody.innerHTML='<tr><td colspan="10" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
   }else{
     tbody.innerHTML = bdLocalExpenses.map((it,i)=>`
-      <tr>
+      <tr${arrRowDropHtml('bdLocalExpenses',i,'renderLocalExpenses')}>
+      ${arrReorderHtml('bdLocalExpenses', i, bdLocalExpenses.length, 'renderLocalExpenses')}
         <td data-label="日付"><input type="date" min="1900-01-01" max="9999-12-31" value="${_safeDate(it.expense_date)}" onchange="bdLocalExpenses[${i}].expense_date=this.value" style="width:100%"></td>
         <td data-label="費用種類"><select onchange="bdLocalExpenses[${i}].expense_type=this.value" style="width:100%">
           <option value=""></option>
