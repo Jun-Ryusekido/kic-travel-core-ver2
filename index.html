@@ -28082,7 +28082,7 @@ async function showInvoicePreview(inv, booking){
         </tr></thead>
         <tbody>
           ${itemRows}
-          <tr><td style="border-right:1px solid #000;border-bottom:1px solid #000;padding:8px 6px;text-align:center">Total</td><td style="border-right:1px solid #000;border-bottom:1px solid #000;padding:8px 6px"></td><td style="border-bottom:1px solid #000;padding:8px 6px;text-align:right">${amountStr}</td></tr>
+          <tr><td style="border-right:1px solid #000;border-bottom:1px solid #000;padding:8px 6px;text-align:center">Total (all inclusive taxes)</td><td style="border-right:1px solid #000;border-bottom:1px solid #000;padding:8px 6px"></td><td style="border-bottom:1px solid #000;padding:8px 6px;text-align:right">${amountStr}</td></tr>
           <tr><td style="border-right:1px solid #000;border-bottom:1px solid #000;padding:8px 6px;text-align:center">Received deposit</td><td style="border-right:1px solid #000;border-bottom:1px solid #000;padding:8px 6px"></td><td style="border-bottom:1px solid #000;padding:8px 6px;text-align:right">${fmtMoney(depositConverted)}</td></tr>
           <tr><td style="border-right:1px solid #000;padding:8px 6px;text-align:center">Remaining balance</td><td style="border-right:1px solid #000;padding:8px 6px"></td><td style="padding:8px 6px;text-align:right">${fmtMoney(balance)}</td></tr>
         </tbody>
