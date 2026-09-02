@@ -8359,7 +8359,7 @@ async function openBookingDetail(id, opts){
   // 発生していた(実機で確認された不具合)。テンプレート行はユーザーが実際に何か入力して
   // 初めて『変更』として保存対象になる。
   bdLoadSnapshot.restaurants = JSON.stringify(buildRestaurantRows(id));
-  bdFacilityItems = (facRows||[]).map(r=>({id:r.id,facility_name:r.facility_name||'',date:r.date||'',pax:r.pax||0,amount:r.amount||0,status:r.status||'問い合わせ中',confirmation_no:r.confirmation_no||'',deadline_date:r.deadline_date||'',payment_method:r.payment_method||'',memo:r.memo||'',deadline_completed:r.deadline_completed||false,deadline_completed_at:r.deadline_completed_at||null,cost_added:r.cost_added||false}));
+  bdFacilityItems = (facRows||[]).map(r=>({id:r.id,facility_name:r.facility_name||'',date:r.date||'',pax:r.pax||0,amount:r.amount||0,status:r.status||'問い合わせ中',confirmation_no:r.confirmation_no||'',deadline_date:r.deadline_date||'',payment_method:r.payment_method||'',memo:r.memo||'',deadline_completed:r.deadline_completed||false,deadline_completed_at:r.deadline_completed_at||null,cost_added:r.cost_added||false,_orig_status:r.status||'問い合わせ中'}));
   originalFacilityCount = bdFacilityItems.length;
   bdLoadSnapshot.facilities = JSON.stringify(buildFacilityRows(id));
   bdWaterItems = (waterRows||[]).map(r=>({id:r.id,item_name:r.item_name||'',date:r.date||'',qty:r.qty||0,unit_price:r.unit_price||0,amount:r.amount||0,status:r.status||'問い合わせ中',memo:r.memo||'',payment_method:r.payment_method||'',cost_added:r.cost_added||false}));
@@ -16237,22 +16237,53 @@ function addFacilityRow(){
   bdFacilityItems.push({facility_name:'',date:'',pax:getBillablePax(b),amount:0,status:'問い合わせ中',confirmation_no:'',deadline_date:'',payment_method:'',memo:''});
   renderFacilityTable();
 }
+// ステータス連動の自動完了: 観光施設・バス駐車場等のステータスが「手配OK」「FNL済」
+// 「予約不要」のいずれかになった状態で保存すると、対応期限日(deadline_date)を持つ行は
+// 「対応が必要な予約」の対応リストから自動的に完了扱いにする(運用者が別途☑操作で
+// 完了させる手間を省く)。対応リスト側の一括完了ボタン(runTodoBatchAction)と同じ
+// deadline_completed/deadline_completed_atを書き込む方式に揃えている。
+// 既に完了済みの行(deadline_completed済み)は上書きしない(deadline_completed_atが
+// 保存の都度更新されるのを防ぐ)。
+//
+// 完了の自動解除は「ステータスの変更遷移」があった場合に限定する。it._orig_status
+// (予約を開いた時点、または直近の保存が成功した時点でのstatus。openBookingDetailの
+// 読み込み処理とsaveFacilityItems成功時の両方で更新)が自動完了対象ステータスから
+// 対象外ステータスへ変わった行だけ、自動完了を取り消す。これにより:
+// ・「手配OK→未予約/問い合わせ中/NG回答等に戻して保存」した行だけが対応リストに復帰する。
+// ・ダッシュボードの「完了のみ」(ステータスは変更しない)で完了させた行を、備考の
+//   微修正等ステータスに関係ない変更のまま保存しても、完了状態が維持される
+//   (_orig_statusとstatusが変わっていないため解除条件に該当しない)。
+//
+// buildFacilityRows()は差分検出(dirty判定)のためだけにも複数箇所から呼ばれる純粋関数
+// (bdFacilityItems自体は書き換えない)。そのため、算出したdeadline_completed/
+// deadline_completed_atと次回比較用の_orig_statusをbdFacilityItemsに反映する処理は、
+// 実際の保存API呼び出しが成功した後にsaveFacilityItems()側で行う(保存失敗時に
+// メモリ上だけ完了扱いになってDBの実際の状態とズレるのを防ぐため)。
+const FACILITY_AUTO_COMPLETE_STATUSES = ['手配OK','FNL済','予約不要'];
+const FACILITY_ROW_HAS_CONTENT = it=>it.facility_name||it.date||it.amount||it.confirmation_no||it.deadline_date||it.payment_method||it.memo;
 function buildFacilityRows(bookingId){
-  return bdFacilityItems.filter(it=>it.facility_name||it.date||it.amount||it.confirmation_no||it.deadline_date||it.payment_method||it.memo).map((it,i)=>({
-    booking_id: bookingId,
-    facility_name: it.facility_name||'',
-    date: sanitizeDateField(it.date), pax: Number(it.pax)||0,
-    amount: Number(it.amount)||0,
-    status: it.status||'問い合わせ中',
-    confirmation_no: it.confirmation_no||'',
-    deadline_date: sanitizeDateField(it.deadline_date),
-    payment_method: it.payment_method||null,
-    memo: it.memo||'',
-    deadline_completed: it.deadline_completed||false,
-    deadline_completed_at: it.deadline_completed_at||null,
-    cost_added: !!it.cost_added,
-    sort_order: i
-  }));
+  const nowIso = new Date().toISOString();
+  return bdFacilityItems.filter(FACILITY_ROW_HAS_CONTENT).map((it,i)=>{
+    const autoComplete = !it.deadline_completed && !!it.deadline_date && FACILITY_AUTO_COMPLETE_STATUSES.includes(it.status);
+    const autoUncomplete = it.deadline_completed
+      && FACILITY_AUTO_COMPLETE_STATUSES.includes(it._orig_status)
+      && !FACILITY_AUTO_COMPLETE_STATUSES.includes(it.status);
+    return {
+      booking_id: bookingId,
+      facility_name: it.facility_name||'',
+      date: sanitizeDateField(it.date), pax: Number(it.pax)||0,
+      amount: Number(it.amount)||0,
+      status: it.status||'問い合わせ中',
+      confirmation_no: it.confirmation_no||'',
+      deadline_date: sanitizeDateField(it.deadline_date),
+      payment_method: it.payment_method||null,
+      memo: it.memo||'',
+      deadline_completed: autoUncomplete ? false : (autoComplete ? true : (it.deadline_completed||false)),
+      deadline_completed_at: autoUncomplete ? null : (autoComplete ? nowIso : (it.deadline_completed_at||null)),
+      cost_added: !!it.cost_added,
+      sort_order: i
+    };
+  });
 }
 async function saveFacilityItems(){
   if(!currentDetailId) return;
@@ -16260,6 +16291,17 @@ async function saveFacilityItems(){
   const rows = buildFacilityRows(bookingId);
   await bookingFacilitiesApiCall('replace', { bookingId, rows });
   bdLoadSnapshot.facilities = JSON.stringify(rows);
+  // 保存成功後、算出結果(自動完了/自動解除の反映後のdeadline_completed等)と
+  // 次回比較用の_orig_statusをメモリ上のbdFacilityItemsにも反映する。rowsは
+  // FACILITY_ROW_HAS_CONTENTでフィルタ済みのbdFacilityItemsと同じ順序に対応する。
+  const savedItems = bdFacilityItems.filter(FACILITY_ROW_HAS_CONTENT);
+  savedItems.forEach((it,i)=>{
+    const row = rows[i];
+    if(!row) return;
+    it.deadline_completed = row.deadline_completed;
+    it.deadline_completed_at = row.deadline_completed_at;
+    it._orig_status = it.status;
+  });
 }
 
 // ─── ミネラルウォーター ─────────────────────────────────────────────────────
