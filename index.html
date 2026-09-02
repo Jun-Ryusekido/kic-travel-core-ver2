@@ -434,6 +434,24 @@ body.has-deadline-banner #detail-modal .modal-box{max-height:calc(96vh - var(--d
 #arrtab-bullet td.li-del, #arrtab-bullet th.li-del,
 #arrtab-guide td.li-del, #arrtab-guide th.li-del{position:sticky;right:0;background:var(--card);z-index:2;box-shadow:-2px 0 4px rgba(0,0,0,.08)}
 .li-total{text-align:right;margin-top:4px;font-size:11px;font-weight:700}
+/* 手配タブ(ホテル/バス/レストラン/観光施設・バス駐車場等/ミネラルウォーター/新幹線/
+   ガイド)と売上明細・仕入明細: 明細行が多いとテーブルが縦に長くなり見出し行が
+   スクロールで画面外に消えるため、見出し行を上部に固定表示(sticky)する。
+   実機検証済みの.tbl-wrap{overflow-x:auto}だけを指定した要素はoverflow-yも仕様上
+   auto相当になり、その要素自身が「最も近いスクロール祖先」になってしまうため、
+   外側(.modal-box)のスクロールを基準にposition:sticky;top:0を付けても効かない
+   (#bt-tbl-wrap/#tc-bodyで実機検証済みの既知の問題と同系統)。そのため各テーブルの
+   .tbl-wrapにmax-height+overflow-y:autoを与えて自前の縦スクロール領域にし、
+   その内部でthead th(仕入明細のみtbody内のtr.cost-sort-row th)のtop stickyを
+   完結させる方式を採用する(明細行数が少なく高さがmax-height未満のテーブルは
+   スクロールが発生しないため見た目上の変化はない)。スマホのカード表示(theadが
+   非表示になる768px未満)ではこのスクロール領域化自体が不要な制約になるため、
+   768px以上でのみ適用する。 */
+@media(min-width:768px){
+  .arr-tbl-sticky{max-height:58vh;overflow-y:auto}
+  .arr-tbl-sticky thead th{position:sticky;top:0;z-index:3;background:var(--card)}
+  .arr-tbl-sticky tr.cost-sort-row th{position:sticky;top:0;z-index:3;background:var(--card)}
+}
 @media(max-width:600px){.detail-summary{grid-template-columns:1fr 1fr}.detail-cols{grid-template-columns:1fr}}
 @media(max-width:768px){
   .modal-overlay{padding:0}
@@ -2606,7 +2624,7 @@ input[type=number]{-moz-appearance:textfield}
         </div>
       </div>
       <div id="hotel-sort-banner" style="display:none;font-size:11px;color:var(--text3);margin-bottom:4px"></div>
-      <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:970px">
+      <div class="tbl-wrap arr-tbl-sticky"><table class="li-table confirm-table" style="min-width:970px">
         <thead><tr>
           <th class="li-reorder" style="width:60px"></th>
           <th style="width:160px">ホテル名</th>
@@ -2650,7 +2668,7 @@ input[type=number]{-moz-appearance:textfield}
         </div>
       </div>
       <div id="bus-sort-banner" style="display:none;font-size:11px;color:var(--text3);margin-bottom:4px"></div>
-      <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:900px">
+      <div class="tbl-wrap arr-tbl-sticky"><table class="li-table confirm-table" style="min-width:900px">
         <thead><tr>
           <th class="li-reorder" style="width:60px"></th>
           <th style="width:160px">バス会社</th>
@@ -2695,7 +2713,7 @@ input[type=number]{-moz-appearance:textfield}
         </div>
       </div>
       <div id="rest-sort-banner" style="display:none;font-size:11px;color:var(--text3);margin-bottom:4px"></div>
-      <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:1080px">
+      <div class="tbl-wrap arr-tbl-sticky"><table class="li-table confirm-table" style="min-width:1080px">
         <thead><tr>
           <th class="li-reorder" style="width:60px"></th>
           <th style="width:160px">店名</th>
@@ -2736,7 +2754,7 @@ input[type=number]{-moz-appearance:textfield}
         </div>
       </div>
       <div id="fac-sort-banner" style="display:none;font-size:11px;color:var(--text3);margin-bottom:4px"></div>
-      <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:920px">
+      <div class="tbl-wrap arr-tbl-sticky"><table class="li-table confirm-table" style="min-width:920px">
         <thead><tr>
           <th class="li-reorder" style="width:60px"></th>
           <th style="width:180px;cursor:pointer;user-select:none" onclick="sortFacilityTable('facility_name')">施設名 <span id="fac-sort-arrow-facility_name" style="color:var(--text3)">⇅</span></th>
@@ -2759,7 +2777,7 @@ input[type=number]{-moz-appearance:textfield}
     </div>
 
     <div id="arrtab-water" style="display:none">
-      <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:860px">
+      <div class="tbl-wrap arr-tbl-sticky"><table class="li-table confirm-table" style="min-width:860px">
         <thead><tr>
           <th class="li-reorder" style="width:60px"></th>
           <th style="width:180px">品名</th>
@@ -2782,7 +2800,7 @@ input[type=number]{-moz-appearance:textfield}
 
     <div id="arrtab-bullet" style="display:none">
       <div id="bullet-sort-banner" style="display:none;font-size:11px;color:var(--text3);margin-bottom:4px"></div>
-      <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:1230px">
+      <div class="tbl-wrap arr-tbl-sticky"><table class="li-table confirm-table" style="min-width:1230px">
         <thead><tr>
           <th class="li-reorder" style="width:60px"></th>
           <th style="width:90px;cursor:pointer;user-select:none" onclick="sortBulletTrainTable('ride_date')">乗車日 <span id="bullet-ride-date-sort-arrow" style="color:var(--text3)">⇅</span></th>
@@ -2811,7 +2829,7 @@ input[type=number]{-moz-appearance:textfield}
     </div>
 
     <div id="arrtab-guide" style="display:none">
-      <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:760px">
+      <div class="tbl-wrap arr-tbl-sticky"><table class="li-table confirm-table" style="min-width:760px">
         <thead><tr>
           <th class="li-reorder" style="width:60px"></th>
           <th style="width:220px">ガイド</th>
@@ -2917,7 +2935,7 @@ input[type=number]{-moz-appearance:textfield}
           <button class="btn" style="font-size:10px" onclick="openBdInvoicesModal()">関連Invoice(<span id="bd-inv-count">0</span>件)</button>
           <span id="bd-inv-empty-hint" style="display:none;font-size:10px;color:var(--text3)">関連するInvoiceはありません</span>
         </div>
-        <div class="tbl-wrap"><table class="li-table confirm-table" style="min-width:1080px">
+        <div class="tbl-wrap arr-tbl-sticky"><table class="li-table confirm-table" style="min-width:1080px">
           <thead><tr><th class="li-reorder" style="width:60px"></th><th style="width:11%">項目名</th><th style="width:24%">追記事項</th><th style="width:7%;text-align:right">単価</th><th style="width:4%;text-align:right">人数</th><th style="width:4%;text-align:right">数量</th><th class="li-amt" style="width:7%;text-align:right">金額</th><th style="width:120px">入金日</th><th style="width:8%" class="li-amt">入金金額</th><th style="width:9%">入金先銀行</th><th style="width:10%">入金備考</th><th style="width:6%" class="li-amt">未収</th><th class="bd-agent-col" style="width:120px">請求先</th><th class="li-del" style="width:3%"></th></tr></thead>
           <tbody id="bd-sales-tbody"></tbody>
         </table></div>
@@ -2933,7 +2951,7 @@ input[type=number]{-moz-appearance:textfield}
           <button class="btn" id="bd-cost-ocr-btn" style="font-size:10px;background:#F0F6FF;border-color:#7CB3E8;color:#004A9F" onclick="openCostOcrModal()">🤖 AI読み取り</button>
         </div>
         <input id="bd-cost-search" placeholder="仕入先・備考で絞り込み" style="width:100%;padding:5px 8px;border-radius:6px;border:1px solid var(--border);font-size:11px;margin-bottom:4px;box-sizing:border-box" oninput="bdCostSearch=this.value;renderCostTable()">
-        <div class="tbl-wrap"><table class="li-table confirm-table">
+        <div class="tbl-wrap arr-tbl-sticky"><table class="li-table confirm-table">
           <thead></thead>
           <tbody id="bd-cost-tbody"></tbody>
         </table></div>
