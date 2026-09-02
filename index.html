@@ -548,6 +548,15 @@ input[type=number]{-moz-appearance:textfield}
   body *{visibility:hidden}
   #inv-preview-card, #inv-preview-card *, #arr-preview-card, #arr-preview-card *, #gs-print-card, #gs-print-card *, #ga-print-card, #ga-print-card *, #gsl-print-card, #gsl-print-card *, #pg-tour-calendar, #pg-tour-calendar *{visibility:visible}
   #inv-preview-card, #arr-preview-card, #gs-print-card, #ga-print-card, #gsl-print-card, #pg-tour-calendar{position:absolute;left:0;top:0;width:100%;border:none;box-shadow:none;padding:0}
+  /* Invoice画面の「検索・絞り込み」「Invoice一覧」カードはInvoiceプレビュー(#inv-preview-card)の
+     兄弟要素だが、上のvisibility:hiddenだけではレイアウト上の高さ(特にInvoice一覧の件数が
+     多い場合の表の高さ)がそのまま残ってしまう。その結果、本来1ページで収まる請求書でも
+     不可視の一覧表の高さ分だけ余分な白紙ページが印刷される不具合があった(2026-08、
+     Invoice件数の増加で顕在化)。display:noneで完全にレイアウトから除外して解消する。 */
+  #pg-invoice > .card:not(#inv-preview-card){display:none !important}
+  /* 明細行が多いInvoiceで、他の帳票印刷(ガイド精算書等)と同様に行の途中でページが
+     分割されないようにする(1行単位で改ページする)。 */
+  #inv-preview-card tr{page-break-inside:avoid}
   #inv-preview-card .card-title, #inv-preview-card button,
   #arr-preview-card .card-title, #arr-preview-card button,
   #gs-print-card .card-title, #gs-print-card button,
