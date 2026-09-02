@@ -16237,22 +16237,35 @@ function addFacilityRow(){
   bdFacilityItems.push({facility_name:'',date:'',pax:getBillablePax(b),amount:0,status:'問い合わせ中',confirmation_no:'',deadline_date:'',payment_method:'',memo:''});
   renderFacilityTable();
 }
+// ステータス連動の自動完了: 観光施設・バス駐車場等のステータスが「手配OK」「FNL済」
+// 「予約不要」のいずれかになった状態で保存すると、対応期限日(deadline_date)を持つ行は
+// 「対応が必要な予約」の対応リストから自動的に完了扱いにする(運用者が別途☑操作で
+// 完了させる手間を省く)。対応リスト側の一括完了ボタン(runTodoBatchAction)と同じ
+// deadline_completed/deadline_completed_atを書き込む方式に揃えている。
+// 既に完了済みの行(deadline_completed済み)は上書きしない(deadline_completed_atが
+// 保存の都度更新されるのを防ぐ)。ステータスがこれら以外に変更された場合に完了を
+// 自動的に取り消す処理は行わない(取り消しは「完了を取り消す」ボタンの手動操作のみ)。
+const FACILITY_AUTO_COMPLETE_STATUSES = ['手配OK','FNL済','予約不要'];
 function buildFacilityRows(bookingId){
-  return bdFacilityItems.filter(it=>it.facility_name||it.date||it.amount||it.confirmation_no||it.deadline_date||it.payment_method||it.memo).map((it,i)=>({
-    booking_id: bookingId,
-    facility_name: it.facility_name||'',
-    date: sanitizeDateField(it.date), pax: Number(it.pax)||0,
-    amount: Number(it.amount)||0,
-    status: it.status||'問い合わせ中',
-    confirmation_no: it.confirmation_no||'',
-    deadline_date: sanitizeDateField(it.deadline_date),
-    payment_method: it.payment_method||null,
-    memo: it.memo||'',
-    deadline_completed: it.deadline_completed||false,
-    deadline_completed_at: it.deadline_completed_at||null,
-    cost_added: !!it.cost_added,
-    sort_order: i
-  }));
+  const nowIso = new Date().toISOString();
+  return bdFacilityItems.filter(it=>it.facility_name||it.date||it.amount||it.confirmation_no||it.deadline_date||it.payment_method||it.memo).map((it,i)=>{
+    const autoComplete = !it.deadline_completed && !!it.deadline_date && FACILITY_AUTO_COMPLETE_STATUSES.includes(it.status);
+    return {
+      booking_id: bookingId,
+      facility_name: it.facility_name||'',
+      date: sanitizeDateField(it.date), pax: Number(it.pax)||0,
+      amount: Number(it.amount)||0,
+      status: it.status||'問い合わせ中',
+      confirmation_no: it.confirmation_no||'',
+      deadline_date: sanitizeDateField(it.deadline_date),
+      payment_method: it.payment_method||null,
+      memo: it.memo||'',
+      deadline_completed: autoComplete ? true : (it.deadline_completed||false),
+      deadline_completed_at: autoComplete ? nowIso : (it.deadline_completed_at||null),
+      cost_added: !!it.cost_added,
+      sort_order: i
+    };
+  });
 }
 async function saveFacilityItems(){
   if(!currentDetailId) return;
