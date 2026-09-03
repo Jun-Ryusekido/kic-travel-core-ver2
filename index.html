@@ -564,6 +564,17 @@ input[type=number]{-moz-appearance:textfield}
      合成テストで300行時21ページを確認)。PR #137と同じ方式で解消する。 */
   #pg-guide-settlements > .card:not(#gsl-print-card){display:none !important}
   #gsl-print-card tr{page-break-inside:avoid}
+  /* PR #137適用後も、対応期限日バナー表示中(body.has-deadline-banner)は本来1ページの
+     帳票が2ページ(2枚目は白紙)になる不具合が残っていた。実機で印刷用CSS適用状態の
+     DOM高さを計測し、原因はbody.has-deadline-banner .app{margin-top:var(--deadline-banner-h)}
+     (30行目)が印刷時にも解除されず、.appに34px前後の上マージンが残ることだと特定した
+     (この1プロパティを打ち消すだけで本来1ページの請求書・ガイド精算書一覧とも
+     1ページに戻ることをPlaywright+PDFページ数計測で確認済み)。バナー自体は
+     #global-deadline-banner が印刷対象カードに含まれないため印刷はされないが、
+     このマージンだけは打ち消す必要がある。.app は全画面共通の単一要素であり、
+     この1プロパティのみを印刷時に限定して打ち消す(画面表示・他の帳票印刷の
+     見た目には一切影響しない)。 */
+  body.has-deadline-banner .app{margin-top:0 !important}
   #inv-preview-card .card-title, #inv-preview-card button,
   #arr-preview-card .card-title, #arr-preview-card button,
   #gs-print-card .card-title, #gs-print-card button,
@@ -28066,14 +28077,14 @@ async function showInvoicePreview(inv, booking){
             <div>INVOICE No.&nbsp;: &nbsp;<strong>${escHtml(invNoDisplay)}</strong></div>
             <div>DATE&nbsp;: &nbsp;<span contenteditable="true" data-placeholder="YYYY/MM/DD">${escHtml(dateStr)}</span></div>
           </div>
-          <div style="display:flex;align-items:flex-start;justify-content:flex-end;gap:10px;margin-top:16px">
+          <div style="display:flex;align-items:flex-start;justify-content:flex-end;gap:8px;margin-top:16px">
             <div style="text-align:left;font-size:11px;line-height:1.6">
               <div style="font-size:14px;font-weight:700">KIC Co.Ltd.</div>
               <div>Marusei Bldg. 3F-E, 6-13-14, Nishikasai,</div>
               <div>Edogawa-ku, Tokyo, 134-0088 Japan</div>
               <div>TEL.+81-3-6869-5550</div>
               <div>Person in Charge : <span contenteditable="true" data-placeholder="担当者名" id="inv-person-in-charge">${escHtml(inv.person_in_charge||'')}</span></div>
-              <div>インボイス制度登録番号(Registration No.) T2010901042187</div>
+              <div>Registration No. T2010901042187</div>
             </div>
             <img src="/kic_stamp_v2.png" alt="" style="width:60px;height:61px;object-fit:contain;flex-shrink:0" onerror="this.style.display='none'">
           </div>
