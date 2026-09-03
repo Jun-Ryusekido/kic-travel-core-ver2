@@ -28241,13 +28241,12 @@ async function showInvoicePreview(inv, booking){
     const {data: agentRows} = await sb.from('agents').select('address').eq('company_name', billToName).or('is_deleted.is.null,is_deleted.eq.false');
     if(agentRows && agentRows.length===1) agentAddress = agentRows[0].address || '';
   }
-  // 住所欄はcontenteditableで手動編集できるが、以前はid属性が無く保存対象(payload)にも
-  // 含まれていなかったため、「保存しました」と表示されるのに実際は保存されておらず、
-  // 再表示のたびに取引先マスタ由来のagentAddressへ差し戻ってしまう不具合があった
-  // (2026-08、PR #77の実機検証で発見)。inv.address(このInvoice固有の手動上書き値)を
-  // 優先表示し、保存されていない(未編集)場合のみagentAddress(マスタ由来の既定値)を
-  // 表示する。
-  const displayAddress = (inv.address!=null && inv.address!=='') ? inv.address : agentAddress;
+  // 住所は常に取引先マスタ(agents.address)の最新値を表示する。以前はinvoices.address
+  // (このInvoice固有の手動上書き値)を一度でも保存すると、それ以降マスタ側の住所を
+  // 更新してもInvoice表示に反映されなくなる不具合があった(手動編集は運用されておらず、
+  // 意図しない固定化だった)。invoices.address列自体は過去データ保持のため残すが、
+  // 表示ではもう参照しない(住所欄は編集不可に変更。saveInvoicePreviewFields参照)。
+  const displayAddress = agentAddress;
   // Name/Group・Itinerary・Noteは基本情報(TOUR NAME・宿泊日数・備考欄)と連動させる。
   // displayAddressと同じパターンで、このInvoice固有に手動編集・保存済みの値があれば
   // それを優先し、無い(未編集の)場合のみ基本情報由来の値を表示する。
@@ -28276,7 +28275,7 @@ async function showInvoicePreview(inv, booking){
       <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-start;margin-bottom:18px;gap:20px">
         <div style="flex:1;min-width:200px;padding-top:34px">
           <div style="font-size:18px;font-weight:700;overflow-wrap:break-word">${(billToName||'').replace(/</g,'&lt;')}</div>
-          <div contenteditable="true" id="inv-address" data-placeholder="住所を入力..." style="margin-top:10px;line-height:1.5">${(displayAddress||'').replace(/</g,'&lt;').replace(/\n/g,'<br>')}</div>
+          <div style="margin-top:10px;line-height:1.5">${(displayAddress||'').replace(/</g,'&lt;').replace(/\n/g,'<br>')}</div>
         </div>
         <div style="text-align:right;flex-shrink:0">
           <div style="font-size:20px;font-weight:700;margin-bottom:10px">INVOICE/請求書</div>
@@ -28347,24 +28346,16 @@ async function showInvoicePreview(inv, booking){
   document.getElementById('inv-preview-card').scrollIntoView({behavior:'smooth'});
 }
 
-// Name/Group・Itinerary・Note・Person in Charge・住所はプレビュー画面での自由入力のため、
+// Name/Group・Itinerary・Note・Person in Chargeはプレビュー画面での自由入力のため、
 // 「保存」を押すまではDBに反映されない(印刷はDOMの現在値をそのまま出力する)。
-// 住所欄(#inv-address)はcontenteditableのid属性・保存対象への追加が漏れていたため、
-// 「保存しました」と表示されるのに実際は保存されず、再表示のたびに取引先マスタ由来の
-// 既定値へ差し戻ってしまう不具合があった(2026-08、PR #77の実機検証で発見。showInvoicePreview
-// 側のdisplayAddress/inv.addressの扱いも参照)。address列はこのタスク時点でまだ
-// invoicesテーブルに存在しない可能性があるため(scripts/add_invoice_address_column.sql、
-// JUNさんの実行待ち)、他4項目とは別のupdateById呼び出しに分離した。こうすることで、
-// 仮にaddress列がまだ存在せずこの呼び出しがDBエラーで失敗しても、name_group等の
-// 既存4項目の保存は引き続き成功する(1回のPATCHにまとめていた場合、address列が
-// 無いだけで4項目とも道連れで保存失敗してしまう)。
+// 住所欄は取引先マスタ(agents.address)を常に表示する編集不可欄に変更したため、
+// ここでの保存対象には含まれない(showInvoicePreviewのdisplayAddress参照。
+// invoices.address列自体は過去データ保持のため残っているが、以後この画面からは
+// 書き込まない)。
 async function saveInvoicePreviewFields(){
   const inv = window._currentInvoicePreview;
   if(!inv || !inv.id){ alert('保存対象のInvoiceが見つかりません'); return; }
   const getVal = id => (document.getElementById(id)?.textContent || '').trim();
-  // 住所欄は複数行入力(改行)を許可する表示(\n→<br>)になっているため、textContentでは
-  // 改行が失われる。innerTextは表示上の改行を\nとして拾えるため、こちらを使う。
-  const addressVal = (document.getElementById('inv-address')?.innerText || '').trim();
   const dueDateVal = _parseSlashDateToIso(getVal('inv-due-date'));
   if(dueDateVal === undefined){
     alert('振込期限の形式が正しくありません(YYYY/MM/DD で入力してください)。振込期限以外の項目のみ保存します。');
@@ -28382,15 +28373,7 @@ async function saveInvoicePreviewFields(){
   try{
     await invoicesApiCall('updateById', { id: inv.id, fields: payload });
     Object.assign(inv, payload);
-    let addressWarning = '';
-    try{
-      await invoicesApiCall('updateById', { id: inv.id, fields: {address: addressVal} });
-      inv.address = addressVal;
-    }catch(addrErr){
-      logError('Invoiceプレビュー住所欄の保存', addrErr, {toast:false});
-      addressWarning = '\n\n⚠ 住所欄の保存には失敗しました: '+addrErr.message;
-    }
-    alert('✓ 保存しました'+addressWarning);
+    alert('✓ 保存しました');
   }catch(e){
     logError('Invoiceプレビュー項目の保存', e, {toast:false});
     alert('保存に失敗しました: '+e.message);
