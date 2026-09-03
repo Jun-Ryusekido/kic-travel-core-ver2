@@ -2750,7 +2750,7 @@ input[type=number]{-moz-appearance:textfield}
           <th style="width:45px">人数</th>
           <th style="width:80px">金額</th>
           <th style="width:80px">ステータス</th>
-          <th style="width:140px">Menu</th>
+          <th style="width:70px">Menu</th>
           <th style="width:90px">支払方法</th>
           <th style="width:220px">備考</th>
           <th style="width:70px">仕入明細へ</th>
@@ -15336,7 +15336,7 @@ function renderRestaurantTable(){
       <td data-label="人数"><input type="number" value="${it.pax||0}" onchange="bdRestaurantItems[${i}].pax=Number(this.value)" style="width:100%"></td>
       <td data-label="金額"><input type="text" inputmode="numeric" value="${fmtAmt(it.amount)}" onfocus="amtFocus(this)" onblur="amtBlur(this)" onchange="restaurantAmountCalc(${i},this)" style="text-align:right"></td>
       <td data-label="ステータス">${statusDropdownHtml(o=>`bdRestaurantItems[${i}].status='${o}';renderRestaurantTable()`, it.status, ['未予約','問い合わせ中','手配OK','FNL済','NG回答','キャンセル'], '問い合わせ中')}</td>
-      <td data-label="Menu"><input value="${escAttr(it.menu)}" oninput="bdRestaurantItems[${i}].menu=this.value" style="width:100%"></td>
+      <td data-label="Menu"><select onchange="bdRestaurantItems[${i}].menu=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px"><option value="" ${!it.menu?'selected':''}></option><option value="OK" ${it.menu==='OK'?'selected':''}>OK</option></select></td>
       <td data-label="支払方法"><select onchange="bdRestaurantItems[${i}].payment_method=this.value" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px"><option value="" ${!it.payment_method?'selected':''}></option><option value="請求書払い" ${it.payment_method==='請求書払い'?'selected':''}>請求書払い</option><option value="現金払い" ${it.payment_method==='現金払い'?'selected':''}>現金払い</option><option value="その他" ${it.payment_method==='その他'?'selected':''}>その他</option></select></td>
       <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdRestaurantItems[${i}].memo=this.value" style="width:100%"></td>
       ${arrCostCheckboxHtml('bdRestaurantItems', i, it, 'rest')}
