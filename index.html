@@ -2804,6 +2804,22 @@ input[type=number]{-moz-appearance:textfield}
     </div>
 
     <div id="arrtab-water" style="display:none">
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+        <button class="btn" style="font-size:10px" onclick="toggleWaterOcrArea()">📧 メール/テキストから読み取り</button>
+        <label class="btn" style="font-size:10px;cursor:pointer">📎 Excel/PDFから読み取り<input type="file" accept=".xlsx,.xls,.pdf" style="display:none" onchange="extractWaterFromFile(event)"></label>
+        <label class="btn" style="font-size:10px;cursor:pointer">🖼 画像から読み取り<input type="file" accept="image/*" style="display:none" onchange="extractWaterFromFile(event,'image')"></label>
+        <label class="btn" style="font-size:10px;cursor:pointer">📷 カメラで撮影<input type="file" accept="image/*" capture="environment" style="display:none" onchange="extractWaterFromFile(event,'image')"></label>
+        <span id="water-file-status" style="font-size:11px;color:var(--text3)"></span>
+      </div>
+      <div id="water-ocr-area" style="display:none;margin-bottom:8px;border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--bg)">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:6px">メールや見積書の内容をコピーして貼り付けてください</div>
+        <textarea id="water-ocr-text" rows="5" style="width:100%;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:11px;font-family:inherit;resize:vertical" placeholder="ミネラルウォーター・飲料の配達確認書・見積書・メールの本文をここに貼り付け..."></textarea>
+        <div style="margin-top:6px;display:flex;gap:6px;align-items:center">
+          <button class="btn btn-p" style="font-size:11px" onclick="extractWaterFromText()">🤖 AIで読み取り</button>
+          <button class="btn" style="font-size:11px" onclick="document.getElementById('water-ocr-area').style.display='none'">閉じる</button>
+          <span id="water-ocr-status" style="font-size:11px;color:var(--text3)"></span>
+        </div>
+      </div>
       <div class="tbl-wrap arr-tbl-sticky"><table class="li-table confirm-table" style="min-width:860px">
         <thead><tr>
           <th class="li-reorder" style="width:60px"></th>
@@ -16557,6 +16573,195 @@ function saveFacilityConfirm(){
   window._pendingFacilityReuseTarget = null;
   renderFacilityTable();
   document.getElementById('fac-confirm-modal').remove();
+}
+
+// ─── ミネラルウォータータブ AI読み取り(extractFacilityFromText/File・
+// showFacilityConfirmDialog・saveFacilityConfirmと同じ構成) ─────────────────
+function toggleWaterOcrArea(){
+  const a=document.getElementById('water-ocr-area');
+  if(a) a.style.display=a.style.display==='none'?'':'none';
+}
+
+// AIには金額の計算をさせず(単価×数量の掛け算は指示していない)、本文に金額が明示されている
+// 場合のみ転記させる。金額が空で単価・数量が両方揃っている行は、ここでコード側が計算する。
+// 単価・金額のどちらも無い行は0のままにする(waterAmountCalcの手動編集時と同じ計算式)。
+function calcWaterAmountIfMissing(items){
+  (items||[]).forEach(it=>{
+    if(!it.amount && Number(it.qty)>0 && Number(it.unit_price)>0){
+      it.amount = Math.round(Number(it.qty) * Number(it.unit_price));
+    }
+  });
+  return items;
+}
+
+async function extractWaterFromText(){
+  const text=(document.getElementById('water-ocr-text')||{}).value||'';
+  if(!text.trim()){ alert('テキストを入力してください'); return; }
+  const statusEl=document.getElementById('water-ocr-status');
+  statusEl.textContent='⏳ 読み取り中...'; statusEl.classList.add('ocr-loading'); statusEl.style.color='';
+  showGlobalOcrBanner();
+  try{
+    const {targetCheckIn, targetCheckOut} = getEmailOcrTargetDates();
+    const resp=await fetch('/api/extract-card',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({waterText:text.trim(), targetCheckIn, targetCheckOut})});
+    if(!resp.ok){const e=await resp.json();throw new Error(e.error||'サーバーエラー');}
+    const data=await resp.json();
+    const tb=data.content.find(b=>b.type==='text');
+    const cleaned=(tb.text||'').replace(/```json|```/g,'').trim();
+    const parsed=JSON.parse(cleaned);
+    const items=calcWaterAmountIfMissing(Array.isArray(parsed)?parsed:[parsed]);
+    if(items.length===0 && (targetCheckIn||targetCheckOut)){
+      statusEl.textContent = `対象日程（${targetCheckIn||'未設定'}）に一致する内容が見つかりませんでした。メール内容をご確認ください。`;
+      statusEl.classList.remove('ocr-loading');
+      hideGlobalOcrBanner();
+      statusEl.style.color = 'var(--amber)';
+      return;
+    }
+    statusEl.textContent=`✓ ${items.length}件を読み取りました。内容を確認してください。`;
+    statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
+    statusEl.style.color='var(--green)';
+    if(!checkBulkReadSanity(items, 'date')){ statusEl.textContent='読み取りをキャンセルしました（件数・日付範囲が不自然なため）'; statusEl.classList.remove('ocr-loading'); hideGlobalOcrBanner(); statusEl.style.color='var(--text3)'; return; }
+    // プレースホルダー行の再利用(案A)。理由はextractFacilityFromText内の同種コメント参照。
+    window._pendingWaterReuseTarget = findReusableDraftRow(bdWaterItems, 'item_name', text.trim());
+    showWaterConfirmDialog(items);
+    document.getElementById('water-ocr-text').value='';
+  }catch(e){
+    logError('AI読み取り(OCR)', e, {toast:false});
+    statusEl.textContent='読み取り失敗: '+e.message;
+    statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
+    statusEl.style.color='var(--red)';
+  }
+}
+
+async function extractWaterFromFile(event, mode){
+  const file=event.target.files[0];
+  if(!file) return;
+  if(mode!=='image' && !checkOcrUploadSize(file)) return;
+  const statusEl=document.getElementById('water-file-status');
+  statusEl.textContent='⏳ 読み取り中...'; statusEl.classList.add('ocr-loading'); statusEl.style.color='';
+  showGlobalOcrBanner();
+  try{
+    const isPdf = mode==='image' ? false : file.name.toLowerCase().endsWith('.pdf');
+    const isExcel = mode==='image' ? false : file.name.toLowerCase().match(/\.(xlsx|xls)$/);
+    const isImage = mode==='image';
+    let bodyBase;
+    if(isPdf){
+      const base64 = await readFileAsBase64(file);
+      bodyBase = {waterPdfBase64:base64};
+    }else if(isExcel){
+      try{
+        const sheets = await parseExcelToSheetsText(file);
+        bodyBase = {waterText:sheets};
+      }catch(e){
+        if(!e.isPasswordProtected) throw e;
+        const base64 = await readFileAsBase64(file);
+        bodyBase = {waterExcelBase64:base64};
+      }
+    }else if(isImage){
+      const base64 = await compressImageToBase64(file);
+      bodyBase = {waterImageBase64:base64, waterImageMediaType:'image/jpeg'};
+    }else{
+      throw new Error('対応していないファイル形式です');
+    }
+    const data = await fetchExtractCardWithPasswordSupport(pw => pw ? {...bodyBase, password: pw} : bodyBase, statusEl);
+    const tb=data.content.find(b=>b.type==='text');
+    const cleaned=(tb.text||'').replace(/```json|```/g,'').trim();
+    const parsed=JSON.parse(cleaned);
+    const items=calcWaterAmountIfMissing(Array.isArray(parsed)?parsed:[parsed]);
+    if(!checkBulkReadSanity(items, 'date')){ statusEl.textContent='読み取りをキャンセルしました（件数・日付範囲が不自然なため）'; statusEl.classList.remove('ocr-loading'); hideGlobalOcrBanner(); statusEl.style.color='var(--text3)'; return; }
+    // ファイル/画像添付経由は案A(プレースホルダー行の再利用)の対象外。理由はextractFacilityFromFile内の同種コメント参照。
+    window._pendingWaterReuseTarget = null;
+    showWaterConfirmDialog(items);
+    statusEl.textContent=`✓ ${items.length}件を読み取りました`;
+    statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
+    statusEl.style.color='var(--green)';
+  }catch(e){
+    logError('AI読み取り(OCR)', e, {toast:false});
+    statusEl.textContent='読み取り失敗: '+e.message;
+    statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
+    statusEl.style.color='var(--red)';
+  }
+  event.target.value='';
+}
+
+function showWaterConfirmDialog(items){
+  window._pendingWaterItems=items;
+  const rows=items.map((it,i)=>`<tr style="border-bottom:1px solid var(--border)">
+    <td data-label="追加" style="padding:5px 4px;text-align:center"><input type="checkbox" id="water-c-sel-${i}" checked></td>
+    <td data-label="品名" style="padding:5px 4px"><input value="${escAttr(it.item_name||'')}" id="water-c-name-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
+    <td data-label="日付" style="padding:5px 4px"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.date||''}" id="water-c-date-${i}" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
+    <td data-label="数量" style="padding:5px 4px"><input type="number" value="${it.qty||0}" id="water-c-qty-${i}" onchange="waterConfirmAmountCalc(${i})" style="width:60px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;text-align:right"></td>
+    <td data-label="単価" style="padding:5px 4px"><input type="number" value="${it.unit_price||0}" id="water-c-unitprice-${i}" onchange="waterConfirmAmountCalc(${i})" style="width:80px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;text-align:right"></td>
+    <td data-label="金額" style="padding:5px 4px"><input type="number" value="${it.amount||0}" id="water-c-amount-${i}" style="width:90px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;text-align:right"></td>
+    <td data-label="備考" style="padding:5px 4px"><input value="${escAttr(it.memo||'')}" id="water-c-memo-${i}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px"></td>
+  </tr>`).join('');
+  document.getElementById('water-confirm-modal')?.remove();
+  const modal=document.createElement('div');
+  modal.id='water-confirm-modal';
+  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:300;display:flex;align-items:center;justify-content:center;padding:20px';
+  modal.innerHTML=`
+    <div style="background:#fff;border-radius:12px;padding:20px;width:100%;max-width:900px;max-height:90vh;overflow-y:auto">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div style="font-size:14px;font-weight:700">読み取り結果の確認</div>
+        <button class="btn" onclick="document.getElementById('water-confirm-modal').remove()">✕ 閉じる</button>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:10px">内容を確認・修正してから「明細に追加」してください。追加しない行はチェックを外してください。</div>
+      <div style="overflow-x:auto"><table class="confirm-table" style="width:100%;border-collapse:collapse;font-size:11px">
+        <thead><tr style="background:var(--bg)">
+          <th style="padding:5px 4px;min-width:40px">追加</th>
+          <th style="padding:5px 4px;text-align:left;min-width:160px">品名</th>
+          <th style="padding:5px 4px;text-align:left;min-width:110px">日付</th>
+          <th style="padding:5px 4px;min-width:60px">数量</th>
+          <th style="padding:5px 4px;min-width:80px">単価</th>
+          <th style="padding:5px 4px;min-width:90px">金額</th>
+          <th style="padding:5px 4px;min-width:140px">備考</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+      <div style="margin-top:12px;display:flex;gap:8px">
+        <button class="btn btn-p" onclick="saveWaterConfirm()">＋ 明細に追加</button>
+        <button class="btn" onclick="document.getElementById('water-confirm-modal').remove()">キャンセル</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+// 確認モーダル内で数量・単価を手動修正した場合、金額欄を自動再計算する(waterAmountCalcの
+// 確認モーダル版。既に手入力済みの金額を上書きしないよう、金額欄が空/0の場合のみ計算する)。
+function waterConfirmAmountCalc(i){
+  const amountEl = document.getElementById(`water-c-amount-${i}`);
+  if(!amountEl || Number(amountEl.value)) return;
+  const qty = Number(document.getElementById(`water-c-qty-${i}`)?.value)||0;
+  const unitPrice = Number(document.getElementById(`water-c-unitprice-${i}`)?.value)||0;
+  if(qty>0 && unitPrice>0) amountEl.value = Math.round(qty*unitPrice);
+}
+
+function saveWaterConfirm(){
+  const items=window._pendingWaterItems;
+  if(!items) return;
+  let reuseTarget = window._pendingWaterReuseTarget;
+  items.forEach((it,i)=>{
+    if(!document.getElementById(`water-c-sel-${i}`)?.checked) return;
+    const fields = {
+      item_name: document.getElementById(`water-c-name-${i}`)?.value||'',
+      date: document.getElementById(`water-c-date-${i}`)?.value||'',
+      qty: Number(document.getElementById(`water-c-qty-${i}`)?.value)||0,
+      unit_price: Number(document.getElementById(`water-c-unitprice-${i}`)?.value)||0,
+      amount: Number(document.getElementById(`water-c-amount-${i}`)?.value)||0,
+      memo: document.getElementById(`water-c-memo-${i}`)?.value||'',
+      status: '問い合わせ中',
+      payment_method: '',
+      cost_added: false,
+    };
+    if(reuseTarget){ Object.assign(reuseTarget, fields); reuseTarget = null; }
+    else bdWaterItems.push(fields);
+  });
+  window._pendingWaterReuseTarget = null;
+  renderWaterTable();
+  document.getElementById('water-confirm-modal').remove();
 }
 
 // ─── 観光地予約管理（横断ページ）AI読み取り ────────────────────────────────────
