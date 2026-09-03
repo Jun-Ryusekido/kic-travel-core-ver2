@@ -136,7 +136,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
   try {
-    const { variants, mediaType, base64, hotelText, hotelPdfBase64, hotelExcelBase64, hotelImageBase64, hotelImageMediaType, facilityText, facilityPdfBase64, facilityExcelBase64, facilityImageBase64, facilityImageMediaType, busText, busPdfBase64, busExcelBase64, busImageBase64, busImageMediaType, restaurantText, restaurantPdfBase64, restaurantExcelBase64, restaurantImageBase64, restaurantImageMediaType, invoiceText, invoicePdfBase64, invoiceExcelBase64, invoiceImageBase64, invoiceImageMediaType, targetCheckIn, targetCheckOut, password,
+    const { variants, mediaType, base64, hotelText, hotelPdfBase64, hotelExcelBase64, hotelImageBase64, hotelImageMediaType, facilityText, facilityPdfBase64, facilityExcelBase64, facilityImageBase64, facilityImageMediaType, waterText, waterPdfBase64, waterExcelBase64, waterImageBase64, waterImageMediaType, busText, busPdfBase64, busExcelBase64, busImageBase64, busImageMediaType, restaurantText, restaurantPdfBase64, restaurantExcelBase64, restaurantImageBase64, restaurantImageMediaType, invoiceText, invoicePdfBase64, invoiceExcelBase64, invoiceImageBase64, invoiceImageMediaType, targetCheckIn, targetCheckOut, password,
       bankbookImageBase64, bankbookMediaType, bankbookPdfBase64, bankbookText, bankbookEra,
       cardstatementImageBase64, cardstatementMediaType, cardstatementPdfBase64, cardstatementText,
       receiptImageBase64, receiptMediaType,
@@ -696,6 +696,58 @@ ${buildRefNoExtractionRule(true)}
 ${buildSingleDateInstruction('日付(date)')}
 statusは「手配OK」または「問い合わせ中」のいずれかを入れてください。予約確定・確認番号あり・手配完了等の表現があれば「手配OK」、見積もり・問い合わせ・検討中等であれば「問い合わせ中」としてください。
 金額が不明な場合は0、人数不明は0としてください。
+JSONのみ返し、説明文・コードブロック記号は不要です。` }
+      ], 8000);
+      return res.status(200).json(data);
+    }
+
+    // ミネラルウォーターテキスト解析モード
+    const resolvedWaterText = waterText || (waterExcelBase64 ? await resolveExcelText(waterExcelBase64, password) : '');
+    if (resolvedWaterText) {
+      const data = await callClaude([{
+        type: 'text',
+text: `以下のミネラルウォーター・飲料の配達確認書や見積書、メールから情報を抽出してJSON配列で返してください。
+各品目を1つのオブジェクトとして配列に含めてください。
+フィールド：item_name(品名。例：「ミネラルウォーター 500ml」), date(配達日・YYYY-MM-DD), qty(数量・数値), unit_price(単価・数値・円), amount(金額・数値・円), memo(備考)
+${buildSingleDateInstruction('日付(date)')}
+重要（数量の取り方）: 「24本入り×3箱」のような箱単位の表記がある場合、本数への換算（24×3等の掛け算）は絶対に行わず、文書に印字されている数字をそのままqtyとして転記してください（上記の例なら文書内でより主要な数量として扱われている数字、通常は箱数の「3」をqtyとしてください）。どちらの数字を採用したか分かるよう、元の表記（「24本入り×3箱」等）はそのままmemoに残してください。
+重要（金額の計算禁止）: amountは、文書に金額（合計金額）として明示的に印字されている数字がある場合のみ転記してください。単価×数量の掛け算による金額の計算は絶対に行わないでください（計算はシステム側で行うため、明示された金額が無い場合は0のままにしてください）。
+金額が不明な場合は0、数量不明は0、単価不明は0としてください。
+JSONのみ返し、説明文・コードブロック記号は不要です。${buildDateFilterInstruction('日付(date)', targetCheckIn, targetCheckOut)}
+
+${resolvedWaterText}`
+      }], 8000);
+      return res.status(200).json(data);
+    }
+
+    // ミネラルウォーターPDF解析モード
+    if (waterPdfBase64) {
+      const resolvedWaterPdfBase64 = await resolvePdfBase64(waterPdfBase64, password);
+      const data = await callClaude([
+        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: resolvedWaterPdfBase64 } },
+        { type: 'text', text: `このPDFからミネラルウォーター・飲料の配達確認書や見積書の情報を抽出してJSON配列で返してください。
+各品目を1つのオブジェクトとして配列に含めてください。
+フィールド：item_name(品名。例：「ミネラルウォーター 500ml」), date(配達日・YYYY-MM-DD), qty(数量・数値), unit_price(単価・数値・円), amount(金額・数値・円), memo(備考)
+${buildSingleDateInstruction('日付(date)')}
+重要（数量の取り方）: 「24本入り×3箱」のような箱単位の表記がある場合、本数への換算（24×3等の掛け算）は絶対に行わず、文書に印字されている数字をそのままqtyとして転記してください（上記の例なら文書内でより主要な数量として扱われている数字、通常は箱数の「3」をqtyとしてください）。どちらの数字を採用したか分かるよう、元の表記（「24本入り×3箱」等）はそのままmemoに残してください。
+重要（金額の計算禁止）: amountは、文書に金額（合計金額）として明示的に印字されている数字がある場合のみ転記してください。単価×数量の掛け算による金額の計算は絶対に行わないでください（計算はシステム側で行うため、明示された金額が無い場合は0のままにしてください）。
+金額が不明な場合は0、数量不明は0、単価不明は0としてください。
+JSONのみ返し、説明文・コードブロック記号は不要です。` }
+      ], 8000);
+      return res.status(200).json(data);
+    }
+
+    // ミネラルウォーター画像解析モード
+    if (waterImageBase64) {
+      const data = await callClaude([
+        { type: 'image', source: { type: 'base64', media_type: waterImageMediaType || 'image/jpeg', data: waterImageBase64 } },
+        { type: 'text', text: `この画像からミネラルウォーター・飲料の配達確認書や見積書の情報を抽出してJSON配列で返してください。
+各品目を1つのオブジェクトとして配列に含めてください。
+フィールド：item_name(品名。例：「ミネラルウォーター 500ml」), date(配達日・YYYY-MM-DD), qty(数量・数値), unit_price(単価・数値・円), amount(金額・数値・円), memo(備考)
+${buildSingleDateInstruction('日付(date)')}
+重要（数量の取り方）: 「24本入り×3箱」のような箱単位の表記がある場合、本数への換算（24×3等の掛け算）は絶対に行わず、文書に印字されている数字をそのままqtyとして転記してください（上記の例なら文書内でより主要な数量として扱われている数字、通常は箱数の「3」をqtyとしてください）。どちらの数字を採用したか分かるよう、元の表記（「24本入り×3箱」等）はそのままmemoに残してください。
+重要（金額の計算禁止）: amountは、文書に金額（合計金額）として明示的に印字されている数字がある場合のみ転記してください。単価×数量の掛け算による金額の計算は絶対に行わないでください（計算はシステム側で行うため、明示された金額が無い場合は0のままにしてください）。
+金額が不明な場合は0、数量不明は0、単価不明は0としてください。
 JSONのみ返し、説明文・コードブロック記号は不要です。` }
       ], 8000);
       return res.status(200).json(data);
