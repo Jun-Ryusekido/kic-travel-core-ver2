@@ -7520,8 +7520,8 @@ async function processDashboardBankbookFile(file){
       const base64 = await readFileAsBase64(file);
       body = {bankbookPdfBase64: base64};
     } else {
-      const base64 = await compressImageForOcr(file);
-      body = {bankbookImageBase64: base64, bankbookMediaType: 'image/jpeg'};
+      const {base64, mediaType} = await compressImageForOcr(file);
+      body = {bankbookImageBase64: base64, bankbookMediaType: mediaType};
     }
     body.bankbookEra = bank.era;
     const response = await fetch('/api/extract-card', {
@@ -15188,8 +15188,8 @@ async function extractBusFromFile(event, mode){
         bodyBase = {busExcelBase64:base64};
       }
     }else if(isImage){
-      const base64 = await compressImageForOcr(file);
-      bodyBase = {busImageBase64:base64, busImageMediaType:'image/jpeg'};
+      const {base64, mediaType} = await compressImageForOcr(file);
+      bodyBase = {busImageBase64:base64, busImageMediaType:mediaType};
     }else{
       throw new Error('対応していないファイル形式です');
     }
@@ -15666,8 +15666,8 @@ async function extractRestaurantFromFile(event, mode){
         bodyBase = {restaurantExcelBase64:base64};
       }
     }else if(isImage){
-      const base64 = await compressImageForOcr(file);
-      bodyBase = {restaurantImageBase64:base64, restaurantImageMediaType:'image/jpeg'};
+      const {base64, mediaType} = await compressImageForOcr(file);
+      bodyBase = {restaurantImageBase64:base64, restaurantImageMediaType:mediaType};
     }else{
       throw new Error('対応していないファイル形式です');
     }
@@ -16469,8 +16469,8 @@ async function extractFacilityFromFile(event, mode){
         bodyBase = {facilityExcelBase64:base64};
       }
     }else if(isImage){
-      const base64 = await compressImageForOcr(file);
-      bodyBase = {facilityImageBase64:base64, facilityImageMediaType:'image/jpeg'};
+      const {base64, mediaType} = await compressImageForOcr(file);
+      bodyBase = {facilityImageBase64:base64, facilityImageMediaType:mediaType};
     }else{
       throw new Error('対応していないファイル形式です');
     }
@@ -16648,8 +16648,8 @@ async function extractWaterFromFile(event, mode){
         bodyBase = {waterExcelBase64:base64};
       }
     }else if(isImage){
-      const base64 = await compressImageForOcr(file);
-      bodyBase = {waterImageBase64:base64, waterImageMediaType:'image/jpeg'};
+      const {base64, mediaType} = await compressImageForOcr(file);
+      bodyBase = {waterImageBase64:base64, waterImageMediaType:mediaType};
     }else{
       throw new Error('対応していないファイル形式です');
     }
@@ -16834,8 +16834,8 @@ async function processFmFacilityFile(file, mode){
       const docText = await extractDocxText(file);
       bodyBase = {facilityText:docText};
     }else if(isImage){
-      const base64 = await compressImageForOcr(file);
-      bodyBase = {facilityImageBase64:base64, facilityImageMediaType:'image/jpeg'};
+      const {base64, mediaType} = await compressImageForOcr(file);
+      bodyBase = {facilityImageBase64:base64, facilityImageMediaType:mediaType};
     }else{
       throw new Error('対応していないファイル形式です');
     }
@@ -19172,8 +19172,8 @@ async function extractHotelFromFile(event, mode){
     let bodyBase;
 
     if(isImage){
-      const base64 = await compressImageForOcr(file);
-      bodyBase = { hotelImageBase64: base64, hotelImageMediaType: 'image/jpeg' };
+      const {base64, mediaType} = await compressImageForOcr(file);
+      bodyBase = { hotelImageBase64: base64, hotelImageMediaType: mediaType };
     } else if(isPdf){
       const base64 = await readFileAsBase64(file);
       bodyBase = { hotelPdfBase64: base64 };
@@ -20271,7 +20271,7 @@ async function processGuideCardFile(file){
     if(_grcIsExcel){ body = { guideCardText: await parseExcelToSheetsText(file) }; }
     else if(_grcIsWord){ body = { guideCardText: await extractDocxText(file) }; }
     else if(_grcIsPdf){ body = { guideCardPdfBase64: await readFileAsBase64(file) }; }
-    else { body = { guideCardImageBase64: await compressImageForOcr(file), guideCardMediaType: 'image/jpeg' }; }
+    else { const img = await compressImageForOcr(file); body = { guideCardImageBase64: img.base64, guideCardMediaType: img.mediaType }; }
 
     const response = await fetch('/api/extract-card', {
       method: 'POST',
@@ -20323,11 +20323,11 @@ async function processGuideBankFile(file){
   statusEl.style.color = '';
   showGlobalOcrBanner();
   try{
-    const base64 = await compressImageForOcr(file);
+    const {base64, mediaType} = await compressImageForOcr(file);
     const response = await fetch('/api/extract-card', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ guideBankImageBase64: base64, guideBankMediaType: 'image/jpeg' })
+      body: JSON.stringify({ guideBankImageBase64: base64, guideBankMediaType: mediaType })
     });
     if(!response.ok){
       const errData = await response.json();
@@ -21598,8 +21598,8 @@ async function processHotelFileHm(file, mode){
     const isWord = !isImage && !isPdf && name.endsWith('.docx');
     let bodyBase;
     if(isImage){
-      const base64 = await compressImageForOcr(file);
-      bodyBase = { hotelImageBase64: base64, hotelImageMediaType: 'image/jpeg' };
+      const {base64, mediaType} = await compressImageForOcr(file);
+      bodyBase = { hotelImageBase64: base64, hotelImageMediaType: mediaType };
     }else if(isPdf){
       const base64 = await readFileAsBase64(file);
       bodyBase = { hotelPdfBase64: base64 };
@@ -21710,8 +21710,8 @@ async function processCcStatementFile(file, mode){
       const base64 = await readFileAsBase64(file);
       body = {cardstatementPdfBase64: base64};
     } else {
-      const base64 = await compressImageForOcr(file);
-      body = {cardstatementImageBase64: base64, cardstatementMediaType: 'image/jpeg'};
+      const {base64, mediaType} = await compressImageForOcr(file);
+      body = {cardstatementImageBase64: base64, cardstatementMediaType: mediaType};
     }
     const response = await fetch('/api/extract-card', {
       method: 'POST',
@@ -22573,8 +22573,8 @@ async function processInvoiceImportFile(file){
     const isImage = _iifIsImage;
     let bodyBase;
     if(isImage){
-      const base64 = await compressImageForOcr(file);
-      bodyBase = { invoiceImageBase64: base64, invoiceImageMediaType: file.type||'image/jpeg' };
+      const {base64, mediaType} = await compressImageForOcr(file);
+      bodyBase = { invoiceImageBase64: base64, invoiceImageMediaType: mediaType };
     } else if(isPdf){
       const base64 = await readFileAsBase64(file);
       bodyBase = { invoicePdfBase64: base64 };
@@ -22771,8 +22771,8 @@ async function extractInvoiceFromFile(event, mode){
       const base64 = await readFileAsBase64(file);
       bodyData = { invoicePdfBase64: base64 };
     } else {
-      const base64 = await compressImageForOcr(file);
-      bodyData = { invoiceImageBase64: base64, invoiceImageMediaType: 'image/jpeg' };
+      const {base64, mediaType} = await compressImageForOcr(file);
+      bodyData = { invoiceImageBase64: base64, invoiceImageMediaType: mediaType };
     }
     const response = await fetchWithTimeout('/api/extract-card', {
       method: 'POST',
@@ -22885,8 +22885,8 @@ async function extractCostFromFile(event, mode){
     let bodyBase;
 
     if(isImage){
-      const base64 = await compressImageForOcr(file);
-      bodyBase = { invoiceImageBase64: base64, invoiceImageMediaType: 'image/jpeg' };
+      const {base64, mediaType} = await compressImageForOcr(file);
+      bodyBase = { invoiceImageBase64: base64, invoiceImageMediaType: mediaType };
     } else if(isPdf){
       const base64 = await readFileAsBase64(file);
       bodyBase = { invoicePdfBase64: base64 };

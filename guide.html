@@ -341,8 +341,8 @@ async function processReceiptFiles(files){
     const file = files[i];
     status.textContent = files.length>1 ? 'AI読み取り中... ('+(i+1)+'/'+files.length+')' : 'AI読み取り中...';
     try{
-      const base64 = await compressImageForOcr(file);
-      const response = await fetch('/api/extract-card',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({receiptImageBase64:base64,receiptMediaType:'image/jpeg'})});
+      const {base64, mediaType} = await compressImageForOcr(file);
+      const response = await fetch('/api/extract-card',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({receiptImageBase64:base64,receiptMediaType:mediaType})});
       if(!response.ok){
         let msg = 'サーバーエラー';
         try{ const errData = await response.json(); msg = errData.error||msg; }catch(_){ msg = `サーバーエラー (${response.status})`; }
@@ -382,11 +382,11 @@ async function handleReceiptImage(input){
   status.textContent = 'AI読み取り中...';
   result.innerHTML = '';
   try{
-    const base64 = await compressImageForOcr(file);
+    const {base64, mediaType} = await compressImageForOcr(file);
     const response = await fetch('/api/extract-card',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({receiptImageBase64: base64, receiptMediaType: 'image/jpeg'})
+      body: JSON.stringify({receiptImageBase64: base64, receiptMediaType: mediaType})
     });
     if(!response.ok){
       let msg = 'サーバーエラー';
