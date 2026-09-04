@@ -9,6 +9,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 <script src="arrangement_excel.js"></script>
+<script src="/js/image-compress.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{--blue:#185FA5;--blue-lt:#E6F1FB;--blue-bd:#B5D4F4;--green:#0F6E56;--green-lt:#EAF3DE;--green2:#2E7D32;--green2-lt:#E3F2E3;--amber:#854F0B;--amber-lt:#FAEEDA;--red:#A32D2D;--red-lt:#FCEBEB;--grey:#5F5E5A;--grey-lt:#ECEAE4;--orange:#B35C00;--orange-lt:#FDEBD8;--purple:#6A3FA0;--purple-lt:#F1E9FA;--bg:#F4F3EE;--card:#FFFFFF;--border:#E3E1D9;--text:#1F1E1B;--text2:#5F5E5A;--text3:#9B998F}
@@ -3538,9 +3539,13 @@ function parseAiJsonArrayLenient(rawText){
 // /api/extract-card へOCR用ファイルをアップロードする全箇所(通帳・クレジット明細・
 // 請求書・ホテル・観光施設・バス・レストラン等)で共通して使うアップロード前サイズ
 // チェック。Vercel Serverless Functionsのリクエストボディ上限(4.5MB)に対し、base64化
-// による約1.33倍の膨張分を差し引いた安全マージン込みの上限。画像ファイルは送信前に
-// compressImageToBase64等で圧縮されるため、呼び出し側でその分岐後(圧縮されない
-// PDF/Excel/Wordのraw送信パスのみ)に呼ぶことでこのチェックの対象外とする。
+// による約1.33倍の膨張分を差し引いた安全マージン込みの上限。
+// 画像ファイルはこのチェックの対象外(常にcompressImageForOcrで圧縮し、圧縮後サイズ
+// チェックはそちら側で行う)。このチェックは、圧縮できないPDFのraw送信パスのみに
+// 呼び出し側で限定して使う(Excel/Wordはクライアント側でテキスト化するため対象外)。
+// compressImageToBase64・compressImageForOcrは/public/js/image-compress.js
+// (index.html・guide.html共通、<script src="/js/image-compress.js">で読み込み)に
+// 切り出し済み。修正する際はそちらを編集すること(このファイル内には実体を持たない)。
 const OCR_UPLOAD_MAX_MB = 3;
 const OCR_UPLOAD_MAX_BYTES = OCR_UPLOAD_MAX_MB * 1024 * 1024;
 function checkOcrUploadSize(file){
@@ -3549,28 +3554,6 @@ function checkOcrUploadSize(file){
     return false;
   }
   return true;
-}
-function compressImageToBase64(file, maxDim){
-  maxDim = maxDim || 1800;
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    const reader = new FileReader();
-    reader.onload = () => { img.src = reader.result; };
-    reader.onerror = reject;
-    img.onload = () => {
-      let w = img.width, h = img.height;
-      if(w > maxDim || h > maxDim){
-        if(w > h){ h = Math.round(h * maxDim / w); w = maxDim; }
-        else { w = Math.round(w * maxDim / h); h = maxDim; }
-      }
-      const canvas = document.createElement('canvas');
-      canvas.width = w; canvas.height = h;
-      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-      resolve(canvas.toDataURL('image/jpeg', 0.85).split(',')[1]);
-    };
-    img.onerror = reject;
-    reader.readAsDataURL(file);
-  });
 }
 
 // ===== 決算年度（3月〜翌2月）ヘルパー =====
@@ -7510,7 +7493,15 @@ async function processDashboardBankbookFile(file){
     alert('銀行を選択してください');
     return;
   }
-  if(!checkOcrUploadSize(file)) return;
+  // 画像は圧縮後サイズチェック(compressImageForOcr内)に委ねるため、ここでは非画像
+  // (PDF)のみ圧縮前チェックの対象とする(Excel/Wordはクライアント側でテキスト化する
+  // ため、バイナリのままAPIへ送らずサイズ上限の対象外)。
+  const _dbName = (file.name||'').toLowerCase();
+  const _dbIsPdf = _dbName.endsWith('.pdf') || file.type==='application/pdf';
+  const _dbIsExcel = _dbName.match(/\.(xlsx|xls)$/);
+  const _dbIsWord = _dbName.endsWith('.docx');
+  const _dbIsImage = !_dbIsPdf && !_dbIsExcel && !_dbIsWord;
+  if(!_dbIsImage && !checkOcrUploadSize(file)) return;
   const statusEl = document.getElementById('db-bankbook-file-status');
   statusEl.textContent = '⏳ 読み取り中...';
   statusEl.classList.add('ocr-loading');
@@ -7518,23 +7509,19 @@ async function processDashboardBankbookFile(file){
   statusEl.style.color = '';
   document.getElementById('db-bankbook-results').innerHTML = '';
   try{
-    const name = (file.name||'').toLowerCase();
-    const isPdf = name.endsWith('.pdf') || file.type==='application/pdf';
-    const isExcel = name.match(/\.(xlsx|xls)$/);
-    const isWord = name.endsWith('.docx');
     let body;
-    if(isExcel){
+    if(_dbIsExcel){
       const sheets = await parseExcelToSheetsText(file);
       body = { bankbookText: sheets };
-    } else if(isWord){
+    } else if(_dbIsWord){
       const docText = await extractDocxText(file);
       body = { bankbookText: docText };
-    } else if(isPdf){
+    } else if(_dbIsPdf){
       const base64 = await readFileAsBase64(file);
       body = {bankbookPdfBase64: base64};
     } else {
-      const base64 = await readFileAsBase64(file);
-      body = {bankbookImageBase64: base64, bankbookMediaType: file.type};
+      const base64 = await compressImageForOcr(file);
+      body = {bankbookImageBase64: base64, bankbookMediaType: 'image/jpeg'};
     }
     body.bankbookEra = bank.era;
     const response = await fetch('/api/extract-card', {
@@ -15201,7 +15188,7 @@ async function extractBusFromFile(event, mode){
         bodyBase = {busExcelBase64:base64};
       }
     }else if(isImage){
-      const base64 = await compressImageToBase64(file);
+      const base64 = await compressImageForOcr(file);
       bodyBase = {busImageBase64:base64, busImageMediaType:'image/jpeg'};
     }else{
       throw new Error('対応していないファイル形式です');
@@ -15679,7 +15666,7 @@ async function extractRestaurantFromFile(event, mode){
         bodyBase = {restaurantExcelBase64:base64};
       }
     }else if(isImage){
-      const base64 = await compressImageToBase64(file);
+      const base64 = await compressImageForOcr(file);
       bodyBase = {restaurantImageBase64:base64, restaurantImageMediaType:'image/jpeg'};
     }else{
       throw new Error('対応していないファイル形式です');
@@ -16482,7 +16469,7 @@ async function extractFacilityFromFile(event, mode){
         bodyBase = {facilityExcelBase64:base64};
       }
     }else if(isImage){
-      const base64 = await compressImageToBase64(file);
+      const base64 = await compressImageForOcr(file);
       bodyBase = {facilityImageBase64:base64, facilityImageMediaType:'image/jpeg'};
     }else{
       throw new Error('対応していないファイル形式です');
@@ -16661,7 +16648,7 @@ async function extractWaterFromFile(event, mode){
         bodyBase = {waterExcelBase64:base64};
       }
     }else if(isImage){
-      const base64 = await compressImageToBase64(file);
+      const base64 = await compressImageForOcr(file);
       bodyBase = {waterImageBase64:base64, waterImageMediaType:'image/jpeg'};
     }else{
       throw new Error('対応していないファイル形式です');
@@ -16847,7 +16834,7 @@ async function processFmFacilityFile(file, mode){
       const docText = await extractDocxText(file);
       bodyBase = {facilityText:docText};
     }else if(isImage){
-      const base64 = await compressImageToBase64(file);
+      const base64 = await compressImageForOcr(file);
       bodyBase = {facilityImageBase64:base64, facilityImageMediaType:'image/jpeg'};
     }else{
       throw new Error('対応していないファイル形式です');
@@ -19185,7 +19172,7 @@ async function extractHotelFromFile(event, mode){
     let bodyBase;
 
     if(isImage){
-      const base64 = await compressImageToBase64(file);
+      const base64 = await compressImageForOcr(file);
       bodyBase = { hotelImageBase64: base64, hotelImageMediaType: 'image/jpeg' };
     } else if(isPdf){
       const base64 = await readFileAsBase64(file);
@@ -20265,22 +20252,26 @@ async function handleGuideCardUpload(event){
 }
 async function processGuideCardFile(file){
   if(!file) return;
-  if(!checkOcrUploadSize(file)) return;
+  // 画像は圧縮後サイズチェック(compressImageForOcr内)に委ねるため、ここでは非画像
+  // (PDF)のみ圧縮前チェックの対象とする(Excel/Wordはクライアント側でテキスト化する
+  // ため、バイナリのままAPIへ送らずサイズ上限の対象外)。
+  const _grcName = (file.name||'').toLowerCase();
+  const _grcIsPdf = _grcName.endsWith('.pdf') || file.type==='application/pdf';
+  const _grcIsExcel = _grcName.match(/\.(xlsx|xls)$/);
+  const _grcIsWord = _grcName.endsWith('.docx');
+  const _grcIsImage = !_grcIsPdf && !_grcIsExcel && !_grcIsWord;
+  if(!_grcIsImage && !checkOcrUploadSize(file)) return;
   const statusEl = document.getElementById('gr-card-status');
   statusEl.textContent = '⏳ 読み取り中...';
   statusEl.classList.add('ocr-loading');
   statusEl.style.color = '';
   showGlobalOcrBanner();
   try{
-    const name = (file.name||'').toLowerCase();
-    const isPdf = name.endsWith('.pdf') || file.type==='application/pdf';
-    const isExcel = name.match(/\.(xlsx|xls)$/);
-    const isWord = name.endsWith('.docx');
     let body;
-    if(isExcel){ body = { guideCardText: await parseExcelToSheetsText(file) }; }
-    else if(isWord){ body = { guideCardText: await extractDocxText(file) }; }
-    else if(isPdf){ body = { guideCardPdfBase64: await readFileAsBase64(file) }; }
-    else { body = { guideCardImageBase64: await compressImageToBase64(file), guideCardMediaType: 'image/jpeg' }; }
+    if(_grcIsExcel){ body = { guideCardText: await parseExcelToSheetsText(file) }; }
+    else if(_grcIsWord){ body = { guideCardText: await extractDocxText(file) }; }
+    else if(_grcIsPdf){ body = { guideCardPdfBase64: await readFileAsBase64(file) }; }
+    else { body = { guideCardImageBase64: await compressImageForOcr(file), guideCardMediaType: 'image/jpeg' }; }
 
     const response = await fetch('/api/extract-card', {
       method: 'POST',
@@ -20324,14 +20315,15 @@ async function handleGuideBankUpload(event){
 }
 async function processGuideBankFile(file){
   if(!file) return;
-  if(!checkOcrUploadSize(file)) return;
+  // 常に画像(通帳・キャッシュカード撮影)のため、圧縮後サイズチェックは
+  // compressImageForOcr内で行う(圧縮前チェックは不要)。
   const statusEl = document.getElementById('gr-bank-status');
   statusEl.textContent = '⏳ 読み取り中...';
   statusEl.classList.add('ocr-loading');
   statusEl.style.color = '';
   showGlobalOcrBanner();
   try{
-    const base64 = await compressImageToBase64(file);
+    const base64 = await compressImageForOcr(file);
     const response = await fetch('/api/extract-card', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
@@ -21606,7 +21598,7 @@ async function processHotelFileHm(file, mode){
     const isWord = !isImage && !isPdf && name.endsWith('.docx');
     let bodyBase;
     if(isImage){
-      const base64 = await compressImageToBase64(file);
+      const base64 = await compressImageForOcr(file);
       bodyBase = { hotelImageBase64: base64, hotelImageMediaType: 'image/jpeg' };
     }else if(isPdf){
       const base64 = await readFileAsBase64(file);
@@ -21691,7 +21683,15 @@ async function extractCcStatementFromFile(event, mode){
 
 async function processCcStatementFile(file, mode){
   if(!file) return;
-  if(!checkOcrUploadSize(file)) return;
+  // 画像は圧縮後サイズチェック(compressImageForOcr内)に委ねるため、ここでは非画像
+  // (PDF)のみ圧縮前チェックの対象とする(Excel/Wordはクライアント側でテキスト化する
+  // ため、バイナリのままAPIへ送らずサイズ上限の対象外)。
+  const _ccName = (file.name||'').toLowerCase();
+  const _ccIsExcel = !mode && _ccName.match(/\.(xlsx|xls)$/);
+  const _ccIsWord = !mode && _ccName.endsWith('.docx');
+  const _ccIsPdf = mode==='pdf' || _ccName.endsWith('.pdf');
+  const _ccIsImage = !_ccIsExcel && !_ccIsWord && !_ccIsPdf;
+  if(!_ccIsImage && !checkOcrUploadSize(file)) return;
   const statusEl = document.getElementById('cc-file-status');
   statusEl.textContent = '⏳ 読み取り中...';
   statusEl.classList.add('ocr-loading');
@@ -21699,27 +21699,19 @@ async function processCcStatementFile(file, mode){
   statusEl.style.color = '';
   document.getElementById('cc-ocr-results').innerHTML = '';
   try{
-    const name = (file.name||'').toLowerCase();
-    const isExcel = !mode && name.match(/\.(xlsx|xls)$/);
-    const isWord = !mode && name.endsWith('.docx');
     let body;
-    if(isExcel){
+    if(_ccIsExcel){
       const sheets = await parseExcelToSheetsText(file);
       body = { cardstatementText: sheets };
-    } else if(isWord){
+    } else if(_ccIsWord){
       const docText = await extractDocxText(file);
       body = { cardstatementText: docText };
-    } else if(mode==='pdf' || name.endsWith('.pdf')){
+    } else if(_ccIsPdf){
       const base64 = await readFileAsBase64(file);
       body = {cardstatementPdfBase64: base64};
     } else {
-      const base64 = await new Promise((resolve,reject)=>{
-        const r = new FileReader();
-        r.onload = ()=>resolve(r.result.split(',')[1]);
-        r.onerror = reject;
-        r.readAsDataURL(file);
-      });
-      body = {cardstatementImageBase64: base64, cardstatementMediaType: file.type||'image/jpeg'};
+      const base64 = await compressImageForOcr(file);
+      body = {cardstatementImageBase64: base64, cardstatementMediaType: 'image/jpeg'};
     }
     const response = await fetch('/api/extract-card', {
       method: 'POST',
@@ -22581,7 +22573,7 @@ async function processInvoiceImportFile(file){
     const isImage = _iifIsImage;
     let bodyBase;
     if(isImage){
-      const base64 = await compressImageToBase64(file);
+      const base64 = await compressImageForOcr(file);
       bodyBase = { invoiceImageBase64: base64, invoiceImageMediaType: file.type||'image/jpeg' };
     } else if(isPdf){
       const base64 = await readFileAsBase64(file);
@@ -22765,24 +22757,22 @@ async function extractInvoiceFromText(){
 async function extractInvoiceFromFile(event, mode){
   const file = event.target.files[0];
   if(!file) return;
-  if(!checkOcrUploadSize(file)) return;
+  // 画像は圧縮後サイズチェック(compressImageForOcr内)に委ねるため、ここでは非画像
+  // (PDF)のみ圧縮前チェックの対象とする。
+  if(mode==='pdf' && !checkOcrUploadSize(file)) return;
   const statusEl = document.getElementById('inv-file-status');
   statusEl.textContent = '⏳ 読み取り中...';
   statusEl.classList.add('ocr-loading');
   showGlobalOcrBanner();
   statusEl.style.color = '';
   try{
-    const base64 = await new Promise((resolve,reject)=>{
-      const r = new FileReader();
-      r.onload = ()=>resolve(r.result.split(',')[1]);
-      r.onerror = reject;
-      r.readAsDataURL(file);
-    });
     let bodyData;
     if(mode==='pdf'){
+      const base64 = await readFileAsBase64(file);
       bodyData = { invoicePdfBase64: base64 };
     } else {
-      bodyData = { invoiceImageBase64: base64, invoiceImageMediaType: file.type||'image/jpeg' };
+      const base64 = await compressImageForOcr(file);
+      bodyData = { invoiceImageBase64: base64, invoiceImageMediaType: 'image/jpeg' };
     }
     const response = await fetchWithTimeout('/api/extract-card', {
       method: 'POST',
@@ -22895,7 +22885,7 @@ async function extractCostFromFile(event, mode){
     let bodyBase;
 
     if(isImage){
-      const base64 = await compressImageToBase64(file);
+      const base64 = await compressImageForOcr(file);
       bodyBase = { invoiceImageBase64: base64, invoiceImageMediaType: 'image/jpeg' };
     } else if(isPdf){
       const base64 = await readFileAsBase64(file);
