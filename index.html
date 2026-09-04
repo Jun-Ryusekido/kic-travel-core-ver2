@@ -21662,6 +21662,9 @@ async function processHotelFileHm(file, mode){
 let ccStatementsCache = [];
 let ccFilter = 'all';
 let ccExtracted = [];
+// 「確定済み」の明細一覧で、確定先のREF#を都度クエリせず即表示するためのキャッシュ
+// (matched_booking_id → ref_no)。loadCreditCardStatements()でまとめて1回だけ取得する。
+let ccMatchedRefNoById = {};
 // 一覧の一括削除用チェック選択(idを文字列化して保持)。フィルターを跨いで選択を保持する
 // ため、renderCcTable()の再描画では消えない(setCcFilter/loadCreditCardStatementsからも
 // クリアしない。明示的にクリアするのはbulkDeleteCcStatements成功時のみ)。
@@ -22151,6 +22154,17 @@ async function loadCreditCardStatements(){
   const {data, error} = await sb.from('credit_card_statements').select('*').order('transaction_date',{ascending:false});
   if(error){ logError('クレジットカード明細の読み込み', error); tbody.innerHTML = '<tr><td colspan="7" class="empty">読み込みに失敗しました</td></tr>'; return; }
   ccStatementsCache = data||[];
+  // 「確定済み」の明細一覧に確定先REF#を表示するため、まとめて1回だけ取得しておく
+  // (行ごとに都度クエリすると一覧表示が遅くなるため、確定済み分のbooking_idを
+  // 重複排除した上で1クエリでまとめて引く)。
+  const confirmedBookingIds = [...new Set(ccStatementsCache.filter(s=>s.match_status==='確定済み' && s.matched_booking_id).map(s=>s.matched_booking_id))];
+  ccMatchedRefNoById = {};
+  if(confirmedBookingIds.length){
+    try{
+      const {data: bks} = await sb.from('bookings').select('id,ref_no').in('id', confirmedBookingIds);
+      (bks||[]).forEach(b=>{ ccMatchedRefNoById[b.id] = b.ref_no||''; });
+    }catch(e){ logError('クレジットカード明細: 確定先REF#の取得', e, {toast:false}); }
+  }
   renderCcTable();
   renderUnreimbursedPersonalAdvanceBanner();
 }
@@ -22258,11 +22272,30 @@ function renderCcTable(){
   if(list.length===0){ tbody.innerHTML = '<tr><td colspan="7" class="empty">明細がありません</td></tr>'; updateCcBulkDeleteBar(); return; }
   const now = Date.now();
   tbody.innerHTML = list.map(s=>{
-    const statusColor = s.match_status==='確定済み' ? 'var(--green)' : s.match_status==='候補あり' ? 'var(--blue)' : s.match_status==='対象外' ? 'var(--text3)' : 'var(--amber,#854F0B)';
+    const status = s.match_status||'未紐付け';
+    const statusColor = status==='確定済み' ? 'var(--green)' : status==='候補あり' ? 'var(--blue)' : status==='対象外' ? 'var(--text3)' : 'var(--amber,#854F0B)';
+    const statusBg = status==='確定済み' ? 'var(--green-lt,#EFFAF1)' : status==='候補あり' ? 'var(--blue-lt,#F0F6FF)' : status==='対象外' ? 'var(--bg2,#EEF1F4)' : 'var(--amber-lt,#FAEEDA)';
     // 「未紐付け」のまま一定日数(3日)以上放置されている行を視覚的に強調する(再設計フェーズ1)。
     // created_atが無い過去データ(移行前に保存された行)は判定できないため強調しない。
     const ageDays = s.created_at ? (now - new Date(s.created_at).getTime()) / 86400000 : null;
-    const isStale = s.match_status==='未紐付け' && ageDays!==null && ageDays>=3;
+    const isStale = status==='未紐付け' && ageDays!==null && ageDays>=3;
+    // タップすると詳細モーダルが開き、そこで候補の選択・紐付け操作を行う仕組みだが、
+    // 従来は状態名だけの表示で操作方法が画面上どこにも示されておらず、初見では次に
+    // 何をすればよいか分からない不具合があった(2026-09点検で指摘)。状態ごとに次の
+    // アクションが読める文言にし、ボタン風の見た目(枠線・背景色・末尾の›)でタップ可能な
+    // ことを視覚的に示す。実際のタップ対象は行全体(既存のtr onclick、チェックボックスは
+    // event.stopPropagationで除外済み)のままとし、ここでは見た目のみ変更する。
+    let statusText;
+    if(status==='確定済み'){
+      const refNo = s.matched_booking_id ? ccMatchedRefNoById[s.matched_booking_id] : '';
+      statusText = refNo ? `確定済み: REF#${escHtml(String(refNo).replace(/^#/,''))}` : '確定済み';
+    }else if(status==='候補あり'){
+      statusText = '候補あり（タップして選択）';
+    }else if(status==='対象外'){
+      statusText = '対象外（タップして確認）';
+    }else{
+      statusText = '未紐付け（タップして紐付け）';
+    }
     const checked = ccSelectedIds.has(String(s.id));
     return `<tr style="cursor:pointer${isStale?';background:var(--amber-lt,#FAEEDA)':''}" onclick="openCcMatchModal('${s.id}')">
       <td data-label="" onclick="event.stopPropagation()"><input type="checkbox" ${checked?'checked':''} onchange="toggleCcRowSelect('${s.id}', this.checked)"></td>
@@ -22271,7 +22304,7 @@ function renderCcTable(){
       <td data-label="店舗名">${escHtml(s.merchant_name||'')}</td>
       <td data-label="金額" style="text-align:right">${yen(s.amount||0)}</td>
       <td data-label="手書きコード">${escHtml(s.hint_tour_code||'')}</td>
-      <td data-label="紐付け状態"><span style="font-size:10px;font-weight:600;color:${statusColor}">${isStale?'⏰ ':''}${escHtml(s.match_status||'未紐付け')}</span></td>
+      <td data-label="紐付け状態"><span style="display:inline-block;font-size:10px;font-weight:600;color:${statusColor};background:${statusBg};border:1px solid ${statusColor};border-radius:12px;padding:3px 8px;line-height:1.4">${isStale?'⏰ ':''}${statusText} ›</span></td>
     </tr>`;
   }).join('');
   updateCcBulkDeleteBar();
