@@ -206,7 +206,11 @@ export default async function handler(req, res) {
       });
     }
 
-    const callClaude = async (content, maxTokens) => {
+    // temperatureは省略時Anthropic API側のデフォルト(1.0、非決定的)が使われる。第3引数を
+    // 渡した呼び出しだけ明示的に低くできるようにしている(全モード共通で下げると、web検索を
+    // 伴う施設営業情報調査等、多様な言い回しの候補出しが必要な呼び出しの多様性を損なう
+    // 懸念があるため、影響範囲を呼び出し側で個別に選べる設計とした)。
+    const callClaude = async (content, maxTokens, temperature) => {
       const r = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
@@ -217,6 +221,7 @@ export default async function handler(req, res) {
         body: JSON.stringify({
           model: 'claude-sonnet-4-6',
           max_tokens: maxTokens || 1000,
+          ...(temperature != null ? { temperature } : {}),
           messages: [{ role: 'user', content }]
         })
       });
@@ -392,6 +397,11 @@ ${eraHint ? `\n${eraHint}\n` : ''}
       : await resolveCardstatementImageContent();
     if (resolvedCardstatementContent) {
       const todayJstStr = new Date().toLocaleDateString('sv-SE', {timeZone:'Asia/Tokyo'}); // YYYY-MM-DD
+      // temperatureを低め(0.2)に指定する。temperature未指定時はAnthropic APIのデフォルト
+      // (1.0、非決定的)が使われ、取り消し線に隠れた店舗名等の読み取りに自信が持てない
+      // 箇所で、実行のたびに結果が変わりうる(2026-09、取り消し線行の店舗名誤読調査で判明)。
+      // 日付・金額・店舗名の細かいルールを多数課している抽出タスクであり、多様な言い回しの
+      // 候補出しは不要なため、低いtemperatureで読み取り結果を安定させる。
       const data = await callClaude([
         resolvedCardstatementContent,
         {type:'text', text:`このクレジットカード利用明細から、各取引（利用日・利用店舗名・利用金額）をすべて読み取ってください。複数の取引行がある場合はすべて抽出してください。
@@ -500,6 +510,20 @@ ${eraHint ? `\n${eraHint}\n` : ''}
   埋めずそれぞれnullにすること（hint_tour_code・memoともに、確信の持てない推測値を
   入れるくらいなら空にする方を優先する）。
 
+【取り消し線・返金/マイナス金額の行の店舗名について（重要）】
+- 金額がマイナス（例:「-52,000」）、または行全体もしくは金額・店舗名部分に取り消し線
+  （打ち消し線）が引かれている行は、返金・キャンセル処理の行である。
+- この種の行の店舗名が、取り消し線に隠れる・文字が薄い等の理由で読み取りに自信が
+  持てない場合は、まず明細内の他の行（特にその行の直前・直後の行）に同一の店舗名が
+  印字された行がないか確認すること。ある場合は、その店舗名をこの行の店舗名として
+  引き継ぐこと（返金・キャンセル行は、直前に同じ店舗の通常の利用行が存在するのが
+  実態であるため）。
+- 一方、明細内のどの行にもそれらしい同一店舗名の手がかりが一切見当たらない場合は、
+  たとえ近くに別の店舗名が印字されていたとしても、それを推測で当てはめてはならない。
+  この場合は「店舗名が読み取れない場合はnullにする」という一般則をこの状況でも
+  徹底し、必ずnullにすること。取り消し線・マイナス金額の行だからといって、根拠なく
+  近隣の行の店舗名を借用してよいわけではない。
+
 【日付読み取りの自信度（date_confidence・重要）】
 - 上記で読み取ったera_year_raw/month/dayの数字について、印字のかすれ・折れ・裏写り・手書きでの
   訂正線・数字の一部が他の文字や罫線に隠れている等、読み取りに少しでも迷い・不確実さがあった場合は、
@@ -525,7 +549,7 @@ ${eraHint ? `\n${eraHint}\n` : ''}
 - 他のテキストは一切含めず、以下のJSON形式のみで返すこと
 
 [{"era_type":"western","era_year_raw":2026,"month":5,"day":20,"date_confidence":"high","date_raw":null,"needs_review":false,"year_supplemented":false,"merchant":"〇〇株式会社","amount":15000,"hint_tour_code":"851_KK","memo":null},{"era_type":"reiwa","era_year_raw":8,"month":6,"day":12,"date_confidence":"high","date_raw":"8 6 12","needs_review":false,"year_supplemented":false,"merchant":"◇◇商店","amount":9800,"hint_tour_code":null,"memo":null},{"era_type":"western","era_year_raw":2026,"month":5,"day":25,"date_confidence":"high","date_raw":"?/5 25","needs_review":false,"year_supplemented":true,"merchant":"□□商事","amount":8400,"hint_tour_code":null,"memo":"交通費"},{"era_type":"reiwa","era_year_raw":8,"month":3,"day":2,"date_confidence":"low","date_raw":"かすれて8?32","needs_review":true,"year_supplemented":false,"merchant":"◎◎ストア","amount":1200,"hint_tour_code":null,"memo":null},{"era_type":"unknown","era_year_raw":null,"month":null,"day":null,"date_confidence":"low","date_raw":"5/25","needs_review":true,"year_supplemented":false,"merchant":"△△商店","amount":3200,"hint_tour_code":null,"memo":null}]`}
-      ], 2000);
+      ], 2000, 0.2);
       const text = data.content?.[0]?.text || '';
       return res.status(200).json({ text });
     }
