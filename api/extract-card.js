@@ -138,7 +138,7 @@ export default async function handler(req, res) {
   try {
     const { variants, mediaType, base64, hotelText, hotelPdfBase64, hotelExcelBase64, hotelImageBase64, hotelImageMediaType, facilityText, facilityPdfBase64, facilityExcelBase64, facilityImageBase64, facilityImageMediaType, waterText, waterPdfBase64, waterExcelBase64, waterImageBase64, waterImageMediaType, busText, busPdfBase64, busExcelBase64, busImageBase64, busImageMediaType, restaurantText, restaurantPdfBase64, restaurantExcelBase64, restaurantImageBase64, restaurantImageMediaType, invoiceText, invoicePdfBase64, invoiceExcelBase64, invoiceImageBase64, invoiceImageMediaType, targetCheckIn, targetCheckOut, password,
       bankbookImageBase64, bankbookMediaType, bankbookPdfBase64, bankbookText, bankbookEra,
-      cardstatementImageBase64, cardstatementMediaType, cardstatementPdfBase64, cardstatementText,
+      cardstatementImageBase64, cardstatementVariants, cardstatementMediaType, cardstatementPdfBase64, cardstatementText,
       receiptImageBase64, receiptMediaType,
       multiLocBase64, multiLocMediaType, multiLocReturnJson,
       partnerText,
@@ -333,13 +333,45 @@ ${eraHint ? `\n${eraHint}\n` : ''}
     }
 
     // ─── クレジットカード明細OCRモード（旧 /api/extract-cardstatement.js を統合） ───
+    // 向き判定（名刺OCRモードのStage0と同じ考え方）: 横向き撮影された明細をそのまま
+    // 読み取らせると店舗名等を大きく誤読するケースがあったため、クライアント側で
+    // 0/90/180/270度の回転バリエーション(cardstatementVariants)を送ってきた場合は、
+    // 各バリエーションに「正立か」を尋ねる安価な呼び出し(max_tokens=10)を並列実行し、
+    // 正立と判定された最初の画像を本読み取りに使う。名刺OCRと異なり、明細の本読み取り
+    // (このあとの日付・店舗名・金額の詳細な抽出プロンプト)は情報量が多く高コストなため、
+    // 向き判定4回はそれぞれ安価なまま据え置き、本読み取りは選ばれた1枚に対して1回だけ
+    // 行う(名刺OCRのStage1/Stage2に相当する「複数行のテーブルをテキスト書き起こしして
+    // からJSON化する」2段階方式は踏襲しない。明細の日付・和暦西暦判定・手書き文字仕分け
+    // 等の詳細ルールは既存の単一プロンプトに集約されており、書き起こし→再解析の2段階に
+    // 分割すると、書き起こし段階でこれらのルールを踏まえた判断ができず精度が落ちるため)。
+    // cardstatementVariants未指定(バリエーション無し)の場合は、従来通り向き判定を
+    // スキップしてそのまま使う(下位互換)。
+    async function resolveCardstatementImageContent(){
+      const images = Array.isArray(cardstatementVariants) && cardstatementVariants.length > 0
+        ? cardstatementVariants
+        : (cardstatementImageBase64 ? [cardstatementImageBase64] : null);
+      if (!images) return null;
+      let selected = images[0];
+      if (images.length > 1) {
+        const orientationResults = await Promise.all(images.map(async (b64) => {
+          const data = await callClaude([
+            { type: 'image', source: { type: 'base64', media_type: cardstatementMediaType || 'image/jpeg', data: b64 } },
+            { type: 'text', text: 'この画像は正しい向きで表示されていますか？テキストが読める正立した状態であれば「はい」、そうでなければ「いいえ」とだけ答えてください。' }
+          ], 10);
+          const txt = (data.content?.[0]?.text || '').toLowerCase();
+          return txt.includes('はい') || txt.includes('yes');
+        }));
+        const correctIdx = orientationResults.findIndex(v => v);
+        if (correctIdx >= 0) selected = images[correctIdx];
+      }
+      return { type: 'image', source: { type: 'base64', media_type: cardstatementMediaType || 'image/jpeg', data: selected } };
+    }
+
     const resolvedCardstatementContent = cardstatementPdfBase64
       ? {type:'document', source:{type:'base64', media_type:'application/pdf', data:cardstatementPdfBase64}}
       : cardstatementText
       ? {type:'text', text: cardstatementText}
-      : cardstatementImageBase64
-      ? {type:'image', source:{type:'base64', media_type:cardstatementMediaType, data:cardstatementImageBase64}}
-      : null;
+      : await resolveCardstatementImageContent();
     if (resolvedCardstatementContent) {
       const todayJstStr = new Date().toLocaleDateString('sv-SE', {timeZone:'Asia/Tokyo'}); // YYYY-MM-DD
       const data = await callClaude([

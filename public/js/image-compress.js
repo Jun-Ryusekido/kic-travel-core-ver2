@@ -216,3 +216,27 @@ async function compressImageForOcr(file, maxDim){
 
   throw new Error(`画像が大きすぎるため読み取れません(圧縮後も${OCR_COMPRESSED_MAX_MB}MBを超えています)。別の画像をお試しください。`);
 }
+
+// 圧縮済みの画像(compressImageForOcrの戻り値のbase64/mediaType)を0/90/180/270度
+// 回転させた4パターンのBase64配列を返す。サーバー側でどの向きが正立かをAIに判定させ
+// (安価な「正立ですか?」だけの呼び出しを4パターン分並列実行)、正しい向きの1枚だけを
+// 本読み取りに使う仕組み(取引先名刺OCR・クレジットカード明細OCRで使用)のために存在する。
+// 0度は再エンコードせず元のbase64をそのまま返す(無駄な劣化を避けるため)。
+function rotateImageVariants(base64, mediaType){
+  const rotateOne = (deg) => new Promise((resolve) => {
+    if(deg === 0){ resolve(base64); return; }
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if(deg === 90 || deg === 270){ canvas.width = img.height; canvas.height = img.width; }
+      else { canvas.width = img.width; canvas.height = img.height; }
+      ctx.translate(canvas.width/2, canvas.height/2);
+      ctx.rotate(deg*Math.PI/180);
+      ctx.drawImage(img, -img.width/2, -img.height/2);
+      resolve(canvas.toDataURL(mediaType, 0.85).split(',')[1]);
+    };
+    img.src = 'data:'+mediaType+';base64,'+base64;
+  });
+  return Promise.all([0,90,180,270].map(rotateOne));
+}

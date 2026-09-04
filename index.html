@@ -21711,7 +21711,13 @@ async function processCcStatementFile(file, mode){
       body = {cardstatementPdfBase64: base64};
     } else {
       const {base64, mediaType} = await compressImageForOcr(file);
-      body = {cardstatementImageBase64: base64, cardstatementMediaType: mediaType};
+      // 取引先名刺OCR(processCardFile)と同じ仕組み: 0/90/180/270度の回転
+      // バリエーションを送り、サーバー側で安価な向き判定(「正立ですか?」だけを
+      // 尋ねる呼び出しを4パターン並列実行)を行った上で、正しい向きの1枚だけを
+      // 本読み取り(高コストな明細抽出プロンプト)に使う。横向き撮影された明細で
+      // 店舗名等を誤読する不具合の対策。
+      const variants = await rotateImageVariants(base64, mediaType);
+      body = {cardstatementVariants: variants, cardstatementMediaType: mediaType};
     }
     const response = await fetch('/api/extract-card', {
       method: 'POST',
@@ -26268,23 +26274,10 @@ async function processCardFile(file){
       parsed = pdata.partner || pdata;
     } else {
     const {base64, mediaType} = await compressImageForOcr(file);
-
-const rotateImage = (b64, mt, deg) => new Promise((resolve)=>{
-      if(deg===0){ resolve(b64); return; }
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        if(deg===90 || deg===270){ canvas.width = img.height; canvas.height = img.width; }
-        else { canvas.width = img.width; canvas.height = img.height; }
-        ctx.translate(canvas.width/2, canvas.height/2);
-        ctx.rotate(deg*Math.PI/180);
-        ctx.drawImage(img, -img.width/2, -img.height/2);
-        resolve(canvas.toDataURL(mt, 0.85).split(',')[1]);
-      };
-      img.src = 'data:'+mt+';base64,'+b64;
-    });
-    const variants = await Promise.all([0,90,180,270].map(deg=>rotateImage(base64, mediaType, deg)));
+    // 回転バリエーション生成(rotateImageVariants)はpublic/js/image-compress.js
+    // (index.html・guide.html共通)に切り出し済み。クレジットカード明細OCR
+    // (processCcStatementFile)でも同じ関数を使っている。
+    const variants = await rotateImageVariants(base64, mediaType);
     const response = await fetch('/api/extract-card', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
