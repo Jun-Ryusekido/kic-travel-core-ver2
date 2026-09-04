@@ -22,14 +22,37 @@
 // 文字認識では色の階調(JPEG品質)よりピクセル密度(解像度)の方が重要なため、
 // 劣化させる順序を「解像度を先に落とす」から「品質を先に落とす」へ逆転させた。
 //
+// 経緯4(2026-09、EXIF Orientation対応): iPhone等で撮影した写真は、ピクセルデータ
+// 自体は常に横向きで保存され、EXIFのOrientationタグ(1〜8)に実際の表示向きが
+// 記録されていることがある。当初はCanvasへdrawImageする前に自前で回転・反転行列を
+// 適用する実装を試みたが、実機検証の結果、モダンブラウザ(Chrome/Safari/Firefox
+// いずれも2020年前後以降のバージョン)は<img>やcreateImageBitmapによる画像デコード
+// 時点で、CSSのimage-orientation既定値(from-image)に従いEXIF Orientationタグを
+// 自動的に反映した(正しい向きに回転済みの)ビットマップを返すことが判明した
+// (width/height含め、8パターン全てで実測確認済み)。そのため自前で回転処理を
+// 追加すると二重に回転がかかってしまうバグになる(createImageBitmapの
+// {imageOrientation:'none'}オプションで自動回転を無効化しようとしても、
+// 検証したブラウザでは効かず常に自動回転された)。よって、Canvas経由で処理する
+// パス(loadImageToCanvas)では自動回転に任せ、自前の回転処理は行わない。
+//
+// ただし、ファイルサイズが十分小さく「圧縮せず元ファイルをそのまま送信する」
+// スキップ経路(後述)は一切Canvasを経由しないため、この自動回転の恩恵を受けられない。
+// 送信先(サーバー・AI)がEXIF Orientationを解釈する保証もないため、Orientationが
+// 1(正立)以外の場合は、たとえファイルが小さくてもスキップ経路を使わずCanvas経由で
+// 処理し(=ブラウザの自動回転で正しい向きに補正した上でJPEGとして再エンコードし、
+// EXIFタグ自体を除去する)、向きの解釈を送信先に依存させないようにする。
+//
 // 現在の方針:
-// 1. 元ファイルが十分小さい(IMAGE_SKIP_COMPRESS_MAX_BYTES以下)場合は、リサイズ・
+// 1. EXIF Orientationが1(正立)または読み取れない(EXIF無し・JPEG以外)場合で、かつ
+//    元ファイルが十分小さい(IMAGE_SKIP_COMPRESS_MAX_BYTES以下)場合は、リサイズ・
 //    再エンコードそのものをスキップし、元ファイルをそのままBase64化して送信する
 //    (画質・解像度の劣化ゼロ)。
-// 2. 圧縮が必要な場合、まずリサイズせずネイティブ解像度のまま、JPEG品質だけを
-//    IMAGE_COMPRESS_QUALITY_STEPSの順(高品質→低品質)に段階的に下げて試す。
-//    いずれかの品質で目標サイズ(OCR_COMPRESSED_MAX_BYTES)以下になれば、
-//    それ以上品質を下げずそのまま確定する(解像度は常にネイティブのまま)。
+// 2. Orientationが2〜8(要回転・反転)の場合、またはファイルサイズが大きく圧縮が
+//    必要な場合は、Canvasへ描画(ブラウザが自動的に正しい向きへ補正する)したうえで、
+//    まずリサイズせずネイティブ解像度のまま、JPEG品質だけをIMAGE_COMPRESS_QUALITY_STEPS
+//    の順(高品質→低品質)に段階的に下げて試す。いずれかの品質で目標サイズ
+//    (OCR_COMPRESSED_MAX_BYTES)以下になれば、それ以上品質を下げずそのまま確定する
+//    (解像度は常にネイティブのまま)。
 // 3. 最低品質まで下げても目標サイズに収まらない場合(極端に高解像度な画像等)のみ、
 //    最後の手段として長辺IMAGE_COMPRESS_MAX_DIM以下へリサイズし、そのリサイズ後の
 //    画像に対して再度2と同じ品質段階を試す。
@@ -54,7 +77,56 @@ function readFileAsBase64Raw(file){
   });
 }
 
-// 画像をCanvasへ読み込む(リサイズなし、ネイティブ解像度のまま)。
+// JPEGファイルのEXIF Orientationタグ(1〜8)を読み取る。EXIFはファイル先頭付近の
+// APP1セグメントに入っているため、先頭128KBだけ読めば十分(画像本体全体は読まない)。
+// JPEG以外・EXIF無し・タグ無し・解析失敗の場合はすべて1(正立、補正不要)を返す。
+async function readExifOrientation(file){
+  const looksJpeg = file.type === 'image/jpeg' || file.type === 'image/jpg' || /\.jpe?g$/i.test(file.name||'');
+  if(!looksJpeg) return 1;
+  try{
+    const buffer = await file.slice(0, 128*1024).arrayBuffer();
+    const view = new DataView(buffer);
+    if(view.byteLength < 4 || view.getUint16(0, false) !== 0xFFD8) return 1; // SOIマーカーが無い=JPEGでない
+    let offset = 2;
+    while(offset + 4 <= view.byteLength){
+      if(view.getUint8(offset) !== 0xFF) break;
+      const marker = view.getUint8(offset+1);
+      if(marker === 0xD8 || marker === 0x01 || (marker >= 0xD0 && marker <= 0xD7)){
+        offset += 2; continue; // 長さフィールドを持たないマーカー
+      }
+      if(marker === 0xDA) break; // Start Of Scan(以降は画像データ本体、メタデータは無い)
+      const segmentLength = view.getUint16(offset+2, false);
+      if(marker === 0xE1 && offset + 4 + segmentLength <= view.byteLength){
+        // APP1セグメント。"Exif\0\0"で始まるかを確認してからTIFFヘッダを解析する。
+        if(view.getUint32(offset+4, false) === 0x45786966 && view.getUint16(offset+8, false) === 0x0000){
+          const tiffStart = offset + 10;
+          const little = view.getUint16(tiffStart, false) === 0x4949; // "II"=リトルエンディアン, "MM"=ビッグエンディアン
+          const firstIfdOffset = view.getUint32(tiffStart+4, little);
+          const dirStart = tiffStart + firstIfdOffset;
+          if(dirStart + 2 <= view.byteLength){
+            const entryCount = view.getUint16(dirStart, little);
+            for(let i=0; i<entryCount; i++){
+              const entryOffset = dirStart + 2 + i*12;
+              if(entryOffset + 12 > view.byteLength) break;
+              const tag = view.getUint16(entryOffset, little);
+              if(tag === 0x0112){ // Orientationタグ
+                const value = view.getUint16(entryOffset+8, little);
+                return (value >= 1 && value <= 8) ? value : 1;
+              }
+            }
+          }
+        }
+        return 1;
+      }
+      offset += 2 + segmentLength;
+    }
+  }catch(e){ /* 解析に失敗した場合は補正なし(1)として扱う */ }
+  return 1;
+}
+
+// 画像をCanvasへ読み込む(リサイズなし)。上記コメントの通り、ブラウザが
+// デコード時点でEXIF Orientationに応じた回転を自動的に適用するため、ここでは
+// 単純にdrawImageするだけでよい(自前の回転処理は行わない)。
 // リサイズが必要かどうかは呼び出し側(compressImageForOcr)が判断する。
 function loadImageToCanvas(file){
   return new Promise((resolve, reject) => {
@@ -119,8 +191,13 @@ function tryQualitySteps(canvas){
 // 表示すればよい。
 async function compressImageForOcr(file, maxDim){
   maxDim = maxDim || IMAGE_COMPRESS_MAX_DIM;
+  const orientation = await readExifOrientation(file);
 
-  if(file.size <= IMAGE_SKIP_COMPRESS_MAX_BYTES){
+  // EXIF Orientationが正立(1、またはJPEG以外・EXIF無しで補正不要)の場合のみ、
+  // 元ファイルサイズが十分小さければリサイズ・再エンコードそのものをスキップできる。
+  // 2〜8(要回転・反転)の場合は、圧縮不要なサイズであってもCanvas経由での
+  // 描画・再エンコードが必須になる(でなければ向きの情報が失われてしまうため)。
+  if(orientation === 1 && file.size <= IMAGE_SKIP_COMPRESS_MAX_BYTES){
     const base64 = await readFileAsBase64Raw(file);
     return { base64, mediaType: file.type || 'image/jpeg' };
   }
