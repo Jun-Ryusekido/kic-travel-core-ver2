@@ -5263,15 +5263,39 @@ function appendSchemaErrorHint(message){
 // 1ファイルに統合したもの)を通す。読み取り(select)は従来通りsb.from(...)の直接呼び出しの
 // まま変更しない。ログイン時に発行された署名付きトークン(currentUser.token)を毎回添えることで、
 // サーバー側が正当なログインユーザーからのリクエストであることを検証する。
+// api/table-crud.jsが受け付ける全action(24種類)のうち、何度実行しても結果が変わらない
+// 「読み取り専用」actionだけを列挙したもの。tableCrudApiCall()の自動リトライは、この
+// 一覧に含まれるactionにのみ適用する(下記参照)。新しいactionを追加する際は、読み取り
+// 専用でない限りここに加えないこと(=デフォルトでリトライしない安全側の設計)。
+//   - auditHistory: 変更履歴の取得（読み取りのみ）
+//   - list/listByField/list_active: 一覧・条件検索・在席ユーザー一覧の取得（読み取りのみ）
+// それ以外の20種類(insert/insertReturning/replace/replaceByKey/copyWithChildren/
+// deleteByBooking/updatePayments/save/delete/updateById/updateByIds/deleteById/
+// deleteByIds/deleteByField/heartbeat/release/upsertConfirm/guestUpsertConfirm/
+// guestInsert/guestUpdateById)は、いずれもDBへの書き込み(insert/update/delete/upsert)を
+// 伴う。実行結果としては冪等に見えるもの(例: updateByIdで同じ値を再度書き込む、
+// deleteByIdを2回実行する等)であっても、(a)サーバーが処理を完了させ何らかの副作用
+// (insert等による新規行の作成、audit_logsへの記録、learned_mappings.confirmed_countの
+// 加算等)を確定させた"後"にレスポンスがクライアントに届く前だけネットワークが切れる
+// ケースを区別できない、(b)insert/replace系は再実行そのものが二重登録に直結する、という
+// 理由から、安全側に倒して一律リトライ対象外とする。
+const TABLE_CRUD_IDEMPOTENT_READ_ACTIONS = new Set(['auditHistory', 'list', 'listByField', 'list_active']);
+
 async function tableCrudApiCall(table, action, payload){
   const token = currentUser ? currentUser.token : null;
   const __t0 = performance.now();
-  // fetch自体が失敗した場合(サーバーエラー応答ではなく、真のネットワーク断・DNS失敗等)は
-  // 最大1回まで自動リトライする。サーバーが応答を返せた場合(4xx/5xx含む)はネットワーク
-  // エラーではないためリトライせず、下のresp.ok判定にそのまま進む(POSTの二重送信リスクを
-  // 避けるため、リトライ対象は「サーバーに到達すらできなかった」ケースに限定する)。
+  // fetch自体が失敗した場合(サーバーエラー応答ではなく、真のネットワーク断・DNS失敗等)、
+  // 読み取り専用action(TABLE_CRUD_IDEMPOTENT_READ_ACTIONS参照)に限り最大1回まで自動
+  // リトライする。書き込み系actionは、サーバーが応答を返せた場合(4xx/5xx含む)は
+  // ネットワークエラーではないためリトライせず、下のresp.ok判定にそのまま進む点は従来通り
+  // だが、fetch自体が例外を投げた場合(＝サーバーからの応答が届く前に接続が切れた場合)は、
+  // サーバー側で処理自体は完了(insert等の副作用が確定)していた可能性を否定できないため、
+  // 一切リトライせずそのままエラーとして呼び出し元に返す(二重insert等の重複を防ぐため。
+  // 2026-09、クレカ明細OCRの保存で同一内容が複数回保存される不具合の調査を踏まえた対策)。
+  const isRetryable = TABLE_CRUD_IDEMPOTENT_READ_ACTIONS.has(action);
+  const maxAttempts = isRetryable ? 2 : 1;
   let resp, lastNetErr = null;
-  for(let attempt=1; attempt<=2; attempt++){
+  for(let attempt=1; attempt<=maxAttempts; attempt++){
     try{
       resp = await fetch('/api/table-crud', {
         method: 'POST',
@@ -5282,10 +5306,20 @@ async function tableCrudApiCall(table, action, payload){
       break;
     }catch(e){
       lastNetErr = e;
-      console.error(`[tableCrudApiCall] fetch失敗 (${new Date().toISOString()}) table=${table} action=${action} 試行${attempt}/2回目:`, e);
+      console.error(`[tableCrudApiCall] fetch失敗 (${new Date().toISOString()}) table=${table} action=${action} 試行${attempt}/${maxAttempts}回目:`, e);
     }
   }
   if(lastNetErr){
+    // 書き込み系actionでリトライしなかった場合、サーバー側で処理が完了していた可能性が
+    // あるまま失敗として返るため、そのまま同じ操作を再クリックすると意図せず二重登録・
+    // 二重更新を招くおそれがある。呼び出し元(catchしてstatusEl等に表示する箇所)がこの
+    // メッセージをそのまま表示できるよう、ユーザー向けの案内文を明示的に付与する。
+    if(!isRetryable){
+      const guidance = '保存処理がサーバーに送信されましたが、通信状況により結果を確認できませんでした。既に保存されている可能性があります。画面を再読み込みして内容をご確認のうえ、必要な場合のみ操作をやり直してください。';
+      const wrapped = new Error(`${guidance}（${lastNetErr.message}）`);
+      logError(`tableCrudApiCall(/api/table-crud, table=${table}, action=${action})`, lastNetErr, {toast:false});
+      throw wrapped;
+    }
     logError(`tableCrudApiCall(/api/table-crud, table=${table}, action=${action})`, lastNetErr);
     throw lastNetErr;
   }
@@ -21827,7 +21861,7 @@ function renderCcExtractedResults(){
       <tbody>${rows}</tbody>
     </table></div>
     <div id="cc-ocr-save-bar" style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <button class="btn btn-p" onclick="saveCcExtractedRows()">💾 保存して自動マッチング</button>
+      <button class="btn btn-p" id="cc-save-btn" onclick="saveCcExtractedRows()">💾 保存して自動マッチング</button>
       <span id="cc-save-status" style="font-size:11px;color:var(--text3)"></span>
     </div>`;
 }
@@ -21839,7 +21873,12 @@ function toggleAllCcExtractedRows(checked){
   });
 }
 
+// 保存処理の多重実行防止フラグ(ボタンのdisabled化に加えての保険。disabled化は
+// クリックイベント発火のタイミングとの間に理論上の隙が生じうるため、関数の入口で
+// 同期的にチェック&即セットするこのフラグを一次防御とする)。
+let ccSaveInProgress = false;
 async function saveCcExtractedRows(){
+  if(ccSaveInProgress) return;
   const cardHolder = (document.getElementById('cc-card-holder')?.value||'').trim();
   const statusEl = document.getElementById('cc-save-status');
   if(!cardHolder){ alert('名義人（card holder）を選択してください'); return; }
@@ -21855,35 +21894,54 @@ async function saveCcExtractedRows(){
     rows.push({ card_holder: cardHolder, transaction_date, merchant_name, amount, hint_tour_code, memo, raw_ocr_text: p.raw_ocr_text||'', match_status: '未紐付け' });
   });
   if(!rows.length){ alert('保存する行がありません'); return; }
-  statusEl.textContent = '保存中...'; statusEl.style.color = 'var(--text3)';
-  let data;
+
+  // 二重クリック防止: 保存処理(insert・自動マッチング)が完了するまでボタンを
+  // disabled化し、ラベルも「保存中...」に変更する。ネットワークが遅い状況で連打
+  // されると、同一内容が複数回insertされて明細が重複保存されてしまう不具合の対策
+  // (2026-09、実データで確認された重複調査を踏まえて追加)。
+  ccSaveInProgress = true;
+  const btn = document.getElementById('cc-save-btn');
+  const btnOrigLabel = btn ? btn.textContent : null;
+  if(btn){ btn.disabled = true; btn.textContent = '保存中...'; }
   try{
-    const result = await creditCardStatementsApiCall('insert', {rows});
-    data = result.rows;
-  }catch(e){
-    statusEl.textContent = '保存エラー: '+e.message; statusEl.style.color = 'var(--red)'; return;
+    statusEl.textContent = '保存中...'; statusEl.style.color = 'var(--text3)';
+    let data;
+    try{
+      const result = await creditCardStatementsApiCall('insert', {rows});
+      data = result.rows;
+    }catch(e){
+      statusEl.textContent = '保存エラー: '+e.message; statusEl.style.color = 'var(--red)'; return;
+    }
+    // 自動マッチング(findCcMatchCandidates)は1件あたり複数回のDB問い合わせを伴うため、
+    // 保存件数が多いと1件ずつ直列実行(for...await)では非常に時間がかかる(31件で
+    // 体感かなり遅いという報告あり)。並列数を絞って(6件ずつ)まとめて実行することで、
+    // サーバー・DBへの同時負荷を抑えつつ待ち時間を大幅に短縮する。
+    statusEl.textContent = `保存しました。自動マッチング中...(0/${(data||[]).length}件)`;
+    const targetRows = data||[];
+    const CONCURRENCY = 6;
+    let doneCount = 0;
+    for(let i=0; i<targetRows.length; i+=CONCURRENCY){
+      const batch = targetRows.slice(i, i+CONCURRENCY);
+      await Promise.all(batch.map(row=>autoMatchCcStatement(row).catch(e=>{
+        logError('クレジットカード明細の自動マッチング', e, {toast:false});
+      })));
+      doneCount += batch.length;
+      statusEl.textContent = `保存しました。自動マッチング中...(${doneCount}/${targetRows.length}件)`;
+    }
+    statusEl.textContent = `✓ ${rows.length}件を保存し、自動マッチングを行いました`;
+    statusEl.style.color = 'var(--green)';
+    ccExtracted = [];
+    document.getElementById('cc-ocr-results').innerHTML = '';
+    await loadCreditCardStatements();
+  }finally{
+    ccSaveInProgress = false;
+    // loadCreditCardStatements()がcc-ocr-resultsをクリアする前に呼ばれるケース
+    // (保存エラー時の早期return)ではボタン自体がまだ存在するため、再取得して
+    // disabled解除・ラベルを戻す。正常完了時はcc-ocr-resultsごと消えているため
+    // ボタンも既に存在せず、何もする必要はない(nullチェックで安全に無視される)。
+    const btnAfter = document.getElementById('cc-save-btn');
+    if(btnAfter){ btnAfter.disabled = false; btnAfter.textContent = btnOrigLabel || '💾 保存して自動マッチング'; }
   }
-  // 自動マッチング(findCcMatchCandidates)は1件あたり複数回のDB問い合わせを伴うため、
-  // 保存件数が多いと1件ずつ直列実行(for...await)では非常に時間がかかる(31件で
-  // 体感かなり遅いという報告あり)。並列数を絞って(6件ずつ)まとめて実行することで、
-  // サーバー・DBへの同時負荷を抑えつつ待ち時間を大幅に短縮する。
-  statusEl.textContent = `保存しました。自動マッチング中...(0/${(data||[]).length}件)`;
-  const targetRows = data||[];
-  const CONCURRENCY = 6;
-  let doneCount = 0;
-  for(let i=0; i<targetRows.length; i+=CONCURRENCY){
-    const batch = targetRows.slice(i, i+CONCURRENCY);
-    await Promise.all(batch.map(row=>autoMatchCcStatement(row).catch(e=>{
-      logError('クレジットカード明細の自動マッチング', e, {toast:false});
-    })));
-    doneCount += batch.length;
-    statusEl.textContent = `保存しました。自動マッチング中...(${doneCount}/${targetRows.length}件)`;
-  }
-  statusEl.textContent = `✓ ${rows.length}件を保存し、自動マッチングを行いました`;
-  statusEl.style.color = 'var(--green)';
-  ccExtracted = [];
-  document.getElementById('cc-ocr-results').innerHTML = '';
-  await loadCreditCardStatements();
 }
 
 // 手書きツアーコード(hint_tour_code)とREF#/ツアーコードを比較するための正規化。
