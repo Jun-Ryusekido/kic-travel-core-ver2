@@ -21814,7 +21814,7 @@ function renderCcExtractedResults(){
     <td data-label="利用日"><input type="date" min="1900-01-01" max="9999-12-31" id="cc-ext-date-${i}" value="${_safeDate(p.transaction_date)}" style="width:100%;box-sizing:border-box${p.future_date_warning?';border-color:var(--red,#B42318)':(p.needs_review?';border-color:var(--amber,#854F0B)':'')}" onchange="this.blur()">${p.future_date_warning?`<div style="font-size:9px;color:var(--red,#B42318);font-weight:700;margin-top:2px">⚠ 日付が未来のため要確認${p.date_raw?`（読取: ${escHtml(p.date_raw)}）`:''}</div>`:(p.needs_review?`<div style="font-size:9px;color:var(--amber,#854F0B);margin-top:2px">⚠ 要確認${p.date_raw?`（読取: ${escHtml(p.date_raw)}）`:''}</div>`:'')}${(!p.needs_review && p.year_supplemented)?`<div style="font-size:9px;color:var(--text3);margin-top:2px" title="他の行から判明した年で自動補完しました${p.date_raw?`（読取: ${escHtml(p.date_raw)}）`:''}">ℹ 年を補完</div>`:''}${p.possibleDuplicate?`<div style="font-size:9px;color:var(--amber,#854F0B);margin-top:2px">⚠ 重複の疑い（同一内容が登録済み）</div>`:''}</td>
     <td data-label="店舗名"><input type="text" id="cc-ext-merchant-${i}" value="${escAttr(p.merchant_name)}" style="width:100%;box-sizing:border-box" onchange="this.blur()"></td>
     <td data-label="金額" style="text-align:right"><input type="number" id="cc-ext-amount-${i}" value="${p.amount}" style="width:100%;text-align:right;box-sizing:border-box" onchange="this.blur()"></td>
-    <td data-label="手書きコード"><input type="text" id="cc-ext-hint-${i}" value="${escAttr(p.hint_tour_code)}" placeholder="例: 851_KK" style="width:100%;box-sizing:border-box" onchange="this.blur()"></td>
+    <td data-label="手書きコード"><input type="text" id="cc-ext-hint-${i}" value="${escAttr(p.hint_tour_code)}" placeholder="例: 851_KK" style="width:100%;box-sizing:border-box" oninput="normalizeHintTourCodeInput(this)" onchange="this.blur()"></td>
     <td data-label="手書きメモ"><input type="text" id="cc-ext-memo-${i}" value="${escAttr(p.memo||'')}" placeholder="例: 交通費" style="width:100%;box-sizing:border-box" onchange="this.blur()"></td>
   </tr>`).join('');
   el.innerHTML = `
@@ -21891,24 +21891,77 @@ function _ccNormTourCode(s){
   return String(s||'').trim().toUpperCase().replace(/^#/,'');
 }
 
-// 手書きツアーコード(hint_tour_code)専用の構造化パーサ。
+// 手書きコード欄(モーダル・OCR結果画面の両方)で、全角入力時に自動的に半角へ変換する。
+// カーソル位置(前後の文字数)を保持したまま値だけ差し替えることで、入力中の体験を
+// 損なわない(toHalfWidthは1文字→1文字の変換のみで文字数が変わらないため、同じ
+// インデックスへカーソルを戻すだけで済む)。照合ロジック側(_ccExtractDigitRuns等)も
+// 全角入力を防御的に半角変換するため必須ではないが、保存されるhint_tour_code自体を
+// 半角に統一しておくことで、一覧・モーダル上の表示や店名学習(learned_mappings)との
+// 突合など、他の箇所での表記ゆれも合わせて防げる。
+function normalizeHintTourCodeInput(el){
+  const before = el.value;
+  const after = toHalfWidth(before);
+  if(before === after) return;
+  const pos = el.selectionStart;
+  el.value = after;
+  if(pos != null) el.setSelectionRange(pos, pos);
+}
+
+// 手書きツアーコード(hint_tour_code)から、意味のある数字の並びを全て抽出する。
+// 「REF#967」「967-TC」「967_TC」「TC967」等、前置き文字列・区切り文字・英字の位置に
+// よらず、含まれる数字さえ拾えればよいという設計(#やREFなどの前置きは無視してよい)。
+// 全角入力は半角に変換してから抽出するため、この関数自体が全角入力に対しても防御的に
+// 働く(入力欄側でのIME変換に加えて、既にDBに保存済みの全角データやOCRが誤って全角を
+// 返した場合にも対応できる)。
+// 手書き・OCR双方で数字の「0」とアルファベットの「O」が混同されやすいため、数字に隣接する
+// 'O'は'0'とみなす(「O851」→「0851」、「85O1」→「8501」等)。数字に挟まれていない単独の
+// 'O'(例:"TCO"のアルファベット略称)は変換しない。
+//
+// 【最低桁数(CC_HINT_MIN_DIGITS)について】1桁のみの数字列は候補が10通りしかなく、
+// 金額が偶然一致した無関係な予約と誤ってhintMatchしてしまうリスクが高いため除外する。
+// 実データ(bookings.ref_no、直近1000件)で桁数を確認したところ、1桁:0.9%・2桁:7.9%・
+// 3桁:75.3%・4桁:15.9%という内訳だった。2桁のref_noも一定数(約8%)存在するため、
+// 2桁までは許容し、1桁のみを除外する閾値とする。
+const CC_HINT_MIN_DIGITS = 2;
+function _ccExtractDigitRuns(s){
+  let t = toHalfWidth(String(s||'')).toUpperCase();
+  t = t.replace(/O(?=[0-9])|(?<=[0-9])O/g, '0');
+  const runs = t.match(/\d+/g) || [];
+  return runs.filter(r => r.length >= CC_HINT_MIN_DIGITS).map(r => parseInt(r, 10));
+}
+// hintの数字と、対象文字列(ref_no/tour_code等)に含まれる数字が1つでも一致すれば
+// マッチとみなす(前置き文字列・区切り文字・英字の位置は問わない、数字のみの緩い比較)。
+function _ccHintDigitsMatch(hint, target){
+  if(!hint || !target) return false;
+  const hintDigits = _ccExtractDigitRuns(hint);
+  const targetDigits = _ccExtractDigitRuns(target);
+  if(hintDigits.length===0 || targetDigits.length===0) return false;
+  return hintDigits.some(h => targetDigits.includes(h));
+}
+
+// 手書きツアーコード(hint_tour_code)専用の構造化パーサ。tour_nameへの埋め込み検索
+// (_ccHintMatchesTourName、下記)専用に残している。tour_nameは自由記述のテキストであり、
+// 宿泊数・金額・日付等の無関係な数字を大量に含みうるため、ref_no/tour_code直接比較
+// (_ccHintDigitsMatch、上記)のような数字のみの緩い一致では誤爆(無関係な数字への
+// 偶然一致)のリスクが高い。そのため、tour_name埋め込み検索だけは「数字＋区切り文字＋
+// アルファベット略称」という構造まで要求する、より厳密な比較を維持する。
 // 手書きの略記("851-KK"/"1044-DP"等、区切りはハイフンが実態)と、tour_codeの正式表記
 // ("KIC1058_AKB"のような「KIC」+数字(0埋めあり)+区切り+取引先略称")は表記形式が
 // 異なるため、_ccNormTourCode()の単純な文字列一致では絶対に一致しない。数字部分
 // (先頭ゼロを除いた数値)とアルファベット部分(取引先略称)に分解し、構造的に比較する。
-// ref_no("#851"等)にはアルファベット略称が付かないため、alphaは空文字になる。
 // 手書き文字は数字の「0」とアルファベットの「O」が混同されやすい(AIのOCR読み取りでも同様)ため、
 // 数字部分・アルファベット部分のどちらの位置に出現していても吸収できるよう、まず両方の文字を
 // 許容する形でパースしてから、位置に応じて正しい文字(数字部分は0、アルファベット部分はO)に
 // 正規化する。
 function _ccParseTourCode(s){
-  let t = String(s||'').trim().toUpperCase().replace(/^#/,'').replace(/^KIC/,'');
+  let t = toHalfWidth(String(s||'')).trim().toUpperCase().replace(/^#/,'').replace(/^KIC/,'');
   const m = t.match(/^[0O]*([0-9O]+)[-_ ]?([A-Z0]*)$/);
   if(!m) return null;
   return { num: parseInt(m[1].replace(/O/g,'0'),10), alpha: (m[2]||'').replace(/0/g,'O') };
 }
 // 数字部分が一致し、かつ双方にアルファベット略称がある場合はそれも一致することを求める。
-// 片方(通常はref_no側)に略称が無い場合は数字のみで判定する。
+// 片方(通常はref_no側)に略称が無い場合は数字のみで判定する。tour_name埋め込み検索
+// (_ccHintMatchesTourName)専用。
 function _ccTourCodeMatches(a, b){
   const pa = _ccParseTourCode(a), pb = _ccParseTourCode(b);
   if(!pa || !pb) return false;
@@ -21924,7 +21977,7 @@ function _ccHintMatchesTourName(hint, tourName){
   if(!hint || !tourName) return false;
   const hintParsed = _ccParseTourCode(hint);
   if(!hintParsed || !hintParsed.alpha) return false;
-  const tNorm = String(tourName).trim().toUpperCase();
+  const tNorm = toHalfWidth(tourName).trim().toUpperCase();
   const codePat = /(\d{3,5})[-_ ]([A-Z]{2,4})\b/g;
   return [...tNorm.matchAll(codePat)].some(m=>_ccTourCodeMatches(`${m[1]}_${m[2]}`, hint));
 }
@@ -22040,7 +22093,7 @@ async function findCcMatchCandidates(statement){
     const diffDays = (txDate && c.payment_date) ? Math.abs((new Date(c.payment_date) - txDate) / 86400000) : Infinity;
     const booking = bookingsById[c.booking_id]||null;
     const hintMatch = !!(hint && booking && (
-      _ccTourCodeMatches(booking.ref_no, hint) || _ccTourCodeMatches(booking.tour_code, hint) || _ccHintMatchesTourName(hint, booking.tour_name)
+      _ccHintDigitsMatch(hint, booking.ref_no) || _ccHintDigitsMatch(hint, booking.tour_code) || _ccHintMatchesTourName(hint, booking.tour_name)
     ));
     const learnedMatch = isLearnedBooking(booking);
     // 名義人一致(支払方法再設計、フェーズ1): 明細のcard_holderと仕入明細のcard_holderが
@@ -22355,7 +22408,7 @@ async function openCcMatchModal(id){
           <div class="form-field"><label style="font-size:10px">利用日</label><input type="date" id="cc-edit-date" value="${_safeDate(s.transaction_date)}" style="width:100%;box-sizing:border-box;font-size:11px;padding:5px 7px"></div>
           <div class="form-field"><label style="font-size:10px">金額</label><input type="number" id="cc-edit-amount" value="${s.amount||0}" style="width:100%;box-sizing:border-box;font-size:11px;padding:5px 7px;text-align:right"></div>
           <div class="form-field"><label style="font-size:10px">店舗名</label><input type="text" id="cc-edit-merchant" value="${escAttr(s.merchant_name||'')}" style="width:100%;box-sizing:border-box;font-size:11px;padding:5px 7px"></div>
-          <div class="form-field"><label style="font-size:10px">手書きコード</label><input type="text" id="cc-edit-hint" value="${escAttr(s.hint_tour_code||'')}" placeholder="例: 851_KK" style="width:100%;box-sizing:border-box;font-size:11px;padding:5px 7px"></div>
+          <div class="form-field"><label style="font-size:10px">手書きコード</label><input type="text" id="cc-edit-hint" value="${escAttr(s.hint_tour_code||'')}" placeholder="例: 851_KK" style="width:100%;box-sizing:border-box;font-size:11px;padding:5px 7px" oninput="normalizeHintTourCodeInput(this)"></div>
           <div class="form-field" style="grid-column:1/3"><label style="font-size:10px">手書きメモ</label><input type="text" id="cc-edit-memo" value="${escAttr(s.memo||'')}" placeholder="例: 交通費" style="width:100%;box-sizing:border-box;font-size:11px;padding:5px 7px"></div>
         </div>
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
