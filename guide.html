@@ -248,9 +248,9 @@ function render(){
   if(pasteZone) enablePasteUpload(pasteZone, files=>processReceiptFiles(files));
 }
 
-// 画像圧縮(compressImageToBase64)・圧縮後サイズチェック(compressImageForOcr)は
-// /public/js/image-compress.js(index.html・guide.html共通、<script src>で読み込み)
-// に切り出し済み。修正する際はそちらを編集すること(このファイル内には実体を持たない)。
+// 画像圧縮・圧縮後サイズチェック(compressImageForOcr)は/public/js/image-compress.js
+// (index.html・guide.html共通、<script src>で読み込み)に切り出し済み。
+// 修正する際はそちらを編集すること(このファイル内には実体を持たない)。
 
 async function handleReceiptImages(input){
   if(!input.files || !input.files.length) return;
