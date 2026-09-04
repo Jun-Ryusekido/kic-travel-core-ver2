@@ -170,12 +170,13 @@ function base64ByteSize(base64){
 }
 
 // canvasに対してIMAGE_COMPRESS_QUALITY_STEPSを順に試し、目標サイズ以下になった
-// 最初のBase64を返す。どの品質でも収まらない場合はnullを返す。
-function tryQualitySteps(canvas){
-  let base64 = null;
+// 最初の{base64, quality}を返す。どの品質でも収まらない場合はnullを返す。
+// quality込みで返すのは、rotateImageVariants側で同じ品質を4方向の再エンコードに
+// 使い回し、方向ごとに探索をやり直す無駄を避けるため。
+function findQualityAndBase64(canvas){
   for(const quality of IMAGE_COMPRESS_QUALITY_STEPS){
-    base64 = canvas.toDataURL('image/jpeg', quality).split(',')[1];
-    if(base64ByteSize(base64) <= OCR_COMPRESSED_MAX_BYTES) return base64;
+    const base64 = canvas.toDataURL('image/jpeg', quality).split(',')[1];
+    if(base64ByteSize(base64) <= OCR_COMPRESSED_MAX_BYTES) return {base64, quality};
   }
   return null;
 }
@@ -205,14 +206,14 @@ async function compressImageForOcr(file, maxDim){
   const nativeCanvas = await loadImageToCanvas(file);
 
   // 1. まずネイティブ解像度のまま、品質だけを段階的に下げて試す。
-  let base64 = tryQualitySteps(nativeCanvas);
-  if(base64 !== null) return { base64, mediaType: 'image/jpeg' };
+  let result = findQualityAndBase64(nativeCanvas);
+  if(result !== null) return { base64: result.base64, mediaType: 'image/jpeg' };
 
   // 2. 最低品質でもネイティブ解像度では収まらない場合のみ、最後の手段として
   //    リサイズしてから同じ品質段階を再度試す。
   const resizedCanvas = resizeCanvasToMaxDim(nativeCanvas, maxDim);
-  base64 = tryQualitySteps(resizedCanvas);
-  if(base64 !== null) return { base64, mediaType: 'image/jpeg' };
+  result = findQualityAndBase64(resizedCanvas);
+  if(result !== null) return { base64: result.base64, mediaType: 'image/jpeg' };
 
   throw new Error(`画像が大きすぎるため読み取れません(圧縮後も${OCR_COMPRESSED_MAX_MB}MBを超えています)。別の画像をお試しください。`);
 }
@@ -223,20 +224,38 @@ async function compressImageForOcr(file, maxDim){
 // 本読み取りに使う仕組み(取引先名刺OCR・クレジットカード明細OCRで使用)のために存在する。
 // 0度は再エンコードせず元のbase64をそのまま返す(無駄な劣化を避けるため)。
 function rotateImageVariants(base64, mediaType){
-  const rotateOne = (deg) => new Promise((resolve) => {
-    if(deg === 0){ resolve(base64); return; }
+  return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      if(deg === 90 || deg === 270){ canvas.width = img.height; canvas.height = img.width; }
-      else { canvas.width = img.width; canvas.height = img.height; }
-      ctx.translate(canvas.width/2, canvas.height/2);
-      ctx.rotate(deg*Math.PI/180);
-      ctx.drawImage(img, -img.width/2, -img.height/2);
-      resolve(canvas.toDataURL(mediaType, 0.85).split(',')[1]);
+      // 90/180/270度の再エンコードで使う品質を1回だけ探索する(以前は固定品質0.85で
+      // 再エンコードしていたため、compressImageForOcr側でどれだけ高画質を維持していても
+      // ここで台無しになる二重圧縮になっていた不具合の修正)。0度と180度・90度と270度は
+      // 総ピクセル数が同じ(縦横が入れ替わるだけ)なので、0度相当のCanvasで1回だけ
+      // 品質を探索し、その結果を4方向すべての再エンコードに使い回す
+      // (方向ごとに個別探索する無駄な繰り返しを避けるため)。
+      const probeCanvas = document.createElement('canvas');
+      probeCanvas.width = img.width; probeCanvas.height = img.height;
+      probeCanvas.getContext('2d').drawImage(img, 0, 0);
+      let quality = IMAGE_COMPRESS_QUALITY_STEPS[IMAGE_COMPRESS_QUALITY_STEPS.length - 1];
+      for(const q of IMAGE_COMPRESS_QUALITY_STEPS){
+        const probeBase64 = probeCanvas.toDataURL(mediaType, q).split(',')[1];
+        if(base64ByteSize(probeBase64) <= OCR_COMPRESSED_MAX_BYTES){ quality = q; break; }
+      }
+
+      const rotate = (deg) => {
+        if(deg === 0) return base64;
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if(deg === 90 || deg === 270){ canvas.width = img.height; canvas.height = img.width; }
+        else { canvas.width = img.width; canvas.height = img.height; }
+        ctx.translate(canvas.width/2, canvas.height/2);
+        ctx.rotate(deg*Math.PI/180);
+        ctx.drawImage(img, -img.width/2, -img.height/2);
+        return canvas.toDataURL(mediaType, quality).split(',')[1];
+      };
+      resolve([0,90,180,270].map(rotate));
     };
+    img.onerror = reject;
     img.src = 'data:'+mediaType+';base64,'+base64;
   });
-  return Promise.all([0,90,180,270].map(rotateOne));
 }
