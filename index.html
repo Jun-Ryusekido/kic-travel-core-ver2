@@ -3543,7 +3543,7 @@ function parseAiJsonArrayLenient(rawText){
 // 画像ファイルはこのチェックの対象外(常にcompressImageForOcrで圧縮し、圧縮後サイズ
 // チェックはそちら側で行う)。このチェックは、圧縮できないPDFのraw送信パスのみに
 // 呼び出し側で限定して使う(Excel/Wordはクライアント側でテキスト化するため対象外)。
-// compressImageToBase64・compressImageForOcrは/public/js/image-compress.js
+// compressImageForOcrは/public/js/image-compress.js
 // (index.html・guide.html共通、<script src="/js/image-compress.js">で読み込み)に
 // 切り出し済み。修正する際はそちらを編集すること(このファイル内には実体を持たない)。
 const OCR_UPLOAD_MAX_MB = 3;
