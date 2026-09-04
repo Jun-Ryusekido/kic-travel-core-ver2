@@ -26246,29 +26246,6 @@ async function processCardFile(file){
     if(freshPartners) partnersCache = freshPartners;
   }catch(e){ logError('取引先キャッシュの再読込', e, {toast:false}); }
 
-  const compressImage = f => new Promise((resolve,reject)=>{
-    const img = new Image();
-    const reader = new FileReader();
-    reader.onload = () => { img.src = reader.result; };
-    reader.onerror = reject;
-    img.onload = () => {
-      const maxDim = 2000;
-      let w = img.width, h = img.height;
-      if(w>maxDim || h>maxDim){
-        if(w>h){ h = Math.round(h*maxDim/w); w = maxDim; }
-        else { w = Math.round(w*maxDim/h); h = maxDim; }
-      }
-      const canvas = document.createElement('canvas');
-      canvas.width = w; canvas.height = h;
-      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-      resolve(dataUrl.split(',')[1]);
-    };
-    img.onerror = reject;
-    reader.readAsDataURL(f);
-  });
-  const toBase64 = compressImage;
-
   try{
     const _cardFileName = (file.name||'').toLowerCase();
     const _isExcelCard = _cardFileName.match(/\.(xlsx|xls)$/);
@@ -26290,8 +26267,7 @@ async function processCardFile(file){
       const pdata = await presp.json();
       parsed = pdata.partner || pdata;
     } else {
-    const base64 = await toBase64(file);
-    const mediaType = file.type || 'image/jpeg';
+    const {base64, mediaType} = await compressImageForOcr(file);
 
 const rotateImage = (b64, mt, deg) => new Promise((resolve)=>{
       if(deg===0){ resolve(b64); return; }
@@ -26471,33 +26447,12 @@ async function handleMultiLocationUpload(event){
   showGlobalOcrBanner();
   statusEl.style.color = '';
 
-  const compressImage = f => new Promise((resolve, reject) => {
-    const img = new Image();
-    const reader = new FileReader();
-    reader.onload = () => { img.src = reader.result; };
-    reader.onerror = reject;
-    img.onload = () => {
-      const maxDim = 1800;
-      let w = img.width, h = img.height;
-      if(w > maxDim || h > maxDim){
-        if(w > h){ h = Math.round(h * maxDim / w); w = maxDim; }
-        else { w = Math.round(w * maxDim / h); h = maxDim; }
-      }
-      const canvas = document.createElement('canvas');
-      canvas.width = w; canvas.height = h;
-      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-      resolve(canvas.toDataURL('image/jpeg', 0.80).split(',')[1]);
-    };
-    img.onerror = reject;
-    reader.readAsDataURL(f);
-  });
-
   try {
-    const base64 = await compressImage(file);
+    const {base64, mediaType} = await compressImageForOcr(file);
     const response = await fetch('/api/extract-card', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ multiLocBase64: base64, multiLocMediaType: 'image/jpeg' })
+      body: JSON.stringify({ multiLocBase64: base64, multiLocMediaType: mediaType })
     });
     if(!response.ok){ const e = await response.json(); throw new Error(e.error || 'サーバーエラー'); }
     const data = await response.json();
@@ -26573,33 +26528,12 @@ async function handleMultiLocBatchUpload(event){
   showGlobalOcrBanner();
   statusEl.style.color = '';
 
-  const compressImage = f => new Promise((resolve, reject) => {
-    const img = new Image();
-    const reader = new FileReader();
-    reader.onload = () => { img.src = reader.result; };
-    reader.onerror = reject;
-    img.onload = () => {
-      const maxDim = 1800;
-      let w = img.width, h = img.height;
-      if(w > maxDim || h > maxDim){
-        if(w > h){ h = Math.round(h * maxDim / w); w = maxDim; }
-        else { w = Math.round(w * maxDim / h); h = maxDim; }
-      }
-      const canvas = document.createElement('canvas');
-      canvas.width = w; canvas.height = h;
-      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-      resolve(canvas.toDataURL('image/jpeg', 0.80).split(',')[1]);
-    };
-    img.onerror = reject;
-    reader.readAsDataURL(f);
-  });
-
   try{
-    const base64 = await compressImage(file);
+    const {base64, mediaType} = await compressImageForOcr(file);
     const response = await fetch('/api/extract-card', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ multiLocBase64: base64, multiLocMediaType: 'image/jpeg', multiLocReturnJson: true })
+      body: JSON.stringify({ multiLocBase64: base64, multiLocMediaType: mediaType, multiLocReturnJson: true })
     });
     if(!response.ok){ const e = await response.json(); throw new Error(e.error || 'サーバーエラー'); }
     const data = await response.json();
