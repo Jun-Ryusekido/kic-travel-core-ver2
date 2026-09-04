@@ -67,6 +67,11 @@ const IMAGE_COMPRESS_MAX_DIM = 2400;
 const IMAGE_COMPRESS_QUALITY_STEPS = [0.92, 0.85, 0.75, 0.65, 0.5];
 const OCR_COMPRESSED_MAX_MB = 3;
 const OCR_COMPRESSED_MAX_BYTES = OCR_COMPRESSED_MAX_MB * 1024 * 1024;
+// 向き判定専用の軽量版画像の長辺サイズと品質。本読み取りには使わず「正立ですか?」の
+// 判定にしか使わないため、文字が薄っすら判別できる程度で十分。4方向まとめて送っても
+// Vercelのリクエストボディ上限(4.5MB)に対して十分な余裕(目安1MB以下)を持たせる。
+const ORIENTATION_PROBE_MAX_DIM = 600;
+const ORIENTATION_PROBE_QUALITY = 0.7;
 
 function readFileAsBase64Raw(file){
   return new Promise((resolve, reject) => {
@@ -219,10 +224,14 @@ async function compressImageForOcr(file, maxDim){
 }
 
 // 圧縮済みの画像(compressImageForOcrの戻り値のbase64/mediaType)を0/90/180/270度
-// 回転させた4パターンのBase64配列を返す。サーバー側でどの向きが正立かをAIに判定させ
-// (安価な「正立ですか?」だけの呼び出しを4パターン分並列実行)、正しい向きの1枚だけを
-// 本読み取りに使う仕組み(取引先名刺OCR・クレジットカード明細OCRで使用)のために存在する。
-// 0度は再エンコードせず元のbase64をそのまま返す(無駄な劣化を避けるため)。
+// 回転させた4パターンを、それぞれ「本読み取り用の高画質版(full)」と「向き判定専用の
+// 軽量版(light、長辺ORIENTATION_PROBE_MAX_DIM以下)」の2セットで返す。
+// 戻り値: { full: [b64,b64,b64,b64], light: [b64,b64,b64,b64] }
+// サーバー側でlightの4枚だけを使い、どの向きが正立かをAIに判定させる(安価な
+// 「正立ですか?」だけの呼び出しを4パターン分並列実行)。選ばれたindexのfull側の
+// 1枚だけを本読み取りに使う仕組み(取引先名刺OCR・クレジットカード明細OCRで使用)の
+// ために存在する。full[0]は再エンコードせず元のbase64をそのまま返す(無駄な劣化を
+// 避けるため)。
 function rotateImageVariants(base64, mediaType){
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -242,7 +251,7 @@ function rotateImageVariants(base64, mediaType){
         if(base64ByteSize(probeBase64) <= OCR_COMPRESSED_MAX_BYTES){ quality = q; break; }
       }
 
-      const rotate = (deg) => {
+      const rotateFull = (deg) => {
         if(deg === 0) return base64;
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
@@ -253,9 +262,52 @@ function rotateImageVariants(base64, mediaType){
         ctx.drawImage(img, -img.width/2, -img.height/2);
         return canvas.toDataURL(mediaType, quality).split(',')[1];
       };
-      resolve([0,90,180,270].map(rotate));
+
+      // 向き判定専用の軽量版: 長辺ORIENTATION_PROBE_MAX_DIM以下まで縮小してから
+      // 回転させる(本読み取り用のfullとは別に、都度小さいCanvasへ描画する)。
+      const rotateLight = (deg) => {
+        let w = img.width, h = img.height;
+        if(w > ORIENTATION_PROBE_MAX_DIM || h > ORIENTATION_PROBE_MAX_DIM){
+          if(w > h){ h = Math.round(h * ORIENTATION_PROBE_MAX_DIM / w); w = ORIENTATION_PROBE_MAX_DIM; }
+          else { w = Math.round(w * ORIENTATION_PROBE_MAX_DIM / h); h = ORIENTATION_PROBE_MAX_DIM; }
+        }
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if(deg === 90 || deg === 270){ canvas.width = h; canvas.height = w; }
+        else { canvas.width = w; canvas.height = h; }
+        ctx.translate(canvas.width/2, canvas.height/2);
+        ctx.rotate(deg*Math.PI/180);
+        ctx.drawImage(img, -w/2, -h/2, w, h);
+        return canvas.toDataURL('image/jpeg', ORIENTATION_PROBE_QUALITY).split(',')[1];
+      };
+
+      resolve({
+        full: [0,90,180,270].map(rotateFull),
+        light: [0,90,180,270].map(rotateLight),
+      });
     };
     img.onerror = reject;
     img.src = 'data:'+mediaType+';base64,'+base64;
   });
+}
+
+// rotateImageVariants()が生成した軽量版4枚(light、長辺ORIENTATION_PROBE_MAX_DIM以下)を
+// サーバーの向き判定専用モード(orientationVariants)に送り、選ばれたindex(0/90/180/270度
+// のいずれか)を返す。判定に失敗した場合は0(無回転)にフォールバックする。
+// light側はrotateImageVariants内で常にtoDataURL('image/jpeg', ...)で生成しているため、
+// 元画像のmediaTypeによらずorientationMediaTypeは常に'image/jpeg'で固定でよい。
+async function determineOrientationIndex(lightVariants){
+  try{
+    const response = await fetch('/api/extract-card', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ orientationVariants: lightVariants, orientationMediaType: 'image/jpeg' })
+    });
+    if(!response.ok) return 0;
+    const data = await response.json();
+    const idx = Number(data.selectedIndex);
+    return (idx >= 0 && idx <= 3) ? idx : 0;
+  }catch(_){
+    return 0;
+  }
 }

@@ -3556,6 +3556,32 @@ function checkOcrUploadSize(file){
   return true;
 }
 
+// /api/extract-card等のAPI呼び出しが!response.okの場合に、エラーメッセージを安全に
+// 取り出す共通ヘルパー。サーバー(Node.js側)は常にJSONでエラーを返すが、Vercelの
+// プラットフォーム層自体がリクエストを拒否した場合(リクエストボディが上限(4.5MB)を
+// 超えた場合の413「Request Entity Too Large」等)はプレーンテキストで返ってくるため、
+// response.json()を無条件に呼ぶとSyntaxErrorで落ち、ユーザーに
+// 「Unexpected token 'R', "Request En"... is not valid JSON」のような意味不明な
+// メッセージが表示されてしまっていた不具合の対策。
+async function parseApiErrorMessage(response){
+  let bodyText = '';
+  try{
+    bodyText = await response.text();
+  }catch(_){
+    // 本文の取得自体に失敗した場合はステータスコードのみで判断する
+  }
+  try{
+    const data = JSON.parse(bodyText);
+    if(data && data.error) return data.error;
+  }catch(_){
+    // JSONとして解析できない = プラットフォーム層のプレーンテキストエラー等
+  }
+  if(response.status === 413){
+    return '画像が大きすぎるため読み取れませんでした。別の画像でお試しください。';
+  }
+  return `サーバーエラー（HTTP ${response.status}）`;
+}
+
 // ===== 決算年度（3月〜翌2月）ヘルパー =====
 function fiscalYearOf(dateStr){
   if(!dateStr) return null;
@@ -7529,7 +7555,7 @@ async function processDashboardBankbookFile(file){
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(body)
     });
-    if(!response.ok){ const e = await response.json(); throw new Error(e.error||'サーバーエラー'); }
+    if(!response.ok){ throw new Error(await parseApiErrorMessage(response)); }
     const data = await response.json();
     const cleaned = (data.text||'').replace(/```json|```/g,'').trim();
     const parsed = JSON.parse(cleaned);
@@ -19252,7 +19278,7 @@ async function extractHotelFromText(){
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ hotelText: text, targetCheckIn, targetCheckOut })
     });
-    if(!response.ok){ const e = await response.json(); throw new Error(e.error||'サーバーエラー'); }
+    if(!response.ok){ throw new Error(await parseApiErrorMessage(response)); }
     const data = await response.json();
     const textBlock = data.content.find(b=>b.type==='text');
     const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
@@ -20278,10 +20304,7 @@ async function processGuideCardFile(file){
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(body)
     });
-    if(!response.ok){
-      const errData = await response.json();
-      throw new Error(errData.error || 'サーバーエラー');
-    }
+    if(!response.ok){ throw new Error(await parseApiErrorMessage(response)); }
     const data = await response.json();
     const parsed = data.result || {};
 
@@ -20329,10 +20352,7 @@ async function processGuideBankFile(file){
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ guideBankImageBase64: base64, guideBankMediaType: mediaType })
     });
-    if(!response.ok){
-      const errData = await response.json();
-      throw new Error(errData.error || 'サーバーエラー');
-    }
+    if(!response.ok){ throw new Error(await parseApiErrorMessage(response)); }
     const data = await response.json();
     const parsed = data.result || {};
 
@@ -20929,7 +20949,7 @@ async function extractHotelFromTextHm(){
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ hotelText: text })
     });
-    if(!response.ok){ const e = await response.json(); throw new Error(e.error||'サーバーエラー'); }
+    if(!response.ok){ throw new Error(await parseApiErrorMessage(response)); }
     const data = await response.json();
     const textBlock = data.content.find(b=>b.type==='text');
     const parsed = parseAiJsonResponse(textBlock.text);
@@ -21712,19 +21732,22 @@ async function processCcStatementFile(file, mode){
     } else {
       const {base64, mediaType} = await compressImageForOcr(file);
       // 取引先名刺OCR(processCardFile)と同じ仕組み: 0/90/180/270度の回転
-      // バリエーションを送り、サーバー側で安価な向き判定(「正立ですか?」だけを
-      // 尋ねる呼び出しを4パターン並列実行)を行った上で、正しい向きの1枚だけを
-      // 本読み取り(高コストな明細抽出プロンプト)に使う。横向き撮影された明細で
-      // 店舗名等を誤読する不具合の対策。
-      const variants = await rotateImageVariants(base64, mediaType);
-      body = {cardstatementVariants: variants, cardstatementMediaType: mediaType};
+      // バリエーションのうち、長辺400〜600px程度まで縮小した軽量版4枚だけを先に
+      // サーバーへ送り、安価な向き判定(「正立ですか?」だけを尋ねる呼び出しを
+      // 4パターン並列実行)を行う。本読み取り(高コストな明細抽出プロンプト)には、
+      // 選ばれた向きの高画質版(full)1枚だけを使う。横向き撮影された明細で店舗名等を
+      // 誤読する不具合の対策と、4枚まとめて高画質のまま送るとVercelのリクエスト
+      // ボディ上限(4.5MB)を超えてしまう不具合(413 Request Entity Too Large)の対策を兼ねる。
+      const {full, light} = await rotateImageVariants(base64, mediaType);
+      const selectedIndex = await determineOrientationIndex(light);
+      body = {cardstatementImageBase64: full[selectedIndex], cardstatementMediaType: mediaType};
     }
     const response = await fetch('/api/extract-card', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(body)
     });
-    if(!response.ok){ const e = await response.json(); throw new Error(e.error||'サーバーエラー'); }
+    if(!response.ok){ throw new Error(await parseApiErrorMessage(response)); }
     const data = await response.json();
     const parsed = parseAiJsonArrayLenient(data.text);
     const cleaned = (data.text||'').replace(/```json|```/g,'').trim();
@@ -22742,7 +22765,7 @@ async function extractInvoiceFromText(){
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ invoiceText: text })
     });
-    if(!response.ok){ const e = await response.json(); throw new Error(e.error||'サーバーエラー'); }
+    if(!response.ok){ throw new Error(await parseApiErrorMessage(response)); }
     const data = await response.json();
     const { expenses, invoiceTotal, taxAppliedNote } = parseInvoiceOcrResponse(data);
     statusEl.textContent = '✓ '+expenses.length+'件を読み取りました。内容を確認してください。';
@@ -22785,7 +22808,7 @@ async function extractInvoiceFromFile(event, mode){
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(bodyData)
     });
-    if(!response.ok){ const e = await response.json(); throw new Error(e.error||'サーバーエラー'); }
+    if(!response.ok){ throw new Error(await parseApiErrorMessage(response)); }
     const data = await response.json();
     const { expenses, invoiceTotal, taxAppliedNote } = parseInvoiceOcrResponse(data);
     statusEl.textContent = '✓ '+expenses.length+'件を読み取りました。内容を確認してください。';
@@ -22810,7 +22833,7 @@ async function _callInvoiceApi(bodyData){
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(bodyData)
   });
-  if(!response.ok){ const e = await response.json(); throw new Error(e.error||'サーバーエラー'); }
+  if(!response.ok){ throw new Error(await parseApiErrorMessage(response)); }
   const data = await response.json();
   return parseInvoiceOcrResponse(data);
 }
@@ -26266,28 +26289,25 @@ async function processCardFile(file){
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({ partnerText: text })
       });
-      if(!presp.ok){
-        const errData = await presp.json();
-        throw new Error(errData.error || 'サーバーエラー');
-      }
+      if(!presp.ok){ throw new Error(await parseApiErrorMessage(presp)); }
       const pdata = await presp.json();
       parsed = pdata.partner || pdata;
     } else {
     const {base64, mediaType} = await compressImageForOcr(file);
     // 回転バリエーション生成(rotateImageVariants)はpublic/js/image-compress.js
     // (index.html・guide.html共通)に切り出し済み。クレジットカード明細OCR
-    // (processCcStatementFile)でも同じ関数を使っている。
-    const variants = await rotateImageVariants(base64, mediaType);
+    // (processCcStatementFile)でも同じ関数を使っている。名刺でも高解像度の書類を
+    // 誤って撮影した場合の潜在リスク対策も兼ね、向き判定には軽量版(light)4枚だけを
+    // 送り、選ばれた向きの高画質版(full)1枚だけを本読み取りに使う。
+    const {full, light} = await rotateImageVariants(base64, mediaType);
+    const selectedIndex = await determineOrientationIndex(light);
     const response = await fetch('/api/extract-card', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ variants, mediaType })
+      body: JSON.stringify({ base64: full[selectedIndex], mediaType })
     });
 
-    if(!response.ok){
-      const errData = await response.json();
-      throw new Error(errData.error || 'サーバーエラー');
-    }
+    if(!response.ok){ throw new Error(await parseApiErrorMessage(response)); }
         const data = await response.json();
     const textBlock = data.content.find(b=>b.type==='text');
     const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
@@ -26447,7 +26467,7 @@ async function handleMultiLocationUpload(event){
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ multiLocBase64: base64, multiLocMediaType: mediaType })
     });
-    if(!response.ok){ const e = await response.json(); throw new Error(e.error || 'サーバーエラー'); }
+    if(!response.ok){ throw new Error(await parseApiErrorMessage(response)); }
     const data = await response.json();
     const text = data.text || '';
     document.getElementById('pt-multi-result-text').value = text;
@@ -26528,7 +26548,7 @@ async function handleMultiLocBatchUpload(event){
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ multiLocBase64: base64, multiLocMediaType: mediaType, multiLocReturnJson: true })
     });
-    if(!response.ok){ const e = await response.json(); throw new Error(e.error || 'サーバーエラー'); }
+    if(!response.ok){ throw new Error(await parseApiErrorMessage(response)); }
     const data = await response.json();
     const locations = data.locations;
     if(!Array.isArray(locations) || locations.length === 0){

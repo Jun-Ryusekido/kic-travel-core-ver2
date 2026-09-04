@@ -136,7 +136,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
   try {
-    const { variants, mediaType, base64, hotelText, hotelPdfBase64, hotelExcelBase64, hotelImageBase64, hotelImageMediaType, facilityText, facilityPdfBase64, facilityExcelBase64, facilityImageBase64, facilityImageMediaType, waterText, waterPdfBase64, waterExcelBase64, waterImageBase64, waterImageMediaType, busText, busPdfBase64, busExcelBase64, busImageBase64, busImageMediaType, restaurantText, restaurantPdfBase64, restaurantExcelBase64, restaurantImageBase64, restaurantImageMediaType, invoiceText, invoicePdfBase64, invoiceExcelBase64, invoiceImageBase64, invoiceImageMediaType, targetCheckIn, targetCheckOut, password,
+    const { variants, mediaType, base64, orientationVariants, orientationMediaType, hotelText, hotelPdfBase64, hotelExcelBase64, hotelImageBase64, hotelImageMediaType, facilityText, facilityPdfBase64, facilityExcelBase64, facilityImageBase64, facilityImageMediaType, waterText, waterPdfBase64, waterExcelBase64, waterImageBase64, waterImageMediaType, busText, busPdfBase64, busExcelBase64, busImageBase64, busImageMediaType, restaurantText, restaurantPdfBase64, restaurantExcelBase64, restaurantImageBase64, restaurantImageMediaType, invoiceText, invoicePdfBase64, invoiceExcelBase64, invoiceImageBase64, invoiceImageMediaType, targetCheckIn, targetCheckOut, password,
       bankbookImageBase64, bankbookMediaType, bankbookPdfBase64, bankbookText, bankbookEra,
       cardstatementImageBase64, cardstatementVariants, cardstatementMediaType, cardstatementPdfBase64, cardstatementText,
       receiptImageBase64, receiptMediaType,
@@ -232,6 +232,24 @@ export default async function handler(req, res) {
       }
       return data;
     };
+
+    // ─── 汎用の向き判定モード（名刺OCR・クレカ明細OCR共通） ───
+    // 4方向の回転バリエーションのうち正しい向きの1枚をAIに選ばせるための軽量専用モード。
+    // クライアント側(rotateImageVariants)が長辺400〜600px程度まで縮小した「軽量版」4枚を
+    // orientationVariantsとして送ってくる。本読み取り(高画質・単一画像)は既存の
+    // base64/cardstatementImageBase64等のフィールドを使う既存モードにそのまま流れる。
+    if (Array.isArray(orientationVariants) && orientationVariants.length > 0) {
+      const orientationResults = await Promise.all(orientationVariants.map(async (b64) => {
+        const data = await callClaude([
+          { type: 'image', source: { type: 'base64', media_type: orientationMediaType || 'image/jpeg', data: b64 } },
+          { type: 'text', text: 'この画像は正しい向きで表示されていますか？テキストが読める正立した状態であれば「はい」、そうでなければ「いいえ」とだけ答えてください。' }
+        ], 10);
+        const txt = (data.content?.[0]?.text || '').toLowerCase();
+        return txt.includes('はい') || txt.includes('yes');
+      }));
+      const selectedIndex = orientationResults.findIndex((v) => v);
+      return res.status(200).json({ selectedIndex: selectedIndex >= 0 ? selectedIndex : 0 });
+    }
 
     // ─── 通帳OCRモード（旧 /api/extract-bankbook.js を統合。Vercel Hobbyプランの
     // サーバーレス関数数上限(12個)対策で、役割の近いAI抽出系エンドポイントを1つに集約した） ───
