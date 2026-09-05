@@ -6928,7 +6928,8 @@ function renderCostTable(){
           </select>` : ''}
           ${it.payment_method==='クレジットカード(個人・要精算)' ? `
           <div style="margin-top:3px">
-            <button ${dis} class="btn" style="font-size:9px;padding:1px 6px;white-space:nowrap;${it.personal_reimbursement_status==='精算済み'?'background:var(--green-lt);color:var(--green);border-color:var(--green)':'background:var(--amber-lt,#FAEEDA);color:var(--amber,#854F0B);border-color:var(--amber,#854F0B)'}" onclick="toggleBdCostReimbursement(${i})">${it.personal_reimbursement_status==='精算済み'?'✓ 精算済み':'⚠ 未精算'}</button>
+            <span class="btn" style="font-size:9px;padding:1px 6px;white-space:nowrap;cursor:default;${it.payment_date?'background:var(--green-lt);color:var(--green);border-color:var(--green)':'background:var(--amber-lt,#FAEEDA);color:var(--amber,#854F0B);border-color:var(--amber,#854F0B)'}">${it.payment_date?'✓ 精算済み':'⚠ 未精算'}</span>
+            ${!it.payment_date ? `<div style="font-size:9px;color:var(--text3);margin-top:2px">出金日を入力すると精算済みになります</div>` : ''}
           </div>` : ''}
         </td>
         <td data-label="備考"><input ${dis} value="${(it.memo||'').replace(/"/g,'&quot;')}" title="${(it.memo||'').replace(/"/g,'&quot;')}" onchange="bdCostItems[${i}].memo=this.value"></td>
@@ -6943,13 +6944,13 @@ function renderCostTable(){
   // 既にメモリ上に読み込まれているbdCostItemsから集計するため、追加のDB問い合わせは不要。
   const bannerEl = document.getElementById('bd-cost-unreimbursed-banner');
   if(bannerEl){
-    const unreimbursed = bdCostItems.filter(it=>it.payment_method==='クレジットカード(個人・要精算)' && it.personal_reimbursement_status!=='精算済み');
+    const unreimbursed = bdCostItems.filter(it=>it.payment_method==='クレジットカード(個人・要精算)' && !it.payment_date);
     if(unreimbursed.length===0){
       bannerEl.innerHTML = '';
     }else{
       const total = unreimbursed.reduce((s,it)=>s+Number(it.amount||0),0);
       bannerEl.innerHTML = `<div style="border:1px solid var(--amber,#854F0B);background:var(--amber-lt,#FAEEDA);border-radius:8px;padding:6px 8px;margin-bottom:6px;font-size:11px;color:var(--amber,#854F0B)">
-        ⚠ この予約に未精算の個人立替が${unreimbursed.length}件(合計${yen(total)})あります
+        ⚠ この予約に未精算の個人立替が${unreimbursed.length}件(合計${yen(total)})あります。出金日を入力すると精算済みになります。
       </div>`;
     }
   }
@@ -6967,19 +6968,6 @@ function approveCostRow(i){
     if(!confirm('金額が0円のままですが承認しますか？')) return;
   }
   it.status = 'approved';
-  renderCostTable();
-}
-
-// 個人立替(クレジットカード(個人・要精算))の返金状況を未精算⇔精算済みで切り替える。
-// 承認ボタン(approveCostRow)と同じくメモリ上の状態変更のみで、実際のDB反映は
-// 通常の「保存」ボタン(saveBookingDetail→buildCostRows)時に行われる。
-function toggleBdCostReimbursement(i){
-  if(bdLocked) return;
-  const it = bdCostItems[i];
-  if(!it || it.payment_method!=='クレジットカード(個人・要精算)') return;
-  const wasReimbursed = it.personal_reimbursement_status==='精算済み';
-  it.personal_reimbursement_status = wasReimbursed ? '未精算' : '精算済み';
-  it.personal_reimbursed_at = wasReimbursed ? null : new Date().toISOString();
   renderCostTable();
 }
 
@@ -7409,8 +7397,9 @@ function buildCostRows(bookingId){
     // クレジットカード払い以外の行では、支払方法を変更した際に前回入力した名義人・精算状況が
     // 誤って残らないよう、CC_PAYMENT_METHODSに含まれる場合のみ保存する。
     card_holder: CC_PAYMENT_METHODS.includes(it.payment_method) ? (it.card_holder||null) : null,
-    personal_reimbursement_status: it.payment_method==='クレジットカード(個人・要精算)' ? (it.personal_reimbursement_status||'未精算') : null,
-    personal_reimbursed_at: it.payment_method==='クレジットカード(個人・要精算)' ? (it.personal_reimbursed_at||null) : null,
+    // 個人立替(クレジットカード(個人・要精算))の精算状況は、personal_reimbursement_status列
+    // (廃止)ではなくpayment_date(出金日)の有無のみで判定する方式に統一した(2026-09)。
+    // この関数はpayment_dateをそのまま送信するのみで、精算状況を示す別列は一切送らない。
     // 業務フロー点検対応②: 「仕入明細へ追加」で作成された行が、追加元の手配行(ホテル/バス/
     // レストラン/観光施設/水)と紐付いていることを保持する(source_table/source_id)。
     // replace保存のたびに行が作り直される(id変わる)ため、このsource_*もbdCostItems側の
@@ -8248,7 +8237,7 @@ let _bookingDetailCallSeq = 0;
 // 予約詳細の複数の読み込み経路(初回表示・仮払い反映・伝票反映・ガイド精算反映・保存後再読込)
 // で全く同じ変換ロジックが必要になるため、ここに集約する。
 function mapCostRowsToBdCostItems(rows){
-  return (rows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, payment_method:r.payment_method||'', memo:r.memo, status:r.status||'pending', card_holder:r.card_holder||'', personal_reimbursement_status:r.personal_reimbursement_status||'', personal_reimbursed_at:r.personal_reimbursed_at||null, source_table:r.source_table||null, source_id:r.source_id||null, source_snapshot:r.source_snapshot||null}));
+  return (rows||[]).map(r=>({item_name:r.item_name, amount:r.amount, payment_date:r.payment_date, payment_method:r.payment_method||'', memo:r.memo, status:r.status||'pending', card_holder:r.card_holder||'', source_table:r.source_table||null, source_id:r.source_id||null, source_snapshot:r.source_snapshot||null}));
 }
 
 // scrollToで指定したmodal-section-titleの見出し文言まで、予約台帳モーダル内を
@@ -9581,7 +9570,7 @@ async function reflectLocalExpensesToCost(){
   bdCostItems.push({
     item_name: newCostRow.item_name, amount: newCostRow.amount, payment_date: newCostRow.payment_date,
     payment_method: '', memo: newCostRow.memo, status: newCostRow.status,
-    card_holder: '', personal_reimbursement_status: '', personal_reimbursed_at: null,
+    card_holder: '',
     source_table: null, source_id: null, source_snapshot: null
   });
   renderCostTable();
@@ -10587,7 +10576,7 @@ async function reflectVoucherToCost(settlementId, guideIndex){
     bdCostItems.push({
       item_name: r.item_name, amount: r.amount, payment_date: r.payment_date,
       payment_method: '', memo: r.memo, status: 'pending',
-      card_holder: '', personal_reimbursement_status: '', personal_reimbursed_at: null,
+      card_holder: '',
       source_table: null, source_id: null, source_snapshot: null
     });
   });
@@ -22234,7 +22223,7 @@ async function renderUnreimbursedPersonalAdvanceBanner(){
   if(!el) return;
   try{
     const {data, error} = await sb.from('booking_costs').select('id,amount,card_holder,booking_id')
-      .eq('payment_method','クレジットカード(個人・要精算)').eq('personal_reimbursement_status','未精算');
+      .eq('payment_method','クレジットカード(個人・要精算)').is('payment_date', null);
     if(error) throw error;
     const rows = data||[];
     if(rows.length===0){ el.innerHTML=''; return; }
@@ -22243,7 +22232,7 @@ async function renderUnreimbursedPersonalAdvanceBanner(){
     rows.forEach(r=>{ const h=r.card_holder||'(名義人未設定)'; byHolder[h]=(byHolder[h]||0)+Number(r.amount||0); });
     const holderText = Object.entries(byHolder).map(([h,amt])=>`${escHtml(h)}: ${yen(amt)}`).join(' / ');
     el.innerHTML = `<div style="border:1px solid var(--amber,#854F0B);background:var(--amber-lt,#FAEEDA);border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:11px;color:var(--amber,#854F0B)">
-      ⚠ 未精算の個人立替が${rows.length}件(合計${yen(total)})あります。${holderText}
+      ⚠ 未精算の個人立替が${rows.length}件(合計${yen(total)})あります。出金日を入力すると精算済みになります。${holderText}
     </div>`;
   }catch(e){
     logError('未精算の個人立替バナー', e, {toast:false});
@@ -22682,14 +22671,13 @@ async function saveCcNewCostAndMatch(ccId, bookingId, refNo){
   const memo = (document.getElementById(`cc-newcost-memo-${bookingId}`)?.value||'').trim();
   const card_holder = CC_PAYMENT_METHODS.includes(payment_method)
     ? (document.getElementById(`cc-newcost-holder-${bookingId}`)?.value || null) : null;
-  const personal_reimbursement_status = payment_method==='クレジットカード(個人・要精算)' ? '未精算' : null;
   if(!item_name){ alert('仕入先名を入力してください'); return; }
   if(statusEl){ statusEl.textContent = '作成中...'; statusEl.style.color = 'var(--text3)'; }
   let newCostId;
   try{
     const result = await bookingCostsApiCall('insert', { rows: [{
       booking_id: bookingId, item_name, amount, payment_date, payment_method, memo, status:'pending',
-      card_holder, personal_reimbursement_status
+      card_holder
     }] });
     newCostId = result?.rows?.[0]?.id;
     if(!newCostId) throw new Error('作成した仕入明細のidを取得できませんでした');
@@ -23510,7 +23498,7 @@ async function saveInvoiceConfirm(){
       bdCostItems.push({
         item_name: r.item_name, amount: r.amount, payment_date: r.payment_date,
         payment_method: '', memo: r.memo, status: 'pending',
-        card_holder: '', personal_reimbursement_status: '', personal_reimbursed_at: null,
+        card_holder: '',
         source_table: null, source_id: null, source_snapshot: null
       });
     });
