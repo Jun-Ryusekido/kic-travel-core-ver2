@@ -484,7 +484,7 @@ const TABLE_CONFIG = {
 // (input_key=新規会社名の組、confirmed_value=マージ先取引先id)を学習する。
 // 他カテゴリと同じく、この学習はあくまで次回以降のAI呼び出し省略にのみ使い、
 // 自動確定には使わない(index.html側のfindSimilarPartnerWithAi参照)。
-const LEARNED_MAPPING_CATEGORIES = ['email_sender', 'cc_merchant', 'receipt_merchant', 'bankbook_payer', 'partner_merge'];
+const LEARNED_MAPPING_CATEGORIES = ['email_sender', 'cc_merchant', 'receipt_merchant', 'bankbook_payer', 'partner_merge', 'agent_merge'];
 
 // learned_mappingsへの確定upsert。(category, input_key, confirmed_value)が既に存在すれば
 // confirmed_count+1とlast_confirmed_atのみ更新し、無ければ新規行を挿入する。
