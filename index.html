@@ -27192,6 +27192,11 @@ async function deletePartner(id){
 // 既存の取引先マスタには一切影響しない。
 let agentsCache = [];
 let currentAgentEditId = null;
+// 名刺OCR(processAgentCardFile)で類似候補を検出したが「＋別の新規取引先として登録」を
+// 選んだ場合に、そのagentsの候補idを記憶しておく(savePartner/savePartnerと同じ考え方。
+// 保存時のfindSimilarAgentWithAiで同じ候補が再検出されても、もう一度同じ質問を
+// 繰り返さないようにするため)。
+let agentFormAcknowledgedDupId = null;
 
 async function loadAgents(){
   document.getElementById('ag-tbody').innerHTML = '<tr><td colspan="6" class="empty">読み込み中...</td></tr>';
@@ -27365,8 +27370,296 @@ function showAgentDetail(id){
   document.getElementById('ag-detail-modal').classList.add('open');
 }
 
+// ===== 取引先(Agent)マスタ: 名刺OCR =====
+// business_partners側のprocessCardFileと同じ考え方(compressImageForOcr/rotateImageVariants
+// による向き判定・/api/extract-cardへの送信・findDuplicatePartner+AI類似判定による重複
+// チェック)をagentsテーブル向けに流用する。ただしagents側はbusiness_partner_contactsに
+// 相当する別テーブルを持たず、担当者情報(最大3名分)もagents本体にフラットな列
+// (contact_person/contact_person2_*/contact_person3_*)で持つ構造のため、専用の重複
+// チェック関数(findDuplicateAgent/findSimilarAgentWithAi)をここに用意する。
+// また、agentsのcompany_nameは業務上「英語/国際表記」が主軸(company_name_kana・
+// company_name_local/local2が別途あり、business_partnersのように日本語主軸ではない)
+// ため、名刺から読み取ったcompany_name(日本語)/company_name_en(英語)は、英語があれば
+// company_nameへ、日本語があればcompany_name_local(現地法人名称)へ、というbusiness_partners
+// とは逆方向のマッピングを行う。
+// agentsにはposition(役職)・category(種別)・branch_name_en(支店名英語)に対応する列が
+// 無いため、positionのみnotesへ「役職: 〜」として追記し(情報を失わないため)、
+// category・branch_name_enは対応列が無く保存しようがないため破棄する。
+
+// candidate: {companyName, companyNameLocal, companyPhone, email}。excludeIdは編集中の
+// agent自身を除外するため。business_partners側のfindDuplicatePartnerと同じ完全一致方式。
+function findDuplicateAgent(candidate, agentsCacheArr, excludeId){
+  const newPhone      = normPartnerPhone(candidate.companyPhone);
+  const newEmail       = normPartnerAlnum(candidate.email);
+  const newName        = normPartnerJaName(candidate.companyName);
+  const newNameAlpha   = normPartnerAlnum(candidate.companyName);
+  const newLocal       = normPartnerJaName(candidate.companyNameLocal);
+  return (agentsCacheArr||[]).find(a=>{
+    if(excludeId && a.id===excludeId) return false;
+    if(a.is_deleted) return false;
+    const pPhone    = normPartnerPhone(a.company_phone);
+    const pEmail    = normPartnerAlnum(a.email);
+    const pName     = normPartnerJaName(a.company_name);
+    const pNameAlpha= normPartnerAlnum(a.company_name);
+    const pLocal    = normPartnerJaName(a.company_name_local);
+    const phoneMatch = newPhone && pPhone && newPhone===pPhone;
+    const emailMatch = newEmail && pEmail && newEmail===pEmail;
+    const nameMatch  = partnerFuzzyMatch(newName,pName)
+                     || partnerFuzzyMatch(newLocal,pName)
+                     || partnerFuzzyMatch(newName,pLocal)
+                     || partnerFuzzyMatch(newLocal,pLocal)
+                     || partnerFuzzyMatch(newNameAlpha,pNameAlpha);
+    return phoneMatch || emailMatch || nameMatch;
+  }) || null;
+}
+
+// getAiSimilarityCandidates/callPartnerSimilarityAiのagents版。bigram類似度による絞り込み
+// (partnerBigramSimilarity、汎用ヘルパーのためそのまま再利用)は同じだが、agentsには
+// categoryが無いためスコアへの加点は行わない。AI判定エンドポイント(/api/partner-similarity)
+// にはentityKind:'agent'を渡し、Agent向けの説明文で判定させる(取引先マスタとは呼び出し元を
+// 分けず、同一エンドポイントをentityKindで出し分ける)。
+function getAiSimilarityCandidatesForAgents(candidate, agentsCacheArr, excludeId){
+  const newName = normPartnerJaName(candidate.companyName);
+  const newLocal = normPartnerJaName(candidate.companyNameLocal);
+  const scored = (agentsCacheArr||[])
+    .filter(a=>!(excludeId && a.id===excludeId))
+    .filter(a=>!a.is_deleted)
+    .map(a=>{
+      const pName = normPartnerJaName(a.company_name);
+      const pLocal = normPartnerJaName(a.company_name_local);
+      const sim = Math.max(
+        partnerBigramSimilarity(newName, pName),
+        partnerBigramSimilarity(newLocal, pName),
+        partnerBigramSimilarity(newName, pLocal)
+      );
+      return { a, score: sim };
+    })
+    .filter(x=>x.score >= PARTNER_AI_SIMILARITY_MIN)
+    .sort((a,b)=>b.score-a.score)
+    .slice(0, PARTNER_AI_CANDIDATE_MAX);
+  return scored.map(x=>x.a);
+}
+
+async function callAgentSimilarityAi(candidate, options){
+  try{
+    const resp = await fetch('/api/partner-similarity', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        entityKind: 'agent',
+        candidate: { companyName: candidate.companyName || candidate.companyNameLocal },
+        options: options.map(a=>({ id: a.id, companyName: a.company_name })),
+      })
+    });
+    if(!resp.ok) return [];
+    const data = await resp.json();
+    return Array.isArray(data.results) ? data.results : [];
+  }catch(e){ return []; }
+}
+
+function agentMergeLearnKey(candidate){
+  return `${candidate.companyName||''}||${candidate.companyNameLocal||''}`;
+}
+
+// findDuplicateAgent(完全一致)→学習済みAI判定結果→AI判定、の順で類似エージェントを探す。
+// business_partners側のfindSimilarPartnerWithAiと同じ流れ・同じ「候補提示のみ、書き込みは
+// 呼び出し元が人間の確認後にのみ行う」原則。学習カテゴリはagents専用の'agent_merge'。
+async function findSimilarAgentWithAi(candidate, agentsCacheArr, excludeId){
+  const exact = findDuplicateAgent(candidate, agentsCacheArr, excludeId);
+  if(exact) return exact;
+
+  const learnKey = agentMergeLearnKey(candidate);
+  const learned = await fetchLearnedMappings('agent_merge', learnKey);
+  if(learned && learned.length){
+    const target = (agentsCacheArr||[]).find(a=>String(a.id)===String(learned[0].confirmed_value) && !(excludeId && a.id===excludeId));
+    if(target) return {...target, viaAi:true};
+  }
+
+  const options = getAiSimilarityCandidatesForAgents(candidate, agentsCacheArr, excludeId);
+  if(!options.length) return null;
+  const results = await callAgentSimilarityAi(candidate, options);
+  const hitId = results.find(r=>r.same)?.id;
+  if(!hitId) return null;
+  const target = options.find(a=>String(a.id)===String(hitId));
+  return target ? {...target, viaAi:true} : null;
+}
+
+async function recordAgentMergeLearning(candidate, matchedAgentId){
+  await recordLearnedMapping('agent_merge', agentMergeLearnKey(candidate), matchedAgentId);
+}
+
+async function handleAgentCardUpload(event){
+  const file = event.target.files[0];
+  if(file) await processAgentCardFile(file);
+  event.target.value = '';
+}
+
+async function processAgentCardFile(file){
+  if(!file) return;
+  const statusEl = document.getElementById('ag-card-status');
+  statusEl.textContent = '⏳ 読み取り中...';
+  statusEl.classList.add('ocr-loading');
+  showGlobalOcrBanner();
+
+  try{
+    const {data: freshAgents} = await sb.from('agents').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('company_name');
+    if(freshAgents) agentsCache = freshAgents;
+  }catch(e){ logError('Agentキャッシュの再読込', e, {toast:false}); }
+
+  try{
+    const _cardFileName = (file.name||'').toLowerCase();
+    const _isExcelCard = _cardFileName.match(/\.(xlsx|xls)$/);
+    const _isWordCard = _cardFileName.endsWith('.docx');
+    let parsed;
+
+    if(_isExcelCard || _isWordCard){
+      const text = _isExcelCard ? await parseExcelToSheetsText(file) : await extractDocxText(file);
+      const presp = await fetch('/api/extract-card', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ partnerText: text })
+      });
+      if(!presp.ok){ throw new Error(await parseApiErrorMessage(presp)); }
+      const pdata = await presp.json();
+      parsed = pdata.partner || pdata;
+    } else {
+      const {base64, mediaType} = await compressImageForOcr(file);
+      const {full, light} = await rotateImageVariants(base64, mediaType);
+      const selectedIndex = await determineOrientationIndex(light);
+      const response = await fetch('/api/extract-card', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ base64: full[selectedIndex], mediaType })
+      });
+      if(!response.ok){ throw new Error(await parseApiErrorMessage(response)); }
+      const data = await response.json();
+      const textBlock = data.content.find(b=>b.type==='text');
+      const cleaned = (textBlock.text||'').replace(/```json|```/g,'').trim();
+      parsed = JSON.parse(cleaned);
+    }
+
+    const formatPhoneJP = s => {
+      if(!s) return '';
+      let v = String(s).trim();
+      v = v.replace(/^\+?81[-\s]?/, '0');
+      v = v.replace(/^0+(\d)/, '0$1');
+      v = v.replace(/[()]/g, '');
+      v = v.replace(/[\s.]+/g, '-');
+      v = v.replace(/-+/g, '-');
+      v = v.replace(/^-|-$/g, '');
+      return v;
+    };
+
+    // 名刺の撮影順に関わらず正しくマージされるよう、日本語欄に英語が(またはその逆が)
+    // 紛れ込んでいれば正しい側に振り分ける(business_partners側と同じ対策)。
+    const _company  = splitByLanguage(parsed.company_name, parsed.company_name_en);
+    const _branch   = splitByLanguage(parsed.branch_name, parsed.branch_name_en);
+    const _contact  = splitByLanguage(parsed.contact_person, parsed.contact_person_en);
+    const _position = splitByLanguage(parsed.position, parsed.position_en);
+    const _address  = splitByLanguage(parsed.address, parsed.address_en);
+
+    // agentsのcompany_nameは英語/国際表記が主軸のため、business_partnersとは逆に英語を
+    // 優先してcompany_nameへ、日本語があればcompany_name_local(現地法人名称)へ入れる。
+    // 英語表記が無い(日本語のみの名刺)場合は、company_nameが空欄になってしまわないよう
+    // 日本語表記をそのままcompany_nameへ入れる。
+    const agCompanyName = _company.en || _company.ja || '';
+    const agCompanyNameLocal = (_company.en && _company.ja) ? _company.ja : '';
+    // 支店名・担当者名・住所も同様に単一欄(英語/日本語の区別が無い)のため、いずれかが
+    // あればそちらを採用する(日本語優先。名刺の大半が日本語面から読み取られる想定のため)。
+    const agBranch = _branch.ja || _branch.en || '';
+    const agContact = _contact.ja || _contact.en || '';
+    const agAddress = _address.ja || _address.en || '';
+    // 役職(position)はagentsに対応列が無いため、備考(notes)へ「役職: 〜」として残す
+    // (情報を失わないため。既存のnotes内容がある場合は末尾に追記する)。
+    const agPosition = _position.ja || _position.en || '';
+
+    const formHasData = !!(document.getElementById('ag-company').value || document.getElementById('ag-contact').value);
+
+    if(!formHasData){
+      const _candidate1 = {
+        companyName: agCompanyName, companyNameLocal: agCompanyNameLocal,
+        companyPhone: parsed.company_phone, email: parsed.email,
+      };
+      const dup = await findSimilarAgentWithAi(_candidate1, agentsCache, currentAgentEditId);
+
+      if(dup){
+        statusEl.classList.remove('ocr-loading');
+        hideGlobalOcrBanner();
+        const choice = await showChoiceModal(
+          '類似する取引先(Agent)が見つかりました',
+          `類似する取引先「${escHtml(dup.company_name)}」が既に登録されています。`+(dup.viaAi?' <span style="font-size:10px;color:var(--text3)">（AIによる類似候補です）</span>':''),
+          [
+            {label:'✓ 既存データにマージする（空欄のみ上書き）', value:'merge', primary:true},
+            {label:'＋ 別の新規取引先として登録', value:'new'},
+          ]
+        );
+        if(choice==='merge'){
+          if(dup.viaAi) await recordAgentMergeLearning(_candidate1, dup.id);
+          openAgentEditor(dup.id);
+          document.getElementById('agent-modal-title').textContent = '取引先(Agent)編集（マージ）';
+          const _mif = (id, val) => { const el = document.getElementById(id); if(el && !el.value && val) el.value = val; };
+          _mif('ag-company',       agCompanyName);
+          _mif('ag-company-local', agCompanyNameLocal);
+          _mif('ag-branch',        agBranch);
+          _mif('ag-contact',       agContact);
+          _mif('ag-company-phone', formatPhoneJP(parsed.company_phone));
+          _mif('ag-phone',         formatPhoneJP(parsed.phone));
+          _mif('ag-fax',           formatPhoneJP(parsed.fax));
+          _mif('ag-email',         parsed.email || '');
+          _mif('ag-address',       agAddress);
+          if(agPosition){
+            const notesEl = document.getElementById('ag-notes');
+            if(notesEl && !notesEl.value.includes(`役職: ${agPosition}`)){
+              notesEl.value = notesEl.value ? `${notesEl.value}\n役職: ${agPosition}` : `役職: ${agPosition}`;
+            }
+          }
+          statusEl.textContent = '✓ 既存の取引先(Agent)にマージしました。内容を確認して保存してください。';
+          statusEl.classList.remove('ocr-loading');
+          hideGlobalOcrBanner();
+          statusEl.style.color = 'var(--green)';
+          return;
+        }
+        agentFormAcknowledgedDupId = dup.id;
+      }
+    }
+
+    // 空欄のみ補完するマージ処理(2枚目の名刺読み取りに対応、business_partners側と同じ)。
+    const wasEmpty = !document.getElementById('ag-company').value && !document.getElementById('ag-contact').value;
+    const setIfEmpty = (id, val) => { const el = document.getElementById(id); if(el && !el.value && val) el.value = val; };
+    setIfEmpty('ag-company', agCompanyName);
+    setIfEmpty('ag-company-local', agCompanyNameLocal);
+    setIfEmpty('ag-branch', agBranch);
+    setIfEmpty('ag-contact', agContact);
+    setIfEmpty('ag-company-phone', formatPhoneJP(parsed.company_phone));
+    setIfEmpty('ag-phone', formatPhoneJP(parsed.phone));
+    setIfEmpty('ag-fax', formatPhoneJP(parsed.fax));
+    setIfEmpty('ag-email', parsed.email || '');
+    setIfEmpty('ag-address', agAddress);
+    if(agPosition){
+      const notesEl = document.getElementById('ag-notes');
+      if(notesEl && !notesEl.value.includes(`役職: ${agPosition}`)){
+        notesEl.value = notesEl.value ? `${notesEl.value}\n役職: ${agPosition}` : `役職: ${agPosition}`;
+      }
+    }
+
+    statusEl.textContent = wasEmpty
+      ? '✓ 読み取り完了。英語面がある場合は続けて2枚目も読み取れます。'
+      : '✓ 2枚目をマージしました。内容を確認して保存してください。';
+    statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
+    statusEl.style.color = 'var(--green)';
+  }catch(e){
+    statusEl.textContent = '読み取りに失敗しました: '+(e.message||e)+' 手動で入力してください。';
+    statusEl.classList.remove('ocr-loading');
+    hideGlobalOcrBanner();
+    statusEl.style.color = 'var(--red)';
+    logError('取引先(Agent)名刺の読み取り(OCR)', e, {toast:false});
+  }
+}
+
 function openAgentEditor(id){
   currentAgentEditId = id;
+  agentFormAcknowledgedDupId = null;
   const a = id ? agentsCache.find(x=>x.id===id) : null;
   document.getElementById('agent-modal-title').textContent = id ? '取引先(Agent)編集' : '取引先(Agent)登録';
   const set = (elId,val) => { document.getElementById(elId).value = val||''; };
@@ -27395,7 +27688,9 @@ function openAgentEditor(id){
   set('ag-contact3-email', a?.contact_person3_email);
   set('ag-notes', a?.notes);
   document.getElementById('ag-msg').style.display='none';
+  document.getElementById('ag-card-status').textContent = '';
   document.getElementById('agent-modal').classList.add('open');
+  enablePasteUpload(document.getElementById('ag-card-paste-zone'), file=>processAgentCardFile(file));
   const sy = window.scrollY;
   document.body.style.position = 'fixed';
   document.body.style.top = `-${sy}px`;
@@ -27404,6 +27699,7 @@ function openAgentEditor(id){
 }
 
 function closeAgentEditor(){
+  agentFormAcknowledgedDupId = null;
   document.getElementById('agent-modal').classList.remove('open');
   const sy = parseInt(document.body.dataset.scrollY || '0', 10);
   document.body.style.position = '';
@@ -27444,6 +27740,53 @@ async function saveAgent(){
     notes: get('ag-notes') || null,
     updated_at: new Date().toISOString()
   };
+
+  // 新規登録時のみ重複チェックを行う(編集時は自分自身との照合になってしまうため対象外。
+  // business_partners側のsavePartnerと同じ考え方)。名刺OCR読み取り時に同じ候補へ既に
+  // 「別の新規取引先として登録」を選んでいる場合は、保存時に同じ質問を繰り返さない。
+  if(!currentAgentEditId){
+    const _candidate2 = {
+      companyName: company, companyNameLocal: get('ag-company-local'),
+      companyPhone: get('ag-company-phone'), email: get('ag-email'),
+    };
+    const dup = await findSimilarAgentWithAi(_candidate2, agentsCache, null);
+    if(dup && dup.id !== agentFormAcknowledgedDupId){
+      const choice = await showChoiceModal(
+        '類似する取引先(Agent)が見つかりました',
+        `類似する取引先「${escHtml(dup.company_name)}」が既に登録されています。`+(dup.viaAi?' <span style="font-size:10px;color:var(--text3)">（AIによる類似候補です）</span>':''),
+        [
+          {label:'✓ 既存データにマージする（空欄のみ上書き）', value:'merge', primary:true},
+          {label:'＋ このまま新規登録する', value:'new'},
+        ]
+      );
+      if(choice==='merge'){
+        if(dup.viaAi) await recordAgentMergeLearning(_candidate2, dup.id);
+        const typed = payload;
+        openAgentEditor(dup.id);
+        document.getElementById('agent-modal-title').textContent = '取引先(Agent)編集（マージ）';
+        const _mif = (id, val) => { const el = document.getElementById(id); if(el && !el.value && val) el.value = val; };
+        _mif('ag-company-kana',    typed.company_name_kana || '');
+        _mif('ag-country',         typed.country || '');
+        _mif('ag-branch',          typed.branch_name || '');
+        _mif('ag-contact',         typed.contact_person || '');
+        _mif('ag-email',           typed.email || '');
+        _mif('ag-company-phone',   typed.company_phone || '');
+        _mif('ag-fax',             typed.fax || '');
+        _mif('ag-phone',           typed.phone || '');
+        _mif('ag-postal-code',     typed.postal_code || '');
+        _mif('ag-address',        typed.address || '');
+        _mif('ag-payment-terms',  typed.payment_terms || '');
+        _mif('ag-month-end-billing', typed.month_end_billing || '');
+        _mif('ag-company-local',  typed.company_name_local || '');
+        _mif('ag-address-local',  typed.address_local || '');
+        _mif('ag-notes',          typed.notes || '');
+        alert('既存の取引先(Agent)にマージしました。内容を確認して保存してください。');
+        return;
+      }
+      // choice==='new' はこのまま下の新規登録処理に進む
+    }
+  }
+
   const saveBtn = document.getElementById('ag-save-btn');
   const saveBtnOrigHtml = saveBtn ? saveBtn.innerHTML : null;
   if(saveBtn){ saveBtn.disabled = true; saveBtn.innerHTML = '⏳ 保存中...'; }
@@ -28991,6 +29334,25 @@ function setDateInputValue(el, d){
       <button class="btn btn-p" id="ag-save-btn" onclick="saveAgent()">💾 保存</button>
       <button class="btn" onclick="closeAgentEditor()">閉じる</button>
       <span class="msg-ok" id="ag-msg">✓ 保存しました</span>
+    </div>
+    <div id="ag-card-upload-section" style="border:1px dashed var(--border);border-radius:8px;padding:8px;background:var(--bg);margin-bottom:10px">
+      <div style="font-size:10px;color:var(--text3);margin-bottom:4px;font-weight:600">名刺1枚を読み取り（フォーム自動入力）</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">
+        <label class="btn btn-p" style="font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;text-align:center">
+          📷 カメラで撮影
+          <input type="file" accept="image/*" capture="environment" id="ag-card-input-camera" style="display:none" onchange="handleAgentCardUpload(event)">
+        </label>
+        <label class="btn" style="font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;text-align:center">
+          🖼 ギャラリーから選択
+          <input type="file" accept="image/*" id="ag-card-input-gallery" style="display:none" onchange="handleAgentCardUpload(event)">
+        </label>
+        <label class="btn" style="font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;text-align:center">
+          📎 Excel/Wordから読み取り
+          <input type="file" accept=".xlsx,.xls,.docx" id="ag-card-input-doc" style="display:none" onchange="handleAgentCardUpload(event)">
+        </label>
+      </div>
+      <div id="ag-card-status" style="font-size:11px;color:var(--text3);margin-top:4px"></div>
+      <div id="ag-card-paste-zone" class="paste-drop-zone" tabindex="-1" style="margin-top:4px;padding:8px">📋 ここをクリックしてCtrl+Vで画像・Excel・Wordファイルを貼り付け（ドラッグ&ドロップも可）</div>
     </div>
     <div class="form-grid">
       <div class="form-field"><label>会社名</label><input id="ag-company" placeholder="例: Kulin Kumar Holidays Pvt Ltd"></div>

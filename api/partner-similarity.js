@@ -14,38 +14,56 @@ export const config = { runtime: 'edge' };
 // bigram Jaccard類似度による絞り込み)で数件〜十数件程度に絞り込んだ候補のみを
 // ここに渡す想定(このエンドポイント自体もoptionsを最大20件に強制的に切り詰める)。
 //
-// 入力: { candidate: {companyName, companyNameEn, category}, options: [{id, companyName, companyNameEn, category}, ...] }
+// 入力: { candidate: {companyName, companyNameEn, category}, options: [{id, companyName, companyNameEn, category}, ...],
+//        entityKind: 'business_partner'(省略時デフォルト) | 'agent' }
 // 出力: { results: [{id, same: true|false}] }（inputのoptions全件について必ず1件ずつ返す。
 //        AIの応答に欠落・不備がある候補はsame:falseにフォールバックする）
+// entityKind='agent'の場合は、取引先マスタ(仕入先)とは業態・表記の実態が異なる送客元
+// エージェント(海外旅行会社等)向けの説明文に差し替える(2026-09、Agentマスタへの名刺OCR
+// 追加時に汎用化。既存の取引先マスタ側の挙動・出力形式は一切変更しない)。
 export default async function handler(req) {
   if (req.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
   try {
     const body = await req.json();
     const candidate = body && body.candidate;
     const options = Array.isArray(body && body.options) ? body.options.slice(0, 20) : [];
+    const isAgent = body && body.entityKind === 'agent';
     if (!candidate || !options.length) {
       return new Response(JSON.stringify({ results: [] }), { headers: { 'Content-Type': 'application/json' } });
     }
 
-    const optionsText = options.map((o, i) =>
-      `--- 候補${i + 1} (id: ${o.id}) ---\n会社名: ${String(o.companyName || '').slice(0, 200)}\n会社名(英語): ${String(o.companyNameEn || '').slice(0, 200)}\n種別: ${String(o.category || '').slice(0, 60)}`
-    ).join('\n\n');
+    const optionsText = isAgent
+      ? options.map((o, i) =>
+          `--- 候補${i + 1} (id: ${o.id}) ---\n会社名: ${String(o.companyName || '').slice(0, 200)}`
+        ).join('\n\n')
+      : options.map((o, i) =>
+          `--- 候補${i + 1} (id: ${o.id}) ---\n会社名: ${String(o.companyName || '').slice(0, 200)}\n会社名(英語): ${String(o.companyNameEn || '').slice(0, 200)}\n種別: ${String(o.category || '').slice(0, 60)}`
+        ).join('\n\n');
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5',
-        max_tokens: 2000,
-        messages: [{
-          role: 'user',
-          content: [
-            {
-              type: 'text', text: `あなたは旅行会社の取引先マスタ(ホテル・バス会社・レストラン・観光施設等)の重複登録を
+    const promptText = isAgent ? `あなたは旅行会社の取引先マスタ(Agent、海外・国内の送客元旅行会社)の重複登録を
+防ぐアシスタントです。これから新規登録しようとしている会社と、既存の登録候補一覧を渡します。
+それぞれの候補について、新規登録しようとしている会社と「実在する同一の会社(法人格の有無・
+表記言語の違い・略称・語順違い・支店表記の有無等の表記ゆれのみ)」を指しているかどうかを
+判定してください。
+
+重要な注意点:
+- 「Travel」「Tour」「Holidays」等、旅行会社に一般的な単語が共通しているだけでは同一会社とは
+  判定しないでください。あくまで固有の会社名・ブランド名が実質的に同一かどうかで判断して
+  ください。
+- 同じグループの別支店・別法人(例:同じブランド名だが国・都市が明らかに異なる別法人)は、
+  通常は別会社と判定してください。
+- 迷う場合は false(別会社)にしてください。誤って別会社を「同一」と判定すると、無関係な
+  エージェントデータへの誤ったマージ操作をユーザーに促してしまうため、安全側(false)に倒す
+  ことを最優先してください。
+
+新規登録しようとしている会社:
+会社名: ${String(candidate.companyName || '').slice(0, 200)}
+
+既存の登録候補一覧:
+${optionsText}
+
+JSON配列のみを返してください。他のテキストやマークダウンのコードブロック記法は一切不要です。
+出力形式: [{"id":"...","same":true},{"id":"...","same":false}]` : `あなたは旅行会社の取引先マスタ(ホテル・バス会社・レストラン・観光施設等)の重複登録を
 防ぐアシスタントです。これから新規登録しようとしている会社と、既存の登録候補一覧を渡します。
 それぞれの候補について、新規登録しようとしている会社と「実在する同一の会社(法人格の有無・
 日本語/英語表記の違い・略称・語順違い等の表記ゆれのみ)」を指しているかどうかを判定してください。
@@ -71,8 +89,22 @@ export default async function handler(req) {
 ${optionsText}
 
 JSON配列のみを返してください。他のテキストやマークダウンのコードブロック記法は一切不要です。
-出力形式: [{"id":"...","same":true},{"id":"...","same":false}]`
-            }
+出力形式: [{"id":"...","same":true},{"id":"...","same":false}]`;
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5',
+        max_tokens: 2000,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'text', text: promptText }
           ]
         }]
       })
