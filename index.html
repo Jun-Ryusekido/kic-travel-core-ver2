@@ -27229,6 +27229,31 @@ async function _ensureAgentsCacheLoaded(){
   _agentSuggestLoading = null;
 }
 
+// Agent(取引先)の会社名文字列比較で使う共通正規化関数。trim→小文字化→
+// ピリオド/カンマ除去→連続空白(全角スペース・NBSP含む)を1個に圧縮→再trim。
+// bookings.agent_name/invoices.agent_name/agents.company_nameは全て自由入力の
+// コピーであり、agent_id不在時にこれらを文字列比較する箇所が複数あったが、
+// 大文字小文字・句読点・空白の揺れだけで一致しなくなり住所欄空欄化やInvoice
+// 重複発行の原因になっていた(REF#962/#967等で実際に発生)。文字列比較を行う
+// 箇所は必ずこの関数を経由すること(箇所ごとの独自実装は禁止)。
+function normalizeAgentName(s){
+  return String(s||'')
+    .trim()
+    .toLowerCase()
+    .replace(/[.,]/g, '')
+    .replace(/[\s　\xa0]+/g, ' ')
+    .trim();
+}
+// 正規化した会社名でagentsCacheと一意に一致する取引先のidを返す。0件/複数件
+// ヒットの場合はnull(同名の取引先が複数登録されている場合に誤って一方を選ばない
+// ため。REF#962のM/S. SOTC TRAVEL LTD.重複と同じ理由)。
+function findAgentIdByNormalizedName(name){
+  const norm = normalizeAgentName(name);
+  if(!norm) return null;
+  const matches = agentsCache.filter(a=>normalizeAgentName(a.company_name)===norm);
+  return matches.length===1 ? matches[0].id : null;
+}
+
 // scope: 'nb'(New Booking作成フォーム) | 'bd'(予約詳細モーダル) | 'arr'(手配書編集モーダルの旅行会社名)。
 // selectedIdは「候補から選択した状態のまま(文字を書き換えずに)保存した場合のみ」
 // agent_idとして使う(ガイド検索サジェスト・仮払い一覧表出金伝票の宛先ガイド選択と
@@ -27281,12 +27306,22 @@ function selectAgentCandidate(scope, id){
   hideAgentSuggest(scope);
 }
 // 保存直前に呼ぶ。選択済みidがあり、かつ入力欄の現在値が選択時の会社名から
-// 書き換えられていなければそのidを返す。手入力で編集していたらnull(自由入力扱い)。
+// 書き換えられていなければそのidを返す。候補選択と一致しない場合は、正規化した
+// 会社名でagentsCacheと一意に一致するかを試み、それも決まらなければ黙ってnullを
+// 返すのではなく画面に警告トーストを出す(agent_idがnullのまま保存され続ける
+// ことが取引先マスタ突合不具合の主因だったため、未紐付けであることを可視化する)。
 function resolveAgentIdForSave(scope, currentAgentName){
   const selId = _agentAutocompleteSelectedId[scope];
-  if(!selId) return null;
-  const a = agentsCache.find(x=>String(x.id)===String(selId));
-  return (a && a.company_name === currentAgentName) ? selId : null;
+  if(selId){
+    const a = agentsCache.find(x=>String(x.id)===String(selId));
+    if(a && a.company_name === currentAgentName) return selId;
+  }
+  const name = (currentAgentName||'').trim();
+  if(!name) return null;
+  const matchedId = findAgentIdByNormalizedName(name);
+  if(matchedId) return matchedId;
+  showErrorToast(`取引先「${name}」が取引先マスタと紐付いていません(表記ゆれ・未登録の可能性)`, 'resolveAgentIdForSave', {scope, currentAgentName: name});
+  return null;
 }
 
 function filterAgents(){
@@ -28310,7 +28345,10 @@ function toggleBdInvoiceRow(i){
 function salesItemBelongsToAgent(row, agentFilter, bookingAgent){
   if(!agentFilter) return true;
   const a = (row.agent_name && row.agent_name.trim()) ? row.agent_name.trim() : bookingAgent;
-  return a === agentFilter;
+  if(a === agentFilter) return true;
+  // 完全一致しない場合のみ、正規化した会社名でのフォールバック比較を行う
+  // (表記ゆれ(句読点・大文字小文字・空白)だけで請求先の絞り込みから漏れるのを防ぐ)。
+  return normalizeAgentName(a) === normalizeAgentName(agentFilter);
 }
 
 // 業務フロー点検 対応①: 請求書を再発行する際、同じ予約に紐づくPending(未入金)の請求書が
@@ -28449,12 +28487,33 @@ async function generateInvoice(bookingId, currency, agentFilter){
   }
   if(currency==='USD') amount = Math.round((amount/USD_RATE)*100)/100;
 
+  // 売上明細側にagent_idが無い場合のフォールバック。①予約自体のagent_id(請求先が
+  // 単一の予約、または複数請求先でも予約代表の請求先名と今回の請求先名が一致する
+  // 場合のみ=取り違えを避ける) ②共通正規化関数でのマスタ一意突合、の順で試みる。
+  // どちらも決まらなければagent_id: nullのままInvoiceを発行しつつ、画面に警告を出す
+  // (以前は無条件にnullのまま黙って発行していたため、agent_idが未設定の請求書が
+  // 気づかれずに増え続けていた=INV-1381/INV-363で実際に発覚)。
+  if(!agentId){
+    if(booking.agent_id && (distinctAgents.length<=1 || normalizeAgentName(booking.agent_name)===normalizeAgentName(targetAgentName))){
+      agentId = booking.agent_id;
+    }else{
+      await _ensureAgentsCacheLoaded();
+      agentId = findAgentIdByNormalizedName(targetAgentName);
+    }
+  }
+  if(!agentId){
+    showErrorToast(`Invoice「${invoiceNo}」の請求先「${targetAgentName||'(未設定)'}」が取引先マスタと紐付いていません`, 'generateInvoice', {bookingId, targetAgentName});
+  }
+
   // 同じ請求先の既存行があればUPDATE(番号は増やさない)、無ければ新規INSERTする。
   // 既存行の有無は、以前はinvoice_no文字列で検索していたが、請求先の数(単一/複数)に
   // よって番号の形式自体が変わるため、予約の途中で請求先構成が変わると既存Invoiceを
   // 見失い、孤立した重複Invoiceが生まれる不具合があった(REF#967で発覚)。
-  // booking_id + is_consolidated(false) + agent_name という、請求先構成が変わっても
-  // 揺るがない情報で検索するように変更した。
+  // その後booking_id + is_consolidated(false) + agent_nameで検索するようにしたが、
+  // agent_nameは表記ゆれで揺れるため、これも既存Invoiceを見失う原因になっていた。
+  // 請求先が1つの予約はbooking_id(+is_consolidated:false)だけで一意に定まるため
+  // それのみで検索し、請求先が複数ある予約の場合のみagent_idで絞り込む
+  // (agent_idが未確定の場合は従来通りagent_nameでの絞り込みにフォールバックする)。
   const corePayload = {
     currency: currency,
     amount: amount,
@@ -28467,8 +28526,11 @@ async function generateInvoice(bookingId, currency, agentFilter){
 
   let data;
   try{
-    const {data: existingInv, error: existingErr} = await sb.from('invoices').select('id')
-      .eq('booking_id', bookingId).eq('is_consolidated', false).eq('agent_name', targetAgentName).maybeSingle();
+    let existingQuery = sb.from('invoices').select('id').eq('booking_id', bookingId).eq('is_consolidated', false);
+    if(distinctAgents.length > 1){
+      existingQuery = agentId ? existingQuery.eq('agent_id', agentId) : existingQuery.eq('agent_name', targetAgentName);
+    }
+    const {data: existingInv, error: existingErr} = await existingQuery.maybeSingle();
     if(existingErr) throw existingErr;
     if(existingInv && existingInv.id){
       const updateResult = await invoicesApiCall('updateById', { id: existingInv.id, fields: {...corePayload, invoice_no: invoiceNo} });
@@ -28670,7 +28732,16 @@ async function showInvoicePreview(inv, booking){
     if(agentRow) agentAddress = agentRow.address || '';
   }else if(billToName){
     const {data: agentRows} = await sb.from('agents').select('address').eq('company_name', billToName).or('is_deleted.is.null,is_deleted.eq.false');
-    if(agentRows && agentRows.length===1) agentAddress = agentRows[0].address || '';
+    if(agentRows && agentRows.length===1){
+      agentAddress = agentRows[0].address || '';
+    }else if(!agentRows || agentRows.length===0){
+      // 完全一致が0件の場合のみ、正規化した会社名でのフォールバック突合を試みる
+      // (表記ゆれ(句読点・大文字小文字・空白)だけで住所欄が空欄になるのを防ぐ)。
+      const {data: allAgentRows} = await sb.from('agents').select('address,company_name').or('is_deleted.is.null,is_deleted.eq.false');
+      const norm = normalizeAgentName(billToName);
+      const normMatches = (allAgentRows||[]).filter(a=>normalizeAgentName(a.company_name)===norm);
+      if(normMatches.length===1) agentAddress = normMatches[0].address || '';
+    }
   }
   // 住所は常に取引先マスタ(agents.address)の最新値を表示する。以前はinvoices.address
   // (このInvoice固有の手動上書き値)を一度でも保存すると、それ以降マスタ側の住所を
