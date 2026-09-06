@@ -1244,6 +1244,10 @@ input[type=number]{-moz-appearance:textfield}
           <div class="card-title">📝 対応が必要な予約 <span style="font-size:10px;font-weight:400;color:var(--text3)">期限7日以内（区分別）</span></div>
           <div id="db-todo-summary"></div>
         </div>
+        <div class="card" id="db-agent-unlinked-card" style="display:none">
+          <div class="card-title">⚠ Agentマスタ未紐付け <span style="font-size:10px;font-weight:400;color:var(--text3)">agent_name入力済みだがagent_id未設定</span></div>
+          <div id="db-agent-unlinked-summary" style="cursor:pointer" onclick="openAgentUnlinkedListModal()"></div>
+        </div>
         <div class="card" id="db-arrival-alert-card">
           <div class="card-title">到着日アラート <span style="font-size:10px;font-weight:400;color:var(--text3)">今後90日以内の進行中予約</span></div>
           <div id="db-arrival-alert"><span style="font-size:12px;color:var(--text3)">読み込み中...</span></div>
@@ -2578,6 +2582,7 @@ input[type=number]{-moz-appearance:textfield}
             <div class="form-field" style="flex:0 0 220px;position:relative"><label>Agent</label><input id="bd-agent" style="width:100%;box-sizing:border-box" autocomplete="off"
                  oninput="filterAgentSuggest('bd')" onfocus="showAgentSuggest('bd')" onblur="setTimeout(()=>hideAgentSuggest('bd'),200)">
               <div id="bd-agent-dd" style="display:none;position:fixed;background:var(--card,#fff);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:99999;max-height:220px;overflow-y:auto"></div>
+              <div id="bd-agent-unlinked-warn" style="display:none;font-size:10px;color:var(--amber,#854F0B);margin-top:2px">⚠ マスタ未登録</div>
             </div>
             <div class="form-field" style="flex:0 0 130px"><label>Tour Code</label><input id="bd-tour-code" style="width:100%;box-sizing:border-box"></div>
             <div class="form-field" style="flex:0 0 261px"><label>Tour Name</label><input id="bd-tour" style="width:100%;box-sizing:border-box"></div>
@@ -4100,7 +4105,7 @@ async function fetchBookingsListLight(){
     const {data, error} = await sb.from('bookings')
       // memo1(基本情報「備考」欄)はInvoiceプレビューのNoteをbookingsと連動表示するために
       // 追加(showInvoicePreview参照)。
-      .select('id,ref_no,agent_name,tour_code,tour_name,in_date,out_date,gross_sales,status,pax,staff_in_charge,memo1')
+      .select('id,ref_no,agent_name,agent_id,tour_code,tour_name,in_date,out_date,gross_sales,status,pax,staff_in_charge,memo1')
       .order('created_at',{ascending:false}).range(from, from+pageSize-1);
     if(error){ logError('予約一覧(軽量版)の読み込み(bookings)', error); break; }
     all = all.concat(data);
@@ -4341,6 +4346,7 @@ async function loadBookingListGeneric(prefix){
     const prefetched = await prefetchFacilityDeadlineAllItems();
     await renderDashboardTodoSummary(prefetched);
     await refreshGlobalDeadlineBanner(prefetched);
+    await refreshAgentUnlinkedBanner();
   }
 }
 
@@ -4781,6 +4787,60 @@ async function execTodoBatchUpdate(items, fields){
   await renderTodoPage(prefetched);
   await refreshGlobalDeadlineBanner(prefetched);
 }
+// Agentマスタ未紐付け(agent_nameが入力されているのにagent_idがnullのまま残っている
+// 予約・請求書)をダッシュボードにバナー表示する。「対応が必要な予約」カードと同じ
+// 場所(ダッシュボード上部)・同じ見せ方(カード+件数+クリックで一覧)に揃える。
+let _agentUnlinkedCache = { bookings: [], invoices: [] };
+async function refreshAgentUnlinkedBanner(){
+  const card = document.getElementById('db-agent-unlinked-card');
+  const summaryEl = document.getElementById('db-agent-unlinked-summary');
+  if(!card || !summaryEl) return;
+  try{
+    const [{data: bRows, error: bErr}, {data: iRows, error: iErr}] = await Promise.all([
+      sb.from('bookings').select('id,ref_no,agent_name').not('agent_name','is',null).is('agent_id', null),
+      sb.from('invoices').select('id,invoice_no,booking_id,agent_name').not('agent_name','is',null).is('agent_id', null),
+    ]);
+    if(bErr) throw bErr;
+    if(iErr) throw iErr;
+    // agent_nameが空文字のみの行(nullではないが実質未入力)、および過去の移行で付与された
+    // ダミー値'0'(scripts/backfill_agent_id_dryrun.jsのDUMMY_AGENT_NAMESと同じ扱い。
+    // 正規化しても意味のある値にならないため、名前解決とは別問題として対象外にする)は除外する。
+    const _isRealAgentName = name => { const t = (name||'').trim(); return !!t && t!=='0'; };
+    const bookingsUnlinked = (bRows||[]).filter(b=>_isRealAgentName(b.agent_name));
+    const invoicesUnlinked = (iRows||[]).filter(i=>_isRealAgentName(i.agent_name));
+    _agentUnlinkedCache = { bookings: bookingsUnlinked, invoices: invoicesUnlinked };
+    const total = bookingsUnlinked.length + invoicesUnlinked.length;
+    if(total === 0){ card.style.display = 'none'; return; }
+    card.style.display = '';
+    summaryEl.innerHTML = `<span style="font-size:12px;color:var(--amber,#854F0B)">予約${bookingsUnlinked.length}件・請求書${invoicesUnlinked.length}件が未紐付けです。クリックで一覧を表示 ▾</span>`;
+  }catch(e){
+    logError('Agentマスタ未紐付けバナー', e, {toast:false});
+  }
+}
+
+// 未紐付け一覧をモーダルで表示する(クリックした行から該当予約の詳細を直接開ける)。
+function openAgentUnlinkedListModal(){
+  const { bookings, invoices } = _agentUnlinkedCache || { bookings: [], invoices: [] };
+  document.getElementById('agent-unlinked-modal')?.remove();
+  const modal = document.createElement('div');
+  modal.id = 'agent-unlinked-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:400;display:flex;align-items:center;justify-content:center;padding:16px';
+  const rowStyle = 'padding:6px 0;border-bottom:1px solid var(--border);cursor:pointer;font-size:12px';
+  const bookingRows = bookings.map(b=>`<div style="${rowStyle}" onclick="document.getElementById('agent-unlinked-modal').remove();openBookingDetail('${b.id}')">予約 ${escHtml(b.ref_no||'')} ／ ${escHtml(b.agent_name||'')}</div>`).join('')
+    || '<div style="font-size:12px;color:var(--text3)">該当なし</div>';
+  const invoiceRows = invoices.map(i=>`<div style="${rowStyle}" onclick="document.getElementById('agent-unlinked-modal').remove();openBookingDetail('${i.booking_id}',{scrollTo:'sales'})">請求書 ${escHtml(i.invoice_no||'')} ／ ${escHtml(i.agent_name||'')}</div>`).join('')
+    || '<div style="font-size:12px;color:var(--text3)">該当なし</div>';
+  modal.innerHTML = `<div style="background:#fff;border-radius:12px;padding:18px;width:100%;max-width:480px;max-height:80vh;overflow-y:auto;box-sizing:border-box">
+    <div style="font-size:13px;font-weight:700;margin-bottom:10px">Agentマスタ未紐付け一覧</div>
+    <div style="font-size:12px;font-weight:600;margin-bottom:4px">予約(${bookings.length}件)</div>
+    ${bookingRows}
+    <div style="font-size:12px;font-weight:600;margin:10px 0 4px">請求書(${invoices.length}件)</div>
+    ${invoiceRows}
+    <button class="btn" style="width:100%;margin-top:14px" onclick="document.getElementById('agent-unlinked-modal').remove()">閉じる</button>
+  </div>`;
+  document.body.appendChild(modal);
+}
+
 // prefetched: fetchAllFacilityDeadlineItems()/prefetchFacilityDeadlineAllItems()で
 // 取得済みのallItems配列。省略時は従来通りこの関数が自前で取得する。
 async function renderDashboardTodoSummary(prefetched){
@@ -5050,6 +5110,23 @@ function toHalfWidth(str){
   return str
     .replace(/[\uFF01-\uFF5E]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
     .replace(/\u3000/g, ' ');
+}
+
+// agent_name(自由入力)の正規化ロジック。scripts/backfill_agent_id_dryrun.jsの
+// normalizeAgentName/CORP_SUFFIX_PATTERNSと完全に同一(F13フェーズ2バックフィル判定時と
+// 保存時の自動解決とで正規化結果がずれないよう、必ず同じロジックを使う。車輪の再発明はしない)。
+const CORP_SUFFIX_PATTERNS = [
+  /株式会社/g, /\(株\)/g, /（株）/g, /有限会社/g, /\(有\)/g, /（有）/g,
+  /co\.?,?\s*ltd\.?/gi, /co\.?\s*limited/gi, /pvt\.?\s*ltd\.?/gi, /private\s*limited/gi,
+  /inc\.?/gi, /corp\.?/gi, /corporation/gi, /llc/gi, /l\.l\.c\.?/gi, /gmbh/gi,
+];
+function normalizeAgentName(raw){
+  let s = toHalfWidth(raw || '');
+  s = s.normalize('NFKC');
+  CORP_SUFFIX_PATTERNS.forEach(pat => { s = s.replace(pat, ''); });
+  s = s.replace(/[.,、。・]/g, '');
+  s = s.replace(/\s+/g, ' ').trim().toLowerCase();
+  return s;
 }
 
 function filterBookingListGeneric(prefix){
@@ -8308,6 +8385,7 @@ async function openBookingDetail(id, opts){
   _agentAutocompleteSelectedId.bd = null;
   _bdOriginalAgentName = b.agent_name||'';
   _bdOriginalAgentId = b.agent_id||null;
+  updateBdAgentUnlinkedWarn();
   document.getElementById('bd-tour-code').value = b.tour_code||'';
   document.getElementById('bd-tour').value = b.tour_name||'';
   document.getElementById('bd-pax-adt').value = b.pax_adult||0;
@@ -19454,11 +19532,15 @@ async function saveBookingDetail(){
   const bookingCompareFields = buildBookingCompareFields();
   const bookingDirty = bdLoadSnapshot.booking !== JSON.stringify(bookingCompareFields);
   // F13フェーズ3: Agent欄が読み込み時点から変更されていなければagent_idも元のまま
-  // 維持する。変更されていれば、候補選択済みならそのid、手入力(自由入力)ならnullにする
-  // (候補選択後に文字を書き換えた場合も、名前が選択時と一致しなくなるためnullになる)。
-  const agentIdForSave = (bookingCompareFields.agent_name === _bdOriginalAgentName)
+  // 維持する(前回保存時に3段階解決済み・または「紐付けずに保存」を選んだ結果である
+  // ため、毎回聞き直さない)。変更されていれば、候補選択済みならそのid、手入力(自由入力)
+  // で候補選択状態が崩れていればresolveAgentIdOnSave()による3段階自動解決に委ねる。
+  let agentIdForSave = (bookingCompareFields.agent_name === _bdOriginalAgentName)
     ? _bdOriginalAgentId
     : resolveAgentIdForSave('bd', bookingCompareFields.agent_name);
+  if(bookingCompareFields.agent_name && !agentIdForSave && bookingCompareFields.agent_name !== _bdOriginalAgentName){
+    agentIdForSave = await resolveAgentIdOnSave(bookingCompareFields.agent_name);
+  }
   const payload = Object.assign({}, bookingCompareFields, {
     // TCP(合計人数)。updateBdPaxTotal()と同じ式(ADT+CHD+INF+FOC)。getBillablePax()の
     // 対象(明細行デフォルト人数用のADT+CHDのみ)とは別物のため混同しないこと。
@@ -19505,6 +19587,7 @@ async function saveBookingDetail(){
     _bdOriginalAgentName = bookingCompareFields.agent_name;
     _bdOriginalAgentId = agentIdForSave;
     _agentAutocompleteSelectedId.bd = null;
+    updateBdAgentUnlinkedWarn();
 
     // ── 差分検出 ──────────────────────────────────────────────────────────
     // 各タブについて、ロード直後に取ったスナップショット(bdLoadSnapshot.xxx)と
@@ -19839,12 +19922,17 @@ async function saveBooking(){
   const chd = Number(document.getElementById('nb-pax-chd').value)||0;
   const inf = Number(document.getElementById('nb-pax-inf').value)||0;
   const agentName = document.getElementById('nb-agent').value.trim();
+  // F13フェーズ3: 候補から選択したまま(文字を書き換えずに)保存した場合のみagent_id
+  // を設定する。自由入力・編集で候補選択状態が崩れている場合は、resolveAgentIdOnSave()
+  // による3段階自動解決(完全一致→類似候補モーダル→新規登録/紐付けなし)に委ねる。
+  let agentId = resolveAgentIdForSave('nb', agentName);
+  if(agentName && !agentId){
+    agentId = await resolveAgentIdOnSave(agentName);
+  }
   const payload = {
     ref_no: ref,
     agent_name: agentName,
-    // F13フェーズ3: 候補から選択したまま(文字を書き換えずに)保存した場合のみagent_id
-    // を設定する。自由入力の場合はnullのまま(マスタへの新規登録は強制しない)。
-    agent_id: resolveAgentIdForSave('nb', agentName),
+    agent_id: agentId,
     tour_code: document.getElementById('nb-tour-code').value.trim() || null,
     tour_name: document.getElementById('nb-tour').value.trim(),
     pax: adt+chd+inf,
@@ -27241,6 +27329,14 @@ const _agentAutocompleteSelectedId = { nb: null, bd: null, arr: null };
 let _bdOriginalAgentName = '';
 let _bdOriginalAgentId = null;
 
+// 予約詳細のAgent欄に「⚠ マスタ未登録」を表示するかどうか(直近の保存済み状態を基準に
+// 判定する。入力中の未確定な値ではなく、_bdOriginalAgentName/_bdOriginalAgentIdを見る)。
+function updateBdAgentUnlinkedWarn(){
+  const warnEl = document.getElementById('bd-agent-unlinked-warn');
+  if(!warnEl) return;
+  warnEl.style.display = (_bdOriginalAgentName && !_bdOriginalAgentId) ? '' : 'none';
+}
+
 const _AGENT_SCOPE_IDS = { nb: 'nb-agent', bd: 'bd-agent', arr: 'arr-agency-name' };
 function _agentInputId(scope){ return _AGENT_SCOPE_IDS[scope] || 'bd-agent'; }
 function _agentDdId(scope){ return _AGENT_SCOPE_IDS[scope] ? `${_AGENT_SCOPE_IDS[scope]}-dd` : 'bd-agent-dd'; }
@@ -27287,6 +27383,68 @@ function resolveAgentIdForSave(scope, currentAgentName){
   if(!selId) return null;
   const a = agentsCache.find(x=>String(x.id)===String(selId));
   return (a && a.company_name === currentAgentName) ? selId : null;
+}
+
+// 予約・請求書の保存時に、agent_nameが入力されているのにagent_idが未確定(オートコンプリート
+// 候補を選ばず自由入力・編集した)場合の3段階自動解決(教訓#18: agentsとbusiness_partnersは
+// 別テーブルのため、ここで参照するのは常にagentsCache/agentsApiCallのみ)。
+// 1. 正規化名(normalizeAgentName、表記ゆれ吸収)でagentsマスタ(is_deleted=false)と完全一致
+//    すれば、確認モーダルを出さずそのagent_idを返す。
+// 2. 完全一致しなければ、Agent名刺OCRの重複検出で使っているgetAiSimilarityCandidatesForAgents
+//    (bigram類似度、既存関数をそのまま流用)で類似候補を上位3件抽出し、確認モーダルで人間に
+//    選ばせる(「候補を使う」「新しいエージェントとして登録する」「今は紐付けずに保存」の
+//    3択。保存自体を止める強制はしないため、いずれを選んでも必ず先へ進める)。
+//    ここではapi/partner-similarity.jsへのAI判定リクエストは行わない(保存処理のたびに
+//    AI呼び出しが挟まり待たされるのを避けるため。bigram類似度だけで上位候補を提示し、
+//    最終判断は常に人間に委ねる)。
+// 3. 「新しいエージェントとして登録」を選んだ場合はagentsへINSERTしてそのidを返す。
+async function resolveAgentIdOnSave(agentName){
+  const name = (agentName||'').trim();
+  if(!name) return null;
+
+  await _ensureAgentsCacheLoaded();
+  const activeAgents = agentsCache.filter(a=>!a.is_deleted);
+
+  const normTarget = normalizeAgentName(name);
+  const exact = activeAgents.find(a=>normalizeAgentName(a.company_name)===normTarget);
+  if(exact) return exact.id;
+
+  const candidate = { companyName: name };
+  const candidates = getAiSimilarityCandidatesForAgents(candidate, activeAgents, null).slice(0,3);
+
+  const choices = candidates.map((a,i)=>({ label:`候補「${a.company_name}」を使う`, value:`cand:${i}`, primary:i===0 }));
+  choices.push({ label:'＋ 新しいエージェントとして登録する', value:'new' });
+  choices.push({ label:'今は紐付けずに保存', value:'skip' });
+
+  const messageHtml = `入力された「${escHtml(name)}」は`
+    + (candidates.length ? '、Agentマスタの登録内容と似た候補が見つかりましたが、完全には一致しませんでした。' : '、Agentマスタ(agentsテーブル。取引先マスタとは別)と一致しませんでした。')
+    + '選択してください(「今は紐付けずに保存」を選ぶと保存はそのまま進み、後で改めて紐付けできます)。';
+
+  const choice = await showChoiceModal('Agentマスタとの紐付け確認', messageHtml, choices);
+
+  if(choice && choice.startsWith('cand:')){
+    const picked = candidates[Number(choice.split(':')[1])];
+    if(picked){
+      try{ await recordAgentMergeLearning(candidate, picked.id); }catch(e){ /* 学習記録の失敗は保存を妨げない */ }
+      return picked.id;
+    }
+  }
+  if(choice === 'new'){
+    try{
+      const { rows } = await agentsApiCall('insert', { rows: [{ company_name: name }] });
+      const newAgent = rows && rows[0];
+      if(newAgent){
+        agentsCache.push(newAgent);
+        return newAgent.id;
+      }
+    }catch(e){
+      logError('Agentマスタへの新規登録(保存時自動解決)', e);
+      alert('Agentマスタへの新規登録に失敗しました。紐付けなしで保存します: '+e.message);
+    }
+    return null;
+  }
+  // 'skip'。強制はしないため、そのままnullで保存を続行する。
+  return null;
 }
 
 function filterAgents(){
@@ -28188,7 +28346,7 @@ function filterInvoiceUnified(){
     }
     return `<tr class="row-link" onclick="openBookingDetail('${row.id}',{scrollTo:'sales'})">
       <td class="lnk" data-label="REF#">${row.ref_no}</td>
-      <td data-label="Agent" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${row.agent_name||''}</td>
+      <td data-label="Agent" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${row.agent_name||''}${(row.agent_name && !row.agent_id) ? '<div style="font-size:9px;color:var(--amber,#854F0B)">⚠ マスタ未登録</div>' : ''}</td>
       <td data-label="Tour" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${row.tour_name||''}</td>
       <td data-label="IN">${row.in_date||'-'}</td>
       <td data-label="OUT">${row.out_date||'-'}</td>
@@ -28221,7 +28379,7 @@ async function loadInvoicePage(){
     const invs = invsByBooking[b.id];
     if(!invs || invs.length===0){
       return [{
-        id: b.id, ref_no: b.ref_no, agent_name: b.agent_name, tour_name: b.tour_name,
+        id: b.id, ref_no: b.ref_no, agent_name: b.agent_name, agent_id: b.agent_id, tour_name: b.tour_name,
         in_date: b.in_date, out_date: b.out_date,
         gross_sales: b.gross_sales, status: b.status,
         invoice_no: null, issue_date: null, currency: 'JPY', amount: null,
@@ -28230,7 +28388,7 @@ async function loadInvoicePage(){
       }];
     }
     return invs.map(inv=>({
-      id: b.id, ref_no: b.ref_no, agent_name: inv.agent_name || b.agent_name, tour_name: b.tour_name,
+      id: b.id, ref_no: b.ref_no, agent_name: inv.agent_name || b.agent_name, agent_id: inv.agent_id || b.agent_id, tour_name: b.tour_name,
       in_date: b.in_date, out_date: b.out_date,
       gross_sales: b.gross_sales, status: b.status,
       invoice_no: inv.invoice_no, issue_date: inv.issue_date,
@@ -28436,7 +28594,11 @@ async function generateInvoice(bookingId, currency, agentFilter){
   }
 
   let amount;
-  let agentId = null;
+  // 予約自体のagent_id(通常はこちらを使う)。按分(請求先を分ける)で明細行ごとに別の
+  // agent_idが選ばれている場合はそちらを優先する(下記withAgentId参照。1つの予約が
+  // 複数の請求先に分かれるケースでは、予約全体のagent_idより明細行側の指定の方が
+  // その請求書にとって正確なため)。
+  let agentId = booking.agent_id || null;
   if(salesRows && salesRows.length>0){
     const filtered = salesRows.filter(r=>salesItemBelongsToAgent(r, agentFilter, booking.agent_name));
     amount = filtered.reduce((s,r)=>s+Number(r.amount||0),0);
