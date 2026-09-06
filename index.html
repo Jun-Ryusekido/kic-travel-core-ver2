@@ -1364,9 +1364,10 @@ input[type=number]{-moz-appearance:textfield}
             <div class="form-field"><label>売上 (GROSS SALES, JPY)</label><input id="nb-sales" type="number" placeholder="1870000"></div>
             <div class="form-field"><label>原価 (GROSS COST, JPY)</label><input id="nb-cost" type="number" placeholder="1290000"></div>
           </div>
-          <div style="margin-top:14px;display:flex;gap:8px">
+          <div style="margin-top:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             <button class="btn btn-p" id="nb-save-btn" onclick="saveBooking()">💾 保存</button>
             <span class="msg-ok" id="nb-msg">✓ 予約を保存しました</span>
+            <span class="msg-error" id="nb-error-msg" style="display:none;color:var(--red,#c0392b)">⚠ 保存に失敗しました。この入力内容のまま別の予約用にREF#だけ変えて保存しないよう、内容をご確認の上で再度保存してください(この画面を一度離れて開き直すと入力欄はリセットされます)。</span>
           </div>
         </div>
       </div>
@@ -4045,6 +4046,7 @@ function go(id){
   if(id!=='dashboard') logAction('ページ遷移', pageNames[id]||id);
 
   if(id==='dashboard') loadBookingListGeneric('db');
+  if(id==='new-booking') resetNewBookingForm();
   if(id==='booking-list') loadBookingListGeneric('bl');
   if(id==='tour-calendar') initTourCalendar();
   if(id==='restaurant-conflicts') initRestaurantConflicts();
@@ -19816,9 +19818,28 @@ async function updateNbPaxTotal(){
   document.getElementById('nb-pax-total').value = adt+chd+inf;
 }
 
+// New Booking画面は(予約詳細モーダル等と違い)常設の1ページであり、開くたびに
+// 呼ばれる関数が無いと前回の入力が残ったままになる(REF#265・#266で実際に発生した
+// と考えられる、別予約のagent_name/tour_nameが混入する不具合の原因)。
+// go('new-booking')で画面を表示する直前と、保存成功後の両方でこれを呼び、
+// 常に空の状態から入力を始められるようにする。
+function resetNewBookingForm(){
+  ['nb-ref','nb-agent','nb-tour-code','nb-tour','nb-pax-adt','nb-pax-chd','nb-pax-inf','nb-pax-total','nb-in','nb-out','nb-sales','nb-cost'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('nb-status').value='open';
+  _agentAutocompleteSelectedId.nb = null;
+  hideAgentSuggest('nb');
+  document.getElementById('nb-msg').style.display='none';
+  document.getElementById('nb-error-msg').style.display='none';
+}
+
 async function saveBooking(){
   const ref = document.getElementById('nb-ref').value.trim();
-  if(!ref){ alert('REF#を入力してください'); return; }
+  if(!ref){
+    document.getElementById('nb-error-msg').style.display='none';
+    alert('REF#を入力してください');
+    document.getElementById('nb-ref').focus();
+    return;
+  }
   const adt = Number(document.getElementById('nb-pax-adt').value)||0;
   const chd = Number(document.getElementById('nb-pax-chd').value)||0;
   const inf = Number(document.getElementById('nb-pax-inf').value)||0;
@@ -19845,17 +19866,20 @@ async function saveBooking(){
   const saveBtnOrigHtml = saveBtn ? saveBtn.innerHTML : null;
   if(saveBtn){ saveBtn.disabled = true; saveBtn.innerHTML = '⏳ 保存中...'; }
   try{ await bookingsApiCall('insert', { rows: [payload] }); }
-  catch(e){ alert('保存に失敗しました: '+e.message); return; }
+  catch(e){
+    alert('保存に失敗しました: '+e.message);
+    // 保存失敗時は入力内容をあえて消さない(打ち直しの手間を省くため)が、そのまま
+    // REF#だけ変えて別の予約用に転用されないよう、画面上に警告を残しておく
+    // (この画面を離れて開き直せばresetNewBookingForm()でリセットされる)。
+    document.getElementById('nb-error-msg').style.display='inline';
+    return;
+  }
   finally{ if(saveBtn){ saveBtn.disabled = false; saveBtn.innerHTML = saveBtnOrigHtml; } }
 
   await logAction('予約入力', ref);
+  resetNewBookingForm();
   document.getElementById('nb-msg').style.display='inline';
   setTimeout(()=>document.getElementById('nb-msg').style.display='none', 3000);
-
-  // フォームクリア
-  ['nb-ref','nb-agent','nb-tour-code','nb-tour','nb-pax-adt','nb-pax-chd','nb-pax-inf','nb-pax-total','nb-in','nb-out','nb-sales','nb-cost'].forEach(id=>document.getElementById(id).value='');
-  document.getElementById('nb-status').value='open';
-  _agentAutocompleteSelectedId.nb = null;
 }
 
 // ===== GROSS =====
