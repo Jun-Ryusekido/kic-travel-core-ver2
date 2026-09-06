@@ -6920,7 +6920,7 @@ function renderCostTable(){
       return `<tr${rowBg}>
         <td data-label="仕入先"><input ${dis} value="${(it.item_name||'').replace(/"/g,'&quot;')}" title="${(it.item_name||'').replace(/"/g,'&quot;')}" oninput="bdCostItems[${i}].item_name=this.value;showSupplierSuggestions(this,${i})" onblur="setTimeout(hideSupplierSuggestions,150)" onfocus="showSupplierSuggestions(this,${i})">${srcWarnHtml}</td>
         <td data-label="仕入額" style="text-align:right"><input ${dis} type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="bdCostRowCalc(${i},this)" style="text-align:right"></td>
-        <td data-label="出金日" style="text-align:center"><input ${disPayDate} type="date" min="1900-01-01" max="9999-12-31" value="${_safeDate(it.payment_date)}" onchange="bdCostItems[${i}].payment_date=this.value" style="text-align:center"></td>
+        <td data-label="出金日" style="text-align:center"><input ${disPayDate} type="date" min="1900-01-01" max="9999-12-31" value="${_safeDate(it.payment_date)}" onchange="bdCostItems[${i}].payment_date=this.value;renderCostTable()" style="text-align:center${(it.payment_method==='クレジットカード(個人・要精算)' && !it.payment_date) ? ';border-color:var(--amber,#854F0B);background:var(--amber-lt,#FAEEDA)' : ''}" title="${(it.payment_method==='クレジットカード(個人・要精算)' && !it.payment_date) ? '未精算(個人立替)。出金日を入力すると精算済みになります' : ''}"></td>
         <td data-label="支払方法">
           <select ${dis} onchange="bdCostItems[${i}].payment_method=this.value;renderCostTable()" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px"><option value="" ${!it.payment_method?'selected':''}></option>${LOCAL_EXPENSE_PAYMENT_METHODS.map(m=>`<option value="${m}" ${it.payment_method===m?'selected':''}>${m}</option>`).join('')}</select>
           ${CC_PAYMENT_METHODS.includes(it.payment_method) ? `
@@ -6928,11 +6928,6 @@ function renderCostTable(){
             <option value="" ${!it.card_holder?'selected':''}>名義人を選択</option>
             ${staffOptions.map(name=>`<option value="${escAttr(name)}" ${it.card_holder===name?'selected':''}>${escHtml(name)}</option>`).join('')}
           </select>` : ''}
-          ${it.payment_method==='クレジットカード(個人・要精算)' ? `
-          <div style="margin-top:3px">
-            <span class="btn" style="font-size:9px;padding:1px 6px;white-space:nowrap;cursor:default;${it.payment_date?'background:var(--green-lt);color:var(--green);border-color:var(--green)':'background:var(--amber-lt,#FAEEDA);color:var(--amber,#854F0B);border-color:var(--amber,#854F0B)'}">${it.payment_date?'✓ 精算済み':'⚠ 未精算'}</span>
-            ${!it.payment_date ? `<div style="font-size:9px;color:var(--text3);margin-top:2px">出金日を入力すると精算済みになります</div>` : ''}
-          </div>` : ''}
         </td>
         <td data-label="備考"><input ${dis} value="${(it.memo||'').replace(/"/g,'&quot;')}" title="${(it.memo||'').replace(/"/g,'&quot;')}" onchange="bdCostItems[${i}].memo=this.value"></td>
         <td class="li-del">${approveBtn}${delBtn}</td>
