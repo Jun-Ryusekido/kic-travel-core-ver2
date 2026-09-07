@@ -137,10 +137,16 @@ const TABLE_CONFIG = {
   // 今回は書き込み(insert/updateById/deleteById)のみをservice_role経由に移行し、
   // 読み取り(select、一覧表示・ダッシュボード・メールマッチング等)はこれまで通り
   // anon+RLSのまま変更しない(rollout時のリスクを最小化するため)。
+  // stampUpdatedAt(2026-09-08追加): 従来はindex.html側の各updateById呼び出しが個別に
+  // updated_atをセットしており、たまたま全箇所で一貫していただけでサーバー側の保証が
+  // 無かった(email_import_queueで実際に発生した「anon直接書き込みでupdated_atが
+  // 更新されず差分バックアップから漏れる」問題と同じ構造的リスク)。booking_costs等と
+  // 同じ方式に揃え、クライアントの自己申告値を使わずサーバー側で確実にスタンプする。
   bookings: {
     actions: ['insert', 'updateById', 'deleteById'],
     label: '予約',
     stampIdentity: true,
+    stampUpdatedAt: true,
     auditLog: true,
   },
   // booking_facilities(観光施設・バス駐車場等): 観光地予約管理画面(複数予約横断の
