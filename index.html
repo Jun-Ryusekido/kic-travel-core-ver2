@@ -3965,17 +3965,25 @@ function doLogout(){
   document.getElementById('login-pw').value='';
 }
 
-// 操作があるたびにセッションの有効期限を延長（頻発しすぎないよう間引き）
+// 操作があるたびにセッションの有効期限を延長（頻発しすぎないよう間引き）。
+// 予約詳細モーダルのように縦に長い画面をマウスホイールで読み進めるだけの操作は、
+// click/keydown/mousemove/touchstartのいずれにも該当せず無操作とみなされてしまい、
+// 保存操作をしただけなのに直前の数分〜十数分の閲覧中にセッション切れが起きたように
+// 見える不具合があったため、wheel/touchmove/scrollも操作とみなす対象に追加する。
 let lastTouchAt = 0;
-['click','keydown','mousemove','touchstart'].forEach(evt=>{
-  document.addEventListener(evt, ()=>{
-    if(!currentUser) return;
-    const now = Date.now();
-    if(now - lastTouchAt < 10000) return; // 10秒に1回まで
-    lastTouchAt = now;
-    touchSession();
-  }, {passive:true});
+const _touchSessionOnActivity = () => {
+  if(!currentUser) return;
+  const now = Date.now();
+  if(now - lastTouchAt < 10000) return; // 10秒に1回まで
+  lastTouchAt = now;
+  touchSession();
+};
+['click','keydown','mousemove','touchstart','wheel','touchmove'].forEach(evt=>{
+  document.addEventListener(evt, _touchSessionOnActivity, {passive:true});
 });
+// scrollイベントはバブリングしないため、モーダル内側のスクロール可能な要素で発生した
+// スクロールも拾えるよう、captureフェーズでdocumentに登録する。
+document.addEventListener('scroll', _touchSessionOnActivity, {passive:true, capture:true});
 
 // 1分ごとにセッション期限を確認し、切れていれば自動ログアウト
 setInterval(()=>{
@@ -6938,8 +6946,13 @@ function renderInvoiceActions(){
 
 let bdCostSortField = null, bdCostSortDir = 1, bdCostSearch = '';
 
-function renderCostTable(){
-  if(_dateInputFocusedIn('bd-cost-tbody')) return;
+// force=true: 出金日inputのchangeハンドラ専用。change発火時点ではその入力欄自身がまだ
+// フォーカスを保持していることが多く(_dateInputFocusedInガードに引っかかる)、通常呼び出し
+// だと編集確定直後の再描画がスキップされて精算ステータス表示(枠線色)が更新されないまま
+// 残ってしまう(モーダルを閉じて開き直すまで直らない不具合の原因)。changeが発火した時点で
+// その項目の編集は確定しているため、ガードを無視して必ず再描画する。
+function renderCostTable(force){
+  if(!force && _dateInputFocusedIn('bd-cost-tbody')) return;
   const tbody = document.getElementById('bd-cost-tbody');
   if(!tbody) return;
   const dis = bdLocked ? 'disabled' : '';
@@ -6997,11 +7010,11 @@ function renderCostTable(){
       return `<tr${rowBg}>
         <td data-label="仕入先"><input ${dis} value="${(it.item_name||'').replace(/"/g,'&quot;')}" title="${(it.item_name||'').replace(/"/g,'&quot;')}" oninput="bdCostItems[${i}].item_name=this.value;showSupplierSuggestions(this,${i})" onblur="setTimeout(hideSupplierSuggestions,150)" onfocus="showSupplierSuggestions(this,${i})">${srcWarnHtml}</td>
         <td data-label="仕入額" style="text-align:right"><input ${dis} type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="bdCostRowCalc(${i},this)" style="text-align:right"></td>
-        <td data-label="出金日" style="text-align:center"><input ${disPayDate} type="date" min="1900-01-01" max="9999-12-31" value="${_safeDate(it.payment_date)}" onchange="bdCostItems[${i}].payment_date=this.value;renderCostTable()" style="text-align:center${(it.payment_method==='クレジットカード(個人・要精算)' && !it.payment_date) ? ';border-color:var(--amber,#854F0B);background:var(--amber-lt,#FAEEDA)' : ''}" title="${(it.payment_method==='クレジットカード(個人・要精算)' && !it.payment_date) ? '未精算(個人立替)。出金日を入力すると精算済みになります' : ''}"></td>
+        <td data-label="出金日" style="text-align:center"><input ${disPayDate} type="date" min="1900-01-01" max="9999-12-31" value="${_safeDate(it.payment_date)}" onchange="bdCostItems[${i}].payment_date=this.value;renderCostTable(true)" style="text-align:center${(it.payment_method==='クレジットカード(個人・要精算)' && !it.payment_date) ? ';border-color:var(--amber,#854F0B);background:var(--amber-lt,#FAEEDA)' : ''}" title="${(it.payment_method==='クレジットカード(個人・要精算)' && !it.payment_date) ? '未精算(個人立替)。出金日を入力すると精算済みになります' : ''}"></td>
         <td data-label="支払方法">
-          <select ${dis} onchange="bdCostItems[${i}].payment_method=this.value;renderCostTable()" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px"><option value="" ${!it.payment_method?'selected':''}></option>${LOCAL_EXPENSE_PAYMENT_METHODS.map(m=>`<option value="${m}" ${it.payment_method===m?'selected':''}>${m}</option>`).join('')}</select>
+          <select ${dis} onchange="bdCostItems[${i}].payment_method=this.value;renderCostTable()" style="width:100%;box-sizing:border-box;height:24px;line-height:24px;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:0 4px"><option value="" ${!it.payment_method?'selected':''}></option>${LOCAL_EXPENSE_PAYMENT_METHODS.map(m=>`<option value="${m}" ${it.payment_method===m?'selected':''}>${m}</option>`).join('')}</select>
           ${CC_PAYMENT_METHODS.includes(it.payment_method) ? `
-          <select ${dis} onchange="bdCostItems[${i}].card_holder=this.value" style="width:100%;font-size:10px;border:1px solid var(--border);border-radius:5px;padding:2px 4px;margin-top:3px;color:var(--text2)">
+          <select ${dis} onchange="bdCostItems[${i}].card_holder=this.value" style="width:100%;box-sizing:border-box;height:22px;line-height:22px;font-size:10px;border:1px solid var(--border);border-radius:5px;padding:0 4px;margin-top:3px;color:var(--text2)">
             <option value="" ${!it.card_holder?'selected':''}>名義人を選択</option>
             ${staffOptions.map(name=>`<option value="${escAttr(name)}" ${it.card_holder===name?'selected':''}>${escHtml(name)}</option>`).join('')}
           </select>` : ''}
