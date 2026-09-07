@@ -38,6 +38,10 @@ $BackupRoot  = if ($BackupRootOverride) { $BackupRootOverride } else { 'C:\KIC_B
 $RetentionDays = 7
 $StateFile = if ($StateFileOverride) { $StateFileOverride } else { Join-Path $PSScriptRoot 'data\backup_last_success.json' }
 
+# 2026-09-07: agent_info/payments/suppliersはコード参照0件・TABLE_CONFIG未登録の
+# 旧システムの名残(agent_infoはagentsテーブルへ機能移管済み、paymentsは入出金管理の
+# 旧実装、suppliersはbusiness_partnersへ完全移行済み)と判明したため、バックアップ後に
+# DROP TABLEで削除し、ここからも除外した(agent_infoはこの配列にはもともと未登録)。
 $Tables = @(
   'bookings',
   'booking_sales',
@@ -49,7 +53,6 @@ $Tables = @(
   'guide_settlements',
   'guide_settlement_items',
   'guides',
-  'suppliers',
   'business_partners',
   'local_expenses',
   'bullet_train_arrangements',
@@ -69,8 +72,7 @@ $Tables = @(
   'learned_mappings',
   'partner_merge_pending',
   'vendor_email_logs',
-  'booking_edit_presence',
-  'payments'
+  'booking_edit_presence'
 )
 
 # 差分取得の対象(updated_at列あり + 書き込み経路が全てtable-crud.js経由であることを

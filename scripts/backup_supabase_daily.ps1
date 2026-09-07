@@ -33,9 +33,12 @@ $NasRetentionDays   = 90
 
 # 全テーブル一覧(index.html / guide.html / api / email-automation / parking-automation を
 # 横断して sb.from()/rest/v1 参照を洗い出したもの)。テーブルを新設したらここに追加すること。
+# 2026-09-07: agent_info/payments/suppliersはコード参照0件・TABLE_CONFIG未登録の
+# 旧システムの名残(agent_infoはagentsテーブルへ機能移管済み、paymentsは入出金管理の
+# 旧実装、suppliersはbusiness_partnersへ完全移行済み)と判明したため、バックアップ後に
+# DROP TABLEで削除し、ここからも除外した。
 $Tables = @(
   'access_logs',
-  'agent_info',
   'agents',
   'app_users',
   'arrangement_documents',
@@ -73,8 +76,6 @@ $Tables = @(
   'local_expenses',
   'parking_reservations',
   'partner_merge_pending',
-  'payments',
-  'suppliers',
   'tour_arrangement_days',
   'tour_arrangement_headers',
   'tour_arrangement_notes',
