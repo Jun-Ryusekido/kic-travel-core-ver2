@@ -12,6 +12,26 @@
 #     ただしNAS側にコピーが無ければ(前回NAS未接続だった等)コピーだけ追加で行う
 #   - NASに到達できない場合はローカルのみ保存し、ログに警告を残して正常終了する
 #   - 保持期間を過ぎた古いZIPは自動削除(ローカル30日 / NAS 90日)
+#
+# 差分バックアップ(2026-09-07追加、email_import_queue専用):
+#   email_import_queueは1万件超・1行あたりの本文が大きく、egress(データ転送量)の
+#   大半を占めていたため($CreatedAtDiffTablesに列挙したテーブルのみ)、前回成功時刻
+#   (状態ファイル)以降にcreated_atされた行だけを取得する。それ以外のテーブルは
+#   従来通り全件取得。
+#   backup_supabase.ps1の$DiffTables(updated_at基準)とは別の仕組みであることに注意。
+#   email_import_queueはimported/ignored/is_excluded等のフラグが後から更新されうるが、
+#   created_at基準の差分では「作成後に状態が変わった既存行」は再取得されない
+#   (=その日以降のバックアップ内容は作成時点の状態のまま古くなる)。これは許容する
+#   トレードオフとして採用した(状態が確定した行は定期的にemail_import_queue_archiveへ
+#   移動されるため、その時点の最終状態はアーカイブ側のバックアップで捕捉される)。
+#   状態ファイル: scripts/data/backup_daily_last_success.json (テーブルごとに個別の時刻)。
+#   このファイルは.gitignore対象(scripts/data/*)のため、リポジトリにはコミットされない。
+#
+# -StateFileOverrideは検証専用のパラメータ。Windowsタスクスケジューラからの通常実行では
+# 指定せず、既定値(scripts/data/backup_daily_last_success.json)を使う。
+param(
+  [string]$StateFileOverride
+)
 
 # ===== Config =====
 $SupabaseUrl  = 'https://nzdygjlnzvtdezslnuoy.supabase.co'
@@ -30,6 +50,14 @@ $LocalBackupDir = 'C:\Users\jryus\Documents\KIC_Backup'
 $NasBackupDir   = '\\LS220D8CB\kic_date\KIC TRAVEL CORE SYSTEM\Supabase_Backup'
 $LocalRetentionDays = 30
 $NasRetentionDays   = 90
+$StateFile = if ($StateFileOverride) { $StateFileOverride } else { Join-Path $PSScriptRoot 'data\backup_daily_last_success.json' }
+
+# created_at基準の差分取得の対象(スクリプト冒頭コメント参照)。他のテーブルを追加する
+# 場合は、created_at列が存在すること、かつ「作成後に状態が変わらない」または「状態変化を
+# 追跡しなくても許容できる」テーブルであることを確認してから追加すること。
+$CreatedAtDiffTables = @(
+  'email_import_queue'
+)
 
 # 全テーブル一覧(index.html / guide.html / api / email-automation / parking-automation を
 # 横断して sb.from()/rest/v1 参照を洗い出したもの)。テーブルを新設したらここに追加すること。
@@ -37,6 +65,12 @@ $NasRetentionDays   = 90
 # 旧システムの名残(agent_infoはagentsテーブルへ機能移管済み、paymentsは入出金管理の
 # 旧実装、suppliersはbusiness_partnersへ完全移行済み)と判明したため、バックアップ後に
 # DROP TABLEで削除し、ここからも除外した。
+# 2026-09-07: email_import_queue_archive(email_import_queueの解決済み・30日以上前の
+# 行を移動する退避テーブル)は意図的にここへ含めない。egress削減が目的で新設した
+# テーブルであり、移動時点までの内容は移動元email_import_queueの日次バックアップ
+# (このzip)に既に含まれているため、退避後にあらためて毎日バックアップし直す必要が
+# 薄いと判断した。万一将来的に必要になった場合は、頻度を落として(例: 月次)別途
+# バックアップする運用を検討すること。
 $Tables = @(
   'access_logs',
   'agents',
@@ -96,6 +130,29 @@ function Write-Log {
   Write-Output $line
   Add-Content -Path $logFile -Value $line -Encoding utf8
 }
+
+# ===== created_at差分バックアップの状態ファイル読み込み =====
+# ファイルが存在しない、または壊れて読み込めない場合は空のハッシュテーブルを返す。
+# これにより「stateが無い/壊れている」場合は$CreatedAtDiffTablesの対象テーブルが
+# 「前回時刻なし」扱いになり、自動的に全件取得(初回相当)にフォールバックする
+# (backup_supabase.ps1のGet-BackupStateと同じ考え方)。
+function Get-BackupState {
+  param([string]$path)
+  if (-not (Test-Path $path)) { return @{} }
+  try {
+    $raw = Get-Content -Path $path -Raw -ErrorAction Stop
+    if ([string]::IsNullOrWhiteSpace($raw)) { return @{} }
+    $obj = $raw | ConvertFrom-Json -ErrorAction Stop
+    $result = @{}
+    foreach ($p in $obj.PSObject.Properties) { $result[$p.Name] = $p.Value }
+    return $result
+  } catch {
+    Write-Log "WARNING: state file corrupt/unreadable ($StateFile) -- $($_.Exception.Message). Falling back to full fetch for all created_at-diff tables this run." | Out-Null
+    return @{}
+  }
+}
+$state = Get-BackupState -path $StateFile
+$newState = $state.Clone()
 
 $today   = (Get-Date).ToString('yyyy-MM-dd')
 $zipName = "kic_backup_$today.zip"
@@ -161,17 +218,33 @@ $headers = @{
   'Authorization' = "Bearer $SupabaseKey"
 }
 foreach ($table in $Tables) {
+  $isCreatedAtDiff = $CreatedAtDiffTables -contains $table
+  $prevTime = $null
+  if ($isCreatedAtDiff -and $state.ContainsKey($table)) { $prevTime = $state[$table] }
+  # 取得開始「前」の時刻を次回の基準時刻にする(取得中に作成された行を取りこぼさないため。
+  # backup_supabase.ps1の$DiffTablesと同じ考え方)。
+  $runStart = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
   try {
     $allRows = @()
     $pageSize = 1000
     $offset = 0
     while ($true) {
-      $uri = "$SupabaseUrl/rest/v1/$table" + "?select=*&order=id&limit=$pageSize&offset=$offset"
+      if ($isCreatedAtDiff -and $prevTime) {
+        $encoded = [uri]::EscapeDataString($prevTime)
+        $uri = "$SupabaseUrl/rest/v1/$table" + "?select=*&created_at=gte.$encoded&order=created_at.asc,id.asc&limit=$pageSize&offset=$offset"
+      } else {
+        $uri = "$SupabaseUrl/rest/v1/$table" + "?select=*&order=id&limit=$pageSize&offset=$offset"
+      }
       try {
         $resp = Invoke-RestMethod -Uri $uri -Headers $headers -Method Get -ErrorAction Stop
       } catch {
         # id列が無いテーブル等でorder=idが失敗する場合に備え、order無しで再試行する
-        $uri2 = "$SupabaseUrl/rest/v1/$table" + "?select=*&limit=$pageSize&offset=$offset"
+        # (created_at差分の場合はcreated_at.ascのみを維持し、offsetでページングする)
+        $uri2 = if ($isCreatedAtDiff -and $prevTime) {
+          "$SupabaseUrl/rest/v1/$table" + "?select=*&created_at=gte.$encoded&order=created_at.asc&limit=$pageSize&offset=$offset"
+        } else {
+          "$SupabaseUrl/rest/v1/$table" + "?select=*&limit=$pageSize&offset=$offset"
+        }
         $resp = Invoke-RestMethod -Uri $uri2 -Headers $headers -Method Get -ErrorAction Stop
       }
       $count = @($resp).Count
@@ -194,12 +267,27 @@ foreach ($table in $Tables) {
       Set-Content -Path $csvPath -Value '' -Encoding utf8
     }
 
-    Write-Log "  OK: $table (rows: $($allRows.Count))"
+    $modeLabel = if ($isCreatedAtDiff) { if ($prevTime) { "created_at diff since $prevTime" } else { 'created_at diff (初回:全件)' } } else { 'full' }
+    Write-Log "  OK($modeLabel): $table (rows: $($allRows.Count))"
+    # 成功した場合のみ状態を更新する(失敗した場合は前回時刻のまま維持し、
+    # 次回実行時に同じ範囲を再取得できるようにする=データ欠損防止)。
+    if ($isCreatedAtDiff) { $newState[$table] = $runStart }
   } catch {
     $hadError = $true
     Write-Log "  ERROR: failed to fetch $table -- $($_.Exception.Message)"
     Set-Content -Path (Join-Path $workDir "$table.ERROR.txt") -Value $_.Exception.Message -Encoding utf8
+    # $isCreatedAtDiffの場合、$newStateには何もしない(既にCloneしたstateの値が保持される
+    # =前回成功時刻のまま。今回が初回でprevTimeが無かった場合はそのまま無しの状態を維持)。
   }
+}
+
+# ===== created_at差分バックアップの状態ファイルを保存 =====
+try {
+  $stateDir = Split-Path $StateFile -Parent
+  if (-not (Test-Path $stateDir)) { New-Item -ItemType Directory -Force -Path $stateDir | Out-Null }
+  ($newState | ConvertTo-Json) | Set-Content -Path $StateFile -Encoding utf8
+} catch {
+  Write-Log "WARNING: failed to save state file ($StateFile) -- $($_.Exception.Message)"
 }
 
 # ===== Zip =====

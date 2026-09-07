@@ -1,7 +1,12 @@
 ﻿# KIC Travel Core - Supabase full-table backup script.
-# Intended to be triggered hourly by Windows Task Scheduler.
-# The script checks whether the current time is within 10:00-22:00 and exits
-# immediately if not, so the scheduled task itself can just run every hour.
+# Intended to be triggered hourly by Windows Task Scheduler (the task itself can keep
+# firing every hour without any change; this script self-gates on $RunHours below).
+#
+# 実行時間帯(2026-09-07変更): egress(データ転送量)削減のため、1日12回(10:00-21:00毎時)
+# から1日4回(10:00/13:00/16:00/19:00の3時間おき)に減らした。タスクスケジューラの
+# トリガー自体は毎時のままで構わない(このスクリプトが$RunHoursに無い時刻の起動を
+# 即終了させる)。トリガー間隔自体を3時間おきに変更したい場合は、このファイル末尾の
+# コメント「タスクスケジューラのトリガーを変更する場合の手順」を参照。
 #
 # 差分バックアップ(2026-08-01追加):
 #   $DiffTables に列挙したテーブルのみ、前回成功時刻(状態ファイル)以降に
@@ -88,10 +93,15 @@ $DiffTables = @(
   'booking_costs'
 )
 
-# ===== Time window check (only run between 10:00 and 22:00) =====
+# ===== Run-hour check (only run at $RunHours; タスク自体は毎時起動のままでよい) =====
+# 2026-09-07: egress削減のため、10:00-21:00の毎時(1日12回)から、3時間おき4回
+# (10:00/13:00/16:00/19:00)に変更した。タスクスケジューラのトリガー間隔は変更せず、
+# このスクリプト自身が対象外の時刻を判定して即終了する(従来の10:00-22:00の範囲判定と
+# 同じ仕組みを、範囲ではなく特定時刻の一致判定に変えただけ)。
+$RunHours = @(10, 13, 16, 19)
 $now = Get-Date
-if (-not $SkipTimeWindowCheck -and ($now.Hour -lt 10 -or $now.Hour -ge 22)) {
-  Write-Output "[$now] Outside backup window (10:00-22:00). Skipping."
+if (-not $SkipTimeWindowCheck -and ($RunHours -notcontains $now.Hour)) {
+  Write-Output "[$now] Not a scheduled run hour ($($RunHours -join ', ')). Skipping."
   exit 0
 }
 
@@ -244,3 +254,19 @@ if ($hadError) {
 } else {
   Write-Log "===== Backup finished OK ====="
 }
+
+# ===== タスクスケジューラのトリガーを変更する場合の手順(任意、通常は不要) =====
+# 上記の$RunHours判定により、タスク自体は毎時起動のままでも1日4回しか実際には
+# バックアップ処理が走らない(それ以外の起動はスキップして即終了する)。そのため
+# タスクスケジューラの設定は変更しなくても今回の削減目的は達成できる。
+#
+# もしタスク自体の起動回数(プロセス起動のオーバーヘッド)も減らしたい場合は、
+# 以下の手順でトリガー間隔を毎時→3時間おきに変更できる:
+#   1. タスクスケジューラ(taskschd.msc)を開く
+#   2. タスクスケジューラ ライブラリから "KIC_Supabase_Backup" を探して右クリック→プロパティ
+#   3. [トリガー]タブ→既存のトリガーを選択→[編集]
+#   4. 「詳細設定」内の「繰り返し間隔」を「1 時間」から「3 時間」に変更
+#      (開始時刻が10:00になっていることを確認。3時間おきなら10:00/13:00/16:00/19:00/
+#       22:00...と続くが、このスクリプト側の$RunHoursが19時までしか許可しないため、
+#       22:00の起動は従来通りスキップされ実害はない)
+#   5. [OK]で保存
