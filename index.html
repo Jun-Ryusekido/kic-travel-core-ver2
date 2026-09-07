@@ -6506,10 +6506,13 @@ async function toggleBookingLock(){
   if(!b) return;
   if(!confirm('この予約の売上・仕入明細を確定（編集不可）にします。よろしいですか？\n（解除は管理者のみ行えます）')) return;
 
-  const payload = {locked:true, locked_at: new Date().toISOString(), locked_by: currentUser?currentUser.email:null, updated_at: new Date().toISOString()};
-  try{ await bookingsApiCall('updateById', { id: b.id, fields: payload }); }
+  const payload = {locked:true, locked_at: new Date().toISOString(), locked_by: currentUser?currentUser.email:null};
+  let result;
+  try{ result = await bookingsApiCall('updateById', { id: b.id, fields: payload }); }
   catch(e){ alert('更新に失敗しました: '+e.message); return; }
-  Object.assign(b, payload);
+  // updated_atはサーバー側(stampUpdatedAt)で確定するため、クライアントでは指定せず
+  // 更新後の行(result.rows[0])から取り込む。
+  Object.assign(b, payload, { updated_at: result.rows?.[0]?.updated_at ?? b.updated_at });
   bdLocked = true;
   await logAction('売上仕入を確定', b.ref_no);
   renderLockBanner();
@@ -6523,10 +6526,13 @@ async function unlockBooking(){
   if(!b) return;
   if(!confirm('この予約の売上・仕入明細のロックを解除します。よろしいですか？')) return;
 
-  const payload = {locked:false, locked_at:null, locked_by:null, updated_at: new Date().toISOString()};
-  try{ await bookingsApiCall('updateById', { id: b.id, fields: payload }); }
+  const payload = {locked:false, locked_at:null, locked_by:null};
+  let result;
+  try{ result = await bookingsApiCall('updateById', { id: b.id, fields: payload }); }
   catch(e){ alert('更新に失敗しました: '+e.message); return; }
-  Object.assign(b, payload);
+  // updated_atはサーバー側(stampUpdatedAt)で確定するため、クライアントでは指定せず
+  // 更新後の行(result.rows[0])から取り込む。
+  Object.assign(b, payload, { updated_at: result.rows?.[0]?.updated_at ?? b.updated_at });
   bdLocked = false;
   await logAction('売上仕入のロックを解除', b.ref_no);
   renderLockBanner();
@@ -9632,7 +9638,6 @@ async function reflectLocalExpensesToCost(){
   const guideLabel = guideNames.length ? guideNames.join('・') : '';
   const memoLabel = `仮払い一覧表（${tourCode}）${guideLabel}`.trim();
 
-  const nowIso = new Date().toISOString();
   const newCostRow = {
     booking_id: bookingId,
     item_name: '仮払金',
@@ -9647,7 +9652,7 @@ async function reflectLocalExpensesToCost(){
 
   const {data: allCosts} = await sb.from('booking_costs').select('amount').eq('booking_id', bookingId);
   const newGrossCost = (allCosts||[]).reduce((sum,c)=>sum+Number(c.amount||0),0);
-  await bookingsApiCall('updateById', { id: bookingId, fields: {gross_cost:newGrossCost, updated_at: nowIso} });
+  await bookingsApiCall('updateById', { id: bookingId, fields: {gross_cost:newGrossCost} });
   b.gross_cost = newGrossCost;
   await logAction('仮払い一覧表を仕入明細に反映', b.ref_no+' / '+yen(roundedUp));
 
@@ -10653,7 +10658,7 @@ async function reflectVoucherToCost(settlementId, guideIndex){
   }catch(e){ logError('ガイド精算の反映済みフラグ更新', e, {toast:false}); }
   const {data: allCosts} = await sb.from('booking_costs').select('amount').eq('booking_id', b.id);
   const newGrossCost = (allCosts||[]).reduce((sum,c)=>sum+Number(c.amount||0),0);
-  await bookingsApiCall('updateById', { id: b.id, fields: {gross_cost:newGrossCost, updated_at:new Date().toISOString()} });
+  await bookingsApiCall('updateById', { id: b.id, fields: {gross_cost:newGrossCost} });
   b.gross_cost = newGrossCost;
   await logAction('伝票内容を仕入明細に反映', b.ref_no);
   // 全件再取得してbdCostItemsを丸ごと差し替えると、仕入明細タブで他の行を編集中(まだ
@@ -19561,8 +19566,7 @@ async function saveBookingDetail(){
     gross_sales: totalSales,
     gross_cost: totalCost,
     deposit_amount: bdSalesItems.reduce((s,it)=>s+(it.payments||[]).reduce((ps,p)=>ps+(Number(p.amount)||0),0),0),
-    agent_id: agentIdForSave,
-    updated_at: new Date().toISOString()
+    agent_id: agentIdForSave
   });
   // 保存ボタン押下から完了メッセージが出るまでの間、何も画面が変化せず処理中か
   // フリーズしているか分かりにくいという指摘への対応。ボタン(ヘッダー・下部の2箇所)を
@@ -19807,15 +19811,18 @@ async function saveBookingDetail(){
     const b = findBookingById(bookingId);
     await logAction('予約編集', b ? b.ref_no : bookingId);
 
+    // updated_atはサーバー側(stampUpdatedAt)で確定するため、クライアントのpayloadでは
+    // 指定せず、更新後の行(updatedRows[0]、19596行目でresult.rowsから取得済み)から取り込む。
+    const savedUpdatedAt = updatedRows[0].updated_at;
     // キャッシュ更新 & 再描画（キャッシュに存在する場合のみ更新）
-    if(b) Object.assign(b, payload);
+    if(b) Object.assign(b, payload, { updated_at: savedUpdatedAt });
     // bookingsListCache(dashboard/予約一覧専用の軽量キャッシュ)側の同じ予約行にも
     // 同じ更新を反映する(無いと、保存直後のdb/bl一覧が古い値のまま残ってしまう)。
     const bLight = bookingsListCache.find(x=>x.id===bookingId);
-    if(bLight) Object.assign(bLight, payload);
+    if(bLight) Object.assign(bLight, payload, { updated_at: savedUpdatedAt });
     document.getElementById('bd-msg').style.display='inline';
     document.getElementById('bd-msg-top').style.display='inline';
-    document.getElementById('bd-updated').textContent = '最終更新: '+new Date(payload.updated_at).toLocaleString('ja-JP');
+    document.getElementById('bd-updated').textContent = '最終更新: '+new Date(savedUpdatedAt).toLocaleString('ja-JP');
     // 保存後もそのまま編集を続ける可能性があるため、ハートビートのsetInterval自体は止めず、
     // 保存直後にも1回送っておく(「編集中」表示が保存タイミングで途切れて見えないようにする)。
     if(_bdPresenceBookingId===bookingId) _bdPresenceTick();
@@ -23317,7 +23324,7 @@ async function saveCostFromOcr(count){
     bdCostItems.push({item_name: it.item_name, amount: it.amount, payment_date: it.payment_date, memo: it.memo});
   }
   const newGrossCost = bdCostItems.reduce((s,it)=>s+Number(it.amount||0),0);
-  await bookingsApiCall('updateById', { id: currentDetailId, fields: {gross_cost: newGrossCost, updated_at: new Date().toISOString()} });
+  await bookingsApiCall('updateById', { id: currentDetailId, fields: {gross_cost: newGrossCost} });
   const bk = findBookingById(currentDetailId);
   if(bk) bk.gross_cost = newGrossCost;
   renderCostTable();
@@ -23625,7 +23632,7 @@ async function saveInvoiceConfirm(){
     renderCostTable();
     updateDetailGrossPreview();
     const newGross = bdCostItems.reduce((s,it)=>s+Number(it.amount||0),0);
-    await bookingsApiCall('updateById', { id: currentDetailId, fields: {gross_cost:newGross, updated_at:new Date().toISOString()} });
+    await bookingsApiCall('updateById', { id: currentDetailId, fields: {gross_cost:newGross} });
     const bk=findBookingById(currentDetailId); if(bk) bk.gross_cost=newGross;
   }
   // この請求書読み取りは複数のREF#(予約)にまたがって仕入明細を振り分けられる設計のため、
@@ -23640,7 +23647,7 @@ async function saveInvoiceConfirm(){
     const {data: costsForBid, error: costsErr} = await sb.from('booking_costs').select('amount').eq('booking_id', bid);
     if(costsErr){ logError('請求書取込後のgross_cost再計算', costsErr, {toast:false}); continue; }
     const newGross = (costsForBid||[]).reduce((s,r)=>s+Number(r.amount||0),0);
-    await bookingsApiCall('updateById', { id: bid, fields: {gross_cost:newGross, updated_at:new Date().toISOString()} });
+    await bookingsApiCall('updateById', { id: bid, fields: {gross_cost:newGross} });
     const bk = findBookingById(bid); if(bk) bk.gross_cost = newGross;
   }
 
@@ -28664,7 +28671,7 @@ async function generateInvoice(bookingId, currency, agentFilter){
   }
 
   // 予約ステータスを invoiced に更新
-  await bookingsApiCall('updateById', { id: bookingId, fields: {status:'invoiced', updated_at: new Date().toISOString()} });
+  await bookingsApiCall('updateById', { id: bookingId, fields: {status:'invoiced'} });
   await logAction('Invoice発行', invoiceNo + ' (' + booking.ref_no + (agentFilter?(' / '+agentFilter):'') + ')');
 
   // 個別Invoiceを発行・再発行するたびに、同じbooking_idの合算Invoice(全請求先合計)も
@@ -28745,7 +28752,7 @@ async function generateConsolidatedInvoice(bookingId, currency){
     return;
   }
 
-  await bookingsApiCall('updateById', { id: bookingId, fields: {status:'invoiced', updated_at: new Date().toISOString()} });
+  await bookingsApiCall('updateById', { id: bookingId, fields: {status:'invoiced'} });
   await logAction('Invoice発行', data.invoice_no + ' (' + booking.ref_no + ' / 合算)');
 
   await loadInvoicePage();
