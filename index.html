@@ -4260,14 +4260,25 @@ async function saveFacilityManagementStatus(id, value){
   filterFacilityManagement();
 }
 
+// キャッシュTTL共通ヘルパー(2026-09-08、egress削減の一環)。複数人が同時に使う予約管理
+// システムのため、無期限キャッシュ(読み込んだらプロセス終了まで再取得しない)のままだと
+// 他スタッフの更新が画面に反映されない事態になりうる。5分は「画面遷移毎の無駄な
+// 再取得を防ぐ効果」と「他スタッフの更新への追従の早さ」の折衷値として選んだ。
+// なお、自分自身が保存・削除した内容は各保存処理側でキャッシュ配列を直接更新済み
+// (Object.assign等)のため、このTTLは主に「他スタッフの変更を拾うまでの最大遅延」として働く。
+const CACHE_TTL_MS = 5*60*1000;
+function cacheIsFresh(fetchedAt){ return !!fetchedAt && (Date.now()-fetchedAt) < CACHE_TTL_MS; }
+
 // ===== Dashboard / Booking List（共通: prefixで切替） =====
 let allBookingsCache = [];
+let allBookingsCacheAt = 0;
 // ダッシュボード/予約一覧(loadBookingListGeneric/filterBookingListGeneric)専用の軽量キャッシュ。
 // Supabase Free プランのegress対策(F-egress-2)。この画面は開くたびにallBookingsCache
 // (bookings全列)を無条件で再取得していたが、この画面が実際に使う列は限られている
 // (LIST_COLUMNS参照)ため、fetchBookingsListLight()経由に切り替える。allBookingsCache
 // (他の多数の画面が全列前提で参照している共有キャッシュ)自体には一切手を触れない。
 let bookingsListCache = [];
+let bookingsListCacheAt = 0;
 const LIST_PAGE_SIZE = 100;
 const listState = { db:{page:1, sortField:null, sortDir:1}, bl:{page:1, sortField:null, sortDir:1} };
 
@@ -4338,7 +4349,10 @@ const TEMP_DEFAULT_FROM = '2026-03-01';
 async function loadBookingListGeneric(prefix){
   document.getElementById(prefix+'-tbody').innerHTML='<tr class="bl-fullrow"><td colspan="8" class="empty">読み込み中...</td></tr>';
   renderListHeader(prefix);
-  bookingsListCache = await fetchBookingsListLight();
+  if(!bookingsListCache.length || !cacheIsFresh(bookingsListCacheAt)){
+    bookingsListCache = await fetchBookingsListLight();
+    bookingsListCacheAt = Date.now();
+  }
   listState[prefix].page = 1;
   const fromEl = document.getElementById(prefix+'-from');
   const isAdmin = currentUser && currentUser.role==='admin';
@@ -6273,6 +6287,10 @@ async function addArrRowToCostNow(payload, btnEl, onSuccess){
 }
 const LOCAL_EXPENSE_TYPES = ['食事','食事代','食事/TIP','交通費','入場料','駐車場代','ホテル','ホテル代','水代','駐車料','TIP','雑費','その他'];
 let bdLocked = false; let suppliersCache = []; let busCompaniesCache = []; let restaurantPartnersCache = []; let allPartnersCache = []; let facilityPartnersCache = []; let hotelPartnersCache = [];
+// 業者名オートコンプリート用キャッシュ(busCompaniesCache等)のTTL用タイムスタンプ。
+// 元は一度読み込んだら無期限に使い回していたが、複数人で使う取引先マスタへの新規登録が
+// いつまでも反映されないため、CACHE_TTL_MS(5分)で期限切れとする。
+let busCompaniesCacheAt = 0, hotelPartnersCacheAt = 0, facilityPartnersCacheAt = 0, restaurantPartnersCacheAt = 0, allPartnersCacheAt = 0;
 // 売上明細「項目名」欄オートコンプリート用。固定リスト(常に上位表示)＋過去実績の頻度上位。
 const SALES_ITEM_NAME_FIXED_LIST = [
   'Tour Fee', 'Tour Fee (FOC)', 'Hotel (Single Suppliment)', 'Hotel (Triple Reduction)',
@@ -7182,7 +7200,7 @@ function hideItemNameSuggestionsForSales(){
 }
 
 async function loadBusCompaniesCache(){
-  if(busCompaniesCache.length>0) return;
+  if(busCompaniesCache.length>0 && cacheIsFresh(busCompaniesCacheAt)) return;
   const {data} = await sb.from('business_partners')
     .select('id,company_name')
     .eq('category','バス・ハイヤー等')
@@ -7192,6 +7210,7 @@ async function loadBusCompaniesCache(){
   // は担当者情報一本化により廃止列のため参照しない)。
   if(businessPartnerContactsIndex.size===0) await loadBusinessPartnerContactsIndex();
   busCompaniesCache = (data||[]).map(p=>({ company_name: p.company_name, phone: getDisplayContactForPartner(p).phone||'' }));
+  busCompaniesCacheAt = Date.now();
 }
 // onSelect省略時は従来通り: idx>=0ならbdBusItems[idx]を直接書き換え(保存済み一覧テーブル向け)、
 // idx<0なら何もしない(取引先マスタ・駐車場予約モーダル等の単独欄向け、既存動作)。
@@ -7242,7 +7261,7 @@ function hideBusCompanySuggest(){
 // 手配管理のホテルタブ(bdHotelItems)以外に、手配書編集モーダル(arrDays)・見積もり編集画面(estDays)からも
 // 呼ばれるため、書き込み先の配列をarr引数で受け取る(showBusCompanySuggest等と異なり単一配列に固定できないため)。
 async function loadHotelPartnersCache(){
-  if(hotelPartnersCache.length>0) return;
+  if(hotelPartnersCache.length>0 && cacheIsFresh(hotelPartnersCacheAt)) return;
   const {data} = await sb.from('business_partners')
     .select('id,company_name')
     .eq('category','ホテル')
@@ -7252,6 +7271,7 @@ async function loadHotelPartnersCache(){
   // は担当者情報一本化により廃止列のため参照しない)。
   if(businessPartnerContactsIndex.size===0) await loadBusinessPartnerContactsIndex();
   hotelPartnersCache = (data||[]).map(p=>({ company_name: p.company_name, phone: getDisplayContactForPartner(p).phone||'' }));
+  hotelPartnersCacheAt = Date.now();
 }
 async function showHotelSuggest(inputEl, idx, arr){
   hideHotelSuggest();
@@ -7284,7 +7304,7 @@ function hideHotelSuggest(){
 // 観光施設・バス駐車場等タブの「施設名」欄オートコンプリート。取引先マスタ(business_partners)のカテゴリ「その他」から検索。
 // 観光施設専用のカテゴリが取引先マスタに存在しないため、実データの登録実態に合わせて「その他」を対象にしている。
 async function loadFacilityPartnersCache(){
-  if(facilityPartnersCache.length>0) return;
+  if(facilityPartnersCache.length>0 && cacheIsFresh(facilityPartnersCacheAt)) return;
   const {data} = await sb.from('business_partners')
     .select('id,company_name')
     .eq('category','その他')
@@ -7294,6 +7314,7 @@ async function loadFacilityPartnersCache(){
   // は担当者情報一本化により廃止列のため参照しない)。
   if(businessPartnerContactsIndex.size===0) await loadBusinessPartnerContactsIndex();
   facilityPartnersCache = (data||[]).map(p=>({ company_name: p.company_name, phone: getDisplayContactForPartner(p).phone||'' }));
+  facilityPartnersCacheAt = Date.now();
 }
 // onSelect省略時は従来通りbdFacilityItems[idx]を直接書き換える(保存済み一覧テーブル向け)。
 // AI読み取り確認モーダル(showFacilityConfirmDialog)は別配列(window._pendingFacilities)を
@@ -7335,7 +7356,7 @@ function hideFacilitySuggest(){
   if(box) box.remove();
 }
 async function loadRestaurantPartnersCache(){
-  if(restaurantPartnersCache.length>0) return;
+  if(restaurantPartnersCache.length>0 && cacheIsFresh(restaurantPartnersCacheAt)) return;
   const {data} = await sb.from('business_partners')
     .select('id,company_name,company_name_en')
     .eq('category','レストラン')
@@ -7345,6 +7366,7 @@ async function loadRestaurantPartnersCache(){
   // は担当者情報一本化により廃止列のため参照しない)。
   if(businessPartnerContactsIndex.size===0) await loadBusinessPartnerContactsIndex();
   restaurantPartnersCache = (data||[]).map(p=>({ company_name: p.company_name, company_name_en: p.company_name_en, phone: getDisplayContactForPartner(p).phone||'' }));
+  restaurantPartnersCacheAt = Date.now();
 }
 // レストラン名（日本語）からbusiness_partnersに登録されている英語名を引く（NFKC正規化で全角/半角ゆれを吸収）
 function restaurantPartnerEnName(jpName){
@@ -7359,12 +7381,13 @@ function restaurantBilingualLabel(jpName, enName){
   return enName ? `${jpName} / ${enName}` : jpName;
 }
 async function loadAllPartnersCache(){
-  if(allPartnersCache.length>0) return;
+  if(allPartnersCache.length>0 && cacheIsFresh(allPartnersCacheAt)) return;
   const {data} = await sb.from('business_partners')
     .select('company_name')
     .or('is_deleted.is.null,is_deleted.eq.false')
     .order('company_name');
   allPartnersCache = data||[];
+  allPartnersCacheAt = Date.now();
 }
 async function filterInvSupplierDD(i){
   await loadAllPartnersCache();
@@ -9444,9 +9467,11 @@ async function deleteBookingData(){
 
     closeBookingDetail();
     allBookingsCache = await fetchAllBookings();
+    allBookingsCacheAt = Date.now();
     // bookingsListCache(dashboard/予約一覧専用の軽量キャッシュ)も同期する。
     // allBookingsCache(全列)は必要な列の上位互換のため、再度DBへ問い合わせず使い回す。
     bookingsListCache = allBookingsCache;
+    bookingsListCacheAt = allBookingsCacheAt;
     ['db','bl'].forEach(prefix=>{
       if(document.getElementById(prefix+'-tbody')){
         listState[prefix].page = 1;
@@ -19980,6 +20005,12 @@ async function saveBooking(){
   finally{ if(saveBtn){ saveBtn.disabled = false; saveBtn.innerHTML = saveBtnOrigHtml; } }
 
   await logAction('予約入力', ref);
+  // 新規作成した予約は、保存処理側でallBookingsCache/bookingsListCacheの中身を直接
+  // 更新する経路が無い(既存の予約を編集するsaveBookingDetail等と異なり、対応する
+  // オブジェクトがまだキャッシュ内に存在しないため)。TTLの残り時間を待たず、
+  // 次回アクセス時に確実に再取得させるためタイムスタンプを無効化する。
+  allBookingsCacheAt = 0;
+  bookingsListCacheAt = 0;
   resetNewBookingForm();
   document.getElementById('nb-msg').style.display='inline';
   setTimeout(()=>document.getElementById('nb-msg').style.display='none', 3000);
@@ -20636,9 +20667,10 @@ async function loadGuideSettlementsListPage(){
   const tbody = document.getElementById('gsl-tbody');
   tbody.innerHTML = '<tr><td colspan="11" class="empty">読み込み中...</td></tr>';
 
+  const needBookingsFetch = !allBookingsCache.length || !cacheIsFresh(allBookingsCacheAt);
   const [{data: summary, error: rpcErr}, data] = await Promise.all([
     sb.rpc('get_guide_settlements_summary', {p_status: null}),
-    fetchAllBookings()
+    needBookingsFetch ? fetchAllBookings() : Promise.resolve(allBookingsCache)
   ]);
   if(rpcErr){
     logError('ガイド精算一覧の読み込み(get_guide_settlements_summary)', rpcErr);
@@ -20646,6 +20678,7 @@ async function loadGuideSettlementsListPage(){
     return;
   }
   allBookingsCache = data;
+  if(needBookingsFetch) allBookingsCacheAt = Date.now();
 
   guideSettlementsListCache = summary||[];
   filterGuideSettlementsListByStatus();
@@ -21284,7 +21317,10 @@ function pickHmConfirmCandidate(i, bookingId){
 
 async function showHotelConfirmDialog(hotels){
   window._pendingHotels = hotels;
-  bookingsListCache = await fetchBookingsListLight();
+  if(!bookingsListCache.length || !cacheIsFresh(bookingsListCacheAt)){
+    bookingsListCache = await fetchBookingsListLight();
+    bookingsListCacheAt = Date.now();
+  }
   const bookings2 = bookingsListCache;
   // #を除去して数値順ソート（ref_noが #1154 形式を前提）
   const _hmNumOf = ref => { const n=parseInt((ref||'').replace(/^#/,''),10); return isNaN(n)?Infinity:n; };
@@ -23347,7 +23383,10 @@ async function showInvoiceConfirmDialog(expenses, invoiceTotal, taxAppliedNote){
     ${taxAppliedNote ? `<div style="margin-top:6px;font-size:11px;color:var(--text3)">${escHtml(taxAppliedNote)}</div>` : ''}
   </div>`;
 
-  bookingsListCache = await fetchBookingsListLight();
+  if(!bookingsListCache.length || !cacheIsFresh(bookingsListCacheAt)){
+    bookingsListCache = await fetchBookingsListLight();
+    bookingsListCacheAt = Date.now();
+  }
   const _numOf = ref => { const n=parseInt((ref||'').replace(/^#/,''),10); return isNaN(n)?Infinity:n; };
   const sortedBookings = bookingsListCache
     .filter(b => b.ref_no || b.agent_name || b.tour_name)
@@ -27306,6 +27345,7 @@ async function deletePartner(id){
 // 送客元エージェント専用のマスタ。テーブル・画面ともに完全に分離しており、
 // 既存の取引先マスタには一切影響しない。
 let agentsCache = [];
+let agentsCacheAt = 0;
 let currentAgentEditId = null;
 // 名刺OCR(processAgentCardFile)で類似候補を検出したが「＋別の新規取引先として登録」を
 // 選んだ場合に、そのagentsの候補idを記憶しておく(savePartner/savePartnerと同じ考え方。
@@ -27327,11 +27367,11 @@ async function loadAgents(){
 // 別に、ここでは一覧表示は不要なため件数取得のみの軽いクエリで済ませる)。
 let _agentSuggestLoading = null;
 async function _ensureAgentsCacheLoaded(){
-  if(agentsCache.length>0) return;
+  if(agentsCache.length>0 && cacheIsFresh(agentsCacheAt)) return;
   if(_agentSuggestLoading) return _agentSuggestLoading;
   _agentSuggestLoading = (async()=>{
     const {data, error} = await sb.from('agents').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('company_name');
-    if(!error) agentsCache = data||[];
+    if(!error){ agentsCache = data||[]; agentsCacheAt = Date.now(); }
   })();
   await _agentSuggestLoading;
   _agentSuggestLoading = null;
@@ -27688,7 +27728,7 @@ async function processAgentCardFile(file){
 
   try{
     const {data: freshAgents} = await sb.from('agents').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('company_name');
-    if(freshAgents) agentsCache = freshAgents;
+    if(freshAgents){ agentsCache = freshAgents; agentsCacheAt = Date.now(); }
   }catch(e){ logError('Agentキャッシュの再読込', e, {toast:false}); }
 
   try{
