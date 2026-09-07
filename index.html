@@ -6139,6 +6139,27 @@ const ARR_COST_SECTION_MAP = {
   fac:   {table:'booking_facilities', nameField:'facility_name', dateField:'date', label:'観光施設・バス駐車場等'},
   water: {table:'booking_water_items', nameField:'item_name', dateField:'date', label:'ミネラルウォーター'},
 };
+// arrCostCheckboxHtml/addArrRowToCostNowが「行の配列名」から実際の配列を引くための対応表。
+// SOURCE_TABLE_ARRAYS(booking_costs.source_table→配列)とは向きが違う
+// (こちらはbdBusItems等の変数名文字列→配列)ため、あえて別のマップとして持つ。
+const ARR_NAME_ARRAYS = {
+  bdHotelItems: ()=>bdHotelItems,
+  bdBusItems: ()=>bdBusItems,
+  bdRestaurantItems: ()=>bdRestaurantItems,
+  bdFacilityItems: ()=>bdFacilityItems,
+  bdWaterItems: ()=>bdWaterItems,
+};
+// 出金日は経理担当者が実際の支払日を後から手入力する欄で、手配行の日付
+// (チェックイン日・利用日等)とは無関係のため、自動反映時には値を入れない(空欄のまま)。
+// 備考欄には支払方法ではなく日付情報を入れる(全セクション共通フォーマット)。
+// costSourceWarning()とarrCostCheckboxHtml/addArrRowToCostNowの両方で同じ計算が
+// 必要なため、ここに集約する。
+function _arrItemDateDisplay(sec, it){
+  const d1 = sanitizeDateField(it[sec.dateField]) || '';
+  const d2raw = sec.dateField2 ? (sanitizeDateField(it[sec.dateField2]) || '') : '';
+  const d2 = (d2raw && d2raw!==d1) ? d2raw : '';
+  return d2 ? `${d1}〜${d2}` : d1;
+}
 function arrCostCheckboxHtml(arrName, i, it, kind){
   const btnStyleBase = 'font-size:9px;padding:1px 4px;white-space:nowrap;line-height:1.6';
   if(it.cost_added){
@@ -6147,24 +6168,14 @@ function arrCostCheckboxHtml(arrName, i, it, kind){
   if(isFreePaymentMethod(it.payment_method)){
     return `<td data-label="仕入明細へ" style="text-align:center"><button class="btn" disabled style="${btnStyleBase}" title="支払方法が無料(FREE)のため仕入対象外です">追加</button></td>`;
   }
-  const sec = ARR_COST_SECTION_MAP[kind];
-  // 出金日は経理担当者が実際の支払日を後から手入力する欄で、手配行の日付
-  // (チェックイン日・利用日等)とは無関係のため、自動反映時には値を入れない(空欄のまま)。
-  // 備考欄には支払方法ではなく日付情報を入れる(全セクション共通フォーマット)。
-  const d1 = sanitizeDateField(it[sec.dateField]) || '';
-  const d2raw = sec.dateField2 ? (sanitizeDateField(it[sec.dateField2]) || '') : '';
-  const d2 = (d2raw && d2raw!==d1) ? d2raw : '';
-  const dateDisplay = d2 ? `${d1}〜${d2}` : d1;
-  const payload = {
-    table: sec.table,
-    rowId: it.id || null,
-    itemName: it[sec.nameField] || '',
-    dateDisplay: dateDisplay,
-    paymentMethod: it.payment_method || '',
-    label: sec.label
-  };
-  const json = JSON.stringify(payload).replace(/'/g,'&apos;');
-  return `<td data-label="仕入明細へ" style="text-align:center"><button class="btn" style="${btnStyleBase};background:var(--blue,#2563eb);color:#fff;border-color:var(--blue,#2563eb)" onclick='addArrRowToCostNow(${json}, this, ()=>{ ${arrName}[${i}].cost_added=true; })'>追加</button></td>`;
+  // 業務フロー点検対応③: 以前はここで仕入先名・日付をJSONにシリアライズしてボタンの
+  // onclickへ直接埋め込んでいたが、その後この行の日付・仕入先名欄を編集しても
+  // (これらのinputはonchangeで配列を更新するだけで再描画を伴わないため)ボタン側の
+  // 値は行が最後に描画された時点のまま更新されず、古い内容(日付欄が空の状態等)で
+  // 仕入明細へ反映されてしまう不具合があった(2026-09、#1069のバス手配で実際に発生)。
+  // クリック時にbdBusItems等の最新の値を読み直せるよう、配列名・行index・kindだけを
+  // 渡す方式に変更した。
+  return `<td data-label="仕入明細へ" style="text-align:center"><button class="btn" style="${btnStyleBase};background:var(--blue,#2563eb);color:#fff;border-color:var(--blue,#2563eb)" onclick="addArrRowToCostNow('${arrName}', ${i}, '${kind}', this)">追加</button></td>`;
 }
 // 業務フロー点検対応②: 仕入明細行(booking_costs)が「仕入明細へ追加」経由で作られたもの
 // (source_table/source_idを持つ)である場合、追加元の手配データが削除・変更されていないかを
@@ -6188,19 +6199,32 @@ function costSourceWarning(it){
   if(!getArr || !sec) return null;
   const src = (getArr()||[]).find(r=>r.id===it.source_id);
   if(!src) return {type:'deleted'};
-  const d1 = sanitizeDateField(src[sec.dateField]) || '';
-  const d2raw = sec.dateField2 ? (sanitizeDateField(src[sec.dateField2]) || '') : '';
-  const d2 = (d2raw && d2raw!==d1) ? d2raw : '';
-  const dateDisplay = d2 ? `${d1}〜${d2}` : d1;
+  const dateDisplay = _arrItemDateDisplay(sec, src);
   const curName = src[sec.nameField] || '';
   const snap = it.source_snapshot || {};
   if((snap.item_name||'') !== curName || (snap.date_display||'') !== dateDisplay) return {type:'changed'};
   return null;
 }
 
-async function addArrRowToCostNow(payload, btnEl, onSuccess){
+async function addArrRowToCostNow(arrName, i, kind, btnEl){
   if(!currentDetailId){ alert('予約詳細を開いてください'); return; }
   const bookingId = currentDetailId;
+  // 業務フロー点検対応③: 仕入先名・日付・支払方法はボタンHTMLに焼き付けず、クリックされた
+  // 時点でbdBusItems等の最新の値を読み直す(arrCostCheckboxHtmlのコメント参照。
+  // 行が最後に描画された後に日付欄だけ変更→即クリック、のようなケースで古い値が
+  // 仕入明細に反映されてしまう不具合の修正)。
+  const arr = ARR_NAME_ARRAYS[arrName] ? ARR_NAME_ARRAYS[arrName]() : null;
+  const it = arr ? arr[i] : null;
+  if(!it){ alert('対象の行が見つかりませんでした。画面を更新してもう一度お試しください。'); return; }
+  const sec = ARR_COST_SECTION_MAP[kind];
+  const payload = {
+    table: sec.table,
+    rowId: it.id || null,
+    itemName: it[sec.nameField] || '',
+    dateDisplay: _arrItemDateDisplay(sec, it),
+    paymentMethod: it.payment_method || '',
+    label: sec.label,
+  };
   const origLabel = btnEl.textContent;
   btnEl.disabled = true;
   btnEl.textContent = '...';
@@ -6259,7 +6283,7 @@ async function addArrRowToCostNow(payload, btnEl, onSuccess){
       source_snapshot: newCostRow.source_snapshot,
     });
     renderCostTable();
-    onSuccess();
+    it.cost_added = true;
     btnEl.textContent = '済み';
     btnEl.disabled = true;
     btnEl.style.background = '#e2e3e5';
