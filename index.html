@@ -26106,7 +26106,7 @@ function renderPartnersRows(){
           ${enLine ? `<div class="pt-card-en">${escHtml(enLine)}</div>` : ''}
           ${personLine ? `<div class="pt-card-meta">${escHtml(personLine)}${kanaSuffix}${copyBtn(dc.contact_person)}</div>` : ''}
           ${phone ? `<div class="pt-card-meta">📞 ${escHtml(phone)}${copyBtn(phone)}</div>` : ''}
-          ${p.email ? `<div class="pt-card-meta">✉️ ${escHtml(p.email)}</div>` : ''}
+          ${p.email ? `<div class="pt-card-meta">✉️ ${escHtml(p.email)}${copyBtn(p.email)}</div>` : ''}
           ${p.notes ? `<div class="pt-card-notes">${escHtml(p.notes)}${copyBtn(p.notes)}</div>` : ''}
         </div>
       </div>
@@ -26913,7 +26913,8 @@ function copyMultiLocationResult(btn){
   }).catch(() => { alert('コピーに失敗しました。テキストを手動で選択してください。'); });
 }
 
-// 取引先マスタ一覧の各項目(会社名/担当者/電話/メモ)横のコピーアイコン用。
+// 取引先マスタ一覧の各項目(会社名/担当者/電話/メール/メモ)横のコピーアイコン用。
+// Agentマスタ一覧のメールアドレスのコピーアイコン(filterAgents)からも共用する。
 // クリック直後にアイコンをチェックマークへ一瞬切り替えてコピー完了を示す
 // (copyMultiLocationResult()と同じ「ボタン自身の表示を一時的に変える」パターンを踏襲)。
 function copyPartnerField(btn, text, ev){
@@ -27655,6 +27656,9 @@ function filterAgents(){
     return;
   }
 
+  // 取引先マスタのpt-card(renderPartnersRows)と同じコピーアイコン(copyPartnerField再利用)
+  const copyBtn = (val) => val ? `<button type="button" class="copy-icon-btn" data-copy="${escAttr(val)}" onclick="copyPartnerField(this,this.dataset.copy,event)" title="コピー">📋</button>` : '';
+
   tbody.innerHTML = filtered.map(a=>`
     <tr>
       <td>${escHtml(a.company_name||'')}${a.company_name_local?('<br><span style="color:var(--text3);font-size:10px">'+escHtml(a.company_name_local)+'</span>'):''}</td>
@@ -27679,7 +27683,7 @@ function filterAgents(){
         ${a.company_name_local ? `<div class="pt-card-en">${escHtml(a.company_name_local)}</div>` : ''}
         ${a.contact_person ? `<div class="pt-card-meta">${escHtml(a.contact_person)}</div>` : ''}
         ${(a.phone||a.company_phone) ? `<div class="pt-card-meta">📞 ${escHtml(a.phone||a.company_phone)}</div>` : ''}
-        ${a.email ? `<div class="pt-card-meta">✉️ ${escHtml(a.email)}</div>` : ''}
+        ${a.email ? `<div class="pt-card-meta">✉️ ${escHtml(a.email)}${copyBtn(a.email)}</div>` : ''}
         ${a.notes ? `<div class="pt-card-notes">${escHtml(a.notes)}</div>` : ''}
       </div>
       <div class="pt-card-actions">
