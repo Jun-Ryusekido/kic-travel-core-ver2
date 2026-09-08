@@ -973,6 +973,24 @@ input[type=number]{-moz-appearance:textfield}
   #error-toast-container{right:50%;transform:translateX(50%);bottom:12px;max-width:420px}
 }
 
+/* ===== メール送信結果ポップアップ（「送る」→「送信」直後、その場限りの積み上げ表示） ===== */
+/* 常設タブ化しないその場限りの表示のため、DOMに保持するだけでDB保存やリロード後の
+   復元は行わない。error-toast-containerと反対側(左下)に積み上げる。 */
+#email-send-result-container{position:fixed;left:16px;bottom:16px;z-index:9999;display:flex;flex-direction:column;gap:10px;max-width:420px;width:calc(100vw - 32px);max-height:72vh;overflow-y:auto}
+.esr-card{background:var(--card);border:1px solid var(--border);border-left:4px solid var(--blue,#1565c0);border-radius:10px;padding:10px 12px;font-size:12px;box-shadow:0 4px 16px rgba(0,0,0,.18);animation:error-toast-in .2s ease-out}
+.esr-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:4px}
+.esr-subject{font-weight:600;line-height:1.4;word-break:break-word;flex:1}
+.esr-time{font-size:10px;color:var(--text3);white-space:nowrap;flex-shrink:0}
+.esr-close{background:none;border:none;cursor:pointer;font-size:15px;color:var(--text3);line-height:1;padding:0 2px;flex-shrink:0}
+.esr-note{font-size:10px;color:var(--text3);margin-bottom:6px}
+.esr-table th,.esr-table td{font-size:11px;padding:4px 6px}
+.esr-match-warn{color:var(--red);font-weight:600;white-space:nowrap}
+.esr-match-ok{color:var(--green,#2e7d32);font-weight:600;white-space:nowrap}
+.esr-match-detail{font-size:10px;color:var(--red);margin-top:2px}
+@media(max-width:640px){
+  #email-send-result-container{left:50%;transform:translateX(-50%);right:auto;bottom:12px;max-width:420px}
+}
+
 /* 請求書読み取り確認モーダル：スマホはカード形式（縦積み） */
 @media (max-width: 599px) {
   #invoice-confirm-modal table { table-layout: auto !important; min-width: 0 !important; }
@@ -14913,6 +14931,72 @@ async function appendEmailExcerptAsDraftRow(tab, excerpt){
 // imported=trueに更新するのは「全候補(チェックを外したものも含む)がdoneになった場合」
 // だけとする。以前は「チェックが入っている候補を処理し切ったら無条件にimported=true」
 // だったため、チェックを外した候補やエラーで中断した残りが黙って捨てられていた。
+// 「団体名・人数が実際の予約データと一致しているか」の簡易照合(正規表現ベース)。
+// AI抽出(fetchEmailSplitCandidates)は本文抜粋(excerpt)を返すのみで団体名・人数を
+// 構造化フィールドとしては抽出しないため、bookings.agent_name/pax を抜粋の自由文に
+// 突き合わせる形の「目安」判定に留まる(表記ゆれ・抜粋範囲外の記載等で誤検知しうる)。
+// 断定はできないため、呼び出し側は必ず「目安」である旨をUIに明記すること。
+function checkEmailSendMatch(booking, excerpt){
+  const notes = [];
+  const norm = s => String(s||'').replace(/[\s　]/g,'').toLowerCase();
+  const nExcerpt = norm(excerpt);
+  const agentName = booking && booking.agent_name ? String(booking.agent_name).trim() : '';
+  if(agentName){
+    const nName = norm(agentName);
+    if(nName && !nExcerpt.includes(nName)) notes.push(`団体名が抜粋内に見当たりません(予約: ${agentName})`);
+  }
+  const paxMatches = [...String(excerpt||'').matchAll(/(\d+)\s*(名様|名|人|pax|PAX)/gi)]
+    .map(m=>parseInt(m[1],10)).filter(n=>!isNaN(n));
+  const bookingPax = booking && booking.pax != null ? Number(booking.pax) : null;
+  if(paxMatches.length && bookingPax != null && !paxMatches.includes(bookingPax)){
+    notes.push(`人数が不一致の可能性(予約: ${bookingPax}名 / 抜粋: ${paxMatches.join('・')}名)`);
+  }
+  return { level: notes.length ? 'warn' : 'ok', notes };
+}
+
+// 「送信」を押した直後、その場限りで結果一覧をポップアップ表示する。常設のタブ・画面では
+// なく、DOM上に積み上げるだけ(リロードで消える)。複数メールを続けて送信した場合は
+// カードが積み上がって見える。
+function appendEmailSendResultPopup(subject, rows){
+  if(!rows || !rows.length) return;
+  let container = document.getElementById('email-send-result-container');
+  if(!container){
+    container = document.createElement('div');
+    container.id = 'email-send-result-container';
+    document.body.appendChild(container);
+  }
+  const timeStr = new Date().toLocaleTimeString('ja-JP');
+  const rowsHtml = rows.map(r=>{
+    let matchHtml;
+    if(r.status === 'error'){
+      matchHtml = `<span class="esr-match-warn">⚠ ${escHtml(r.errorMsg||'エラー')}</span>`;
+    }else if(r.match && r.match.level === 'warn'){
+      matchHtml = `<span class="esr-match-warn">⚠ 要確認</span><div class="esr-match-detail">${escHtml(r.match.notes.join(' / '))}</div>`;
+    }else{
+      matchHtml = `<span class="esr-match-ok">✓ 一致</span>`;
+    }
+    return `<tr>
+      <td data-label="REF#">${escHtml(r.refNo || r.rawRef || '-')}</td>
+      <td data-label="反映先">${escHtml(r.category || '-')}</td>
+      <td data-label="一致状況">${matchHtml}</td>
+    </tr>`;
+  }).join('');
+  const card = document.createElement('div');
+  card.className = 'esr-card';
+  card.innerHTML = `
+    <div class="esr-head">
+      <div class="esr-subject">📤 送信結果：${escHtml(subject||'(件名不明)')}</div>
+      <div class="esr-time">${escHtml(timeStr)}</div>
+      <button class="esr-close" title="閉じる" onclick="this.closest('.esr-card').remove()">×</button>
+    </div>
+    <div class="esr-note">⚠は団体名・人数の自動照合による「目安」です。断定はできないため、最終確認は対象の予約詳細で行ってください。</div>
+    <div class="tbl-wrap"><table class="confirm-table esr-table" style="width:100%">
+      <thead><tr><th>REF#</th><th>反映先</th><th>一致状況</th></tr></thead>
+      <tbody>${rowsHtml}</tbody>
+    </table></div>`;
+  container.insertBefore(card, container.firstChild);
+}
+
 async function submitEmailSplit(){
   const errEl = document.getElementById('email-split-err');
   errEl.style.display='none';
@@ -14934,15 +15018,19 @@ async function submitEmailSplit(){
   if(submitBtn) submitBtn.disabled = true;
   if(progressEl) progressEl.textContent = `${doneCount}/${total}件送信中...`;
 
+  // 「送信」直後にその場限りで出す結果ポップアップ用。ここで処理した候補だけを積む
+  // (前回までにdone済みの候補は前回送信時のポップアップで既に表示済みのため含めない)。
+  const sendResultRows = [];
+
   for(const c of pending){
     let refNo = c.refNo.trim();
-    let {data: booking, error: bErr} = await sb.from('bookings').select('id,ref_no').eq('ref_no', refNo).maybeSingle();
+    let {data: booking, error: bErr} = await sb.from('bookings').select('id,ref_no,agent_name,pax').eq('ref_no', refNo).maybeSingle();
     if(!booking && !bErr){
       // 「#+数字」の完全一致で見つからない場合（実際のref_noが#以外のプレフィックスの場合など）、
       // 既存の緩めのマッチング（ツアー名一致・数字部分一致等）でも探してみる
       const fallbackRef = resolveEmailSplitRef(refNo);
       if(fallbackRef && fallbackRef!==refNo){
-        const r2 = await sb.from('bookings').select('id,ref_no').eq('ref_no', fallbackRef).maybeSingle();
+        const r2 = await sb.from('bookings').select('id,ref_no,agent_name,pax').eq('ref_no', fallbackRef).maybeSingle();
         if(r2.data){ booking = r2.data; refNo = fallbackRef; }
       }
     }
@@ -14951,11 +15039,13 @@ async function submitEmailSplit(){
     // imported=true が立つ」経路を作らないようにする。
     if(bErr || !booking){
       c.status = 'error'; c.errorMsg = `REF# "${refNo}" の予約が見つかりませんでした`;
+      sendResultRows.push({refNo, rawRef:c.rawRef, category:c.category, status:'error', errorMsg:c.errorMsg});
       break;
     }
     const map = EMAIL_INBOX_CATEGORY_MAP[c.category];
     if(!map){
       c.status = 'error'; c.errorMsg = 'カテゴリが不正です';
+      sendResultRows.push({refNo, rawRef:c.rawRef, category:c.category, status:'error', errorMsg:c.errorMsg});
       break;
     }
 
@@ -14977,10 +15067,17 @@ async function submitEmailSplit(){
       doneCount++;
       if(progressEl) progressEl.textContent = `${doneCount}/${total}件送信中...`;
       renderEmailSplitCandidates();
+      sendResultRows.push({refNo, rawRef:c.rawRef, category:c.category, status:'done', match: checkEmailSendMatch(booking, c.excerpt||'')});
     }catch(e){
       c.status = 'error'; c.errorMsg = e.message || String(e);
+      sendResultRows.push({refNo, rawRef:c.rawRef, category:c.category, status:'error', errorMsg:c.errorMsg});
       break;
     }
+  }
+
+  {
+    const subjectRow = emailInboxRawList.find(m=>m.id===emailSplitEmailId);
+    appendEmailSendResultPopup(subjectRow ? subjectRow.subject : '', sendResultRows);
   }
 
   // ── 未処理チェック(imported=true を立ててよいかの唯一の判定箇所) ─────────────
