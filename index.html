@@ -386,6 +386,13 @@ th.sortable:hover{color:var(--blue)}
 /* Booking Detail Modal */
 .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:100;align-items:flex-start;justify-content:center;padding:30px 16px;overflow-y:auto}
 .modal-overlay.open{display:flex}
+/* 「REF#からコピー」モーダル(#arr-copy-modal)は予約詳細モーダル(#detail-modal)の
+   手配管理タブから開くため、他の.modal-overlay(z-index:100、DOM順で#detail-modalより前)
+   と同じz-indexのままだと#detail-modalの背後に隠れて操作できなくなる。他の「予約詳細
+   モーダルより前面に出す必要のあるモーダル」と同じz-index:300に上げて最前面に出す
+   (openArrCopyModal自体は#detail-modal表示中に呼ばれる前提のため、#detail-modalより
+   常に上に出ればよい)。 */
+#arr-copy-modal{z-index:300}
 .modal-box{background:var(--card);border-radius:12px;width:100%;max-width:min(960px,95vw);padding:18px 20px;max-height:92vh;overflow-y:auto;overflow-x:auto} #detail-modal .modal-box{max-width:96vw;max-height:96vh}
 /* 取引先登録・編集モーダルの保存バー: 入れ子スクロールコンテナ(.modal-overlay/.modal-box双方が
    overflow-y:autoを持つ)内でのposition:stickyが実機で意図通り機能しなかったため、
