@@ -49,6 +49,9 @@ $StateFile = if ($StateFileOverride) { $StateFileOverride } else { Join-Path $PS
 # 旧システムの名残(agent_infoはagentsテーブルへ機能移管済み、paymentsは入出金管理の
 # 旧実装、suppliersはbusiness_partnersへ完全移行済み)と判明したため、バックアップ後に
 # DROP TABLEで削除し、ここからも除外した(agent_infoはこの配列にはもともと未登録)。
+# 2026-09-08: partner_merge_pending(名刺スキャン自動マージの「保留」機能用テーブル)も
+# 同様にコード参照0件の孤児テーブルと判明したため、scripts/drop_partner_merge_pending.sql
+# でDROP TABLEし、ここからも除外した(保留機能自体はPR #121で完全削除済み)。
 $Tables = @(
   'bookings',
   'booking_sales',
@@ -77,7 +80,6 @@ $Tables = @(
   'facility_operating_info',
   'guide_bank_accounts',
   'learned_mappings',
-  'partner_merge_pending',
   'vendor_email_logs',
   'booking_edit_presence'
 )
