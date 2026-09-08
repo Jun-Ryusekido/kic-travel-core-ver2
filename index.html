@@ -27665,7 +27665,7 @@ function filterAgents(){
       <td>${escHtml(a.contact_person||'')}</td>
       <td>${escHtml(a.country||'')}</td>
       <td>${escHtml(a.phone||a.company_phone||'')}</td>
-      <td>${escHtml(a.email||'')}</td>
+      <td>${escHtml(a.email||'')}${copyBtn(a.email)}</td>
       <td style="white-space:nowrap">
         <button class="btn" style="font-size:11px" onclick="showAgentDetail('${a.id}')">照会</button>
         <button class="btn" style="font-size:11px" onclick="openAgentEditor('${a.id}')">編集</button>
