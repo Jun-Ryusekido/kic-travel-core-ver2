@@ -27,6 +27,17 @@
 #   状態ファイル: scripts/data/backup_daily_last_success.json (テーブルごとに個別の時刻)。
 #   このファイルは.gitignore対象(scripts/data/*)のため、リポジトリにはコミットされない。
 #
+# 差分バックアップ(2026-09-08追加、updated_at基準): booking_costs/booking_buses/
+#   booking_restaurantsは行数が多く更新頻度も高いため($UpdatedAtDiffTablesに列挙した
+#   テーブルのみ)、backup_supabase.ps1の$DiffTablesと全く同じ考え方で、前回成功時刻
+#   (状態ファイル、上記と同じ$StateFileを共有)以降にupdated_atが更新された行だけを
+#   取得する。3テーブルともTABLE_CONFIG(api/table-crud.js)でstampUpdatedAt: trueが
+#   設定済み・書き込みが全てtable-crud.js経由であることを確認済み。
+#   毎時バックアップと異なり1日1回(未実行日の補填含む)しか走らないため、当日分の
+#   JSON/CSVには「前回の日次バックアップ成功時刻以降に更新された行」のみが入り、
+#   更新されていない既存行は含まれない点に注意(=1日分のzip単体は当該3テーブルの
+#   全件スナップショットにはならない。全件が必要な場合は該当日以前のzipも合わせて
+#   参照する必要がある。ローカル30日/NAS90日の保持期間内は復元可能)。
 # -StateFileOverrideは検証専用のパラメータ。Windowsタスクスケジューラからの通常実行では
 # 指定せず、既定値(scripts/data/backup_daily_last_success.json)を使う。
 param(
@@ -57,6 +68,15 @@ $StateFile = if ($StateFileOverride) { $StateFileOverride } else { Join-Path $PS
 # 追跡しなくても許容できる」テーブルであることを確認してから追加すること。
 $CreatedAtDiffTables = @(
   'email_import_queue'
+)
+
+# updated_at基準の差分取得の対象(スクリプト冒頭コメント参照)。backup_supabase.ps1の
+# $DiffTablesと同じ基準・同じ制約(updated_at列あり+書き込みが全てtable-crud.js経由で
+# あることを確認済み)。他のテーブルを追加する場合も同様に確認してから追加すること。
+$UpdatedAtDiffTables = @(
+  'booking_costs',
+  'booking_buses',
+  'booking_restaurants'
 )
 
 # 全テーブル一覧(index.html / guide.html / api / email-automation / parking-automation を
@@ -133,10 +153,10 @@ function Write-Log {
   Add-Content -Path $logFile -Value $line -Encoding utf8
 }
 
-# ===== created_at差分バックアップの状態ファイル読み込み =====
+# ===== 差分バックアップの状態ファイル読み込み(created_at/updated_at共通) =====
 # ファイルが存在しない、または壊れて読み込めない場合は空のハッシュテーブルを返す。
-# これにより「stateが無い/壊れている」場合は$CreatedAtDiffTablesの対象テーブルが
-# 「前回時刻なし」扱いになり、自動的に全件取得(初回相当)にフォールバックする
+# これにより「stateが無い/壊れている」場合は$CreatedAtDiffTables/$UpdatedAtDiffTablesの
+# 対象テーブルが「前回時刻なし」扱いになり、自動的に全件取得(初回相当)にフォールバックする
 # (backup_supabase.ps1のGet-BackupStateと同じ考え方)。
 function Get-BackupState {
   param([string]$path)
@@ -221,9 +241,11 @@ $headers = @{
 }
 foreach ($table in $Tables) {
   $isCreatedAtDiff = $CreatedAtDiffTables -contains $table
+  $isUpdatedAtDiff = $UpdatedAtDiffTables -contains $table
+  $diffColumn = if ($isCreatedAtDiff) { 'created_at' } elseif ($isUpdatedAtDiff) { 'updated_at' } else { $null }
   $prevTime = $null
-  if ($isCreatedAtDiff -and $state.ContainsKey($table)) { $prevTime = $state[$table] }
-  # 取得開始「前」の時刻を次回の基準時刻にする(取得中に作成された行を取りこぼさないため。
+  if ($diffColumn -and $state.ContainsKey($table)) { $prevTime = $state[$table] }
+  # 取得開始「前」の時刻を次回の基準時刻にする(取得中に作成/更新された行を取りこぼさないため。
   # backup_supabase.ps1の$DiffTablesと同じ考え方)。
   $runStart = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
   try {
@@ -231,9 +253,9 @@ foreach ($table in $Tables) {
     $pageSize = 1000
     $offset = 0
     while ($true) {
-      if ($isCreatedAtDiff -and $prevTime) {
+      if ($diffColumn -and $prevTime) {
         $encoded = [uri]::EscapeDataString($prevTime)
-        $uri = "$SupabaseUrl/rest/v1/$table" + "?select=*&created_at=gte.$encoded&order=created_at.asc,id.asc&limit=$pageSize&offset=$offset"
+        $uri = "$SupabaseUrl/rest/v1/$table" + "?select=*&$diffColumn=gte.$encoded&order=$diffColumn.asc,id.asc&limit=$pageSize&offset=$offset"
       } else {
         $uri = "$SupabaseUrl/rest/v1/$table" + "?select=*&order=id&limit=$pageSize&offset=$offset"
       }
@@ -241,9 +263,9 @@ foreach ($table in $Tables) {
         $resp = Invoke-RestMethod -Uri $uri -Headers $headers -Method Get -ErrorAction Stop
       } catch {
         # id列が無いテーブル等でorder=idが失敗する場合に備え、order無しで再試行する
-        # (created_at差分の場合はcreated_at.ascのみを維持し、offsetでページングする)
-        $uri2 = if ($isCreatedAtDiff -and $prevTime) {
-          "$SupabaseUrl/rest/v1/$table" + "?select=*&created_at=gte.$encoded&order=created_at.asc&limit=$pageSize&offset=$offset"
+        # (差分取得の場合は$diffColumn.ascのみを維持し、offsetでページングする)
+        $uri2 = if ($diffColumn -and $prevTime) {
+          "$SupabaseUrl/rest/v1/$table" + "?select=*&$diffColumn=gte.$encoded&order=$diffColumn.asc&limit=$pageSize&offset=$offset"
         } else {
           "$SupabaseUrl/rest/v1/$table" + "?select=*&limit=$pageSize&offset=$offset"
         }
@@ -269,21 +291,21 @@ foreach ($table in $Tables) {
       Set-Content -Path $csvPath -Value '' -Encoding utf8
     }
 
-    $modeLabel = if ($isCreatedAtDiff) { if ($prevTime) { "created_at diff since $prevTime" } else { 'created_at diff (初回:全件)' } } else { 'full' }
+    $modeLabel = if ($diffColumn) { if ($prevTime) { "$diffColumn diff since $prevTime" } else { "$diffColumn diff (初回:全件)" } } else { 'full' }
     Write-Log "  OK($modeLabel): $table (rows: $($allRows.Count))"
     # 成功した場合のみ状態を更新する(失敗した場合は前回時刻のまま維持し、
     # 次回実行時に同じ範囲を再取得できるようにする=データ欠損防止)。
-    if ($isCreatedAtDiff) { $newState[$table] = $runStart }
+    if ($diffColumn) { $newState[$table] = $runStart }
   } catch {
     $hadError = $true
     Write-Log "  ERROR: failed to fetch $table -- $($_.Exception.Message)"
     Set-Content -Path (Join-Path $workDir "$table.ERROR.txt") -Value $_.Exception.Message -Encoding utf8
-    # $isCreatedAtDiffの場合、$newStateには何もしない(既にCloneしたstateの値が保持される
+    # $diffColumnの場合、$newStateには何もしない(既にCloneしたstateの値が保持される
     # =前回成功時刻のまま。今回が初回でprevTimeが無かった場合はそのまま無しの状態を維持)。
   }
 }
 
-# ===== created_at差分バックアップの状態ファイルを保存 =====
+# ===== 差分バックアップの状態ファイルを保存(created_at/updated_at共通) =====
 try {
   $stateDir = Split-Path $StateFile -Parent
   if (-not (Test-Path $stateDir)) { New-Item -ItemType Directory -Force -Path $stateDir | Out-Null }
