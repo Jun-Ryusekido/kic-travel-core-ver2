@@ -65,6 +65,9 @@ $CreatedAtDiffTables = @(
 # 旧システムの名残(agent_infoはagentsテーブルへ機能移管済み、paymentsは入出金管理の
 # 旧実装、suppliersはbusiness_partnersへ完全移行済み)と判明したため、バックアップ後に
 # DROP TABLEで削除し、ここからも除外した。
+# 2026-09-08: partner_merge_pending(名刺スキャン自動マージの「保留」機能用テーブル)も
+# 同様にコード参照0件の孤児テーブルと判明したため、scripts/drop_partner_merge_pending.sql
+# でDROP TABLEし、ここからも除外した(保留機能自体はPR #121で完全削除済み)。
 # 2026-09-07: email_import_queue_archive(email_import_queueの解決済み・30日以上前の
 # 行を移動する退避テーブル)は意図的にここへ含めない。egress削減が目的で新設した
 # テーブルであり、移動時点までの内容は移動元email_import_queueの日次バックアップ
@@ -109,7 +112,6 @@ $Tables = @(
   'learned_mappings',
   'local_expenses',
   'parking_reservations',
-  'partner_merge_pending',
   'tour_arrangement_days',
   'tour_arrangement_headers',
   'tour_arrangement_notes',
