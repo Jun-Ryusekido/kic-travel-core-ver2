@@ -12056,6 +12056,14 @@ const ARR_COPY_CONFIG = {
 };
 const ARR_COPY_TAB_LABELS = {hotel:'ホテル', bus:'バス', rest:'レストラン', fac:'観光施設・バス駐車場等', water:'ミネラルウォーター'};
 let arrCopyTab = null;
+// REF#候補サジェスト(showArrCopyRefSuggest)の競合対策用。1文字入力するたびに
+// SELECTが発行されるため、後から入力した分の結果が先に返ってくる保証が無い
+// (例: "7"→"78"と続けて入力した場合、"78"より"7"の検索の方が遅く返ってくることがある)。
+// 呼び出しごとに連番(シーケンス値)を発行し、結果が返ってきた時点で「自分が最新の
+// 呼び出しか」を確認してから描画することで、古い入力の結果が新しい結果を
+// 上書き/追加してしまう不具合(候補が消えずに積み上がっていく)を防ぐ。
+let arrCopyRefSuggestSeq = 0;
+let arrCopyRefSuggestDebounceTimer = null;
 
 function openArrCopyModal(tab){
   arrCopyTab = tab;
@@ -12070,29 +12078,45 @@ function closeArrCopyModal(){
   hideArrCopyRefSuggest();
 }
 
-async function showArrCopyRefSuggest(inputEl){
+function showArrCopyRefSuggest(inputEl){
+  // 入力の度に前回分の表示・保留中の検索を必ず無効化してから新しい検索に入る
+  // (hideArrCopyRefSuggest内でarrCopyRefSuggestSeqを進めるため、この時点で
+  // 既に飛んでいる古いsb.from呼び出しの結果は後述のシーケンスチェックで捨てられる)。
   hideArrCopyRefSuggest();
   const q = inputEl.value.trim();
   if(!q) return;
-  const {data} = await sb.from('bookings').select('id,ref_no,tour_name,in_date').ilike('ref_no', `%${q}%`).order('created_at',{ascending:false}).limit(10);
-  const matches = data||[];
-  if(!matches.length) return;
-  const box = document.createElement('div');
-  box.id = 'arr-copy-ref-suggest-box';
-  box.style.cssText = 'position:absolute;z-index:200;background:#fff;border:1px solid var(--border);border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.12);max-height:220px;overflow-y:auto;font-size:11px';
-  const rect = inputEl.getBoundingClientRect();
-  box.style.left = (rect.left+window.scrollX)+'px';
-  box.style.top  = (rect.bottom+window.scrollY)+'px';
-  box.style.width = Math.max(rect.width,220)+'px';
-  box.innerHTML = matches.map(b=>`<div class="arr-copy-ref-item" style="padding:5px 8px;cursor:pointer" data-ref="${escAttr(b.ref_no)}">#${escHtml(b.ref_no)} ${escHtml(b.tour_name||'')}${b.in_date?' ('+escHtml(b.in_date)+')':''}</div>`).join('');
-  document.body.appendChild(box);
-  box.querySelectorAll('.arr-copy-ref-item').forEach(item=>{
-    item.addEventListener('mousedown',e=>{ e.preventDefault(); inputEl.value = item.getAttribute('data-ref'); hideArrCopyRefSuggest(); });
-    item.addEventListener('mouseenter',()=>{ item.style.background='var(--bg)'; });
-    item.addEventListener('mouseleave',()=>{ item.style.background=''; });
-  });
+  const mySeq = ++arrCopyRefSuggestSeq;
+  // 1文字打つたびに毎回SELECTを発行しないよう、入力が一定時間止まってから検索する
+  // (デバウンス)。連続入力中の無駄なリクエストも減らせる。
+  arrCopyRefSuggestDebounceTimer = setTimeout(async ()=>{
+    const {data} = await sb.from('bookings').select('id,ref_no,tour_name,in_date').ilike('ref_no', `%${q}%`).order('created_at',{ascending:false}).limit(10);
+    // 検索中にさらに次の入力があった場合(=自分より新しい呼び出しが発行済みの場合)、
+    // 後から返ってきたこの結果は既に古いので描画せずに捨てる(レース対策。これにより
+    // 「7」→「78」と入力した際に「7」の検索結果が後から返ってきて候補に混入する、
+    // という不具合を防ぐ)。
+    if(mySeq !== arrCopyRefSuggestSeq) return;
+    const matches = data||[];
+    if(!matches.length) return;
+    const box = document.createElement('div');
+    box.id = 'arr-copy-ref-suggest-box';
+    box.style.cssText = 'position:absolute;z-index:200;background:#fff;border:1px solid var(--border);border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.12);max-height:220px;overflow-y:auto;font-size:11px';
+    const rect = inputEl.getBoundingClientRect();
+    box.style.left = (rect.left+window.scrollX)+'px';
+    box.style.top  = (rect.bottom+window.scrollY)+'px';
+    box.style.width = Math.max(rect.width,220)+'px';
+    box.innerHTML = matches.map(b=>`<div class="arr-copy-ref-item" style="padding:5px 8px;cursor:pointer" data-ref="${escAttr(b.ref_no)}">#${escHtml(b.ref_no)} ${escHtml(b.tour_name||'')}${b.in_date?' ('+escHtml(b.in_date)+')':''}</div>`).join('');
+    document.body.appendChild(box);
+    box.querySelectorAll('.arr-copy-ref-item').forEach(item=>{
+      item.addEventListener('mousedown',e=>{ e.preventDefault(); inputEl.value = item.getAttribute('data-ref'); hideArrCopyRefSuggest(); });
+      item.addEventListener('mouseenter',()=>{ item.style.background='var(--bg)'; });
+      item.addEventListener('mouseleave',()=>{ item.style.background=''; });
+    });
+  }, 200);
 }
 function hideArrCopyRefSuggest(){
+  clearTimeout(arrCopyRefSuggestDebounceTimer);
+  // 保留中(デバウンス待ち、またはSELECT応答待ち)の検索があれば、この時点で無効化する
+  arrCopyRefSuggestSeq++;
   const box = document.getElementById('arr-copy-ref-suggest-box');
   if(box) box.remove();
 }
