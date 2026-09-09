@@ -5566,6 +5566,7 @@ async function creditCardStatementsApiCall(action, payload){ return tableCrudApi
 async function estimationsApiCall(action, payload){ return tableCrudApiCall('estimations', action, payload); }
 async function estimationDaysApiCall(action, payload){ return tableCrudApiCall('estimation_days', action, payload); }
 async function estimationFixedRowsApiCall(action, payload){ return tableCrudApiCall('estimation_fixed_rows', action, payload); }
+async function estimationFitItemsApiCall(action, payload){ return tableCrudApiCall('estimation_fit_items', action, payload); }
 async function estimationBookingReflectionsApiCall(action, payload){ return tableCrudApiCall('estimation_booking_reflections', action, payload); }
 async function facilityOperatingInfoApiCall(action, payload){ return tableCrudApiCall('facility_operating_info', action, payload); }
 
@@ -10958,9 +10959,11 @@ async function deleteEstimation(id){
   const e = estimationsCache.find(x=>x.id===id);
   const title = e?.title || '(無題)';
   if(!confirm(`以下の見積もりを削除しますか?\n\nタイトル: ${title}`)) return;
-  // estimation_fit_itemsはF1事前調査で実データ0件・書き込み経路なしと確認済みのため
-  // 移行対象外(引き続きanon直接delete。将来的にデータが入る可能性に備え、念のため残す)。
-  await sb.from('estimation_fit_items').delete().eq('estimation_id', id);
+  // estimation_fit_items: anon/authenticatedからのDML遮断(REVOKE)に備え、
+  // service_role経由(estimationFitItemsApiCall→api/table-crud.jsのdeleteByField)に
+  // 移行した(2026-09点検)。F1事前調査時点では実データ0件だったが、以後に行が
+  // 入っていても確実に削除されるようにする。
+  await estimationFitItemsApiCall('deleteByField', { field:'estimation_id', value:id });
   // 子テーブルはreplaceByKeyにrows:[]を渡すことで「全削除」として使う(挿入は行わず、
   // 既存のestimation_id一致行を全て削除するだけになる)。
   await estimationFixedRowsApiCall('replaceByKey', { keyField:'estimation_id', keyValue:id, rows:[] });

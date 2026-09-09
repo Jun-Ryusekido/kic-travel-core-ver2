@@ -442,6 +442,15 @@ const TABLE_CONFIG = {
     label: '見積もり固定費・入場料明細',
     allowedReplaceKeyFields: ['estimation_id'],
   },
+  // 見積もり削除時(deleteEstimation)のestimation_id一括削除専用(セキュリティ移行、
+  // 2026-09点検で対応。F1事前調査時点では実データ0件・anon直接deleteのみだったため
+  // 移行対象外としていたが、anon/authenticatedからのDML遮断(REVOKE)の前提として
+  // service_role経由の削除経路をここで用意する)。
+  estimation_fit_items: {
+    actions: ['deleteByField'],
+    label: '見積もりFIT明細',
+    allowedDeleteFields: ['estimation_id'],
+  },
   // stampIdentity(created_by+updated_by両方が必須)ではなく、vendor_email_logs等と同じ
   // stampSentByFieldを使う。この表はinsertのみで更新されない履歴テーブルのため、
   // 事前調査時のSQL案でもcreated_by列のみを追加対象としており、updated_by列が
