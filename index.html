@@ -5320,13 +5320,21 @@ function statusPill(status){
 let currentDetailId = null;
 
 // ===== 予約編集の「編集中表示」(ロックではなく気づきのみ) =====
-// 60秒ごとにheartbeatを送り、同時にlist_activeで自分以外の編集中ユーザーを再取得して
+// 120秒ごとにheartbeatを送り、同時にlist_activeで自分以外の編集中ユーザーを再取得して
 // バナー表示を更新する(list_activeも同じ間隔で呼ぶことで、他ユーザーのハートビートが
 // 途絶えて5分経過した場合の「編集中」表示の自動消灯も、次回ポーリング時に自然に反映される。
 // 専用のタイムアウト監視タイマーは別途設けない)。
-const BD_PRESENCE_HEARTBEAT_MS = 60 * 1000;
+// 2026-09点検: 画面を開いたまま無操作でも60秒間隔で送信され続けていたため、間隔を
+// 120秒に緩和した上で、5分間操作が無ければハートビート自体を一時停止するアイドル検知を
+// 追加した(セッション延長用の活動検知(_touchSessionOnActivity、click/keydown/mousemove/
+// touchstart/wheel/touchmove/scroll監視)と同じイベント種別・間引きパターンを流用)。
+// モーダルを閉じた際の停止処理(stopBdPresenceHeartbeatによるrelease)には一切影響しない。
+const BD_PRESENCE_HEARTBEAT_MS = 120 * 1000;
+const BD_PRESENCE_IDLE_MS = 5 * 60 * 1000;
 let _bdPresenceTimer = null;
 let _bdPresenceBookingId = null;
+let _bdPresenceIdleTimer = null;
+let _bdPresenceIdle = false;
 function _bdPresenceTick(){
   const bookingId = _bdPresenceBookingId;
   if(!bookingId) return;
@@ -5344,6 +5352,51 @@ function renderBdPresenceBanner(others){
   el.textContent = `⚠ ${names.join('、')}さんがこの予約を編集中です`;
   el.style.display = '';
 }
+// setIntervalの開始/停止のみを行う(_bdPresenceBookingIdの設定・release送信は含まない)。
+// アイドル検知による一時停止/再開と、モーダルの開閉による本来の開始/停止の両方から
+// 共通で使う。
+function _bdPresenceStartIntervalOnly(){
+  if(_bdPresenceTimer) return;
+  _bdPresenceTimer = setInterval(_bdPresenceTick, BD_PRESENCE_HEARTBEAT_MS);
+}
+function _bdPresenceStopIntervalOnly(){
+  if(_bdPresenceTimer){ clearInterval(_bdPresenceTimer); _bdPresenceTimer = null; }
+}
+// 5分間操作が無ければハートビートのsetIntervalを止める(送信自体を止めるだけで、
+// _bdPresenceBookingId・release処理には触れない)。次に操作があった時点で
+// _bdPresenceOnActivity側が即座に1回tickを送ってから再開する。
+function _bdPresenceResetIdleTimer(){
+  if(_bdPresenceIdleTimer){ clearTimeout(_bdPresenceIdleTimer); _bdPresenceIdleTimer = null; }
+  if(!_bdPresenceBookingId) return;
+  _bdPresenceIdleTimer = setTimeout(()=>{
+    _bdPresenceIdle = true;
+    _bdPresenceStopIntervalOnly();
+  }, BD_PRESENCE_IDLE_MS);
+}
+// セッション延長用の_touchSessionOnActivityと同じイベント種別を監視する。予約詳細
+// モーダルが開いていない間はbookingIdが無いため即returnし、他画面での操作では
+// 無駄な処理をしない。頻発するmousemove/scrollでもタイマーの再セットが毎回走らない
+// よう、こちらも間引く(5秒に1回まで)。
+let _bdPresenceLastActivityAt = 0;
+function _bdPresenceOnActivity(){
+  if(!_bdPresenceBookingId) return;
+  if(_bdPresenceIdle){
+    _bdPresenceIdle = false;
+    _bdPresenceTick(); // 再開直後の空白期間を埋めるため即座に1回送る
+    _bdPresenceStartIntervalOnly();
+    _bdPresenceLastActivityAt = Date.now();
+    _bdPresenceResetIdleTimer();
+    return;
+  }
+  const now = Date.now();
+  if(now - _bdPresenceLastActivityAt < 5000) return; // 5秒に1回まで
+  _bdPresenceLastActivityAt = now;
+  _bdPresenceResetIdleTimer();
+}
+['click','keydown','mousemove','touchstart','wheel','touchmove'].forEach(evt=>{
+  document.addEventListener(evt, _bdPresenceOnActivity, {passive:true});
+});
+document.addEventListener('scroll', _bdPresenceOnActivity, {passive:true, capture:true});
 // モーダルを開く(または別の予約に切り替える)たびに呼ぶ。既に別の予約のハートビートが
 // 動いていれば、まずそちらをrelease/停止してから新しい予約のハートビートを開始する
 // (モーダルを閉じずに別の予約を続けて開いた場合も、古い予約の「編集中」表示が残り続けない
@@ -5352,14 +5405,20 @@ function startBdPresenceHeartbeat(bookingId){
   stopBdPresenceHeartbeat();
   if(!bookingId) return;
   _bdPresenceBookingId = bookingId;
+  _bdPresenceIdle = false;
+  _bdPresenceLastActivityAt = Date.now();
   _bdPresenceTick();
-  _bdPresenceTimer = setInterval(_bdPresenceTick, BD_PRESENCE_HEARTBEAT_MS);
+  _bdPresenceStartIntervalOnly();
+  _bdPresenceResetIdleTimer();
 }
 // closeBookingDetail()から必ず呼ばれる想定(呼び出し箇所は1つに集約済み)。ハートビートを
 // 失敗しても、モーダルを閉じる操作自体をブロックしない(気づきのための機能であり、
 // releaseに失敗しても最悪ハートビートが5分後に自動失効するだけで実害は無いため)。
+// アイドル検知タイマーの解除もここで行うが、release送信自体の条件・内容は変更していない。
 function stopBdPresenceHeartbeat(){
-  if(_bdPresenceTimer){ clearInterval(_bdPresenceTimer); _bdPresenceTimer = null; }
+  _bdPresenceStopIntervalOnly();
+  if(_bdPresenceIdleTimer){ clearTimeout(_bdPresenceIdleTimer); _bdPresenceIdleTimer = null; }
+  _bdPresenceIdle = false;
   const bookingId = _bdPresenceBookingId;
   _bdPresenceBookingId = null;
   const banner = document.getElementById('bd-presence-banner');
