@@ -391,7 +391,11 @@ th.sortable:hover{color:var(--blue)}
    と同じz-indexのままだと#detail-modalの背後に隠れて操作できなくなる。他の「予約詳細
    モーダルより前面に出す必要のあるモーダル」と同じz-index:300に上げて最前面に出す
    (openArrCopyModal自体は#detail-modal表示中に呼ばれる前提のため、#detail-modalより
-   常に上に出ればよい)。 */
+   常に上に出ればよい)。
+   注意: このモーダル内のREF#候補サジェスト(showArrCopyRefSuggest、#arr-copy-ref-suggest-box)は
+   document.body直下に追加される(このモーダルの兄弟要素)ため、z-indexはここより必ず
+   高くする必要がある(現在310。このz-index:300を変更する場合、候補ボックス側も
+   合わせて見直すこと)。 */
 #arr-copy-modal{z-index:300}
 .modal-box{background:var(--card);border-radius:12px;width:100%;max-width:min(960px,95vw);padding:18px 20px;max-height:92vh;overflow-y:auto;overflow-x:auto} #detail-modal .modal-box{max-width:96vw;max-height:96vh}
 /* 取引先登録・編集モーダルの保存バー: 入れ子スクロールコンテナ(.modal-overlay/.modal-box双方が
@@ -12099,7 +12103,11 @@ function showArrCopyRefSuggest(inputEl){
     if(!matches.length) return;
     const box = document.createElement('div');
     box.id = 'arr-copy-ref-suggest-box';
-    box.style.cssText = 'position:absolute;z-index:200;background:#fff;border:1px solid var(--border);border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.12);max-height:220px;overflow-y:auto;font-size:11px';
+    // document.body直下に追加される(#arr-copy-modalの兄弟要素)ため、z-indexは
+    // #arr-copy-modal自体のz-index(300。予約詳細モーダルより前面に出すためのもの)
+    // より必ず高くしておく必要がある。かつて200のままだったため、この候補ボックスが
+    // #arr-copy-modalの.modal-box(不透明背景)の下に隠れて見えなくなる不具合があった。
+    box.style.cssText = 'position:absolute;z-index:310;background:#fff;border:1px solid var(--border);border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.12);max-height:220px;overflow-y:auto;font-size:11px';
     const rect = inputEl.getBoundingClientRect();
     box.style.left = (rect.left+window.scrollX)+'px';
     box.style.top  = (rect.bottom+window.scrollY)+'px';
