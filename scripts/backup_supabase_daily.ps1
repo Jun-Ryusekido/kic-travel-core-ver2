@@ -57,6 +57,17 @@ if ([string]::IsNullOrWhiteSpace($SupabaseKey)) {
   Write-Error 'SUPABASE_SERVICE_ROLE_KEY環境変数が設定されていません。setxコマンドで永続化してから再実行してください(詳細はscripts/backup_supabase_daily.ps1冒頭のコメント、またはこのタスクのPR説明を参照)。anonキーへのフォールバックは行わず、ここで処理を中断します。'
   exit 1
 }
+# ===== 緊急一時停止ガード(2026-09-12追加) =====
+# Supabase無料枠のegress残量が枯渇寸前(残り0.9GB)のため、2026-09-12・09-13の2日間は
+# バックアップ処理そのものを完全停止する緊急措置。9-14以降はこのガードに関係なく
+# 通常通り動作する。このブロックは一時的なものであり、9-14を過ぎたら削除してよい。
+$EmergencyPauseDates = @('2026-09-12', '2026-09-13')
+$todayStr = (Get-Date).ToString('yyyy-MM-dd')
+if ($EmergencyPauseDates -contains $todayStr) {
+  Write-Output "[$(Get-Date)] Emergency pause active for $todayStr (egress緊急対応、9-14以降に自動解除). Skipping."
+  exit 0
+}
+
 $LocalBackupDir = 'C:\Users\jryus\Documents\KIC_Backup'
 $NasBackupDir   = '\\LS220D8CB\kic_date\KIC TRAVEL CORE SYSTEM\Supabase_Backup'
 $LocalRetentionDays = 30
