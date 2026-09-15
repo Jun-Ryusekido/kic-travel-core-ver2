@@ -2330,6 +2330,19 @@ input[type=number]{-moz-appearance:textfield}
 
       <!-- メール受信箱 -->
       <div id="pg-email-inbox" class="page" style="display:none">
+        <!-- 2026-09 egress緊急対応(EMAIL_INBOX_SUSPENDED、go()のemail-inbox分岐参照)。
+             停止中はこちらのみ表示し、下のemail-inbox-normal-content一式は
+             display:noneのまま(=中の検索欄・タブ切替・一括適用ボタン等が
+             一切操作できない=email_import_queueへの読み込みが発生しない)。
+             解除時はEMAIL_INBOX_SUSPENDEDをfalseに戻すだけでよい。 -->
+        <div id="email-inbox-suspended-notice" class="card" style="display:none">
+          <div style="text-align:center;padding:24px 12px;color:var(--text2)">
+            <div style="font-size:28px;margin-bottom:8px">⏸</div>
+            <div style="font-size:14px;font-weight:600;margin-bottom:6px">メール受信箱は一時停止中です</div>
+            <div style="font-size:12px;color:var(--text3)">9/16〜9/22の間、Supabase Egress節約のため一時的に停止しています。<br>この期間はメールの取り込み・表示は行われません。9/22以降に再開予定です。</div>
+          </div>
+        </div>
+        <div id="email-inbox-normal-content">
         <div class="card">
           <div class="card-title">📥 メール受信箱（Outlookから半自動取り込み）</div>
           <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Outlookから取り込まれた未処理のメールです。各メールにREF#とカテゴリを指定して「📤 送る」を押すと、該当予約の該当タブにメール本文が読み込まれます。同一の件名・送信者・受信日時のメールはまとめて1件のみ表示しています。</div>
@@ -2365,6 +2378,7 @@ input[type=number]{-moz-appearance:textfield}
           <div id="email-inbox-pagination" class="email-inbox-pagination" style="margin:12px 0 0;padding:8px 0;font-size:12px"></div>
         </div>
         <button id="email-inbox-bulk-ignore-btn" class="btn" style="display:none;position:fixed;right:20px;bottom:20px;z-index:60;background:var(--red);border-color:var(--red);color:#fff;padding:12px 18px;border-radius:24px;font-size:13px;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,.25);max-width:calc(100vw - 40px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" onclick="bulkIgnoreEmailInboxItems()">🗑 選択した0件を無視</button>
+        </div><!-- /email-inbox-normal-content -->
       </div>
 
       <!-- 手配確定状況(旧・仕入先確認メール。対象抽出・ステータス管理・テンプレート編集) -->
@@ -4050,6 +4064,14 @@ const pageNames={
 // トップバーの「+ New Booking」ボタンを表示する画面(予約管理の主要4画面のみ)。
 // go(id)内でNEW_BOOKING_BTN_VISIBLE_PAGES.has(id)により表示/非表示を切り替える。
 const NEW_BOOKING_BTN_VISIBLE_PAGES = new Set(['dashboard','new-booking','booking-list','tour-calendar']);
+// ===== 2026-09 egress緊急対応: メール受信箱機能の一時停止(9/16〜9/22) =====
+// Supabase無料枠のegress枯渇のため、この期間はメール受信箱画面を開いても
+// email_import_queue等への読み込みを一切発生させず、案内メッセージのみ表示する。
+// 【解除方法】9/22を過ぎたら、このtrueをfalseに戻すだけでよい(自動解除にはしていない)。
+// 対応箇所は他に無い(email_import_queueはこの画面からのみ参照されており、
+// ダッシュボード等の他画面はこのテーブルに依存していないことを調査済み)。
+const EMAIL_INBOX_SUSPENDED = true;
+
 function go(id){
   // 手配確定状況画面に未保存の変更(一括保存前のステータス変更)が残っている場合、
   // 他の画面へ移動すると破棄されることを警告する(SPA内遷移はbeforeunloadでは
@@ -4112,7 +4134,20 @@ function go(id){
   if(id==='error-logs') loadErrorLogs();
   if(id==='card-holders') loadCardHolders();
   if(id==='invoice-import') initInvoiceImportPage();
-  if(id==='email-inbox') renderEmailInboxList();
+  if(id==='email-inbox'){
+    // 2026-09 egress緊急対応(EMAIL_INBOX_SUSPENDED参照)。停止中はrenderEmailInboxList()
+    // (email_import_queueへの読み込み一式)自体を一切呼ばず、案内のみ表示する。
+    const notice = document.getElementById('email-inbox-suspended-notice');
+    const normal = document.getElementById('email-inbox-normal-content');
+    if(EMAIL_INBOX_SUSPENDED){
+      if(notice) notice.style.display = '';
+      if(normal) normal.style.display = 'none';
+    } else {
+      if(notice) notice.style.display = 'none';
+      if(normal) normal.style.display = '';
+      renderEmailInboxList();
+    }
+  }
   if(id==='vendor-email') loadVendorEmailPage();
 }
 
