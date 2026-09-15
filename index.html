@@ -4192,6 +4192,7 @@ async function fetchBookingsListLight(){
 // ===== 観光地予約管理(複数予約横断) =====
 const FACILITY_MGMT_STATUS_OPTIONS = ['未予約','問い合わせ中','手配OK','FNL済','NG回答','予約不要','キャンセル'];
 let facilityManagementCache = [];
+let facilityManagementCacheAt = 0;
 let facilityManagementStatusFilter = null;
 
 async function fetchAllBookingFacilities(){
@@ -4206,10 +4207,20 @@ async function fetchAllBookingFacilities(){
   return all;
 }
 
+// 2026-09 egress緊急対応: タブを開くたびに無条件でbooking_facilitiesを全件select('*')
+// していたため、5分TTLキャッシュを導入した(bookingFacilitiesApiCall側で書き込み成功時に
+// facilityManagementCacheAt=0にして無効化する。fetchAllFacilityDeadlineItems側の
+// キャッシュとは列・絞り込み条件が異なる別キャッシュ)。UIの見た目・動作は変更なし。
 async function loadFacilityManagementPage(){
   enablePasteUpload(document.getElementById('fm-paste-zone'), file=>processFmFacilityFile(file));
-  document.getElementById('fm-tbody').innerHTML = '<tr><td colspan="8" class="empty">読み込み中...</td></tr>';
   renderFacilityManagementStatusButtons();
+
+  if(facilityManagementCache.length>0 && cacheIsFresh(facilityManagementCacheAt)){
+    filterFacilityManagement();
+    return;
+  }
+
+  document.getElementById('fm-tbody').innerHTML = '<tr><td colspan="8" class="empty">読み込み中...</td></tr>';
   if(!allBookingsCache.length) allBookingsCache = await fetchAllBookings();
   const bookingById = {};
   allBookingsCache.forEach(b=>{ bookingById[b.id] = b; });
@@ -4221,6 +4232,7 @@ async function loadFacilityManagementPage(){
     return;
   }
   facilityManagementCache = rows.map(r=>({...r, _booking: bookingById[r.booking_id]||null}));
+  facilityManagementCacheAt = Date.now();
   filterFacilityManagement();
 }
 
@@ -5608,6 +5620,8 @@ async function guideSettlementItemsApiCall(action, payload){
 async function businessPartnersApiCall(action, payload){
   const result = await tableCrudApiCall('business_partners', action, payload);
   partnersCacheAt = 0;
+  allPartnersCacheAt = 0; // オートコンプリート/ミールバウチャー/レストラン一覧表共有キャッシュも無効化
+  vendorEmailCandidatesFetchAt = 0; // 手配確定状況のメールアドレス突合キャッシュも無効化
   return result;
 }
 async function businessPartnerContactsApiCall(action, payload){ return tableCrudApiCall('business_partner_contacts', action, payload); }
@@ -5626,6 +5640,7 @@ async function guideBankAccountsApiCall(action, payload){ return tableCrudApiCal
 async function bookingFacilitiesApiCall(action, payload){
   const result = await tableCrudApiCall('booking_facilities', action, payload);
   facilityDeadlineItemsCacheAt = 0;
+  facilityManagementCacheAt = 0; // 観光地予約管理(loadFacilityManagementPage)のキャッシュも無効化
   return result;
 }
 // bookings(予約本体)への書き込み(セキュリティ移行フェーズ3)。読み取り(select)は
@@ -5666,11 +5681,22 @@ async function arrangementDocumentsApiCall(action, payload){ return tableCrudApi
 async function bookingHotelsApiCall(action, payload){
   const result = await tableCrudApiCall('booking_hotels', action, payload);
   hotelManagementCacheAt = 0;
+  vendorEmailCandidatesFetchAt = 0; // 手配確定状況(loadVendorEmailPage)の5分TTLキャッシュも無効化
   return result;
 }
-async function bookingBusesApiCall(action, payload){ return tableCrudApiCall('booking_buses', action, payload); }
+// 2026-09 egress緊急対応: booking_buses/vendor_email_logsへの書き込みも同様に
+// 手配確定状況(loadVendorEmailPage)のキャッシュを無効化する。
+async function bookingBusesApiCall(action, payload){
+  const result = await tableCrudApiCall('booking_buses', action, payload);
+  vendorEmailCandidatesFetchAt = 0;
+  return result;
+}
 async function bookingRestaurantsApiCall(action, payload){ return tableCrudApiCall('booking_restaurants', action, payload); }
-async function vendorEmailLogsApiCall(action, payload){ return tableCrudApiCall('vendor_email_logs', action, payload); }
+async function vendorEmailLogsApiCall(action, payload){
+  const result = await tableCrudApiCall('vendor_email_logs', action, payload);
+  vendorEmailCandidatesFetchAt = 0;
+  return result;
+}
 // email_import_queue(メール受信箱)への書き込み。更新可能な列はサーバー側(table-crud.jsの
 // updatableFields)で is_excluded/excluded_reason/ignored/imported/postponed の5列に
 // 限定されている。読み取り(select)は従来通りanon+RLSのまま変更しない。
@@ -5849,6 +5875,7 @@ async function fetchAllRowsGeneric(table, select){
 }
 
 let vendorEmailCandidatesCache = [];
+let vendorEmailCandidatesFetchAt = 0;
 
 async function fetchVendorEmailCandidates(){
   const today = new Date(); today.setHours(0,0,0,0);
@@ -5913,13 +5940,25 @@ async function fetchVendorEmailSentMap(){
   return map;
 }
 
+// 2026-09 egress緊急対応: 開くたびにbusiness_partners/booking_hotels/booking_buses/
+// vendor_email_logsの4テーブルを毎回全件スキャンしていたため、5分TTLキャッシュを
+// 導入した(bookingHotelsApiCall/bookingBusesApiCall/businessPartnersApiCall/
+// vendorEmailLogsApiCall側で書き込み成功時にvendorEmailCandidatesFetchAt=0にして
+// 無効化する)。キャッシュヒット時は再取得せず、既存のvendorEmailCandidatesCacheを
+// そのまま再描画する。
 async function loadVendorEmailPage(){
   const el = document.getElementById('ve-list');
   if(!el) return;
-  el.innerHTML = '<div style="padding:12px;color:var(--text3);font-size:12px">読み込み中...</div>';
   // 一覧の再取得は「未保存の変更」を破棄することになるため、初回表示時と一括保存完了後
   // (自身が呼ぶ)以外では呼ばない設計にする。念のためここでリセットしておく。
   vendorEmailPendingChanges = {};
+
+  if(vendorEmailCandidatesCache.length>0 && cacheIsFresh(vendorEmailCandidatesFetchAt)){
+    renderVendorEmailList();
+    return;
+  }
+
+  el.innerHTML = '<div style="padding:12px;color:var(--text3);font-size:12px">読み込み中...</div>';
   try{
     const candidates = await fetchVendorEmailCandidates();
     const sentMap = await fetchVendorEmailSentMap();
@@ -5929,6 +5968,7 @@ async function loadVendorEmailPage(){
     // data-idxはこのorigIdx(=常にvendorEmailCandidatesCacheそのものでの位置)で管理する
     // ことで、表示のフィルタ有無に関わらずindexがずれないようにする。
     vendorEmailCandidatesCache = candidates.map((c,i)=>({...c, origIdx:i, sent: sentMap[c.sourceTable+':'+c.id]||null}));
+    vendorEmailCandidatesFetchAt = Date.now();
   }catch(e){
     logError('手配確定状況の対象読み込み', e);
     el.innerHTML = '<div style="color:var(--red);font-size:12px">読み込みエラー: '+escHtml(e.message)+'</div>';
@@ -7594,13 +7634,32 @@ function restaurantPartnerEnName(jpName){
 function restaurantBilingualLabel(jpName, enName){
   return enName ? `${jpName} / ${enName}` : jpName;
 }
+// 2026-09 egress緊急対応: 元々はinv-confirm-supplier(取引先名オートコンプリート)専用の
+// company_nameのみのキャッシュだったが、generateMealVoucher/printRestaurantListが
+// 独自にbusiness_partners全件を都度取得していた見落としを解消するため、両者が
+// 必要とする列(id/company_name_en/company_phone/address)も併せて取得するよう拡張した。
+// 列を増やしただけで対象行・TTL・無効化条件は変わらないため、既存のオートコンプリート
+// 用途(company_nameのみ参照)には影響しない。
+// 【重要】business_partnersは1000件を超えるため(元のgenerateMealVoucher/
+// printRestaurantListのコメント参照)、PostgREST側の1000件上限を避けるため
+// range()でページングして全件取得する(元々このキャッシュにはページング処理が
+// 無く、1000件超の環境では暗黙に途中で切れていた可能性がある。今回の統合を機に
+// 合わせて修正した)。
 async function loadAllPartnersCache(){
   if(allPartnersCache.length>0 && cacheIsFresh(allPartnersCacheAt)) return;
-  const {data} = await sb.from('business_partners')
-    .select('company_name')
-    .or('is_deleted.is.null,is_deleted.eq.false')
-    .order('company_name');
-  allPartnersCache = data||[];
+  let data = [], from = 0; const PAGE = 1000;
+  while(true){
+    const {data: page, error} = await sb.from('business_partners')
+      .select('id,company_name,company_name_en,company_phone,address')
+      .or('is_deleted.is.null,is_deleted.eq.false')
+      .order('company_name')
+      .range(from, from+PAGE-1);
+    if(error){ logError('取引先マスタの読み込み(business_partners)', error); break; }
+    data = data.concat(page||[]);
+    if(!page || page.length < PAGE) break;
+    from += PAGE;
+  }
+  allPartnersCache = data;
   allPartnersCacheAt = Date.now();
 }
 async function filterInvSupplierDD(i){
@@ -24975,15 +25034,10 @@ async function generateMealVoucher(){
   let supplierByName = {};
   let repContactsByPartnerId = new Map();
   if(restNames.length){
-    let supRows = [], from = 0;
-    const PAGE = 1000;
-    while(true){
-      const {data: page, error: supErr} = await sb.from('business_partners').select('id,company_name,company_name_en,company_phone').range(from, from+PAGE-1);
-      if(supErr){ logError('取引先マスタの読み込み(business_partners)', supErr); break; }
-      supRows = supRows.concat(page||[]);
-      if(!page || page.length < PAGE) break;
-      from += PAGE;
-    }
+    // 2026-09 egress緊急対応: 独自にbusiness_partnersを全件取得していたのをやめ、
+    // 他画面と共有の5分TTLキャッシュ(allPartnersCache)を参照するよう統一した。
+    await loadAllPartnersCache();
+    const supRows = allPartnersCache;
     // company_nameの正規化キーが重複する取引先(過去の重複登録等で同名の行が複数
     // 存在するケース)がある場合、単純に最後に処理した行で上書きすると、
     // company_phoneが入っている「正しい」行が空の行に上書きされて電話番号が
@@ -25066,17 +25120,12 @@ async function printRestaurantList(){
   let supplierByName = {};
   let repContactsByPartnerId = new Map();
   if(restNames.length){
-    // business_partnersは件数が1000件超の場合があり、PostgREST側の上限(1000件/回)で
-    // 途中までしか取得できず突合漏れが起きるため、ページングして全件取得する
-    let supRows = [], from = 0;
-    const PAGE = 1000;
-    while(true){
-      const {data: page, error: supErr} = await sb.from('business_partners').select('id,company_name,address,company_phone').range(from, from+PAGE-1);
-      if(supErr){ logError('取引先マスタの読み込み(business_partners)', supErr); break; }
-      supRows = supRows.concat(page||[]);
-      if(!page || page.length < PAGE) break;
-      from += PAGE;
-    }
+    // 2026-09 egress緊急対応: 独自にbusiness_partnersを全件取得していたのをやめ、
+    // 他画面と共有の5分TTLキャッシュ(allPartnersCache)を参照するよう統一した
+    // (以前はPostgREST側の1000件上限を避けるため自前でページングしていたが、
+    // allPartnersCache側で同様に全件ページング取得済みのため問題ない)。
+    await loadAllPartnersCache();
+    const supRows = allPartnersCache;
     // company_nameの正規化キーが重複する取引先(過去の重複登録等で同名の行が複数
     // 存在するケース)がある場合、単純に最後に処理した行で上書きすると、
     // company_phoneが入っている「正しい」行が空の行に上書きされて電話番号が
