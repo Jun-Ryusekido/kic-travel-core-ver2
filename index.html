@@ -5663,6 +5663,7 @@ async function bookingFacilitiesApiCall(action, payload){
 async function bookingsApiCall(action, payload){
   const result = await tableCrudApiCall('bookings', action, payload);
   agentUnlinkedBannerFetchAt = 0;
+  tcCalendarDataCache = {}; // ツアー運行カレンダーのキャッシュも無効化
   return result;
 }
 async function bookingCostsApiCall(action, payload){ return tableCrudApiCall('booking_costs', action, payload); }
@@ -5703,6 +5704,7 @@ async function bookingHotelsApiCall(action, payload){
   vendorEmailCandidatesFetchAt = 0; // 手配確定状況(loadVendorEmailPage)の5分TTLキャッシュも無効化
   hmCancelAlertCacheAt = 0; // ホテル管理: キャンセルアラート件数のキャッシュも無効化
   hmSearchRpcCache = {};    // ホテル管理: 検索結果RPCのキャッシュも全件無効化
+  tcCalendarDataCache = {}; // ツアー運行カレンダーのキャッシュも無効化
   return result;
 }
 // 2026-09 egress緊急対応: booking_buses/vendor_email_logsへの書き込みも同様に
@@ -5710,6 +5712,7 @@ async function bookingHotelsApiCall(action, payload){
 async function bookingBusesApiCall(action, payload){
   const result = await tableCrudApiCall('booking_buses', action, payload);
   vendorEmailCandidatesFetchAt = 0;
+  tcCalendarDataCache = {}; // ツアー運行カレンダーのキャッシュも無効化
   return result;
 }
 async function bookingRestaurantsApiCall(action, payload){ return tableCrudApiCall('booking_restaurants', action, payload); }
@@ -5744,7 +5747,12 @@ async function learnedMappingsApiCall(action, payload){ return tableCrudApiCall(
 //     (phone、display_order。status/amountは持たない)。手配書ドラフト
 //     (bdArrGuideItems)からのコピーで、印字用の見た目を管理する側。
 //     buildArrGuideRows/saveArrDoc参照。
-async function bookingGuidesApiCall(action, payload){ return tableCrudApiCall('booking_guides', action, payload); }
+// 2026-09 egress緊急対応: ツアー運行カレンダーのキャッシュも無効化する。
+async function bookingGuidesApiCall(action, payload){
+  const result = await tableCrudApiCall('booking_guides', action, payload);
+  tcCalendarDataCache = {};
+  return result;
+}
 // booking_edit_presence(予約編集の「編集中表示」)への書き込み/読み取り。heartbeat/list_active/
 // releaseの3アクションのみ許可されている(api/table-crud.js参照)。ロック(排他制御)ではなく
 // あくまで気づきのための記録のため、失敗しても編集操作自体はブロックしない
@@ -5754,7 +5762,12 @@ async function tourGuidesApiCall(action, payload){ return tableCrudApiCall('tour
 async function tourDayItineraryApiCall(action, payload){ return tableCrudApiCall('tour_day_itinerary', action, payload); }
 async function tourArrangementNotesApiCall(action, payload){ return tableCrudApiCall('tour_arrangement_notes', action, payload); }
 async function bookingWaterItemsApiCall(action, payload){ return tableCrudApiCall('booking_water_items', action, payload); }
-async function tourArrangementHeadersApiCall(action, payload){ return tableCrudApiCall('tour_arrangement_headers', action, payload); }
+// 2026-09 egress緊急対応: ツアー運行カレンダーのキャッシュも無効化する。
+async function tourArrangementHeadersApiCall(action, payload){
+  const result = await tableCrudApiCall('tour_arrangement_headers', action, payload);
+  tcCalendarDataCache = {};
+  return result;
+}
 // arrangement_document_days/arrangement_document_notesはbooking_idではなく
 // arrangement_document_idをキーに置き換えるため、table-crud.js側の新規action
 // 『replaceByKey』を使う(旧クライアント側実装だったselect→insert→deleteの
@@ -25926,6 +25939,10 @@ function renderHmTourTab(){
 // booking_buses/booking_guides/tour_arrangement_headers)からの自動生成表示のみ。
 // 編集はセルクリックで開くopenBookingDetail(既存の予約詳細モーダル)側で行う
 // (マトリクスタブと同じ設計)。
+// 2026-09 egress緊急対応: (範囲, キャンセル済み表示有無)をキーにした5分TTLキャッシュ。
+// bookingsApiCall/bookingHotelsApiCall/bookingBusesApiCall/bookingGuidesApiCall/
+// tourArrangementHeadersApiCall側で書き込み成功時に全件無効化する。
+let tcCalendarDataCache = {};
 
 function initTourCalendar(){
   const sel = document.getElementById('tc-ym');
@@ -26211,31 +26228,46 @@ async function renderTourCalendar(){
   body.innerHTML = '<p style="color:var(--text3);font-size:12px">読み込み中...</p>';
   const showCancelled = document.getElementById('tc-show-cancelled')?.checked;
 
-  // レーン抽出: 運行期間(in_date〜out_date)が表示範囲と重なる予約のみをDB側で絞り込む
-  // (全件取得はしない)。キャンセル済みは既定で除外する。
-  let q = sb.from('bookings').select('id,ref_no,tour_code,agent_name,pax,in_date,out_date,status')
-    .lte('in_date', rangeEnd).gte('out_date', rangeStart).order('in_date',{ascending:true});
-  if(!showCancelled) q = q.neq('status','cancelled');
-  const {data: bookings, error: bErr} = await q;
-  if(bErr){ body.innerHTML = `<p style="color:var(--red);font-size:12px">読み込みエラー: ${escHtml(bErr.message)}</p>`; return; }
-  if(!bookings || bookings.length===0){ body.innerHTML = '<p style="color:var(--text3);font-size:12px">この範囲に運行中の予約はありません</p>'; return; }
+  // 2026-09 egress緊急対応: 同じ表示範囲・条件での再訪問(月選択タブの開閉等)で
+  // 5クエリを毎回叩き直していたため、(範囲, キャンセル済み表示有無)をキーに
+  // 5分TTLキャッシュを導入する(booking_hotels/booking_buses/booking_guides/
+  // tour_arrangement_headers/bookingsのいずれかのApiCallラッパーで書き込み成功時に
+  // 無効化する)。範囲や条件が変われば通常通りDBを引くため、表示の即時性は損なわない。
+  const tcCacheKey = `${rangeStart}|${rangeEnd}|${showCancelled?1:0}`;
+  const tcCached = tcCalendarDataCache[tcCacheKey];
+  let bookings, hotelRows, busRows, guideRows, headerRows;
+  if(tcCached && cacheIsFresh(tcCached.at)){
+    ({bookings, hotelRows, busRows, guideRows, headerRows} = tcCached);
+  } else {
+    // レーン抽出: 運行期間(in_date〜out_date)が表示範囲と重なる予約のみをDB側で絞り込む
+    // (全件取得はしない)。キャンセル済みは既定で除外する。
+    let q = sb.from('bookings').select('id,ref_no,tour_code,agent_name,pax,in_date,out_date,status')
+      .lte('in_date', rangeEnd).gte('out_date', rangeStart).order('in_date',{ascending:true});
+    if(!showCancelled) q = q.neq('status','cancelled');
+    const {data: bookingsData, error: bErr} = await q;
+    if(bErr){ body.innerHTML = `<p style="color:var(--red);font-size:12px">読み込みエラー: ${escHtml(bErr.message)}</p>`; return; }
+    bookings = bookingsData;
+    if(!bookings || bookings.length===0){ body.innerHTML = '<p style="color:var(--text3);font-size:12px">この範囲に運行中の予約はありません</p>'; return; }
 
-  // 対象booking_idが確定してから、その予約の明細だけをまとめて取得する
-  // (booking_hotels/booking_buses/booking_guides/tour_arrangement_headers全件取得はしない)。
-  const ids = bookings.map(b=>b.id);
-  const [{data: hotelRows, error: hErr}, {data: busRows, error: buErr}, {data: guideRows, error: gErr}, {data: headerRows, error: arrErr}] = await Promise.all([
-    sb.from('booking_hotels').select('booking_id,hotel_name,check_in,check_out').in('booking_id', ids),
-    // 同じ日に複数のバス会社が入るケース(新幹線区間を挟んで前半/後半で会社が変わる等。
-    // tour_day_itineraryのbus_booking_id/bus_booking_id_2と同じ想定)があるため、
-    // .order()で順序を安定させる(未指定だとDBが返す順序が不定に近く、セル内の
-    // 表示順が読み込むたびに変わりうる)。booking_busesにtime系の列は無いため、
-    // created_at(入力順)を使う。
-    sb.from('booking_buses').select('booking_id,bus_company,start_date,end_date').in('booking_id', ids).order('created_at'),
-    sb.from('booking_guides').select('booking_id,guide_id,guide_name_freetext,start_date,end_date,guides(name)').in('booking_id', ids),
-    sb.from('tour_arrangement_headers').select('booking_id,arr_flight').in('booking_id', ids),
-  ]);
-  const detailErr = hErr||buErr||gErr||arrErr;
-  if(detailErr){ body.innerHTML = `<p style="color:var(--red);font-size:12px">明細の読み込みエラー: ${escHtml(detailErr.message)}</p>`; return; }
+    // 対象booking_idが確定してから、その予約の明細だけをまとめて取得する
+    // (booking_hotels/booking_buses/booking_guides/tour_arrangement_headers全件取得はしない)。
+    const ids = bookings.map(b=>b.id);
+    const [{data: hotelData, error: hErr}, {data: busData, error: buErr}, {data: guideData, error: gErr}, {data: headerData, error: arrErr}] = await Promise.all([
+      sb.from('booking_hotels').select('booking_id,hotel_name,check_in,check_out').in('booking_id', ids),
+      // 同じ日に複数のバス会社が入るケース(新幹線区間を挟んで前半/後半で会社が変わる等。
+      // tour_day_itineraryのbus_booking_id/bus_booking_id_2と同じ想定)があるため、
+      // .order()で順序を安定させる(未指定だとDBが返す順序が不定に近く、セル内の
+      // 表示順が読み込むたびに変わりうる)。booking_busesにtime系の列は無いため、
+      // created_at(入力順)を使う。
+      sb.from('booking_buses').select('booking_id,bus_company,start_date,end_date').in('booking_id', ids).order('created_at'),
+      sb.from('booking_guides').select('booking_id,guide_id,guide_name_freetext,start_date,end_date,guides(name)').in('booking_id', ids),
+      sb.from('tour_arrangement_headers').select('booking_id,arr_flight').in('booking_id', ids),
+    ]);
+    const detailErr = hErr||buErr||gErr||arrErr;
+    if(detailErr){ body.innerHTML = `<p style="color:var(--red);font-size:12px">明細の読み込みエラー: ${escHtml(detailErr.message)}</p>`; return; }
+    hotelRows = hotelData; busRows = busData; guideRows = guideData; headerRows = headerData;
+    tcCalendarDataCache[tcCacheKey] = { bookings, hotelRows, busRows, guideRows, headerRows, at: Date.now() };
+  }
 
   // レーン配色(エージェントごと)。表示月を切り替えても同じ色になるよう、
   // bookings全体の頻度で1度だけ計算したキャッシュを使い回す。
