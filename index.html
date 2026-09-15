@@ -10138,14 +10138,26 @@ function buildGuideSettlementPrintHtml(s, b, guideIndex){
 
   const paxTotal = Number(b.pax_adult||0)+Number(b.pax_child||0)+Number(b.pax_infant||0);
 
-  const rows = items.map((it,i)=>`
+  // 合計(B)の対象(経費)行とガイド費行を、見た目上も別々に区切って表示する
+  // (計算上は既に除外されているが、一覧内で混在して見えると(B)に含まれる
+  // ように誤解されるため、経費行→合計(B)→区切り→ガイド費行→ガイド費合計(C)
+  // →総合計の順に並べ、合計(B)の時点で経費部分が完結していることを示す)。
+  const buildItemRow = (it,i) => `
     <tr>
       <td style="border:1px solid #999;padding:4px;text-align:center">${escHtml(it.receipt_no||String(i+1))}</td>
       <td style="border:1px solid #999;padding:4px;text-align:center">${it.expense_date||''}</td>
       <td style="border:1px solid #999;padding:4px">${escHtml(it.category||'')}${it.description?(' '+escHtml(it.description)):''}</td>
       <td style="border:1px solid #999;padding:4px;text-align:right">${yen(it.amount)}</td>
       <td style="border:1px solid #999;padding:4px"></td>
-    </tr>`).join('');
+    </tr>`;
+  const localRowItems = items.filter(it=>!String(it.category||'').includes('ガイド費'));
+  const guideRowItems = items.filter(it=>String(it.category||'').includes('ガイド費'));
+  const localRows = localRowItems.map((it,i)=>buildItemRow(it,i)).join('');
+  const guideFeeDividerRow = guideRowItems.length>0 ? `
+    <tr>
+      <td colspan="5" style="border:1px solid #999;padding:4px 6px;background:#F7F2E8;font-weight:700;font-size:10px;color:#8a6d1a">▽ ガイド費（合計(B)には含まれません。ガイド費合計(C)として別途集計）</td>
+    </tr>` : '';
+  const guideRows = guideRowItems.map((it,i)=>buildItemRow(it, localRowItems.length+i)).join('');
 
   const blankRowsCount = Math.max(0, 5-items.length);
   const blankRows = Array.from({length:blankRowsCount}).map((_,i)=>`
@@ -10211,13 +10223,15 @@ function buildGuideSettlementPrintHtml(s, b, guideIndex){
           <th style="border:1px solid #999;padding:5px;width:120px">備考</th>
         </tr></thead>
         <tbody>
-          ${rows}
-          ${blankRows}
+          ${localRows}
           <tr style="font-weight:700;background:#EEF3FA">
             <td colspan="3" style="border:1px solid #999;padding:6px;text-align:right">合計（B）</td>
             <td style="border:1px solid #999;padding:6px;text-align:right;color:var(--blue)">${yen(localTotal)}</td>
             <td style="border:1px solid #999;padding:6px"></td>
           </tr>
+          ${guideFeeDividerRow}
+          ${guideRows}
+          ${blankRows}
           <tr style="font-weight:700;background:#EEF3FA">
             <td colspan="3" style="border:1px solid #999;padding:6px;text-align:right">ガイド費合計（C）</td>
             <td style="border:1px solid #999;padding:6px;text-align:right;color:var(--blue)">${yen(guideFee)}</td>
