@@ -4192,6 +4192,7 @@ async function fetchBookingsListLight(){
 // ===== 観光地予約管理(複数予約横断) =====
 const FACILITY_MGMT_STATUS_OPTIONS = ['未予約','問い合わせ中','手配OK','FNL済','NG回答','予約不要','キャンセル'];
 let facilityManagementCache = [];
+let facilityManagementCacheAt = 0;
 let facilityManagementStatusFilter = null;
 
 async function fetchAllBookingFacilities(){
@@ -4206,10 +4207,20 @@ async function fetchAllBookingFacilities(){
   return all;
 }
 
+// 2026-09 egress緊急対応: タブを開くたびに無条件でbooking_facilitiesを全件select('*')
+// していたため、5分TTLキャッシュを導入した(bookingFacilitiesApiCall側で書き込み成功時に
+// facilityManagementCacheAt=0にして無効化する。fetchAllFacilityDeadlineItems側の
+// キャッシュとは列・絞り込み条件が異なる別キャッシュ)。UIの見た目・動作は変更なし。
 async function loadFacilityManagementPage(){
   enablePasteUpload(document.getElementById('fm-paste-zone'), file=>processFmFacilityFile(file));
-  document.getElementById('fm-tbody').innerHTML = '<tr><td colspan="8" class="empty">読み込み中...</td></tr>';
   renderFacilityManagementStatusButtons();
+
+  if(facilityManagementCache.length>0 && cacheIsFresh(facilityManagementCacheAt)){
+    filterFacilityManagement();
+    return;
+  }
+
+  document.getElementById('fm-tbody').innerHTML = '<tr><td colspan="8" class="empty">読み込み中...</td></tr>';
   if(!allBookingsCache.length) allBookingsCache = await fetchAllBookings();
   const bookingById = {};
   allBookingsCache.forEach(b=>{ bookingById[b.id] = b; });
@@ -4221,6 +4232,7 @@ async function loadFacilityManagementPage(){
     return;
   }
   facilityManagementCache = rows.map(r=>({...r, _booking: bookingById[r.booking_id]||null}));
+  facilityManagementCacheAt = Date.now();
   filterFacilityManagement();
 }
 
@@ -5628,6 +5640,7 @@ async function guideBankAccountsApiCall(action, payload){ return tableCrudApiCal
 async function bookingFacilitiesApiCall(action, payload){
   const result = await tableCrudApiCall('booking_facilities', action, payload);
   facilityDeadlineItemsCacheAt = 0;
+  facilityManagementCacheAt = 0; // 観光地予約管理(loadFacilityManagementPage)のキャッシュも無効化
   return result;
 }
 // bookings(予約本体)への書き込み(セキュリティ移行フェーズ3)。読み取り(select)は
