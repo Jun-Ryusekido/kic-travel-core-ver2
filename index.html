@@ -5715,7 +5715,12 @@ async function bookingBusesApiCall(action, payload){
   tcCalendarDataCache = {}; // ツアー運行カレンダーのキャッシュも無効化
   return result;
 }
-async function bookingRestaurantsApiCall(action, payload){ return tableCrudApiCall('booking_restaurants', action, payload); }
+// 2026-09 egress緊急対応: レストラン重複確認(renderRestaurantConflicts)のキャッシュも無効化する。
+async function bookingRestaurantsApiCall(action, payload){
+  const result = await tableCrudApiCall('booking_restaurants', action, payload);
+  restaurantConflictsCache = {};
+  return result;
+}
 async function vendorEmailLogsApiCall(action, payload){
   const result = await tableCrudApiCall('vendor_email_logs', action, payload);
   vendorEmailCandidatesFetchAt = 0;
@@ -16106,28 +16111,39 @@ function initRestaurantConflicts(){
   }
   renderRestaurantConflicts();
 }
+// 2026-09 egress緊急対応: 同じ月への再訪問のたびにbooking_restaurantsを
+// 毎回叩き直していたため、月(ym)をキーに5分TTLキャッシュを導入する
+// (bookingRestaurantsApiCall側で書き込み成功時に全件無効化する)。
+let restaurantConflictsCache = {}; // { [ym]: {rows, at} }
 async function renderRestaurantConflicts(){
   const ym = document.getElementById('rc-ym')?.value;
   if(!ym) return;
   const body = document.getElementById('rc-body');
-  body.innerHTML = '<p style="color:var(--text3);font-size:12px">読み込み中...</p>';
   const [year, month] = ym.split('-').map(Number);
   const daysInMonth = new Date(year, month, 0).getDate();
   const monthStart = `${ym}-01`;
   const monthEnd = `${ym}-${String(daysInMonth).padStart(2,'0')}`;
 
-  let rows = [], from = 0; const PAGE = 1000;
-  while(true){
-    const {data, error} = await sb.from('booking_restaurants')
-      .select('booking_id,restaurant_name,date,reservation_time')
-      .gte('date', monthStart).lte('date', monthEnd)
-      .range(from, from+PAGE-1);
-    if(error){ body.innerHTML = `<p style="color:var(--red);font-size:12px">読み込みエラー: ${escHtml(error.message)}</p>`; return; }
-    rows = rows.concat(data||[]);
-    if(!data || data.length < PAGE) break;
-    from += PAGE;
+  const cached = restaurantConflictsCache[ym];
+  let rows;
+  if(cached && cacheIsFresh(cached.at)){
+    rows = cached.rows;
+  } else {
+    body.innerHTML = '<p style="color:var(--text3);font-size:12px">読み込み中...</p>';
+    rows = []; let from = 0; const PAGE = 1000;
+    while(true){
+      const {data, error} = await sb.from('booking_restaurants')
+        .select('booking_id,restaurant_name,date,reservation_time')
+        .gte('date', monthStart).lte('date', monthEnd)
+        .range(from, from+PAGE-1);
+      if(error){ body.innerHTML = `<p style="color:var(--red);font-size:12px">読み込みエラー: ${escHtml(error.message)}</p>`; return; }
+      rows = rows.concat(data||[]);
+      if(!data || data.length < PAGE) break;
+      from += PAGE;
+    }
+    rows = rows.filter(r=>r.restaurant_name);
+    restaurantConflictsCache[ym] = { rows, at: Date.now() };
   }
-  rows = rows.filter(r=>r.restaurant_name);
 
   // 日付+正規化した店名でグルーピングする。
   const groups = {};
