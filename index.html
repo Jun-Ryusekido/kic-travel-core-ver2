@@ -4612,7 +4612,17 @@ const FACILITY_DEADLINE_TIERS_FULL = FACILITY_DEADLINE_TIERS.concat([
 // buildFacilityDeadlineResult(allItems, maxDays): allItemsから、既存の
 // fetchFacilityDeadlineItems(maxDays)と同じ形の{items, buckets, bucketsFull,
 // completed, incompleteAll}を組み立てる純関数(DBへは問い合わせない)。
+// 2026-09 egress緊急対応: ダッシュボードを開くたびに無条件でbooking_facilitiesを
+// 全件ページングスキャンしていたため、5分TTLキャッシュを導入する
+// (bookingFacilitiesApiCall側で書き込み成功時にfacilityDeadlineItemsCacheAt=0にして
+// 無効化する)。UIの見た目・動作(表示内容・件数)は変更しない。
+let facilityDeadlineItemsCache = null;
+let facilityDeadlineItemsCacheAt = 0;
 async function fetchAllFacilityDeadlineItems(){
+  if(facilityDeadlineItemsCache && cacheIsFresh(facilityDeadlineItemsCacheAt)){
+    return { allItems: facilityDeadlineItemsCache };
+  }
+
   const today = new Date(); today.setHours(0,0,0,0);
   const inDays = dateStr => Math.floor((new Date(dateStr+'T00:00:00') - today) / 86400000);
 
@@ -4655,6 +4665,8 @@ async function fetchAllFacilityDeadlineItems(){
       return a._days - b._days;
     });
 
+  facilityDeadlineItemsCache = allItems;
+  facilityDeadlineItemsCacheAt = Date.now();
   return { allItems };
 }
 function buildFacilityDeadlineResult(allItems, maxDays){
@@ -5606,7 +5618,16 @@ async function cardHoldersApiCall(action, payload){ return tableCrudApiCall('car
 async function agentsApiCall(action, payload){ return tableCrudApiCall('agents', action, payload); }
 async function guidesApiCall(action, payload){ return tableCrudApiCall('guides', action, payload); }
 async function guideBankAccountsApiCall(action, payload){ return tableCrudApiCall('guide_bank_accounts', action, payload); }
-async function bookingFacilitiesApiCall(action, payload){ return tableCrudApiCall('booking_facilities', action, payload); }
+// 2026-09 egress緊急対応: booking_facilitiesへの書き込みは成功時に必ず
+// facilityDeadlineItemsCacheAt=0にして、fetchAllFacilityDeadlineItemsの5分TTL
+// キャッシュを無効化する(businessPartnersApiCall等と同じ考え方。宣言は
+// fetchAllFacilityDeadlineItems側(後方)だが、実際に呼ばれるのは全スクリプト
+// 評価後のため問題ない)。
+async function bookingFacilitiesApiCall(action, payload){
+  const result = await tableCrudApiCall('booking_facilities', action, payload);
+  facilityDeadlineItemsCacheAt = 0;
+  return result;
+}
 // bookings(予約本体)への書き込み(セキュリティ移行フェーズ3)。読み取り(select)は
 // 従来通りsb.from('bookings')の直接呼び出しのまま変更しない(一覧表示・ダッシュボード・
 // メールマッチング等、影響範囲が広いためロールアウトのリスクを最小化する)。
