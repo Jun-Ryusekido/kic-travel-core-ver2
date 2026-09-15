@@ -3884,7 +3884,8 @@ async function loadCardHolders(){
   if(!tbody) return;
   tbody.innerHTML = '<tr><td colspan="4" class="empty">読み込み中...</td></tr>';
   try{
-    const {data, error} = await sb.from('card_holders').select('*').order('name');
+    // 2026-09 egress緊急対応(Tier C): 実際に使用しているid/name/notes/is_activeのみ取得する
+    const {data, error} = await sb.from('card_holders').select('id,name,notes,is_active').order('name');
     if(error) throw error;
     cardHoldersAdminCache = data||[];
     renderCardHolders();
@@ -21152,7 +21153,8 @@ function closeDeletedGuidesModal(){
 async function loadDeletedGuides(){
   const tbody = document.getElementById('deleted-gr-tbody');
   tbody.innerHTML = '<tr><td colspan="4" class="empty">読み込み中...</td></tr>';
-  const {data, error} = await sb.from('guides').select('*').eq('is_deleted', true).order('deleted_at', {ascending:false});
+  // 2026-09 egress緊急対応(Tier C): 実際に使用しているid/name/deleted_at/deleted_byのみ取得する
+  const {data, error} = await sb.from('guides').select('id,name,deleted_at,deleted_by').eq('is_deleted', true).order('deleted_at', {ascending:false});
   if(error){ tbody.innerHTML = `<tr><td colspan="4" class="empty">読み込みエラー: ${error.message}</td></tr>`; return; }
   if(!data || data.length===0){ tbody.innerHTML = '<tr><td colspan="4" class="empty">削除済みのガイドはありません</td></tr>'; return; }
   tbody.innerHTML = data.map(g=>`
@@ -22778,9 +22780,12 @@ async function findCcMatchCandidates(statement){
   // (「事前決済」+「法人カード決済」を含むmemo、移行前の既存データ)の両方から集める。
   // 新旧データが本番に混在する移行期間中は両方見る必要があるため、単純にORせず
   // 2つのクエリに分けて結果をidで重複排除する。
+  // 2026-09 egress緊急対応(Tier C): 実際に使用しているid/booking_id/item_name/amount/
+  // payment_date/card_holderのみ取得する(payment_method/memoはWHERE条件のみで参照)
+  const CC_MATCH_COST_COLUMNS = 'id,booking_id,item_name,amount,payment_date,card_holder';
   const [{data: costsNew, error: errNew}, {data: costsLegacy, error: errLegacy}] = await Promise.all([
-    sb.from('booking_costs').select('*').in('payment_method', CC_PAYMENT_METHODS).eq('amount', statement.amount),
-    sb.from('booking_costs').select('*').eq('payment_method','事前決済').eq('amount', statement.amount).ilike('memo','%法人カード決済%'),
+    sb.from('booking_costs').select(CC_MATCH_COST_COLUMNS).in('payment_method', CC_PAYMENT_METHODS).eq('amount', statement.amount),
+    sb.from('booking_costs').select(CC_MATCH_COST_COLUMNS).eq('payment_method','事前決済').eq('amount', statement.amount).ilike('memo','%法人カード決済%'),
   ]);
   const amountMatchedMap = new Map();
   [...(!errNew && costsNew ? costsNew : []), ...(!errLegacy && costsLegacy ? costsLegacy : [])].forEach(c=>amountMatchedMap.set(c.id, c));
@@ -22823,8 +22828,8 @@ async function findCcMatchCandidates(statement){
       const mmIds = mismatchBookings.map(b=>b.id);
       if(mmIds.length){
         const [{data: mmCostsNew}, {data: mmCostsLegacy}] = await Promise.all([
-          sb.from('booking_costs').select('*').in('booking_id', mmIds).in('payment_method', CC_PAYMENT_METHODS),
-          sb.from('booking_costs').select('*').in('booking_id', mmIds).eq('payment_method','事前決済').ilike('memo','%法人カード決済%'),
+          sb.from('booking_costs').select(CC_MATCH_COST_COLUMNS).in('booking_id', mmIds).in('payment_method', CC_PAYMENT_METHODS),
+          sb.from('booking_costs').select(CC_MATCH_COST_COLUMNS).in('booking_id', mmIds).eq('payment_method','事前決済').ilike('memo','%法人カード決済%'),
         ]);
         const mmMap = new Map();
         [...(mmCostsNew||[]), ...(mmCostsLegacy||[])].forEach(c=>mmMap.set(c.id, c));
@@ -23141,7 +23146,8 @@ async function openCcMatchModal(id){
   if(s.match_status==='確定済み' && s.matched_booking_id){
     const [{data: bk}, {data: cost}] = await Promise.all([
       sb.from('bookings').select('id,ref_no,tour_name').eq('id', s.matched_booking_id).maybeSingle(),
-      s.matched_booking_cost_id ? sb.from('booking_costs').select('*').eq('id', s.matched_booking_cost_id).maybeSingle() : Promise.resolve({data:null}),
+      // 2026-09 egress緊急対応(Tier C): currentMatchHtmlで参照するitem_name/amountのみ取得する
+      s.matched_booking_cost_id ? sb.from('booking_costs').select('id,item_name,amount').eq('id', s.matched_booking_cost_id).maybeSingle() : Promise.resolve({data:null}),
     ]);
     currentMatch = { booking: bk||null, cost: cost||null };
   }
@@ -23315,7 +23321,9 @@ async function searchCcManualMatch(ccId){
   const {data: bks} = await sb.from('bookings').select('id,ref_no,tour_name').or(`ref_no.ilike.%${q}%,tour_name.ilike.%${q}%`).limit(20);
   if(!bks || bks.length===0){ resultsEl.innerHTML = '<div class="empty" style="font-size:11px">該当する予約が見つかりませんでした</div>'; return; }
   const bookingIds = bks.map(b=>b.id);
-  const {data: costs} = await sb.from('booking_costs').select('*').in('booking_id', bookingIds);
+  // 2026-09 egress緊急対応(Tier C): existingRowsの表示・確定ボタンで参照するid/booking_id/
+  // item_name/amountのみ取得する
+  const {data: costs} = await sb.from('booking_costs').select('id,booking_id,item_name,amount').in('booking_id', bookingIds);
   const costsByBooking = {};
   (costs||[]).forEach(c=>{ (costsByBooking[c.booking_id] = costsByBooking[c.booking_id]||[]).push(c); });
   // 予約ごとに「既存の仕入明細から選ぶ」候補と、「新しい仕入明細をその場で作成して紐付ける」
@@ -27922,7 +27930,9 @@ function closeDeletedPartnersModal(){
 async function loadDeletedPartners(){
   const tbody = document.getElementById('deleted-pt-tbody');
   tbody.innerHTML = '<tr><td colspan="4" class="empty">読み込み中...</td></tr>';
-  const {data, error} = await sb.from('business_partners').select('*').eq('is_deleted', true).order('deleted_at', {ascending:false});
+  // 2026-09 egress緊急対応(Tier C): 実際に使用しているid/company_name/deleted_at/deleted_by
+  // のみ取得する(getDisplayContactForPartnerはp.idしか参照しない)
+  const {data, error} = await sb.from('business_partners').select('id,company_name,deleted_at,deleted_by').eq('is_deleted', true).order('deleted_at', {ascending:false});
   if(error){ tbody.innerHTML = `<tr><td colspan="4" class="empty">読み込みエラー: ${error.message}</td></tr>`; return; }
   if(!data || data.length===0){ tbody.innerHTML = '<tr><td colspan="4" class="empty">削除済みの取引先はありません</td></tr>'; return; }
   tbody.innerHTML = data.map(p=>{ const dc = getDisplayContactForPartner(p); return `
@@ -28672,7 +28682,9 @@ function closeDeletedAgentsModal(){
 async function loadDeletedAgents(){
   const tbody = document.getElementById('deleted-ag-tbody');
   tbody.innerHTML = '<tr><td colspan="4" class="empty">読み込み中...</td></tr>';
-  const {data, error} = await sb.from('agents').select('*').eq('is_deleted', true).order('deleted_at', {ascending:false});
+  // 2026-09 egress緊急対応(Tier C): 実際に使用しているid/company_name/contact_person/
+  // deleted_at/deleted_byのみ取得する
+  const {data, error} = await sb.from('agents').select('id,company_name,contact_person,deleted_at,deleted_by').eq('is_deleted', true).order('deleted_at', {ascending:false});
   if(error){ tbody.innerHTML = `<tr><td colspan="4" class="empty">読み込みエラー: ${error.message}</td></tr>`; return; }
   if(!data || data.length===0){ tbody.innerHTML = '<tr><td colspan="4" class="empty">削除済みのエージェントはありません</td></tr>'; return; }
   tbody.innerHTML = data.map(a=>`
