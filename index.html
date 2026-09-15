@@ -5610,13 +5610,19 @@ async function tableCrudApiCall(table, action, payload){
   return data;
 }
 async function bookingSalesApiCall(action, payload){ return tableCrudApiCall('booking_sales', action, payload); }
-async function localExpensesApiCall(action, payload){ return tableCrudApiCall('local_expenses', action, payload); }
+// 2026-09 egress緊急対応: ガイド仮払い一覧(loadGuideAdvanceList)のキャッシュも無効化する。
+async function localExpensesApiCall(action, payload){
+  const result = await tableCrudApiCall('local_expenses', action, payload);
+  guideAdvanceListCache = {};
+  return result;
+}
 // 2026-09 egress緊急対応: guide_settlements/guide_settlement_itemsへの書き込みは成功時に
 // guideSettlementsSummaryCacheAt=0にして、loadGuideSettlementsListPageのget_guide_
 // settlements_summary RPCキャッシュ(5分TTL)を無効化する。
 async function guideSettlementsApiCall(action, payload){
   const result = await tableCrudApiCall('guide_settlements', action, payload);
   guideSettlementsSummaryCacheAt = 0;
+  guideAdvanceListCache = {}; // ガイド仮払い一覧のキャッシュも無効化
   return result;
 }
 async function guideSettlementItemsApiCall(action, payload){
@@ -5685,7 +5691,12 @@ async function invoicesApiCall(action, payload){
 // 漏れ、anonキーからの直接insert/update/delete/upsertが残っていた(2026-08点検で判明)。
 // 他テーブルと同じ形式でservice_role API化する(api/table-crud.jsのTABLE_CONFIG参照。
 // REVOKEはこの時点では未実行)。
-async function tourArrangementsApiCall(action, payload){ return tableCrudApiCall('tour_arrangements', action, payload); }
+// 2026-09 egress緊急対応: ガイド仮払い一覧(loadGuideAdvanceList)のキャッシュも無効化する。
+async function tourArrangementsApiCall(action, payload){
+  const result = await tableCrudApiCall('tour_arrangements', action, payload);
+  guideAdvanceListCache = {};
+  return result;
+}
 async function tourArrangementDaysApiCall(action, payload){ return tableCrudApiCall('tour_arrangement_days', action, payload); }
 async function bulletTrainArrangementsApiCall(action, payload){ return tableCrudApiCall('bullet_train_arrangements', action, payload); }
 async function arrangementDocumentsApiCall(action, payload){ return tableCrudApiCall('arrangement_documents', action, payload); }
@@ -5791,8 +5802,17 @@ async function creditCardStatementsApiCall(action, payload){
 }
 // F1(見積もりのservice_role移行)。読み取り(select)は従来通りanonキー直接。
 // insert/update/delete/コピーのみこのAPI経由にする。
-async function estimationsApiCall(action, payload){ return tableCrudApiCall('estimations', action, payload); }
-async function estimationDaysApiCall(action, payload){ return tableCrudApiCall('estimation_days', action, payload); }
+// 2026-09 egress緊急対応: ガイド仮払い一覧(loadGuideAdvanceList)のキャッシュも無効化する。
+async function estimationsApiCall(action, payload){
+  const result = await tableCrudApiCall('estimations', action, payload);
+  guideAdvanceListCache = {};
+  return result;
+}
+async function estimationDaysApiCall(action, payload){
+  const result = await tableCrudApiCall('estimation_days', action, payload);
+  guideAdvanceListCache = {};
+  return result;
+}
 async function estimationFixedRowsApiCall(action, payload){ return tableCrudApiCall('estimation_fixed_rows', action, payload); }
 async function estimationFitItemsApiCall(action, payload){ return tableCrudApiCall('estimation_fit_items', action, payload); }
 async function estimationBookingReflectionsApiCall(action, payload){ return tableCrudApiCall('estimation_booking_reflections', action, payload); }
@@ -20690,6 +20710,11 @@ function closeGuideAdvanceModal(){
   document.getElementById('guide-advance-modal').classList.remove('open');
 }
 
+// 2026-09 egress緊急対応: モーダルを開くたび・日付範囲を変えるたびに毎回5クエリを
+// 叩き直していたため、日付範囲(from,to)をキーに5分TTLキャッシュを導入する
+// (tourArrangementsApiCall/estimationsApiCall/estimationDaysApiCall/
+// guideSettlementsApiCall/localExpensesApiCall側で書き込み成功時に全件無効化する)。
+let guideAdvanceListCache = {}; // { "from|to": {arrangements, estimations, settlements, localExpenses, estGuideSumByEstId, at} }
 async function loadGuideAdvanceList(){
   const fromEl = document.getElementById('ga-from'), toEl = document.getElementById('ga-to');
   const from = fromEl.value, to = toEl.value;
@@ -20703,12 +20728,30 @@ async function loadGuideAdvanceList(){
   const refNos = filtered.map(b=>b.ref_no);
   const ids = filtered.map(b=>b.id);
 
-  const [{data: arrangements}, {data: estimations}, {data: settlements}, {data: localExpenses}] = await Promise.all([
-    sb.from('tour_arrangements').select('booking_ref, guide_name, guide_phone').in('booking_ref', refNos),
-    sb.from('estimations').select('id, converted_booking_id').in('converted_booking_id', ids),
-    sb.from('guide_settlements').select('booking_ref, guide_name, guide_phone, guide_names, advance_payment, additional_advance_payment, status').in('booking_ref', refNos),
-    sb.from('local_expenses').select('booking_id, expense_date, content, category, unit_price, qty, amount, payment_method').in('booking_id', ids).order('sort_order')
-  ]);
+  const gaCacheKey = `${from}|${to}`;
+  const gaCached = guideAdvanceListCache[gaCacheKey];
+  let arrangements, estimations, settlements, localExpenses, estGuideSumByEstId;
+  if(gaCached && cacheIsFresh(gaCached.at)){
+    ({arrangements, estimations, settlements, localExpenses, estGuideSumByEstId} = gaCached);
+  } else {
+    const [{data: arrangementsData}, {data: estimationsData}, {data: settlementsData}, {data: localExpensesData}] = await Promise.all([
+      sb.from('tour_arrangements').select('booking_ref, guide_name, guide_phone').in('booking_ref', refNos),
+      sb.from('estimations').select('id, converted_booking_id').in('converted_booking_id', ids),
+      sb.from('guide_settlements').select('booking_ref, guide_name, guide_phone, guide_names, advance_payment, additional_advance_payment, status').in('booking_ref', refNos),
+      sb.from('local_expenses').select('booking_id, expense_date, content, category, unit_price, qty, amount, payment_method').in('booking_id', ids).order('sort_order')
+    ]);
+    arrangements = arrangementsData; estimations = estimationsData; settlements = settlementsData; localExpenses = localExpensesData;
+
+    estGuideSumByEstId = {};
+    if(estimations && estimations.length>0){
+      const estIds = estimations.map(e=>e.id);
+      const {data: edays} = await sb.from('estimation_days').select('estimation_id, guide_fee, guide_tip, guide_meal').in('estimation_id', estIds);
+      (edays||[]).forEach(d=>{
+        estGuideSumByEstId[d.estimation_id] = (estGuideSumByEstId[d.estimation_id]||0) + Number(d.guide_fee||0)+Number(d.guide_tip||0)+Number(d.guide_meal||0);
+      });
+    }
+    guideAdvanceListCache[gaCacheKey] = { arrangements, estimations, settlements, localExpenses, estGuideSumByEstId, at: Date.now() };
+  }
 
   // 予約IDごとの仮払い合計
   const localExpenseTotalById = {};
@@ -20716,14 +20759,6 @@ async function loadGuideAdvanceList(){
     localExpenseTotalById[r.booking_id] = (localExpenseTotalById[r.booking_id]||0) + Number(r.amount||0);
   });
 
-  let estGuideSumByEstId = {};
-  if(estimations && estimations.length>0){
-    const estIds = estimations.map(e=>e.id);
-    const {data: edays} = await sb.from('estimation_days').select('estimation_id, guide_fee, guide_tip, guide_meal').in('estimation_id', estIds);
-    (edays||[]).forEach(d=>{
-      estGuideSumByEstId[d.estimation_id] = (estGuideSumByEstId[d.estimation_id]||0) + Number(d.guide_fee||0)+Number(d.guide_tip||0)+Number(d.guide_meal||0);
-    });
-  }
   const estGuideSumByBooking = {};
   (estimations||[]).forEach(e=>{ estGuideSumByBooking[e.converted_booking_id] = estGuideSumByEstId[e.id]||0; });
 
