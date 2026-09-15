@@ -4903,10 +4903,21 @@ async function execTodoBatchUpdate(items, fields){
 // 予約・請求書)をダッシュボードにバナー表示する。「対応が必要な予約」カードと同じ
 // 場所(ダッシュボード上部)・同じ見せ方(カード+件数+クリックで一覧)に揃える。
 let _agentUnlinkedCache = { bookings: [], invoices: [] };
+// 2026-09 egress緊急対応: ダッシュボードを開くたびに無条件で実行されていたため、
+// 5分TTLキャッシュを導入した(bookingsApiCall/invoicesApiCall側で書き込み成功時に
+// 無効化する)。対象は絞り込み済みの小さい結果セットだが、既存パターンに準拠する。
+let agentUnlinkedBannerFetchAt = 0;
 async function refreshAgentUnlinkedBanner(){
   const card = document.getElementById('db-agent-unlinked-card');
   const summaryEl = document.getElementById('db-agent-unlinked-summary');
   if(!card || !summaryEl) return;
+  if(_agentUnlinkedCache && cacheIsFresh(agentUnlinkedBannerFetchAt)){
+    const total = _agentUnlinkedCache.bookings.length + _agentUnlinkedCache.invoices.length;
+    if(total === 0){ card.style.display = 'none'; return; }
+    card.style.display = '';
+    summaryEl.innerHTML = `<span style="font-size:12px;color:var(--amber,#854F0B)">予約${_agentUnlinkedCache.bookings.length}件・請求書${_agentUnlinkedCache.invoices.length}件が未紐付けです。クリックで一覧を表示 ▾</span>`;
+    return;
+  }
   try{
     const [{data: bRows, error: bErr}, {data: iRows, error: iErr}] = await Promise.all([
       sb.from('bookings').select('id,ref_no,agent_name').not('agent_name','is',null).is('agent_id', null),
@@ -4921,6 +4932,7 @@ async function refreshAgentUnlinkedBanner(){
     const bookingsUnlinked = (bRows||[]).filter(b=>_isRealAgentName(b.agent_name));
     const invoicesUnlinked = (iRows||[]).filter(i=>_isRealAgentName(i.agent_name));
     _agentUnlinkedCache = { bookings: bookingsUnlinked, invoices: invoicesUnlinked };
+    agentUnlinkedBannerFetchAt = Date.now();
     const total = bookingsUnlinked.length + invoicesUnlinked.length;
     if(total === 0){ card.style.display = 'none'; return; }
     card.style.display = '';
@@ -5646,7 +5658,13 @@ async function bookingFacilitiesApiCall(action, payload){
 // bookings(予約本体)への書き込み(セキュリティ移行フェーズ3)。読み取り(select)は
 // 従来通りsb.from('bookings')の直接呼び出しのまま変更しない(一覧表示・ダッシュボード・
 // メールマッチング等、影響範囲が広いためロールアウトのリスクを最小化する)。
-async function bookingsApiCall(action, payload){ return tableCrudApiCall('bookings', action, payload); }
+// 2026-09 egress緊急対応: bookings.agent_idの変更でAgentマスタ未紐付けバナーの内容が
+// 変わりうるため、書き込み成功時にagentUnlinkedBannerFetchAt=0にして無効化する。
+async function bookingsApiCall(action, payload){
+  const result = await tableCrudApiCall('bookings', action, payload);
+  agentUnlinkedBannerFetchAt = 0;
+  return result;
+}
 async function bookingCostsApiCall(action, payload){ return tableCrudApiCall('booking_costs', action, payload); }
 // invoices(請求書)。金銭データを扱う最重要テーブルの一つだが、似た名前の他テーブルとの
 // 取り違えでservice_role移行対象から漏れ、anonキーからの直接insert/update/deleteが
@@ -5657,6 +5675,7 @@ async function bookingCostsApiCall(action, payload){ return tableCrudApiCall('bo
 async function invoicesApiCall(action, payload){
   const result = await tableCrudApiCall('invoices', action, payload);
   invoicesFetchAt = 0;
+  agentUnlinkedBannerFetchAt = 0; // Agentマスタ未紐付けバナーのキャッシュも無効化
   return result;
 }
 // tour_arrangements(手配書ヘッダー・共通ドラフト)/tour_arrangement_days(同日毎明細)/
