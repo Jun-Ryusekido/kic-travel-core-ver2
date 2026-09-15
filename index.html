@@ -5609,6 +5609,7 @@ async function businessPartnersApiCall(action, payload){
   const result = await tableCrudApiCall('business_partners', action, payload);
   partnersCacheAt = 0;
   allPartnersCacheAt = 0; // オートコンプリート/ミールバウチャー/レストラン一覧表共有キャッシュも無効化
+  vendorEmailCandidatesFetchAt = 0; // 手配確定状況のメールアドレス突合キャッシュも無効化
   return result;
 }
 async function businessPartnerContactsApiCall(action, payload){ return tableCrudApiCall('business_partner_contacts', action, payload); }
@@ -5667,11 +5668,22 @@ async function arrangementDocumentsApiCall(action, payload){ return tableCrudApi
 async function bookingHotelsApiCall(action, payload){
   const result = await tableCrudApiCall('booking_hotels', action, payload);
   hotelManagementCacheAt = 0;
+  vendorEmailCandidatesFetchAt = 0; // 手配確定状況(loadVendorEmailPage)の5分TTLキャッシュも無効化
   return result;
 }
-async function bookingBusesApiCall(action, payload){ return tableCrudApiCall('booking_buses', action, payload); }
+// 2026-09 egress緊急対応: booking_buses/vendor_email_logsへの書き込みも同様に
+// 手配確定状況(loadVendorEmailPage)のキャッシュを無効化する。
+async function bookingBusesApiCall(action, payload){
+  const result = await tableCrudApiCall('booking_buses', action, payload);
+  vendorEmailCandidatesFetchAt = 0;
+  return result;
+}
 async function bookingRestaurantsApiCall(action, payload){ return tableCrudApiCall('booking_restaurants', action, payload); }
-async function vendorEmailLogsApiCall(action, payload){ return tableCrudApiCall('vendor_email_logs', action, payload); }
+async function vendorEmailLogsApiCall(action, payload){
+  const result = await tableCrudApiCall('vendor_email_logs', action, payload);
+  vendorEmailCandidatesFetchAt = 0;
+  return result;
+}
 // email_import_queue(メール受信箱)への書き込み。更新可能な列はサーバー側(table-crud.jsの
 // updatableFields)で is_excluded/excluded_reason/ignored/imported/postponed の5列に
 // 限定されている。読み取り(select)は従来通りanon+RLSのまま変更しない。
@@ -5850,6 +5862,7 @@ async function fetchAllRowsGeneric(table, select){
 }
 
 let vendorEmailCandidatesCache = [];
+let vendorEmailCandidatesFetchAt = 0;
 
 async function fetchVendorEmailCandidates(){
   const today = new Date(); today.setHours(0,0,0,0);
@@ -5914,13 +5927,25 @@ async function fetchVendorEmailSentMap(){
   return map;
 }
 
+// 2026-09 egress緊急対応: 開くたびにbusiness_partners/booking_hotels/booking_buses/
+// vendor_email_logsの4テーブルを毎回全件スキャンしていたため、5分TTLキャッシュを
+// 導入した(bookingHotelsApiCall/bookingBusesApiCall/businessPartnersApiCall/
+// vendorEmailLogsApiCall側で書き込み成功時にvendorEmailCandidatesFetchAt=0にして
+// 無効化する)。キャッシュヒット時は再取得せず、既存のvendorEmailCandidatesCacheを
+// そのまま再描画する。
 async function loadVendorEmailPage(){
   const el = document.getElementById('ve-list');
   if(!el) return;
-  el.innerHTML = '<div style="padding:12px;color:var(--text3);font-size:12px">読み込み中...</div>';
   // 一覧の再取得は「未保存の変更」を破棄することになるため、初回表示時と一括保存完了後
   // (自身が呼ぶ)以外では呼ばない設計にする。念のためここでリセットしておく。
   vendorEmailPendingChanges = {};
+
+  if(vendorEmailCandidatesCache.length>0 && cacheIsFresh(vendorEmailCandidatesFetchAt)){
+    renderVendorEmailList();
+    return;
+  }
+
+  el.innerHTML = '<div style="padding:12px;color:var(--text3);font-size:12px">読み込み中...</div>';
   try{
     const candidates = await fetchVendorEmailCandidates();
     const sentMap = await fetchVendorEmailSentMap();
@@ -5930,6 +5955,7 @@ async function loadVendorEmailPage(){
     // data-idxはこのorigIdx(=常にvendorEmailCandidatesCacheそのものでの位置)で管理する
     // ことで、表示のフィルタ有無に関わらずindexがずれないようにする。
     vendorEmailCandidatesCache = candidates.map((c,i)=>({...c, origIdx:i, sent: sentMap[c.sourceTable+':'+c.id]||null}));
+    vendorEmailCandidatesFetchAt = Date.now();
   }catch(e){
     logError('手配確定状況の対象読み込み', e);
     el.innerHTML = '<div style="color:var(--red);font-size:12px">読み込みエラー: '+escHtml(e.message)+'</div>';
