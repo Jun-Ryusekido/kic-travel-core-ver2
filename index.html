@@ -2596,6 +2596,12 @@ input[type=number]{-moz-appearance:textfield}
 
     <div id="bd-presence-banner" style="display:none;background:#FFF3CD;border:1px solid #FFE69C;border-radius:6px;padding:6px 12px;margin-bottom:8px;font-size:11px;color:#856404"></div>
 
+    <!-- 財務サマリー(売上/仕入/粗利/粗利率/入金合計/未収金額)はadminロールのみ表示する。
+         あくまでフロントエンドの表示制御であり、値の取得自体は変更しない
+         (updateFinancialSummaryVisibility参照、openBookingDetail内で呼び出す)。
+         2つの.detail-summaryをまとめて1つのラッパーで囲み、display:noneで
+         エリアごと非表示にすることで、非表示時に不自然な余白が残らないようにする。 -->
+    <div id="bd-financial-summary-wrap">
     <div class="detail-summary">
       <div class="kpi"><div class="kpi-lbl">売上</div><div class="kpi-val" id="bd-sum-sales">-</div></div>
       <div class="kpi"><div class="kpi-lbl">仕入</div><div class="kpi-val" id="bd-sum-cost">-</div></div>
@@ -2605,6 +2611,7 @@ input[type=number]{-moz-appearance:textfield}
     <div class="detail-summary">
       <div class="kpi"><div class="kpi-lbl">入金合計</div><div class="kpi-val" id="bd-sum-paid">-</div></div>
       <div class="kpi"><div class="kpi-lbl">未収金額</div><div class="kpi-val" id="bd-sum-unpaid">-</div></div>
+    </div>
     </div>
 
     <div class="modal-section-title">基本情報</div>
@@ -6777,6 +6784,15 @@ function applyBdStatusColor(){
   btn.dataset.ddItems = bdStatusDropdownItemsHtml();
 }
 
+// 財務サマリー(売上/仕入/粗利/粗利率/入金合計/未収金額)はadminロールのみ表示する
+// (フロントエンドの表示制御のみ。値の取得・計算自体は変更しない)。
+// openBookingDetail()から予約を開くたびに呼び、ロールに応じてエリアごとdisplay:noneにする。
+function updateFinancialSummaryVisibility(){
+  const wrap = document.getElementById('bd-financial-summary-wrap');
+  if(!wrap) return;
+  wrap.style.display = (currentUser && currentUser.role==='admin') ? '' : 'none';
+}
+
 function updateDetailGrossPreview(){
   const sales = bdSalesTotal();
      const totalPaid = bdSalesItems.reduce((s,it)=>s+salesPaymentsTotal(it),0);
@@ -8727,6 +8743,7 @@ async function openBookingDetail(id, opts){
   }
   currentDetailId = id;
   bdCurrentRefNo = b.ref_no;
+  updateFinancialSummaryVisibility();
   bdLoadSnapshot = {}; // 予約を開き直すたびに差分保存のスナップショットをリセットする
   // 観光施設・ホテル・バス・レストラン・新幹線の各タブの表示専用ソートも予約ごとにリセットする
   // (前の予約のソートを引き継がない)。
