@@ -18205,7 +18205,7 @@ function renderGuideDropdown(i, q){
       })
     : guideRegistryCache.slice(0,50);
   const listHtml = filtered.length
-    ? filtered.slice(0,100).map(g=>`<div data-id="${g.id}" onmousedown="selectGuideItem(${i},this.dataset.id)" style="padding:8px 10px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''"><b>${escHtml(g.name||'')}</b>${g.phone?` <span style="color:var(--text3);font-size:10px">${escHtml(g.phone)}</span>`:''}</div>`).join('')
+    ? filtered.slice(0,100).map(g=>`<div data-id="${g.id}" onmousedown="selectGuideItem(${i},this.dataset.id)" style="padding:8px 10px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''"><b>${escHtml(g.name||'')}${g.name_kana?`（${escHtml(g.name_kana)}）`:''}</b>${g.phone?` <span style="color:var(--text3);font-size:10px">${escHtml(g.phone)}</span>`:''}</div>`).join('')
     : `<div style="padding:8px 10px;font-size:11px;color:var(--text3)">該当なし</div>`;
   dd.innerHTML = listHtml +
     `<div onmousedown="switchGuideRowToFreetext(${i})" style="padding:8px 10px;font-size:12px;cursor:pointer;color:var(--blue);border-top:1px solid var(--border)">✏️ その他（自由入力）</div>` +
@@ -18535,7 +18535,7 @@ function renderArrGuideDropdown(i, q){
       })
     : guideRegistryCache.slice(0,50);
   const listHtml = filtered.length
-    ? filtered.slice(0,100).map(g=>`<div data-id="${g.id}" onmousedown="selectArrGuideItem(${i},this.dataset.id)" style="padding:8px 10px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''"><b>${escHtml(g.name||'')}</b>${g.phone?` <span style="color:var(--text3);font-size:10px">${escHtml(g.phone)}</span>`:''}</div>`).join('')
+    ? filtered.slice(0,100).map(g=>`<div data-id="${g.id}" onmousedown="selectArrGuideItem(${i},this.dataset.id)" style="padding:8px 10px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''"><b>${escHtml(g.name||'')}${g.name_kana?`（${escHtml(g.name_kana)}）`:''}</b>${g.phone?` <span style="color:var(--text3);font-size:10px">${escHtml(g.phone)}</span>`:''}</div>`).join('')
     : `<div style="padding:8px 10px;font-size:11px;color:var(--text3)">該当なし</div>`;
   dd.innerHTML = listHtml +
     `<div onmousedown="switchArrGuideRowToFreetext(${i})" style="padding:8px 10px;font-size:12px;cursor:pointer;color:var(--blue);border-top:1px solid var(--border)">✏️ その他（自由入力）</div>` +
