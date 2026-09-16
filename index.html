@@ -21493,6 +21493,10 @@ function renderPaymentTable(tbodyId, list, columns, state, amtCls, goFn){
   tbody.innerHTML = pageData.map(r=>{
     return '<tr>' + columns.map(([f])=>{
       if(f==='amount') return `<td class="${amtCls}">${yen(r.amount)}</td>`;
+      // REF#はbooking_idが取れている行のみ、他画面(Booking List等)と同じ
+      // class="lnk"+openBookingDetail()でクリック可能にする。booking_id無し
+      // (REF#未紐付け)の行はこれまで通りただのテキスト表示のまま。
+      if(f==='ref_no' && r.booking_id) return `<td class="lnk" onclick="openBookingDetail('${r.booking_id}')">${escHtml(r.ref_no||'')}</td>`;
       return `<td>${r[f]||''}</td>`;
     }).join('') + '</tr>';
   }).join('') + pagerRow(state, totalPages, columns.length, goFn);

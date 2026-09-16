@@ -72,6 +72,8 @@ $$;
 grant execute on function multi_keyword_ilike(text, text) to anon, authenticated, service_role;
 
 -- ===== 入金明細(期間・検索語で絞り込み) =====
+-- booking_idは入出金管理画面でREF#をクリックして予約詳細を開くためのリンク先として返す
+-- (bookings.id無し=REF#未紐付けの行はnullのまま返り、クライアント側でリンク化しない)。
 create or replace function search_payment_income(p_from date, p_to date, p_search text default null)
 returns table(
   payment_date date,
@@ -80,7 +82,8 @@ returns table(
   bank text,
   ref_no text,
   agent_name text,
-  tour_name text
+  tour_name text,
+  booking_id uuid
 )
 language sql stable
 as $$
@@ -92,7 +95,7 @@ as $$
       coalesce((p->>'amount')::numeric,0) as amount,
       coalesce(s.item_name,'') as item_name,
       coalesce(p->>'bank','') as bank,
-      b.ref_no as ref_no, b.agent_name as agent_name, b.tour_name as tour_name,
+      b.ref_no as ref_no, b.agent_name as agent_name, b.tour_name as tour_name, b.id as booking_id,
       s.id as src_id, (p->>'date') as src_tiebreak
     from booking_sales s
     join lateral jsonb_array_elements(coalesce(s.payments,'[]'::jsonb)) as p on true
@@ -105,7 +108,7 @@ as $$
       coalesce(s.amount,0) as amount,
       coalesce(s.item_name,'') as item_name,
       '' as bank,
-      b.ref_no as ref_no, b.agent_name as agent_name, b.tour_name as tour_name,
+      b.ref_no as ref_no, b.agent_name as agent_name, b.tour_name as tour_name, b.id as booking_id,
       s.id as src_id, null as src_tiebreak
     from booking_sales s
     left join bookings b on b.id = s.booking_id
@@ -114,7 +117,7 @@ as $$
       and s.payment_date between p_from and p_to
       and multi_keyword_ilike(concat_ws(' ', b.ref_no, b.agent_name, s.item_name), p_search)
   )
-  select payment_date, amount, item_name, bank, ref_no, agent_name, tour_name
+  select payment_date, amount, item_name, bank, ref_no, agent_name, tour_name, booking_id
   from unioned
   order by payment_date desc, src_id, src_tiebreak;
 $$;
@@ -122,6 +125,8 @@ $$;
 grant execute on function search_payment_income(date, date, text) to anon, authenticated, service_role;
 
 -- ===== 出金明細(期間・検索語で絞り込み) =====
+-- booking_idは入出金管理画面でREF#をクリックして予約詳細を開くためのリンク先として返す
+-- (bookings.id無し=REF#未紐付けの行はnullのまま返り、クライアント側でリンク化しない)。
 create or replace function search_payment_outflow(p_from date, p_to date, p_search text default null)
 returns table(
   payment_date date,
@@ -130,12 +135,13 @@ returns table(
   memo text,
   ref_no text,
   agent_name text,
-  tour_name text
+  tour_name text,
+  booking_id uuid
 )
 language sql stable
 as $$
   select c.payment_date, coalesce(c.amount,0), coalesce(c.item_name,''), coalesce(c.memo,''),
-    b.ref_no, b.agent_name, b.tour_name
+    b.ref_no, b.agent_name, b.tour_name, b.id as booking_id
   from booking_costs c
   left join bookings b on b.id = c.booking_id
   where c.payment_date is not null
