@@ -1247,42 +1247,6 @@ input[type=number]{-moz-appearance:textfield}
 
       <!-- Dashboard -->
       <div id="pg-dashboard" class="page">
-        <div class="card accounting-only">
-          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-            <button class="btn btn-p" style="font-size:13px;padding:6px 14px" onclick="toggleDashboardBankbookOcr()">📷 通帳OCR</button>
-            <span id="db-bankbook-file-status" style="font-size:12px;color:var(--text3)"></span>
-          </div>
-          <div id="db-bankbook-ocr-area" style="display:none;margin-top:10px">
-            <div style="font-size:12px;color:var(--text3);margin-bottom:8px">通帳・銀行明細の画像・PDF・Excel・Wordをアップロードして入金記録を自動読み取りします</div>
-            <div style="margin-bottom:10px;max-width:100%">
-              <label for="db-bankbook-bank-select" style="font-size:11px;color:var(--text3);display:block;margin-bottom:3px">銀行（和暦/西暦の判断に使用。必須）</label>
-              <select id="db-bankbook-bank-select" onchange="saveDashboardBankbookBankSelection()" style="font-size:12px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);width:100%;max-width:320px;box-sizing:border-box"></select>
-            </div>
-            <label class="btn btn-p" style="cursor:pointer;font-size:12px;display:inline-flex">📷 カメラで撮影
-              <input type="file" accept="image/*" capture="environment" style="display:none" onchange="extractDashboardBankbook(event)">
-            </label>
-            <label class="btn" style="cursor:pointer;font-size:12px;display:inline-flex;margin-left:6px">🖼️ ギャラリーから選択
-              <input type="file" accept="image/*,application/pdf" style="display:none" onchange="extractDashboardBankbook(event)">
-            </label>
-            <label class="btn" style="cursor:pointer;font-size:12px;display:inline-flex;margin-left:6px">📎 Excel/Wordから読み取り
-              <input type="file" accept=".xlsx,.xls,.docx" style="display:none" onchange="extractDashboardBankbook(event)">
-            </label>
-            <div id="db-bankbook-paste-zone" class="paste-drop-zone" tabindex="-1">📋 ここをクリックしてCtrl+Vで画像・PDF・Excel・Wordファイルを貼り付け（ドラッグ&ドロップも可）</div>
-            <div id="db-bankbook-results" style="margin-top:12px"></div>
-          </div>
-        </div>
-        <div class="card" id="db-todo-summary-card" style="display:none">
-          <div class="card-title">📝 対応が必要な予約 <span style="font-size:10px;font-weight:400;color:var(--text3)">期限7日以内（区分別）</span></div>
-          <div id="db-todo-summary"></div>
-        </div>
-        <div class="card" id="db-agent-unlinked-card" style="display:none">
-          <div class="card-title">⚠ Agentマスタ未紐付け <span style="font-size:10px;font-weight:400;color:var(--text3)">agent_name入力済みだがagent_id未設定</span></div>
-          <div id="db-agent-unlinked-summary" style="cursor:pointer" onclick="openAgentUnlinkedListModal()"></div>
-        </div>
-        <div class="card" id="db-arrival-alert-card">
-          <div class="card-title">到着日アラート <span style="font-size:10px;font-weight:400;color:var(--text3)">今後90日以内の進行中予約</span></div>
-          <div id="db-arrival-alert"><span style="font-size:12px;color:var(--text3)">読み込み中...</span></div>
-        </div>
         <div class="card" id="db-filter-card" style="position:sticky;top:50px;z-index:10;margin-bottom:0;border-radius:12px 12px 0 0">
           <div class="card-title">
             <span>検索・絞り込み</span>
@@ -1319,7 +1283,43 @@ input[type=number]{-moz-appearance:textfield}
           </div>
         </div>
         <div id="db-filter-backdrop" onclick="toggleDbMobileFilterSheet(true)"></div>
-        <div class="card" id="db-list-card" style="border-top:none;border-radius:0 0 12px 12px;padding-top:0;margin-bottom:14px">
+        <div class="card accounting-only">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <button class="btn btn-p" style="font-size:13px;padding:6px 14px" onclick="toggleDashboardBankbookOcr()">📷 通帳OCR</button>
+            <span id="db-bankbook-file-status" style="font-size:12px;color:var(--text3)"></span>
+          </div>
+          <div id="db-bankbook-ocr-area" style="display:none;margin-top:10px">
+            <div style="font-size:12px;color:var(--text3);margin-bottom:8px">通帳・銀行明細の画像・PDF・Excel・Wordをアップロードして入金記録を自動読み取りします</div>
+            <div style="margin-bottom:10px;max-width:100%">
+              <label for="db-bankbook-bank-select" style="font-size:11px;color:var(--text3);display:block;margin-bottom:3px">銀行（和暦/西暦の判断に使用。必須）</label>
+              <select id="db-bankbook-bank-select" onchange="saveDashboardBankbookBankSelection()" style="font-size:12px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);width:100%;max-width:320px;box-sizing:border-box"></select>
+            </div>
+            <label class="btn btn-p" style="cursor:pointer;font-size:12px;display:inline-flex">📷 カメラで撮影
+              <input type="file" accept="image/*" capture="environment" style="display:none" onchange="extractDashboardBankbook(event)">
+            </label>
+            <label class="btn" style="cursor:pointer;font-size:12px;display:inline-flex;margin-left:6px">🖼️ ギャラリーから選択
+              <input type="file" accept="image/*,application/pdf" style="display:none" onchange="extractDashboardBankbook(event)">
+            </label>
+            <label class="btn" style="cursor:pointer;font-size:12px;display:inline-flex;margin-left:6px">📎 Excel/Wordから読み取り
+              <input type="file" accept=".xlsx,.xls,.docx" style="display:none" onchange="extractDashboardBankbook(event)">
+            </label>
+            <div id="db-bankbook-paste-zone" class="paste-drop-zone" tabindex="-1">📋 ここをクリックしてCtrl+Vで画像・PDF・Excel・Wordファイルを貼り付け（ドラッグ&ドロップも可）</div>
+            <div id="db-bankbook-results" style="margin-top:12px"></div>
+          </div>
+        </div>
+        <div class="card" id="db-todo-summary-card" style="display:none">
+          <div class="card-title">📝 対応が必要な予約 <span style="font-size:10px;font-weight:400;color:var(--text3)">期限7日以内（区分別）</span></div>
+          <div id="db-todo-summary"></div>
+        </div>
+        <div class="card" id="db-agent-unlinked-card" style="display:none">
+          <div class="card-title">⚠ Agentマスタ未紐付け <span style="font-size:10px;font-weight:400;color:var(--text3)">agent_name入力済みだがagent_id未設定</span></div>
+          <div id="db-agent-unlinked-summary" style="cursor:pointer" onclick="openAgentUnlinkedListModal()"></div>
+        </div>
+        <div class="card" id="db-arrival-alert-card">
+          <div class="card-title">到着日アラート <span style="font-size:10px;font-weight:400;color:var(--text3)">今後90日以内の進行中予約</span></div>
+          <div id="db-arrival-alert"><span style="font-size:12px;color:var(--text3)">読み込み中...</span></div>
+        </div>
+        <div class="card" id="db-list-card">
           <div class="card-title">予約一覧 <span id="db-count-mobile" style="font-size:11px;font-weight:400;color:var(--text3)"></span></div>
           <!-- カード表示(768px未満)では見出し行が消えるため、ソートの導線をここに置く -->
           <div class="bl-sort-bar" id="db-sort-bar"></div>
