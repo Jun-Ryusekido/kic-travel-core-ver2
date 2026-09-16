@@ -6790,7 +6790,10 @@ function applyBdStatusColor(){
 function updateFinancialSummaryVisibility(){
   const wrap = document.getElementById('bd-financial-summary-wrap');
   if(!wrap) return;
-  wrap.style.display = (currentUser && currentUser.role==='admin') ? '' : 'none';
+  // kanri@kictravel.jp(財務担当。実際のroleはstaff)は個別の例外として表示対象に含める
+  // (staffロール全体には引き続き非表示のまま)。
+  const canView = !!currentUser && (currentUser.role==='admin' || currentUser.email==='kanri@kictravel.jp');
+  wrap.style.display = canView ? '' : 'none';
 }
 
 function updateDetailGrossPreview(){
