@@ -53,6 +53,24 @@ $$;
 
 grant execute on function get_payment_monthly_summary(date, date) to anon, authenticated, service_role;
 
+-- ===== 検索語の複数キーワードAND一致判定(共通ヘルパー) =====
+-- 検索欄に「1006　チーム」のように全角/半角スペース区切りで複数語を
+-- 入力した場合、区切った各キーワードが全てp_haystackに含まれる(AND条件)
+-- 場合にtrueを返す。スペースが無い単一キーワードの場合は従来通り
+-- 部分一致のみで判定される。p_searchがNULL/空文字の場合は常にtrue(絞り込みなし)。
+create or replace function multi_keyword_ilike(p_haystack text, p_search text)
+returns boolean
+language sql stable
+as $$
+  select p_search is null or trim(p_search) = '' or not exists (
+    select 1
+    from unnest(regexp_split_to_array(trim(regexp_replace(p_search, '[\s　]+', ' ', 'g')), ' ')) as kw
+    where kw <> '' and p_haystack not ilike '%'||kw||'%'
+  );
+$$;
+
+grant execute on function multi_keyword_ilike(text, text) to anon, authenticated, service_role;
+
 -- ===== 入金明細(期間・検索語で絞り込み) =====
 create or replace function search_payment_income(p_from date, p_to date, p_search text default null)
 returns table(
@@ -81,10 +99,7 @@ as $$
     left join bookings b on b.id = s.booking_id
     where (p->>'date') is not null and (p->>'date') <> ''
       and (p->>'date')::date between p_from and p_to
-      and (
-        p_search is null or p_search = '' or
-        concat_ws(' ', b.ref_no, b.agent_name, s.item_name) ilike '%'||p_search||'%'
-      )
+      and multi_keyword_ilike(concat_ws(' ', b.ref_no, b.agent_name, s.item_name), p_search)
     union all
     select s.payment_date as payment_date,
       coalesce(s.amount,0) as amount,
@@ -97,10 +112,7 @@ as $$
     where (s.payments is null or jsonb_array_length(s.payments)=0)
       and s.payment_date is not null
       and s.payment_date between p_from and p_to
-      and (
-        p_search is null or p_search = '' or
-        concat_ws(' ', b.ref_no, b.agent_name, s.item_name) ilike '%'||p_search||'%'
-      )
+      and multi_keyword_ilike(concat_ws(' ', b.ref_no, b.agent_name, s.item_name), p_search)
   )
   select payment_date, amount, item_name, bank, ref_no, agent_name, tour_name
   from unioned
@@ -128,10 +140,7 @@ as $$
   left join bookings b on b.id = c.booking_id
   where c.payment_date is not null
     and c.payment_date between p_from and p_to
-    and (
-      p_search is null or p_search = '' or
-      concat_ws(' ', b.ref_no, b.agent_name, c.item_name, c.memo) ilike '%'||p_search||'%'
-    )
+    and multi_keyword_ilike(concat_ws(' ', b.ref_no, b.agent_name, c.item_name, c.memo), p_search)
   -- c.idはページング(.range())の境界を跨いでも順序が安定するよう、
   -- payment_dateの同値(タイ)を一意に決着させるための内部専用の並び替えキー。
   order by c.payment_date desc, c.id;
