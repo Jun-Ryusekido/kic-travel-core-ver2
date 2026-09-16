@@ -1247,42 +1247,6 @@ input[type=number]{-moz-appearance:textfield}
 
       <!-- Dashboard -->
       <div id="pg-dashboard" class="page">
-        <div class="card" id="db-filter-card" style="position:sticky;top:50px;z-index:10;margin-bottom:0;border-radius:12px 12px 0 0">
-          <div class="card-title">
-            <span>検索・絞り込み</span>
-            <span id="db-filter-close-btn" class="db-filter-close-btn" onclick="toggleDbMobileFilterSheet(true)">✕</span>
-          </div>
-          <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr 1fr">
-            <div class="form-field"><label>検索（REF# / Agent / Tour）</label><input id="db-search" placeholder="例: Kesari, #1374, Kyoto" oninput="filterBookingListGeneric('db')"></div>
-            <div class="form-field"><label>出発日(From)</label><input id="db-from" type="date" min="1900-01-01" max="9999-12-31" onblur="filterBookingListGeneric('db')"></div>
-            <div class="form-field"><label>出発日(To)</label><input id="db-to" type="date" min="1900-01-01" max="9999-12-31" onblur="filterBookingListGeneric('db')"></div>
-            <div class="form-field"><label>Status</label>
-              <select id="db-status" onchange="filterBookingListGeneric('db')">
-                <option value="">すべて</option>
-                <option value="open">Open</option>
-                <option value="pending">Pending</option>
-                <option value="confirmed">Confirmed</option>
-                <option value="finalized">Finalized</option>
-                <option value="invoiced">Invoiced</option>
-                <option value="paid">Paid</option>
-                <option value="settlement">精算中</option>
-                <option value="closed">Closed</option>
-                <option value="cancelled">中止</option>
-              </select>
-            </div>
-          </div>
-          <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
-            <span style="font-size:11px;color:var(--text3)" id="db-count"></span>
-            <span id="db-date-filter-note" style="display:none;font-size:11px;color:var(--amber)">🔍 検索中は日付範囲を無視して全期間を検索します</span>
-            <div style="display:flex;gap:8px;align-items:center;margin-left:auto">
-              <button class="btn" onclick="resetBookingFilter('db')">条件クリア</button>
-              <!-- モバイルのシート表示時のみ出る導線。シートを閉じて一覧の先頭まで
-                   スクロールし、絞り込み結果がすぐ見えるようにする。 -->
-              <button class="btn btn-p db-show-results-btn" id="db-show-results-btn" onclick="applyDbFilterAndShowResults()">結果を見る</button>
-            </div>
-          </div>
-        </div>
-        <div id="db-filter-backdrop" onclick="toggleDbMobileFilterSheet(true)"></div>
         <div class="card accounting-only">
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
             <button class="btn btn-p" style="font-size:13px;padding:6px 14px" onclick="toggleDashboardBankbookOcr()">📷 通帳OCR</button>
@@ -1319,7 +1283,43 @@ input[type=number]{-moz-appearance:textfield}
           <div class="card-title">到着日アラート <span style="font-size:10px;font-weight:400;color:var(--text3)">今後90日以内の進行中予約</span></div>
           <div id="db-arrival-alert"><span style="font-size:12px;color:var(--text3)">読み込み中...</span></div>
         </div>
-        <div class="card" id="db-list-card">
+        <div class="card" id="db-filter-card" style="position:sticky;top:50px;z-index:10;margin-bottom:0;border-radius:12px 12px 0 0">
+          <div class="card-title">
+            <span>検索・絞り込み</span>
+            <span id="db-filter-close-btn" class="db-filter-close-btn" onclick="toggleDbMobileFilterSheet(true)">✕</span>
+          </div>
+          <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr 1fr">
+            <div class="form-field"><label>検索（REF# / Agent / Tour）</label><input id="db-search" placeholder="例: Kesari, #1374, Kyoto" oninput="filterBookingListGeneric('db')"></div>
+            <div class="form-field"><label>出発日(From)</label><input id="db-from" type="date" min="1900-01-01" max="9999-12-31" onblur="filterBookingListGeneric('db')"></div>
+            <div class="form-field"><label>出発日(To)</label><input id="db-to" type="date" min="1900-01-01" max="9999-12-31" onblur="filterBookingListGeneric('db')"></div>
+            <div class="form-field"><label>Status</label>
+              <select id="db-status" onchange="filterBookingListGeneric('db')">
+                <option value="">すべて</option>
+                <option value="open">Open</option>
+                <option value="pending">Pending</option>
+                <option value="confirmed">Confirmed</option>
+                <option value="finalized">Finalized</option>
+                <option value="invoiced">Invoiced</option>
+                <option value="paid">Paid</option>
+                <option value="settlement">精算中</option>
+                <option value="closed">Closed</option>
+                <option value="cancelled">中止</option>
+              </select>
+            </div>
+          </div>
+          <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+            <span style="font-size:11px;color:var(--text3)" id="db-count"></span>
+            <span id="db-date-filter-note" style="display:none;font-size:11px;color:var(--amber)">🔍 検索中は日付範囲を無視して全期間を検索します</span>
+            <div style="display:flex;gap:8px;align-items:center;margin-left:auto">
+              <button class="btn" onclick="resetBookingFilter('db')">条件クリア</button>
+              <!-- モバイルのシート表示時のみ出る導線。シートを閉じて一覧の先頭まで
+                   スクロールし、絞り込み結果がすぐ見えるようにする。 -->
+              <button class="btn btn-p db-show-results-btn" id="db-show-results-btn" onclick="applyDbFilterAndShowResults()">結果を見る</button>
+            </div>
+          </div>
+        </div>
+        <div id="db-filter-backdrop" onclick="toggleDbMobileFilterSheet(true)"></div>
+        <div class="card" id="db-list-card" style="border-top:none;border-radius:0 0 12px 12px;padding-top:0;margin-bottom:14px">
           <div class="card-title">予約一覧 <span id="db-count-mobile" style="font-size:11px;font-weight:400;color:var(--text3)"></span></div>
           <!-- カード表示(768px未満)では見出し行が消えるため、ソートの導線をここに置く -->
           <div class="bl-sort-bar" id="db-sort-bar"></div>
