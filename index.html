@@ -7303,13 +7303,8 @@ function renderInvoiceActions(){
 
 let bdCostSortField = null, bdCostSortDir = 1, bdCostSearch = '';
 
-// force=true: 出金日inputのchangeハンドラ専用。change発火時点ではその入力欄自身がまだ
-// フォーカスを保持していることが多く(_dateInputFocusedInガードに引っかかる)、通常呼び出し
-// だと編集確定直後の再描画がスキップされて精算ステータス表示(枠線色)が更新されないまま
-// 残ってしまう(モーダルを閉じて開き直すまで直らない不具合の原因)。changeが発火した時点で
-// その項目の編集は確定しているため、ガードを無視して必ず再描画する。
-function renderCostTable(force){
-  if(!force && _dateInputFocusedIn('bd-cost-tbody')) return;
+function renderCostTable(){
+  if(_dateInputFocusedIn('bd-cost-tbody')) return;
   const tbody = document.getElementById('bd-cost-tbody');
   if(!tbody) return;
   const dis = bdLocked ? 'disabled' : '';
@@ -7367,7 +7362,7 @@ function renderCostTable(force){
       return `<tr${rowBg}>
         <td data-label="仕入先"><input ${dis} value="${(it.item_name||'').replace(/"/g,'&quot;')}" title="${(it.item_name||'').replace(/"/g,'&quot;')}" oninput="bdCostItems[${i}].item_name=this.value;showSupplierSuggestions(this,${i})" onblur="setTimeout(hideSupplierSuggestions,150)" onfocus="showSupplierSuggestions(this,${i})">${srcWarnHtml}</td>
         <td data-label="仕入額" style="text-align:right"><input ${dis} type="text" inputmode="numeric" value="${Number(it.amount||0).toLocaleString('ja-JP')}" onchange="bdCostRowCalc(${i},this)" style="text-align:right"></td>
-        <td data-label="出金日" style="text-align:center"><input ${disPayDate} type="date" min="1900-01-01" max="9999-12-31" value="${_safeDate(it.payment_date)}" onchange="bdCostItems[${i}].payment_date=this.value;renderCostTable(true)" style="text-align:center${(it.payment_method==='クレジットカード(個人・要精算)' && !it.payment_date) ? ';border-color:var(--amber,#854F0B);background:var(--amber-lt,#FAEEDA)' : ''}" title="${(it.payment_method==='クレジットカード(個人・要精算)' && !it.payment_date) ? '未精算(個人立替)。出金日を入力すると精算済みになります' : ''}"></td>
+        <td data-label="出金日" style="text-align:center"><input id="bd-cost-paydate-${i}" ${disPayDate} type="date" min="1900-01-01" max="9999-12-31" value="${_safeDate(it.payment_date)}" onchange="bdCostItems[${i}].payment_date=this.value;updateCostPayDateCell(${i})" style="text-align:center${(it.payment_method==='クレジットカード(個人・要精算)' && !it.payment_date) ? ';border-color:var(--amber,#854F0B);background:var(--amber-lt,#FAEEDA)' : ''}" title="${(it.payment_method==='クレジットカード(個人・要精算)' && !it.payment_date) ? '未精算(個人立替)。出金日を入力すると精算済みになります' : ''}"></td>
         <td data-label="支払方法">
           <select ${dis} onchange="bdCostItems[${i}].payment_method=this.value;renderCostTable()" style="width:100%;box-sizing:border-box;height:24px;line-height:24px;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:0 4px"><option value="" ${!it.payment_method?'selected':''}></option>${LOCAL_EXPENSE_PAYMENT_METHODS.map(m=>`<option value="${m}" ${it.payment_method===m?'selected':''}>${m}</option>`).join('')}</select>
           ${CC_PAYMENT_METHODS.includes(it.payment_method) ? `
@@ -7383,21 +7378,45 @@ function renderCostTable(force){
 
   tbody.innerHTML = searchHtml + rows;
   updateDetailGrossPreview();
+  renderCostUnreimbursedBanner();
+}
 
-  // 未精算の個人立替(この予約分)を仕入明細タブ上部にバナー表示する(返金漏れ防止)。
-  // 既にメモリ上に読み込まれているbdCostItemsから集計するため、追加のDB問い合わせは不要。
+// 未精算の個人立替(この予約分)を仕入明細タブ上部にバナー表示する(返金漏れ防止)。
+// 既にメモリ上に読み込まれているbdCostItemsから集計するため、追加のDB問い合わせは不要。
+// renderCostTable(全体再描画)とupdateCostPayDateCell(出金日1件だけの部分更新)の
+// 両方から呼べるよう、バナーHTML生成だけを独立した関数に切り出している。
+function renderCostUnreimbursedBanner(){
   const bannerEl = document.getElementById('bd-cost-unreimbursed-banner');
-  if(bannerEl){
-    const unreimbursed = bdCostItems.filter(it=>it.payment_method==='クレジットカード(個人・要精算)' && !it.payment_date);
-    if(unreimbursed.length===0){
-      bannerEl.innerHTML = '';
-    }else{
-      const total = unreimbursed.reduce((s,it)=>s+Number(it.amount||0),0);
-      bannerEl.innerHTML = `<div style="border:1px solid var(--amber,#854F0B);background:var(--amber-lt,#FAEEDA);border-radius:8px;padding:6px 8px;margin-bottom:6px;font-size:11px;color:var(--amber,#854F0B)">
-        ⚠ この予約に未精算の個人立替が${unreimbursed.length}件(合計${yen(total)})あります。出金日を入力すると精算済みになります。
-      </div>`;
-    }
+  if(!bannerEl) return;
+  const unreimbursed = bdCostItems.filter(it=>it.payment_method==='クレジットカード(個人・要精算)' && !it.payment_date);
+  if(unreimbursed.length===0){
+    bannerEl.innerHTML = '';
+  }else{
+    const total = unreimbursed.reduce((s,it)=>s+Number(it.amount||0),0);
+    bannerEl.innerHTML = `<div style="border:1px solid var(--amber,#854F0B);background:var(--amber-lt,#FAEEDA);border-radius:8px;padding:6px 8px;margin-bottom:6px;font-size:11px;color:var(--amber,#854F0B)">
+      ⚠ この予約に未精算の個人立替が${unreimbursed.length}件(合計${yen(total)})あります。出金日を入力すると精算済みになります。
+    </div>`;
   }
+}
+
+// 出金日inputのchangeハンドラ専用。以前はここでrenderCostTable(true)を呼んで
+// テーブル全体をinnerHTMLごと再構築していたが、type="date"は年月日が揃った時点で
+// 即座にchangeが発火する(例: 既存値があり日欄に1桁打っただけで完全な日付になる場合)
+// ため、その瞬間にinput自身のDOMノードが作り直されてフォーカスが失われ、続けて
+// 打った2桁目のキー入力がどこにも反映されずロストする不具合があった(#出金日2桁目入力)。
+// そのため出金日変更時は、精算ステータス表示(枠線色)とバナーだけをピンポイントで
+// 更新し、input自身のDOMノードには触れないようにする。
+function updateCostPayDateCell(i){
+  const it = bdCostItems[i];
+  if(!it) return;
+  const el = document.getElementById('bd-cost-paydate-'+i);
+  if(el){
+    const warn = (it.payment_method==='クレジットカード(個人・要精算)' && !it.payment_date);
+    el.style.borderColor = warn ? 'var(--amber,#854F0B)' : '';
+    el.style.background = warn ? 'var(--amber-lt,#FAEEDA)' : '';
+    el.title = warn ? '未精算(個人立替)。出金日を入力すると精算済みになります' : '';
+  }
+  renderCostUnreimbursedBanner();
 }
 
 // 仕入明細の行ごとの承認ボタン。クリックした瞬間に画面表示上はその場でstatusを
