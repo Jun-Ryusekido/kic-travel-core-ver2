@@ -86,6 +86,26 @@ python scripts/extract_voucher_baseline.py
 こと。「削除しますか？」のみの単純な確認は禁止。実装例: `removeCostRow`（支払先・
 金額・備考）、`deleteFacilityTodoItem`（施設名・REF#・期限日）参照。
 
+## type="date"入力欄のonchangeハンドラに関するルール
+
+`type="date"`の入力欄は、既に値が入っている状態で一部（年/月/日のいずれか）を
+1桁打っただけでも、それだけで完全な日付として成立してしまう場合は**その時点で
+即座に`change`イベントが発火する**（2桁目の入力を待たない）。このためonchange
+ハンドラ内で所属テーブル/セクション全体を`innerHTML`で再構築（例: 一覧描画関数を
+丸ごと呼び直す）すると、その瞬間に入力欄自身のDOMノードが作り直されてフォーカスが
+失われ、続けて打った2桁目以降のキー入力がどこにも反映されずロストする（例:
+「27」と打ったつもりが「02」になり、都度確定→再修正が必要になる不具合。仕入明細の
+出金日欄で実際に発生。修正はupdateCostPayDateCell参照）。
+
+`type="date"`欄のonchangeハンドラで、値変更後に表示更新が必要な場合は、
+**所属テーブル/セクション全体を再描画せず**、影響を受ける要素だけを
+`textContent`/`style`等でピンポイントに更新すること（実装例:
+`updateCostPayDateCell`（仕入明細・出金日の枠線色更新）、`bdSalesPaymentAmountCalc`
+（売上明細・入金額の未収セル更新）、`hotelCalc`（ホテル泊数・金額のin-place更新）
+参照）。どうしても一覧全体の再描画が避けられない場合は、`_dateInputFocusedIn`
+ガードを流用し、フォーカス中の`type="date"`欄を含むコンテナの再描画はスキップする
+こと。
+
 ## 金銭データへのSQL操作に関するルール
 
 `booking_sales`/`booking_costs`/`invoices`等、金銭に関わるテーブルへのUPDATE/DELETE文を
