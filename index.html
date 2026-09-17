@@ -1498,7 +1498,7 @@ input[type=number]{-moz-appearance:textfield}
               <button class="btn admin-only" style="display:none" onclick="openDeletedGuidesModal()">🗑 削除済み一覧</button>
             </span>
           </div>
-          <div class="form-field" style="margin-bottom:10px"><label>検索（氏名・カタカナ・携帯番号・言語/メモ・銀行口座）</label><input id="gr-search" placeholder="例: 英語, 090, 三井住友" oninput="filterGuideRegistry()"></div>
+          <div class="form-field" style="margin-bottom:10px"><label>検索（氏名・カタカナ・ローマ字・携帯番号・言語/メモ・銀行口座）</label><input id="gr-search" placeholder="例: 英語, 090, 三井住友, TANAKA" oninput="filterGuideRegistry()"></div>
           <div style="font-size:11px;color:var(--text3);margin-bottom:6px" id="gr-count"></div>
 
           <div class="tbl-wrap"><table class="bl-table">
@@ -20954,7 +20954,7 @@ function filterGuideRegistry(){
   let filtered = guideRegistryCache;
   if(q){
     filtered = guideRegistryCache.filter(g=>{
-      const hay = `${g.name||''} ${g.name_kana||''} ${g.phone||''} ${g.languages||''} ${g.memo||''} ${g.bank_info||''}`.toLowerCase();
+      const hay = `${g.name||''} ${g.name_kana||''} ${g.name_romaji||''} ${g.phone||''} ${g.languages||''} ${g.memo||''} ${g.bank_info||''}`.toLowerCase();
       return toHalfWidth(hay).includes(q);
     });
   }
