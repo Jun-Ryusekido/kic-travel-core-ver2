@@ -11050,10 +11050,15 @@ async function reflectVoucherToCost(settlementId, guideIndex){
   const grandTotal = localTotal + guideFee;
   const transferAmount = grandTotal - advanceTotal;
   if(!confirm(`以下を仕入明細に追加します。\n現地費用: ${yen(localTotal)}\nガイド費: ${yen(guideFee)}${advanceTotal>0?`\n仮払金戻し: -${yen(advanceTotal)}`:''}\nよろしいですか？`)) return;
+  // item_nameにガイド名を含めると、保存時のregisterNewSupplier()(仕入明細のitem_name
+  // をbusiness_partnersへ自動登録する処理)がガイドごとに別の取引先として登録してしまい、
+  // 「ガイド費（○○）」のような不要な取引先レコードが増え続ける不具合の原因になっていた。
+  // item_nameは固定文字列にし、ガイド名は仮払い一覧表反映(reflect仮払い一覧表、10038行目
+  // 付近)と同じくmemoに入れる方式に統一する。
   const rows = [];
-  if(localTotal>0) rows.push({booking_id:b.id, item_name:`現地費用（${escHtml(g.name||'')}）`, amount:localTotal, payment_date:null, memo:'伝票より反映'});
-  if(guideFee>0) rows.push({booking_id:b.id, item_name:`ガイド費（${escHtml(g.name||'')}）`, amount:guideFee, payment_date:null, memo:'伝票より反映'});
-  if(advanceTotal>0) rows.push({booking_id:b.id, item_name:`仮払金戻し（${escHtml(g.name||'')}）`, amount:-advanceTotal, payment_date:null, memo:'伝票より反映'});
+  if(localTotal>0) rows.push({booking_id:b.id, item_name:'現地費用', amount:localTotal, payment_date:null, memo:`伝票より反映（${escHtml(g.name||'')}）`});
+  if(guideFee>0) rows.push({booking_id:b.id, item_name:'ガイド費', amount:guideFee, payment_date:null, memo:`伝票より反映（${escHtml(g.name||'')}）`});
+  if(advanceTotal>0) rows.push({booking_id:b.id, item_name:'仮払金戻し', amount:-advanceTotal, payment_date:null, memo:`伝票より反映（${escHtml(g.name||'')}）`});
   if(rows.length===0){ alert('反映する金額がありません'); return; }
   let error;
   try { await bookingCostsApiCall('insert', { rows }); } catch(e) { error = e; }
