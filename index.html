@@ -9999,76 +9999,7 @@ function renderLocalExpenseVoucherButtons(){
   }else{
     printBtnsHtml = guides.map(g=>`<button class="btn" style="font-size:10px" onclick="printLocalExpenseVoucher('${escAttr(g.name)}','${escAttr(g.guideId||'')}')">🧾 ${escHtml(g.name)}宛の出金伝票を印刷</button>`).join('');
   }
-  el.innerHTML = printBtnsHtml + renderLocalExpenseReflectButtonHtml();
-}
-
-// 仮払い一覧表出金伝票の内容(合計の万単位切り上げ額)を仕入明細(booking_costs)へ
-// 反映するボタン。反映済み判定・disabled制御は行わない単純な作り(押すたびに
-// その場でDBから最新の仮払い一覧表合計を取得し、新規1行として都度追加する。
-// 何度反映しても良く、重複が生じた場合は運用者が仕入明細一覧を見て目視で削除する)。
-function renderLocalExpenseReflectButtonHtml(){
-  return `<button class="btn" style="font-size:10px" onclick="reflectLocalExpensesToCost()">📋 仕入明細へ反映</button>`;
-}
-
-// ボタンを押した時のみ実行(自動反映はしない)。押すたびにDBから最新の仮払い一覧表
-// (local_expenses)データを取得して合計を計算するため、モーダルを開いてからの経過や
-// 表示タイミングに依存しない。反映済みかどうかの判定は行わず、押すたびに新規1行として
-// 仕入明細に追加する(重複は運用者が目視で判断・削除する運用)。
-async function reflectLocalExpensesToCost(){
-  if(bdLocked){ alert('この予約の仕入明細は確定済みです。'); return; }
-  if(!currentDetailId) return;
-  const bookingId = currentDetailId;
-  const b = findBookingById(bookingId);
-  if(!b) return;
-
-  const {data: localRows, error: localFetchErr} = await sb.from('local_expenses').select('amount').eq('booking_id', bookingId);
-  if(localFetchErr){ alert('仮払い一覧表の読み込みに失敗しました: '+localFetchErr.message); return; }
-  const total = (localRows||[]).reduce((s,it)=>s+Number(it.amount||0),0);
-  if(total<=0){ alert('仮払い一覧表の合計が0円のため反映できません。'); return; }
-  const roundedUp = Math.ceil(total/10000)*10000;
-
-  if(!confirm(`仮払い一覧表の合計を万単位切り上げした金額を仕入明細に追加します。\n\n金額: ${yen(roundedUp)}\n(実際の合計: ${yen(total)})\n\nよろしいですか？`)) return;
-
-  // 仕入明細(booking_costs)には「費用種類」列自体が無い(この列を持つのは仮払い一覧表
-  // (local_expenses)側のみ)ため、費用種類に相当する情報は「仕入先」欄(item_name)に
-  // 「仮払金」と入れることで表現する。内容(ツアーコード・ガイド名)は備考(memo)に入れる。
-  // ガイドが複数いる場合も金額は分割しない(印刷用の出金伝票と同じ「1本の合計、宛先は
-  // 参考情報」という設計に合わせ、全ガイド名を併記する)。
-  const tourCode = b.tour_code || b.ref_no || '';
-  const guideNames = _bdLocalVoucherGuideList().map(g=>g.name).filter(Boolean);
-  const guideLabel = guideNames.length ? guideNames.join('・') : '';
-  const memoLabel = `仮払い一覧表（${tourCode}）${guideLabel}`.trim();
-
-  const newCostRow = {
-    booking_id: bookingId,
-    item_name: '仮払金',
-    amount: roundedUp,
-    payment_date: null,
-    memo: memoLabel,
-    status: 'pending',
-  };
-  let error;
-  try{ await bookingCostsApiCall('insert', { rows: [newCostRow] }); }catch(e){ error = e; }
-  if(error){ alert('反映に失敗しました: '+error.message); return; }
-
-  const {data: allCosts} = await sb.from('booking_costs').select('amount').eq('booking_id', bookingId);
-  const newGrossCost = (allCosts||[]).reduce((sum,c)=>sum+Number(c.amount||0),0);
-  await bookingsApiCall('updateById', { id: bookingId, fields: {gross_cost:newGrossCost} });
-  b.gross_cost = newGrossCost;
-  await logAction('仮払い一覧表を仕入明細に反映', b.ref_no+' / '+yen(roundedUp));
-
-  // 以前はbooking_costsをDBから全件再取得してbdCostItemsを丸ごと差し替えていたが、
-  // 仕入明細タブで他の行を編集中(まだ「保存」ボタンを押していない)の状態でこのボタンを
-  // 押すと、その未保存の編集が黙って失われてしまう不具合があった。今回追加した行の内容は
-  // 既に分かっているため、全件再取得はせずローカル配列に1行追記するだけにする。
-  bdCostItems.push({
-    item_name: newCostRow.item_name, amount: newCostRow.amount, payment_date: newCostRow.payment_date,
-    payment_method: '', memo: newCostRow.memo, status: newCostRow.status,
-    card_holder: '',
-    source_table: null, source_id: null, source_snapshot: null
-  });
-  renderCostTable();
-  alert('仕入明細に反映しました。');
+  el.innerHTML = printBtnsHtml;
 }
 
 // 仮払い一覧表(local_expenses、ツアー実施前の一覧)専用の出金伝票。ガイド精算の
@@ -11082,9 +11013,8 @@ async function reflectVoucherToCost(settlementId, guideIndex){
   b.gross_cost = newGrossCost;
   await logAction('伝票内容を仕入明細に反映', b.ref_no);
   // 全件再取得してbdCostItemsを丸ごと差し替えると、仕入明細タブで他の行を編集中(まだ
-  // 「保存」ボタンを押していない)の未保存の編集が黙って失われてしまう不具合があった
-  // (reflectLocalExpensesToCostと同じ問題)。追加したrowsの内容は既知のため、
-  // ローカル配列に追記するだけにする。
+  // 「保存」ボタンを押していない)の未保存の編集が黙って失われてしまう不具合があった。
+  // 追加したrowsの内容は既知のため、ローカル配列に追記するだけにする。
   rows.forEach(r=>{
     bdCostItems.push({
       item_name: r.item_name, amount: r.amount, payment_date: r.payment_date,
@@ -24280,8 +24210,7 @@ async function saveInvoiceConfirm(){
   }
   if(currentDetailId && savedIds.has(currentDetailId)){
     // 全件再取得しての丸ごと差し替えによる未保存編集の消失を防ぐため、追加した
-    // costRowsのうちcurrentDetailId分をローカル配列に追記するだけにする
-    // (reflectLocalExpensesToCostと同じ対応)。
+    // costRowsのうちcurrentDetailId分をローカル配列に追記するだけにする。
     costRows.filter(r=>r.booking_id===currentDetailId).forEach(r=>{
       bdCostItems.push({
         item_name: r.item_name, amount: r.amount, payment_date: r.payment_date,
