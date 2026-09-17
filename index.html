@@ -3291,7 +3291,11 @@ const CARD_HOLDER_ADMIN_EMAILS = ['admin@kictravel.jp'];
 function isBackupUser(){ return currentUser && BACKUP_EMAILS.includes(currentUser.email); }
 function isErrorLogViewer(){ return currentUser && ERROR_LOG_VIEWER_EMAILS.includes(currentUser.email); }
 function isEmailExcludeUser(){ return currentUser && EMAIL_EXCLUDE_EMAILS.includes(currentUser.email); }
-function isAccountingUser(){ return currentUser && ACCOUNTING_EMAILS.includes(currentUser.email); }
+// role==='admin'を基本条件にしつつ、ACCOUNTING_EMAILSを個別メール例外リストとして
+// ORで加える(財務サマリー表示制限(canView、6795行目付近)と同じパターン)。以前はACCOUNTING_EMAILS
+// のみで判定していたため、実際にはadminロールで運用されているユーザー(jr@kictravel.jp等)が
+// リストに載っていないと経理系機能(伝票内容を仕入明細に反映ボタン等)を使えない不具合があった。
+function isAccountingUser(){ return !!currentUser && (currentUser.role==='admin' || ACCOUNTING_EMAILS.includes(currentUser.email)); }
 function isCardHolderAdmin(){ return currentUser && CARD_HOLDER_ADMIN_EMAILS.includes(currentUser.email); }
 let currentPageId = 'dashboard';
 const SESSION_KEY = 'kic_session_v1';
