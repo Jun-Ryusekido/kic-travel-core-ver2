@@ -20984,6 +20984,7 @@ function openGuideEditor(id){
   document.getElementById('guide-modal-title').textContent = id ? 'ガイド編集' : 'ガイド登録';
   document.getElementById('gr-name').value = g ? (g.name||'') : '';
   document.getElementById('gr-kana').value = g ? (g.name_kana||'') : '';
+  document.getElementById('gr-romaji').value = g ? (g.name_romaji||'') : '';
   document.getElementById('gr-phone').value = g ? (g.phone||'') : '';
   if(g && g.age!=null && g.age!==''){
     document.getElementById('gr-age').value = g.age;
@@ -21051,6 +21052,7 @@ async function processGuideCardFile(file){
     const setIfEmpty = (id, val) => { const el = document.getElementById(id); if(el && !el.value && val) el.value = val; };
     setIfEmpty('gr-name', parsed.name || '');
     setIfEmpty('gr-kana', parsed.name_kana || '');
+    setIfEmpty('gr-romaji', parsed.name_romaji || '');
     setIfEmpty('gr-phone', parsed.phone || '');
     if(parsed.birthday && /^\d{4}-\d{2}-\d{2}$/.test(parsed.birthday)) setIfEmpty('gr-birthday', parsed.birthday);
     if(parsed.age!=null && parsed.age!=='') setIfEmpty('gr-age', String(Number(parsed.age)||''));
@@ -21139,6 +21141,7 @@ async function saveGuide(){
   const payload = {
     name,
     name_kana: document.getElementById('gr-kana').value.trim() || null,
+    name_romaji: document.getElementById('gr-romaji').value.trim() || null,
     phone: document.getElementById('gr-phone').value.trim() || null,
     age: document.getElementById('gr-age').value ? Number(document.getElementById('gr-age').value) : null,     birthday: document.getElementById('gr-birthday').value || null,
     email: document.getElementById('gr-email').value.trim() || null,     gender: document.getElementById('gr-gender').value.trim() || null,
@@ -29825,9 +29828,10 @@ function setDateInputValue(el, d){
       <div id="gr-bank-status" style="font-size:11px;color:var(--text3);margin-top:4px"></div>
     </div>
     <div class="form-grid" style="--fg-cols:repeat(12,1fr)">
-      <div class="form-field" style="--fg-span:4"><label>氏名</label><input id="gr-name" placeholder="例: 田中 太郎"></div>
-      <div class="form-field" style="--fg-span:4"><label>カタカナ</label><input id="gr-kana" placeholder="例: タナカ タロウ"></div>
-      <div class="form-field" style="--fg-span:4"><label>携帯番号</label><input id="gr-phone" placeholder="例: 090-1234-5678"></div>
+      <div class="form-field" style="--fg-span:3"><label>氏名</label><input id="gr-name" placeholder="例: 田中 太郎"></div>
+      <div class="form-field" style="--fg-span:3"><label>カタカナ</label><input id="gr-kana" placeholder="例: タナカ タロウ"></div>
+      <div class="form-field" style="--fg-span:3"><label>ローマ字</label><input id="gr-romaji" placeholder="例: TANAKA Taro"></div>
+      <div class="form-field" style="--fg-span:3"><label>携帯番号</label><input id="gr-phone" placeholder="例: 090-1234-5678"></div>
       <div class="form-field" style="--fg-span:2"><label>年齢</label><input id="gr-age" type="number" min="0"></div>
       <div class="form-field" style="--fg-span:3"><label>生年月日</label><input id="gr-birthday" type="date" min="1900-01-01" max="9999-12-31"></div>
       <div class="form-field" style="--fg-span:2"><label>性別</label><input id="gr-gender" placeholder="例: 男性"></div>
