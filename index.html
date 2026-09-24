@@ -19083,9 +19083,10 @@ async function remapVendorEmailLogSourceIds(bookingId, config){
 // 別途SQLで検出・目視確認できる)。
 async function remapCreditCardStatementSourceIds(bookingId, oldCostRows){
   if(!oldCostRows || !oldCostRows.length) return;
-  const {data: stmts, error} = await sb.from('credit_card_statements')
-    .select('id,matched_booking_cost_id').eq('matched_booking_id', bookingId).not('matched_booking_cost_id', 'is', null);
-  if(error || !stmts || !stmts.length) return;
+  // 取得に失敗した場合は例外を投げる(以前は黙ってスキップしていたため、付け替え漏れに気づけなかった)。
+  const stmts = await tableQueryAll('credit_card_statements', { select: 'id,matched_booking_cost_id', filters: [
+    { col: 'matched_booking_id', op: 'eq', value: bookingId }, { col: 'matched_booking_cost_id', op: 'notNull' } ] });
+  if(!stmts.length) return;
   // 保存後の最新状態の取得に失敗した場合は例外を投げ、付け替えを一切行わない
   // (呼び出し元のrunSkippableIsolated等で失敗として記録される)。
   const freshCosts = await tableQueryAll('booking_costs', { select: 'id,item_name,amount,payment_date', filters: [{ col: 'booking_id', op: 'eq', value: bookingId }] });
@@ -23024,8 +23025,9 @@ async function findCcMatchCandidates(statement){
   let amountBandOk = false;
   if(statement.merchant_name && statement.amount){
     try{
-      const {data: pastConfirmed} = await sb.from('credit_card_statements').select('amount')
-        .eq('merchant_name', statement.merchant_name).eq('match_status','確定済み').limit(50);
+      const pastConfirmed = await tableQueryAll('credit_card_statements', { select: 'amount', filters: [
+        { col: 'merchant_name', op: 'eq', value: statement.merchant_name }, { col: 'match_status', op: 'eq', value: '確定済み' } ],
+        limit: 50 });
       const pastAmounts = (pastConfirmed||[]).map(r=>Number(r.amount)).filter(n=>n>0);
       amountBandOk = pastAmounts.some(a=>Math.abs(a-statement.amount) <= a*0.15);
     }catch(e){ amountBandOk = false; }
@@ -23146,7 +23148,9 @@ async function loadCreditCardStatements(){
   }
 
   tbody.innerHTML = '<tr><td colspan="7" class="empty">読み込み中...</td></tr>';
-  const {data, error} = await sb.from('credit_card_statements').select('*').order('transaction_date',{ascending:false});
+  // 以前はPostgRESTの1,000件上限で黙って切り捨てられていた。tableQueryAllで取り切る。
+  const {data, error} = await asSbResult(tableQueryAll('credit_card_statements', { select: '*',
+    order: [{ col: 'transaction_date', ascending: false }] }));
   if(error){ logError('クレジットカード明細の読み込み', error); tbody.innerHTML = '<tr><td colspan="7" class="empty">読み込みに失敗しました</td></tr>'; return; }
   ccStatementsCache = data||[];
   ccStatementsCacheAt = Date.now();
