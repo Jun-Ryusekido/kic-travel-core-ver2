@@ -6464,18 +6464,49 @@ const ARR_COST_SECTION_MAP = {
 // buildXxxRowsの行にはidが無い(filter後の並び順で対応する)ため、対象行を
 // cost_added=false/trueで2回組み立てて差分が出る位置から、スナップショット上の行位置を求める
 // (deadline_completed_at等の時刻依存の列に影響されないよう、cost_addedの値だけで比較する)。
-function _markSnapshotCostAdded(sec, it, bookingId){
+// value: DBに保存済みになったcost_addedの値(追加時はtrue、仕入明細行の削除確定時はfalse)。
+// 呼び出し後、it.cost_addedはvalueになる。
+function _markSnapshotCostAdded(sec, it, bookingId, value = true){
   try{
     const snap = JSON.parse(bdLoadSnapshot[sec.snapKey] || '[]');
-    it.cost_added = false;
-    const rowsOff = sec.buildRows(bookingId);
-    it.cost_added = true;
-    const rowsOn = sec.buildRows(bookingId);
-    const pos = rowsOn.findIndex((r,i)=>rowsOff[i] && r.cost_added !== rowsOff[i].cost_added);
-    if(pos < 0 || !snap[pos] || snap[pos].cost_added !== false) return;
-    snap[pos].cost_added = true;
+    it.cost_added = !value;
+    const rowsBefore = sec.buildRows(bookingId);
+    it.cost_added = value;
+    const rowsAfter = sec.buildRows(bookingId);
+    const pos = rowsAfter.findIndex((r,i)=>rowsBefore[i] && r.cost_added !== rowsBefore[i].cost_added);
+    if(pos < 0 || !snap[pos] || snap[pos].cost_added !== !value) return;
+    snap[pos].cost_added = value;
     bdLoadSnapshot[sec.snapKey] = JSON.stringify(snap);
   }catch(e){ console.warn('スナップショット(cost_added)の更新に失敗:', e); }
+}
+// 仕入明細(booking_costs)の保存が確定した時点で呼ぶ。直前の保存状態(prevSnapshotJson=
+// bdLoadSnapshot.costs)にあった「仕入明細へ追加」由来の行(source_table/source_id付き)のうち、
+// 今回保存した行(savedRows)のどれからも参照されなくなった追加元の手配行について、
+// cost_addedをfalseに戻す(仕入明細行を削除しても追加元が「済み」のまま残り、再追加できなく
+// なる不具合の修正、2026-09)。削除→保存せずに閉じた場合はこの関数自体が呼ばれないため戻らない。
+// 手配タブの保存(新IDでの再挿入)より前に呼ばれる前提のため、source_idはまだ有効なIDである。
+// 追加元の手配行も同時に削除されていた場合(404)は戻す対象が無いため無視する。
+async function resetCostAddedForRemovedCostRows(bookingId, prevSnapshotJson, savedRows){
+  let prev;
+  try{ prev = JSON.parse(prevSnapshotJson || '[]'); }catch(e){ return; }
+  const refKey = r => (r && r.source_table && r.source_id) ? `${r.source_table}|${r.source_id}` : null;
+  const remaining = new Set((savedRows||[]).map(refKey).filter(Boolean));
+  const removed = new Map();
+  prev.forEach(r=>{ const k = refKey(r); if(k && !remaining.has(k)) removed.set(k, r); });
+  for(const r of removed.values()){
+    const sec = SOURCE_TABLE_SECTION[r.source_table];
+    if(!sec) continue;
+    try{
+      await sec.apiCall('markCostAdded', { id: r.source_id, value: false });
+    }catch(e){
+      if(/見つかりませんでした/.test(e.message||'')) continue; // 追加元の手配行も削除済み
+      logError(`${sec.label}明細のcost_added解除(仕入明細行の削除に伴う)`, e);
+      continue;
+    }
+    const arr = SOURCE_TABLE_ARRAYS[r.source_table] ? SOURCE_TABLE_ARRAYS[r.source_table]() : null;
+    const it = (arr||[]).find(x=>String(x.id)===String(r.source_id));
+    if(it && currentDetailId === bookingId) _markSnapshotCostAdded(sec, it, bookingId, false);
+  }
 }
 function _appendSnapshotCostRow(bookingId){
   try{
@@ -16955,6 +16986,13 @@ function addFacilityRow(){
 // 既に完了済みの行(deadline_completed済み)は上書きしない(deadline_completed_atが
 // 保存の都度更新されるのを防ぐ)。
 //
+// 自動完了も、自動解除と同じく「ステータスの変更遷移」があった場合に限定する
+// (it._orig_statusが自動完了対象外→対象へ変わった行、または新規行のみ)。以前は
+// 「対象ステータスかつ未完了」なら無条件に自動完了していたため、ToDo画面の「完了を
+// 取り消す」(undoFacilityTodoComplete。ステータスは手配OK等のまま)で未完了に戻した行が、
+// 予約詳細を開くだけで常に「変更あり」判定になり、他のタブの保存のついでに新しい完了日時で
+// 黙って完了扱いへ戻されていた(ユーザーの取消操作が巻き戻る不具合、2026-09)。
+//
 // 完了の自動解除は「ステータスの変更遷移」があった場合に限定する。it._orig_status
 // (予約を開いた時点、または直近の保存が成功した時点でのstatus。openBookingDetailの
 // 読み込み処理とsaveFacilityItems成功時の両方で更新)が自動完了対象ステータスから
@@ -16974,7 +17012,9 @@ const FACILITY_ROW_HAS_CONTENT = it=>it.facility_name||it.date||it.amount||it.co
 function buildFacilityRows(bookingId){
   const nowIso = new Date().toISOString();
   return bdFacilityItems.filter(FACILITY_ROW_HAS_CONTENT).map((it,i)=>{
-    const autoComplete = !it.deadline_completed && !!it.deadline_date && FACILITY_AUTO_COMPLETE_STATUSES.includes(it.status);
+    const autoComplete = !it.deadline_completed && !!it.deadline_date
+      && FACILITY_AUTO_COMPLETE_STATUSES.includes(it.status)
+      && !FACILITY_AUTO_COMPLETE_STATUSES.includes(it._orig_status);
     const autoUncomplete = it.deadline_completed
       && FACILITY_AUTO_COMPLETE_STATUSES.includes(it._orig_status)
       && !FACILITY_AUTO_COMPLETE_STATUSES.includes(it.status);
@@ -18822,13 +18862,15 @@ async function remapArrDayForeignKeys(bookingId){
 // 総入れ替えにbooking_costs側が追従できず孤立し「ソースが削除されました」警告が出る状態に
 // なった)。remapArrDayForeignKeys()と同じ「内容一致で新IDへ付け替える」パターンを、
 // booking_costs.source_id/vendor_email_logs.source_idの両方に適用するための共通部分。
+// 保存後の行はsort_order順(保存時の画面の並び順)で取得する。_remapArrangementSourceIdが
+// 同じキーの行が複数ある場合に「同じキー内で何番目か」で対応付けるため、順序が必要。
 async function _fetchFreshArrangementSourceTables(bookingId){
   const [{data: freshHotels}, {data: freshBuses}, {data: freshRests}, {data: freshFacs}, {data: freshWater}] = await Promise.all([
-    sb.from('booking_hotels').select('id,hotel_name,check_in,check_out').eq('booking_id', bookingId),
-    sb.from('booking_buses').select('id,bus_company,start_date,end_date').eq('booking_id', bookingId),
-    sb.from('booking_restaurants').select('id,restaurant_name,date,meal_type').eq('booking_id', bookingId),
-    sb.from('booking_facilities').select('id,facility_name,date').eq('booking_id', bookingId),
-    sb.from('booking_water_items').select('id,item_name,date').eq('booking_id', bookingId),
+    sb.from('booking_hotels').select('id,hotel_name,check_in,check_out').eq('booking_id', bookingId).order('sort_order').order('created_at'),
+    sb.from('booking_buses').select('id,bus_company,start_date,end_date').eq('booking_id', bookingId).order('sort_order').order('created_at'),
+    sb.from('booking_restaurants').select('id,restaurant_name,date,meal_type').eq('booking_id', bookingId).order('sort_order').order('created_at'),
+    sb.from('booking_facilities').select('id,facility_name,date').eq('booking_id', bookingId).order('sort_order').order('created_at'),
+    sb.from('booking_water_items').select('id,item_name,date').eq('booking_id', bookingId).order('sort_order').order('created_at'),
   ]);
   return { booking_hotels: freshHotels, booking_buses: freshBuses, booking_restaurants: freshRests, booking_facilities: freshFacs, booking_water_items: freshWater };
 }
@@ -18848,12 +18890,28 @@ function _arrangementSourceRemapConfig(freshTables){
 }
 // 一致するものが見つからない場合(実際に削除された場合)はnullにする(remapArrDayForeignKeys
 // と同じ挙動。誤って無関係な行に紐付けてしまうことを避けるため)。
+// 同じキー(施設名+日付等)の行が複数ある場合、以前は保存後の行から最初に一致した1件を
+// 返していたため、2行目以降を参照していた仕入明細/メールログが1行目に付け替わっていた
+// (cost_addedと仕入明細の紐付けが両方向にずれる原因、2026-09)。保存は画面の並び順を
+// そのままsort_orderにするため、同じキーの行の相対順序は保存前後で変わらない。
+// そこで「保存前の同じキーの行の中で何番目か」を、sort_order順に取得した保存後の
+// 同じキーの行の同じ番目に対応付ける。候補数が保存前後で食い違う場合は、無関係な行に
+// 付け替えないようnullにして警告のみ出す。
 function _remapArrangementSourceId(oldId, cfg){
   if(!oldId || !cfg) return oldId;
   const old = cfg.oldList.find(x=>String(x.id)===String(oldId));
   if(!old) return null;
-  const match = (cfg.freshList||[]).find(f=>cfg.matchFn(f, old));
-  return match ? match.id : null;
+  const candidates = (cfg.freshList||[]).filter(f=>cfg.matchFn(f, old));
+  if(candidates.length === 0) return null;
+  // oldListは保存直前の画面上の行(削除した行は含まない)のため、同じキーの行数は保存前後で
+  // 一致するはず。一致しない場合(他ユーザーの同時保存等)は、1件だけでも付け替えない。
+  const sameKeyOld = cfg.oldList.filter(o=>cfg.matchFn(o, old));
+  const k = sameKeyOld.indexOf(old);
+  if(sameKeyOld.length !== candidates.length || k < 0){
+    console.warn('[source_id付け替え] 同じキーの行数が保存前後で一致しないため付け替えを中止しました', {oldId, before: sameKeyOld.length, after: candidates.length});
+    return null;
+  }
+  return candidates[k].id;
 }
 
 // booking_costsの「仕入明細へ追加」経由で作られた行(source_table/source_idを持つ)の
@@ -20249,8 +20307,12 @@ async function saveBookingDetail(){
     await runSkippableIsolated('売上明細のagent_id引き継ぎ', 'booking_sales', salesDirty,
       () => remapSalesAgentIds(bookingId, _oldSalesRowsForAgentRemap));
     await runSkippable('仕入明細(booking_costs)', costsDirty, async () => {
+      const prevCostSnapshot = bdLoadSnapshot.costs;
       await bookingCostsApiCall('replace', { bookingId, rows: costRows });
       bdLoadSnapshot.costs = JSON.stringify(costRows);
+      // 保存が確定した後で、削除された「仕入明細へ追加」由来の行の追加元cost_addedを戻す
+      // (手配タブの保存=新IDでの再挿入より前のこの位置で行う必要がある)。
+      await resetCostAddedForRemovedCostRows(bookingId, prevCostSnapshot, costRows);
     });
     // 入金消込は仕入明細(booking_costs)の内容だけを基に計算するため、仕入明細が
     // 無変更なら消込結果も変わらずスキップしてよい。
