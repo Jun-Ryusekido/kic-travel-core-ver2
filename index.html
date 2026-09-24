@@ -6714,13 +6714,16 @@ async function addArrRowToCostNow(arrName, i, kind, btnEl){
     if(!insResult || insResult.ok !== true){
       throw new Error('仕入明細への保存結果を確認できませんでした。再度お試しください。');
     }
-    const {data: verifyRows, error: verifyErr} = await sb.from('booking_costs')
-      .select('id')
-      .eq('booking_id', bookingId)
-      .eq('item_name', newCostRow.item_name)
-      .eq('memo', newCostRow.memo)
-      .order('id', {ascending:false})
-      .limit(1);
+    // memo・item_nameがnullの場合はeqではなくisNullで検索する(PostgRESTのeq.nullは一致しないため。
+    // 以前の.eq('memo', null)はnullの行を見つけられず、保存済みでも「確認できない」エラーになり得た)。
+    let verifyRows = null, verifyErr = null;
+    try{
+      verifyRows = await tableQueryAll('booking_costs', { select: 'id', filters: [
+        { col: 'booking_id', op: 'eq', value: bookingId },
+        newCostRow.item_name == null ? { col: 'item_name', op: 'isNull' } : { col: 'item_name', op: 'eq', value: newCostRow.item_name },
+        newCostRow.memo == null ? { col: 'memo', op: 'isNull' } : { col: 'memo', op: 'eq', value: newCostRow.memo },
+      ], order: [{ col: 'id', ascending: false }], limit: 1 });
+    }catch(e){ verifyErr = e; }
     if(verifyErr || !verifyRows || !verifyRows.length){
       throw new Error('仕入明細への保存を確認できませんでした。再度お試しください。');
     }
@@ -9008,7 +9011,7 @@ async function openBookingDetail(id, opts){
 
   const [{data: salesRows}, {data: costRows}] = await Promise.all([
     sb.from('booking_sales').select('*').eq('booking_id', id).order('sort_order').order('created_at'),
-    sb.from('booking_costs').select('*').eq('booking_id', id).order('created_at')
+    asSbResult(tableQueryAll('booking_costs', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: id }], order: [{ col: 'created_at' }] }))
   ]);
   if(_stale()) return;
 
@@ -9653,7 +9656,7 @@ async function exportBookingArchive(){
     {data: arrangements}, {data: estimations}, {data: settlements}
   ] = await Promise.all([
     sb.from('booking_sales').select('*').eq('booking_id', b.id),
-    sb.from('booking_costs').select('*').eq('booking_id', b.id),
+    asSbResult(tableQueryAll('booking_costs', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: b.id }] })),
     asSbResult(tableQueryAll('invoices', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: b.id }] })),
     sb.from('tour_arrangements').select('*').eq('booking_ref', b.ref_no),
     sb.from('estimations').select('*').eq('converted_booking_id', b.id),
@@ -9728,7 +9731,7 @@ async function exportFullBackup(){
 
   const [{data:sales},{data:costs},{data:invoices},{data:arrangements},{data:settlements}] = await Promise.all([
     sb.from('booking_sales').select('*').in('booking_id',ids),
-    sb.from('booking_costs').select('*').in('booking_id',ids),
+    asSbResult(tableQueryAll('booking_costs', { select: '*' })),
     asSbResult(tableQueryAll('invoices', { select: '*' })),
     sb.from('tour_arrangements').select('*').in('booking_ref',refNos),
     sb.from('guide_settlements').select('*').in('booking_ref',refNos)
@@ -9775,7 +9778,7 @@ async function exportFiscalYearArchive(){
 
   const [{data: sales}, {data: costs}, {data: invoices}, {data: arrangements}, {data: estimations}, {data: settlements}] = await Promise.all([
     sb.from('booking_sales').select('*').in('booking_id', ids),
-    sb.from('booking_costs').select('*').in('booking_id', ids),
+    asSbResult(tableQueryAllIn('booking_costs', { select: '*' }, 'booking_id', ids)),
     asSbResult(tableQueryAllIn('invoices', { select: '*' }, 'booking_id', ids)),
     sb.from('tour_arrangements').select('*').in('booking_ref', refNos),
     sb.from('estimations').select('*').in('converted_booking_id', ids),
@@ -9845,7 +9848,7 @@ async function backupBookingDataBeforeDelete(b, refNo){
   const queries = {
     bookings: sb.from('bookings').select('*').eq('id', b.id),
     booking_sales: sb.from('booking_sales').select('*').eq('booking_id', b.id),
-    booking_costs: sb.from('booking_costs').select('*').eq('booking_id', b.id),
+    booking_costs: asSbResult(tableQueryAll('booking_costs', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: b.id }] })),
     invoices: asSbResult(tableQueryAll('invoices', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: b.id }] })),
     booking_hotels: sb.from('booking_hotels').select('*').eq('booking_id', b.id),
     booking_buses: sb.from('booking_buses').select('*').eq('booking_id', b.id),
@@ -10397,7 +10400,12 @@ async function resetGuideAdvanceOverride(id, idx){
 // 割り当てない（#1086でBHARTI SHARAN分がRONIの仮払金に合算されてしまった事故の対応）。
 async function syncAdvancePaymentsFromCosts(bookingId, refNo){
   if(!refNo) return;
-  const {data: costs} = await sb.from('booking_costs').select('item_name, amount, memo').eq('booking_id', bookingId).order('id');
+  // 取得に失敗した場合は仮払金の自動反映を行わない(以前は失敗=0件扱いで何もしなかったのと同じ結果だが、
+  // 失敗したことをログに残す)。
+  let costs;
+  try{
+    costs = await tableQueryAll('booking_costs', { select: 'item_name,amount,memo', filters: [{ col: 'booking_id', op: 'eq', value: bookingId }], order: [{ col: 'id' }] });
+  }catch(e){ logError('仕入明細の仮払金→ガイド精算への自動反映(仕入明細の取得)', e); return; }
   const advanceRows = (costs||[]).filter(c => (c.item_name||'').includes('仮払金') && !(c.item_name||'').includes('戻し'));
   if(advanceRows.length === 0) return;
 
@@ -11178,10 +11186,16 @@ async function reflectVoucherToCost(settlementId, guideIndex){
     await guideSettlementsApiCall('updateById', { id: settlementId, fields: {voucher_reflected_guides: newReflectedGuides} });
     s.voucher_reflected_guides = newReflectedGuides;
   }catch(e){ logError('ガイド精算の反映済みフラグ更新', e, {toast:false}); }
-  const {data: allCosts} = await sb.from('booking_costs').select('amount').eq('booking_id', b.id);
-  const newGrossCost = (allCosts||[]).reduce((sum,c)=>sum+Number(c.amount||0),0);
-  await bookingsApiCall('updateById', { id: b.id, fields: {gross_cost:newGrossCost} });
-  b.gross_cost = newGrossCost;
+  // 取得に失敗した場合はgross_costを更新しない(以前は失敗=0件扱いでgross_cost=0を書き込んでいた)。
+  let allCosts = null;
+  try{
+    allCosts = await tableQueryAll('booking_costs', { select: 'amount', filters: [{ col: 'booking_id', op: 'eq', value: b.id }] });
+  }catch(e){ logError('伝票反映後のgross_cost再計算(仕入明細の取得に失敗したため未更新)', e); }
+  if(allCosts){
+    const newGrossCost = allCosts.reduce((sum,c)=>sum+Number(c.amount||0),0);
+    await bookingsApiCall('updateById', { id: b.id, fields: {gross_cost:newGrossCost} });
+    b.gross_cost = newGrossCost;
+  }
   await logAction('伝票内容を仕入明細に反映', b.ref_no);
   // 全件再取得してbdCostItemsを丸ごと差し替えると、仕入明細タブで他の行を編集中(まだ
   // 「保存」ボタンを押していない)の未保存の編集が黙って失われてしまう不具合があった。
@@ -15395,12 +15409,14 @@ async function appendEmailExcerptAsDraftRow(tab, excerpt){
         // それを参照しているcredit_card_statements.matched_booking_cost_id(クレカ明細の
         // 消込確定リンク)も孤立しうる。メインの保存フローと同じく、replaceで書き換わる前の
         // 状態(id/item_name/amount/payment_date)をあらかじめ取得しておく。
-        const {data: oldCostRows} = await sb.from('booking_costs').select('id,item_name,amount,payment_date').eq('booking_id', bookingId);
+        // 取得に失敗した場合は例外で下のcatchへ抜け、仕入明細の再保存(付け替え)自体を行わない
+        // (空の旧状態のまま進むとクレカ明細の消込リンクを付け替えられないため)。
+        const oldCostRows = await tableQueryAll('booking_costs', { select: 'id,item_name,amount,payment_date', filters: [{ col: 'booking_id', op: 'eq', value: bookingId }] });
         const rows = buildCostRows(bookingId);
         await bookingCostsApiCall('replace', { bookingId, rows });
         bdLoadSnapshot.costs = JSON.stringify(rows);
         renderCostTable();
-        await remapCreditCardStatementSourceIds(bookingId, oldCostRows || []);
+        await remapCreditCardStatementSourceIds(bookingId, oldCostRows);
       }
       await remapVendorEmailLogSourceIds(bookingId, config);
       // 手配書タブの日毎明細(bdArrDayItems)もホテル/バス/レストランのIDを外部キーとして
@@ -19050,7 +19066,9 @@ async function remapCreditCardStatementSourceIds(bookingId, oldCostRows){
   const {data: stmts, error} = await sb.from('credit_card_statements')
     .select('id,matched_booking_cost_id').eq('matched_booking_id', bookingId).not('matched_booking_cost_id', 'is', null);
   if(error || !stmts || !stmts.length) return;
-  const {data: freshCosts} = await sb.from('booking_costs').select('id,item_name,amount,payment_date').eq('booking_id', bookingId);
+  // 保存後の最新状態の取得に失敗した場合は例外を投げ、付け替えを一切行わない
+  // (呼び出し元のrunSkippableIsolated等で失敗として記録される)。
+  const freshCosts = await tableQueryAll('booking_costs', { select: 'id,item_name,amount,payment_date', filters: [{ col: 'booking_id', op: 'eq', value: bookingId }] });
   const sig = r => `${r.item_name||''}|${Number(r.amount)||0}|${r.payment_date||''}`;
   const groupBySig = list => {
     const m = {};
@@ -20370,8 +20388,13 @@ async function saveBookingDetail(){
     // (bdCostItemsはidを保持しないため、書き換わった後からは元のidを辿れない)。
     let _oldCostRowsForCcRemap = null;
     if(costsIdsMayChange){
-      const {data: oldCosts} = await sb.from('booking_costs').select('id,item_name,amount,payment_date').eq('booking_id', bookingId);
-      _oldCostRowsForCcRemap = oldCosts || [];
+      // 取得に失敗した場合は、空の旧状態のまま書き込みに進まないよう以降の保存を中止する
+      // (予約情報(bookings)はこの時点で保存済み)。
+      try{
+        _oldCostRowsForCcRemap = await tableQueryAll('booking_costs', { select: 'id,item_name,amount,payment_date', filters: [{ col: 'booking_id', op: 'eq', value: bookingId }] });
+      }catch(e){
+        throw new Error('仕入明細の保存前の状態を取得できなかったため、売上明細・仕入明細以降の保存を中止しました（予約情報は保存済みです）。\n'+e.message);
+      }
     }
     // remapSalesAgentIds()用に、booking_salesがこのあと書き換わる(replaceで新IDが
     // 振られる)"前"のDB上の実際の状態をあらかじめ取得しておく(_oldCostRowsForCcRemapと
@@ -22952,8 +22975,11 @@ async function findCcMatchCandidates(statement){
   // payment_date/card_holderのみ取得する(payment_method/memoはWHERE条件のみで参照)
   const CC_MATCH_COST_COLUMNS = 'id,booking_id,item_name,amount,payment_date,card_holder';
   const [{data: costsNew, error: errNew}, {data: costsLegacy, error: errLegacy}] = await Promise.all([
-    sb.from('booking_costs').select(CC_MATCH_COST_COLUMNS).in('payment_method', CC_PAYMENT_METHODS).eq('amount', statement.amount),
-    sb.from('booking_costs').select(CC_MATCH_COST_COLUMNS).eq('payment_method','事前決済').eq('amount', statement.amount).ilike('memo','%法人カード決済%'),
+    asSbResult(tableQueryAll('booking_costs', { select: CC_MATCH_COST_COLUMNS, filters: [
+      { col: 'payment_method', op: 'in', value: CC_PAYMENT_METHODS }, { col: 'amount', op: 'eq', value: statement.amount } ] })),
+    asSbResult(tableQueryAll('booking_costs', { select: CC_MATCH_COST_COLUMNS, filters: [
+      { col: 'payment_method', op: 'eq', value: '事前決済' }, { col: 'amount', op: 'eq', value: statement.amount },
+      { col: 'memo', op: 'ilikeContains', value: '法人カード決済' } ] })),
   ]);
   const amountMatchedMap = new Map();
   [...(!errNew && costsNew ? costsNew : []), ...(!errLegacy && costsLegacy ? costsLegacy : [])].forEach(c=>amountMatchedMap.set(c.id, c));
@@ -22996,8 +23022,10 @@ async function findCcMatchCandidates(statement){
       const mmIds = mismatchBookings.map(b=>b.id);
       if(mmIds.length){
         const [{data: mmCostsNew}, {data: mmCostsLegacy}] = await Promise.all([
-          sb.from('booking_costs').select(CC_MATCH_COST_COLUMNS).in('booking_id', mmIds).in('payment_method', CC_PAYMENT_METHODS),
-          sb.from('booking_costs').select(CC_MATCH_COST_COLUMNS).in('booking_id', mmIds).eq('payment_method','事前決済').ilike('memo','%法人カード決済%'),
+          asSbResult(tableQueryAllIn('booking_costs', { select: CC_MATCH_COST_COLUMNS, filters: [
+            { col: 'payment_method', op: 'in', value: CC_PAYMENT_METHODS } ] }, 'booking_id', mmIds)),
+          asSbResult(tableQueryAllIn('booking_costs', { select: CC_MATCH_COST_COLUMNS, filters: [
+            { col: 'payment_method', op: 'eq', value: '事前決済' }, { col: 'memo', op: 'ilikeContains', value: '法人カード決済' } ] }, 'booking_id', mmIds)),
         ]);
         const mmMap = new Map();
         [...(mmCostsNew||[]), ...(mmCostsLegacy||[])].forEach(c=>mmMap.set(c.id, c));
@@ -23117,10 +23145,9 @@ async function renderUnreimbursedPersonalAdvanceBanner(){
   const el = document.getElementById('cc-unreimbursed-banner');
   if(!el) return;
   try{
-    const {data, error} = await sb.from('booking_costs').select('id,amount,card_holder,booking_id')
-      .eq('payment_method','クレジットカード(個人・要精算)').is('payment_date', null);
-    if(error) throw error;
-    const rows = data||[];
+    // 以前はPostgRESTの1,000件上限で黙って切り捨てられていた。tableQueryAllで取り切る。
+    const rows = await tableQueryAll('booking_costs', { select: 'id,amount,card_holder,booking_id', filters: [
+      { col: 'payment_method', op: 'eq', value: 'クレジットカード(個人・要精算)' }, { col: 'payment_date', op: 'isNull' } ] });
     if(rows.length===0){ el.innerHTML=''; return; }
     const total = rows.reduce((s,r)=>s+Number(r.amount||0),0);
     const byHolder = {};
@@ -23156,17 +23183,16 @@ async function openCcPaymentMigrationPreview(){
   try{
     // payment_methodが未設定(移行前)の行のうち、memoに「カード」を含むものだけを対象に
     // 判定する(既に新しい支払方法へ移行済みの行、カードと無関係な行は対象外)。
-    const {count: totalCount} = await sb.from('booking_costs').select('id',{count:'exact',head:true})
-      .is('payment_method', null).ilike('memo','%カード%');
+    const migrationFilters = [{ col: 'payment_method', op: 'isNull' }, { col: 'memo', op: 'ilikeContains', value: 'カード' }];
+    const totalCount = await tableQueryCount('booking_costs', { select: 'id', filters: migrationFilters });
     // PostgRESTのdb-max-rows既定値(1000)により.limit()だけでは全件取得できないため、
     // rangeで1000件ずつページングして取得する(上限5000件=5ページまで、それ以上は
     // 想定外の異常増加とみなし打ち切ってtruncated扱いにする)。
     const rows = [];
     const PAGE_SIZE = 1000;
     for(let page=0; page<5; page++){
-      const {data, error} = await sb.from('booking_costs').select('id,booking_id,item_name,amount,memo,payment_method')
-        .is('payment_method', null).ilike('memo','%カード%').range(page*PAGE_SIZE, page*PAGE_SIZE+PAGE_SIZE-1);
-      if(error) throw error;
+      const data = await tableQueryAll('booking_costs', { select: 'id,booking_id,item_name,amount,memo,payment_method',
+        filters: migrationFilters, limit: PAGE_SIZE, offset: page*PAGE_SIZE });
       rows.push(...(data||[]));
       if(!data || data.length<PAGE_SIZE) break;
     }
@@ -23315,7 +23341,8 @@ async function openCcMatchModal(id){
     const [{data: bk}, {data: cost}] = await Promise.all([
       sb.from('bookings').select('id,ref_no,tour_name').eq('id', s.matched_booking_id).maybeSingle(),
       // 2026-09 egress緊急対応(Tier C): currentMatchHtmlで参照するitem_name/amountのみ取得する
-      s.matched_booking_cost_id ? sb.from('booking_costs').select('id,item_name,amount').eq('id', s.matched_booking_cost_id).maybeSingle() : Promise.resolve({data:null}),
+      s.matched_booking_cost_id ? asSbResult(tableQueryMaybeSingle('booking_costs', { select: 'id,item_name,amount',
+        filters: [{ col: 'id', op: 'eq', value: s.matched_booking_cost_id }] })) : Promise.resolve({data:null}),
     ]);
     currentMatch = { booking: bk||null, cost: cost||null };
   }
@@ -23491,7 +23518,14 @@ async function searchCcManualMatch(ccId){
   const bookingIds = bks.map(b=>b.id);
   // 2026-09 egress緊急対応(Tier C): existingRowsの表示・確定ボタンで参照するid/booking_id/
   // item_name/amountのみ取得する
-  const {data: costs} = await sb.from('booking_costs').select('id,booking_id,item_name,amount').in('booking_id', bookingIds);
+  let costs;
+  try{
+    costs = await tableQueryAllIn('booking_costs', { select: 'id,booking_id,item_name,amount' }, 'booking_id', bookingIds);
+  }catch(e){
+    logError('クレジットカード明細の手動検索(仕入明細の取得)', e);
+    resultsEl.innerHTML = '<div class="empty" style="font-size:11px">仕入明細の読み込みに失敗しました</div>';
+    return;
+  }
   const costsByBooking = {};
   (costs||[]).forEach(c=>{ (costsByBooking[c.booking_id] = costsByBooking[c.booking_id]||[]).push(c); });
   // 予約ごとに「既存の仕入明細から選ぶ」候補と、「新しい仕入明細をその場で作成して紐付ける」
@@ -24417,7 +24451,7 @@ async function saveInvoiceConfirm(){
   // 不具合があった)。
   const otherBookingIds = [...savedIds].filter(bid=>bid && bid!==currentDetailId);
   for(const bid of otherBookingIds){
-    const {data: costsForBid, error: costsErr} = await sb.from('booking_costs').select('amount').eq('booking_id', bid);
+    const {data: costsForBid, error: costsErr} = await asSbResult(tableQueryAll('booking_costs', { select: 'amount', filters: [{ col: 'booking_id', op: 'eq', value: bid }] }));
     if(costsErr){ logError('請求書取込後のgross_cost再計算', costsErr, {toast:false}); continue; }
     const newGross = (costsForBid||[]).reduce((s,r)=>s+Number(r.amount||0),0);
     await bookingsApiCall('updateById', { id: bid, fields: {gross_cost:newGross} });
