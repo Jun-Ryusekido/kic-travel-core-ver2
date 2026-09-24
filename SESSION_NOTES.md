@@ -122,7 +122,9 @@ RPC3本(get_payment_monthly_summary / search_payment_income / search_payment_out
 - push前に必ずdiffを提示。検証ハーネス(scratchpadでindex.htmlの実関数を抽出してnode実行)と本体のcommit/pushは別工程として報告。
 - 本番デプロイ完了はこのセッション環境から確認できない(vercel.appへの通信がネットワークポリシーで遮断)。PRのVercel Preview
   statusはGitHub経由で確認できるので、それを確認してからマージし、本番はJUNがVercel画面で確認する。
-- 作業ブランチは claude/exciting-mccarthy-wi3dla。PRがマージ済みなら origin/main から作り直して続ける。
+- 作業ブランチ: バッチ1は claude/keen-allen-9c46xj(2026-09-24〜。origin/mainから作り直し、未マージだった
+  exciting-mccarthy-wi3dlaのSESSION_NOTES/SQLコミット2件をcherry-pickで載せ直した)。以前は claude/exciting-mccarthy-wi3dla。
+  セッションごとにpush可能なブランチが指定されるため、新しいセッションでは指定ブランチに従う。PRがマージ済みなら origin/main から作り直して続ける。
 
 ### 決定事項
 - anon向けSELECTポリシーは作らない(ログインはapp_users独自方式でブラウザは常にanon。Supabase Auth使用0件確認済み)。
@@ -172,8 +174,14 @@ RPC3本(get_payment_monthly_summary / search_payment_income / search_payment_out
   - 1,000件上限対策: サーバー内でPostgRESTを1,000件ずつRange取得し、累積レスポンスサイズ約3MBで打ち切って
     nextOffsetを返す(件数ではなくサイズ)。並び順の最後に必ずidを付ける。クライアント側tableQueryAll()が
     取り切るまでループ。途中1ページでも失敗したら全体エラー(部分結果を返さない)。count:trueで件数のみ。
-  - in条件の分割(200件ずつ)は1予約〜数十件規模の箇所だけに使う。exportFullBackup/exportFiscalYearArchiveは
-    全予約idのin分割ではなく、テーブル全体(年度版は日付等の条件)をqueryのページングで取得する。
+  - in条件の分割(200件ずつ)は1予約〜数十件規模の箇所と年度アーカイブに使う。exportFullBackupは全予約idのin分割ではなく、
+    テーブル全体をqueryのページングで取得する。
+  - 【変更(JUN、2026-09-24)】exportFiscalYearArchiveは「全体取得→クライアントで絞る」ではなく、年度の予約idを
+    200件ずつに分けたin条件で取得する(将来データが増えても、負荷を年度分のデータ量に比例させるため)。
+  - ホワイトリスト(JUN承認済み): select は * か識別子のカンマ列。eqにnullは不可(is nullを明示)。inは1回200件まで。
+    limit 1〜1000、count:true。ilikeContains(サーバー側で%と_をエスケープして前後に%)。gte/lte/neq/orは入れない。
+    列・演算子は api/table-crud.js の TABLE_CONFIG.readable 参照。
+  - addArrRowToCostNowの保存確認SELECTはmemoがnullの時 is null で検索する(従来の.eq(null)は一致しない不具合を兼ねて修正)。
   - TABLE_CRUD_IDEMPOTENT_READ_ACTIONS に query を追加(読み取り専用のため)。
   - rpc: ホワイトリストの3本だけをservice_roleで呼ぶ。引数検証(日付YYYY-MM-DD、検索語は文字列・長さ上限)、
     集合を返す2本はGET+Rangeでページング。SECURITY DEFINER化はしない。移行後に anon, authenticated, public から
@@ -182,12 +190,18 @@ RPC3本(get_payment_monthly_summary / search_payment_income / search_payment_out
 - 空データで進まない対策(必須): saveBookingDetailの旧costs/旧salesは書き込み前にAPIで取得し失敗なら保存中止。
   remapCreditCardStatementSourceIds / remapSalesAgentIds はfreshの取得失敗時に付け替えをしない。
   backupBookingDataBeforeDeleteは1テーブルでも取得失敗なら削除中止。ハーネスで失敗/0件/正常の3状態を検証。
-- 入金消込の自動paid判定(saveBookingDetail内、invoicesApiCall('updateById', status:'paid'))が、同じ請求先に
-  JPY/USDの2件がある場合に正しく動くか確認する。現状コード: 請求先ごとに「その請求先の入金合計>=売上合計(円)」なら、
-  その請求先のpending Invoiceを通貨に関係なく全部paidにする(合算は予約全体で判定)。JPY/USD両方ある場合は
-  両方同時にpaidになる。これで良いか(同じ請求内容の通貨違いなので妥当と思われる)をJUNに確認して確定する。
-- 合算Invoiceが今後作成されることの影響(上記「合算Invoiceが作れない不具合」参照): Agentマスタ未紐付けバナーに
-  合算が数えられる件の扱いを決める(合算を除外 or 合算にもagent_idを入れる)。
+- 【決定(a)(JUN、2026-09-24)】入金消込の自動paid判定: 現行の動きでOK。請求先ごとに「その請求先の入金合計>=売上合計」なら、
+  その請求先のpending Invoiceを通貨に関係なく(JPY/USDとも)全部paidにする(合算は予約全体で判定)。
+  JPY/USDは同じ請求の通貨違いであり、判定は請求先単位の入金と売上で行うため。
+- 【決定(b)(JUN、2026-09-24)】Agentマスタ未紐付けバナー: 合算Invoiceをバナー対象から外すのではなく、合算にもagent_idを入れる。
+  - 合算の作成・更新時(upsertConsolidatedInvoice)に、予約(bookings)のagent_idを合算Invoiceのagent_idに設定する。
+    予約のagent_idがnullならnullのまま(その場合はバナーに出るのが正しい)。
+  - 既存の合算のagent_idを予約のagent_idで埋めるSQL(条件ベース: is_consolidated=true かつ agent_id null かつ
+    予約のagent_idがnot null。バックアップSELECT→件数ガード付きUPDATE→確認SELECT)を用意し、JUNが実行する。
+    #209以降に合算が増えている可能性があるためid固定にしない。
+  - 支払い済み予約で後から合算が作られた場合にpendingのまま残る件: 合算の作成直後に、既存の自動paid判定と同じ条件
+    (予約全体の入金合計>=売上合計)で状態を決める(予約詳細を保存し直さなくても正しい状態になるように)。
+  - いずれもバッチ1のinvoicesコミットに含める。
 - コミットは「API追加」「invoices」「booking_costs」「booking_sales」「credit_card_statements」「RPC」に分ける(1PR)。
 - 各バッチ完了報告: 変更箇所一覧(旧行番号→新実装)、grepで直接アクセス0件の証拠、scripts/enable_rls_batch1.sql
   (RLS有効化+残GRANTのREVOKE+RPC EXECUTE REVOKE+確認クエリ)、実機確認チェックリスト、SQL要否。
