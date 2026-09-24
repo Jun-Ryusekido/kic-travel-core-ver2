@@ -21550,21 +21550,18 @@ let paymentMonthlyCache = [];
 let paySearchDebounceTimer = null;
 
 async function fetchAllRpcPages(fnName, params, errLabel, throwOnError){
-  // .rpc()はデフォルトPOSTで、PostgRESTはPOSTのRangeヘッダを無視して常に先頭ページを
-  // 返す(無限ループの原因になる)。{get:true}でGETリクエストにするとRangeが機能する。
-  let all=[]; let from=0; const pageSize=1000;
-  while(true){
-    const {data,error} = await sb.rpc(fnName, params, {get:true}).range(from, from+pageSize-1);
-    if(error){
-      logError(errLabel, error);
-      if(throwOnError) throw error;
-      break;
-    }
-    all = all.concat(data||[]);
-    if((data||[]).length < pageSize) break;
-    from += pageSize;
+  // RLS対応フェーズ2 バッチ1(2026-09): ブラウザからの直接RPC呼び出し(anonキー)をやめ、
+  // /api/table-crud(action:'rpc'、ログイン検証つき・service_role)経由にした。ページング
+  // (GET+Range、1,000件ずつ)はサーバー側で行い、rpcCallAllが取り切る。
+  // 途中で失敗した場合は部分的な結果を返さず、throwOnErrorでなければ空配列を返す
+  // (以前は失敗したページ以降を黙って切り捨てた部分結果を返していた)。
+  try{
+    return await rpcCallAll(fnName, params);
+  }catch(error){
+    logError(errLabel, error);
+    if(throwOnError) throw error;
+    return [];
   }
-  return all;
 }
 
 // 2026-09 egress緊急対応: 月別集計RPC(get_payment_monthly_summary)は日付範囲を変えなければ
@@ -21592,10 +21589,15 @@ async function loadPayments(){
   if(cachedMonthly && cacheIsFresh(cachedMonthly.at)){
     paymentMonthlyCache = cachedMonthly.monthly;
   } else {
-    const {data: monthly, error: monthlyErr} = await sb.rpc('get_payment_monthly_summary', {p_from: from, p_to: to});
-    if(monthlyErr) logError('入出金月別集計の読み込み(get_payment_monthly_summary)', monthlyErr);
-    paymentMonthlyCache = monthly||[];
-    paymentMonthlyRpcCache[rpcKey] = { monthly: paymentMonthlyCache, at: Date.now() };
+    // RLS対応フェーズ2 バッチ1: /api/table-crud(action:'rpc')経由。失敗時はキャッシュしない
+    // (以前は失敗時の空の結果を5分間キャッシュしていた)。
+    try{
+      paymentMonthlyCache = await rpcCallAll('get_payment_monthly_summary', {p_from: from, p_to: to});
+      paymentMonthlyRpcCache[rpcKey] = { monthly: paymentMonthlyCache, at: Date.now() };
+    }catch(monthlyErr){
+      logError('入出金月別集計の読み込み(get_payment_monthly_summary)', monthlyErr);
+      paymentMonthlyCache = [];
+    }
   }
   renderPaymentMonthly();
 
