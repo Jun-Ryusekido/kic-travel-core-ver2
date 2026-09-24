@@ -1,0 +1,42 @@
+# SESSION_NOTES
+
+## RLS対応(Supabase警告 rls_disabled_in_public、2026-09〜)
+
+最終形: 対象テーブルへのブラウザ直接アクセスを0にし、ログイン検証つきAPI(service_role)経由に統一
+→ RLS有効化(ポリシーなし) → anon/authenticatedのGRANTを全REVOKE。
+anon向けSELECTポリシー案は不採用(ログインはapp_users独自方式でブラウザは常にanonのため、
+公開anon keyで誰でも読める状態が続く)。フロントでのSupabase Auth使用は0件を確認済み。
+
+### 完了テーブル(RLS有効化済み・JUNがSQL Editorで実行)
+- guide_bank_accounts, app_users, audit_logs, email_import_queue_archive, estimation_day_fixed_items(A区分5件)
+
+### 実行済みSQL(JUN実行・確認済み)
+- 上記A区分5件のRLS有効化
+- facility_operating_info: anon/authenticatedのINSERT/UPDATE/DELETE/TRUNCATEをREVOKE
+- B/C区分全テーブル: TRUNCATE/REFERENCES/TRIGGERをREVOKE
+- 現状のanon/authenticated権限: error_logsはINSERTのみ、残り21テーブルはSELECTのみ
+- RPC 4件(get_payment_monthly_summary, search_payment_income, search_payment_outflow,
+  search_business_partners)は本番でもprosecdef=false(SECURITY INVOKER)と確認
+
+### フェーズ1(本番で既に壊れている箇所の修正) — コード変更済み・デプロイ/実機確認待ち
+- 手配タブ「仕入明細へ追加」のcost_added更新(旧index.html:6583の`sb.from(payload.table).update()`、
+  anon直接UPDATE)を、table-crud.jsの専用action `markCostAdded` 経由に変更。
+  対象5テーブル: booking_hotels/booking_buses/booking_restaurants/booking_facilities/booking_water_items。
+  cost_added列・boolean値のみ書き換え可、ログイン検証必須、0件更新は404、audit_logsへ常に記録。
+  booking_water_itemsはupdated_by列が無いためupdated_byのスタンプは無し(他4テーブルはあり)。
+- scripts/配下のanonフォールバック20本をservice_role必須化(未設定時はエラー終了)。
+- SQL要否: 不要(コードのみ)。
+
+### 未実行SQL・JUN確認待ち
+- (a) error_logsのcost_added更新失敗の件数・期間、(b) cost_added=falseのまま仕入明細に追加済みの
+  行の件数(どちらも読み取り専用。フェーズ1報告に記載)。修正SQLは件数確認後に別途提示。
+
+### 残タスク
+- parking-automation(parking-kyoto-terrsa.js / -midnight.js): anonで`parking_reservations`へ
+  直接INSERTしているが、両ファイルとも「使用禁止」(reserva.be利用規約で自動操作が禁止)と明記され、
+  Windowsタスクも無効化済みと記載あり。API化の要否をJUNに確認中(未着手)。
+- フェーズ2 バッチ1: invoices, booking_costs, booking_sales, credit_card_statements
+- フェーズ2 バッチ2: business_partner_contacts, estimations, estimation_days
+- フェーズ2 バッチ3: arrangement_document系3件、tour_arrangement系/tour_*系6件、booking_guides,
+  booking_water_items, bullet_train_arrangements, facility_operating_info, vendor_email_logs, error_logs
+  (error_logsのINSERTもAPI化。未ログイン時の扱い・サイズ上限・連投対策の案を出す)

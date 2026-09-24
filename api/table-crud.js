@@ -158,7 +158,7 @@ const TABLE_CONFIG = {
   // updated_atは無い。今回はcreated_by/updated_byのみ追加し、汎用updated_at列の新設は
   // スコープ外とする(stampUpdatedAtは付けない)。
   booking_facilities: {
-    actions: ['updateById', 'insert', 'replace', 'deleteByBooking'],
+    actions: ['updateById', 'insert', 'replace', 'deleteByBooking', 'markCostAdded'],
     label: '観光施設・バス駐車場等',
     stampIdentity: true,
     auditLog: true,
@@ -174,7 +174,7 @@ const TABLE_CONFIG = {
   // booking_hotelsは既にstatus_updated_at列を持つため、汎用updated_at列は追加しない
   // (stampUpdatedAtは付けない。created_by/updated_byのみ追加・スタンプする)。
   booking_hotels: {
-    actions: ['replace', 'insert', 'updateById', 'deleteByBooking'],
+    actions: ['replace', 'insert', 'updateById', 'deleteByBooking', 'markCostAdded'],
     label: 'ホテル明細',
     stampIdentity: true,
     auditLog: true,
@@ -185,7 +185,7 @@ const TABLE_CONFIG = {
   // 追加(2026-08)。任意列の書き換えを許さないよう、updatableFieldsでstatusのみに限定する
   // (email_import_queueと同じ方式)。
   booking_buses: {
-    actions: ['replace', 'deleteByBooking', 'updateById'],
+    actions: ['replace', 'deleteByBooking', 'updateById', 'markCostAdded'],
     label: 'バス明細',
     stampIdentity: true,
     stampUpdatedAt: true,
@@ -193,7 +193,7 @@ const TABLE_CONFIG = {
     updatableFields: ['status'],
   },
   booking_restaurants: {
-    actions: ['replace', 'deleteByBooking'],
+    actions: ['replace', 'deleteByBooking', 'markCostAdded'],
     label: 'レストラン明細',
     stampIdentity: true,
     stampUpdatedAt: true,
@@ -278,7 +278,9 @@ const TABLE_CONFIG = {
   tour_day_itinerary: { actions: ['replace', 'deleteByBooking'], label: '手配書日毎明細' },
   tour_arrangement_notes: { actions: ['replace', 'deleteByBooking'], label: '手配書注意文言' },
   // deleteByBookingは予約削除(deleteBookingData)用(2026-08-12点検で追加。それまで予約削除の削除対象から漏れていた)
-  booking_water_items: { actions: ['replace', 'deleteByBooking'], label: 'ミネラルウォーター明細' },
+  // markCostAdded: 手配タブ「仕入明細へ追加」ボタンのcost_added更新専用(下記handler参照)。
+  // booking_water_itemsはcreated_by/updated_by列を持たないためstampIdentityは付けない。
+  booking_water_items: { actions: ['replace', 'deleteByBooking', 'markCostAdded'], label: 'ミネラルウォーター明細' },
   // tour_arrangement_headers: booking_idに1:1のヘッダー行。既存クライアントコードは
   // replaceではなくupdate(存在時)/insert(新規時)の直接呼び出しのため、汎用の
   // updateById/insertReturningをそのまま使う(insertReturningは新規作成時に採番id を
@@ -1415,6 +1417,25 @@ export default async function handler(req, res) {
       const denied = checkRestrictedFieldValues(fields);
       if (denied) return res.status(denied.status).json(denied.body);
       const result = await doUpdateById(table, config.label, id, stampUpdateFields(fields), config, changedBy);
+      return res.status(result.status).json(result.body);
+    }
+    // 手配タブ(ホテル/バス/レストラン/観光施設/水)の「仕入明細へ追加」ボタン専用。
+    // 以前はindex.htmlからanonキーで直接update({cost_added:true})していたが、anonの
+    // UPDATE権限剥奪後は本番で失敗し続けていた(toast:falseのため画面に出ていなかった)。
+    // 汎用updateByIdを開放すると任意列を書き換えられるため(booking_busesはstatusのみに
+    // 限定している等)、cost_added列だけを・boolean値だけを書き換えられる専用actionとする。
+    // updated_by等のスタンプ(stampIdentityのテーブルのみ)は既存updateByIdと同じ
+    // stampUpdateFieldsを通す。audit_logsへの記録は、テーブル設定のauditLogの有無に
+    // 関わらず(booking_water_itemsはauditLog:falseのため)この操作では常に行う。
+    // 対象idが存在しない(0件更新)場合は成功扱いにせず404を返す。
+    if (action === 'markCostAdded') {
+      const { id, value } = req.body;
+      if (!id) return res.status(400).json({ error: 'idが指定されていません' });
+      if (typeof value !== 'boolean') return res.status(400).json({ error: 'cost_addedにはtrue/falseのみ指定できます' });
+      const result = await doUpdateById(table, config.label, id, stampUpdateFields({ cost_added: value }), { ...config, auditLog: true }, changedBy);
+      if (result.status === 200 && !(Array.isArray(result.body.rows) && result.body.rows.length)) {
+        return res.status(404).json({ error: `${config.label}の対象行が見つかりませんでした(id=${id})。他の方の保存で行が作り直された可能性があります。` });
+      }
       return res.status(result.status).json(result.body);
     }
     if (action === 'updateByIds') {

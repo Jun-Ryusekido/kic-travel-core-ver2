@@ -1,3 +1,9 @@
+// 【実行に必要な環境変数】SUPABASE_SERVICE_ROLE_KEY(必須。anonキーでは実行できない)
+//   値の取得: Supabase管理画面 > Project Settings > API Keys > service_role(secret)
+//   設定・実行(PowerShell): $env:SUPABASE_SERVICE_ROLE_KEY="<値>"; node scripts/insert_new_access_bookings.js
+//   設定・実行(bash):       SUPABASE_SERVICE_ROLE_KEY=<値> node scripts/insert_new_access_bookings.js
+//   キーはファイルに書かずコミットしないこと。未設定時はanonキーにフォールバックせずエラー終了する
+//   (2026-09 RLS対応フェーズ1で全スクリプトをservice_role必須に統一)。
 // KIC_INBOUND(旧Accessシステム)の予約台帳データ統合: 本番bookingsに存在しない新規候補
 // (scripts/data/access_booking_merge_dryrun_new_candidates.csv、verify_new_candidates.jsの
 // 検証でmatch_status='true_new'と確認済みのもの)を実際にINSERTする。
@@ -33,9 +39,16 @@ const readline = require('readline');
 const { REFLECT_COLUMNS, computeFinalValue, SB_URL } = require('./dry_run_access_booking_merge');
 
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-// dry-run(読み取りのみ)は書き込み権限が無いanonキーでも動作させたいため、
-// SERVICE_KEYが無い場合はanonキーにフォールバックする(--yes時はSERVICE_KEY必須、後述)。
-const READ_KEY = SERVICE_KEY || 'sb_publishable_Cnloaxzb2Ati8gmCa-1o3Q_t3uy6_mB';
+function requireServiceRoleKey(key) {
+  if (!key) {
+    console.error('SUPABASE_SERVICE_ROLE_KEYが未設定です。anonでは実行できません(anonキーはRLS有効化・権限剥奪によりテーブルを読み書きできず、空の結果による誤判定や書き込み失敗の原因になるため)。ファイル冒頭の【実行に必要な環境変数】の手順で設定してから再実行してください。');
+    process.exit(1);
+  }
+}
+requireServiceRoleKey(SERVICE_KEY);
+// 以前はdry-run(読み取りのみ)時にanonキーへフォールバックしていたが、RLS対応でanonからは
+// 読めなくなるため、dry-runも含めてSERVICE_KEY必須とした(READ_KEYは互換のため残す別名)。
+const READ_KEY = SERVICE_KEY;
 
 // INSERT時に反映対象外の列へ設定する既定値(New Booking画面のsaveBooking()と同じ規約)。
 const INSERT_DEFAULTS = {

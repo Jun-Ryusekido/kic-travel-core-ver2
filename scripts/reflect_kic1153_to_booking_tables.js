@@ -1,3 +1,9 @@
+// 【実行に必要な環境変数】SUPABASE_SERVICE_ROLE_KEY(必須。anonキーでは実行できない)
+//   値の取得: Supabase管理画面 > Project Settings > API Keys > service_role(secret)
+//   設定・実行(PowerShell): $env:SUPABASE_SERVICE_ROLE_KEY="<値>"; node scripts/reflect_kic1153_to_booking_tables.js
+//   設定・実行(bash):       SUPABASE_SERVICE_ROLE_KEY=<値> node scripts/reflect_kic1153_to_booking_tables.js
+//   キーはファイルに書かずコミットしないこと。未設定時はanonキーにフォールバックせずエラー終了する
+//   (2026-09 RLS対応フェーズ1で全スクリプトをservice_role必須に統一)。
 // 1回限りのデータ反映スクリプト: 予約 #1153 (KIC1153_KK) の実データ入り手配書サンプル
 // templates/tehaisho_sample.xlsx (シート「狩野(1)」＝共通の日毎明細として採用。
 // ホテル名・バス会社・食事内容はガイド間でほぼ同一のため、共通ドラフトの投入時と同様に
@@ -23,7 +29,14 @@ const path = require('path');
 const ExcelJS = require('exceljs');
 
 const SB_URL = 'https://nzdygjlnzvtdezslnuoy.supabase.co';
-const SB_KEY = process.env.SUPABASE_KEY || 'sb_publishable_Cnloaxzb2Ati8gmCa-1o3Q_t3uy6_mB';
+const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+function requireServiceRoleKey(key) {
+  if (!key) {
+    console.error('SUPABASE_SERVICE_ROLE_KEYが未設定です。anonでは実行できません(anonキーはRLS有効化・権限剥奪によりテーブルを読み書きできず、空の結果による誤判定や書き込み失敗の原因になるため)。ファイル冒頭の【実行に必要な環境変数】の手順で設定してから再実行してください。');
+    process.exit(1);
+  }
+}
+requireServiceRoleKey(SB_KEY);
 const REF_NO_LIKE = '%1153%';
 const TEMPLATE_PATH = path.join(__dirname, '..', 'templates', 'tehaisho_sample.xlsx');
 const SHEET = '狩野(1)';

@@ -1,3 +1,9 @@
+// 【実行に必要な環境変数】SUPABASE_SERVICE_ROLE_KEY(必須。anonキーでは実行できない)
+//   値の取得: Supabase管理画面 > Project Settings > API Keys > service_role(secret)
+//   設定・実行(PowerShell): $env:SUPABASE_SERVICE_ROLE_KEY="<値>"; node scripts/investigate_in_date_regression.js
+//   設定・実行(bash):       SUPABASE_SERVICE_ROLE_KEY=<値> node scripts/investigate_in_date_regression.js
+//   キーはファイルに書かずコミットしないこと。未設定時はanonキーにフォールバックせずエラー終了する
+//   (2026-09 RLS対応フェーズ1で全スクリプトをservice_role必須に統一)。
 // 読み取り専用の調査スクリプト。bookingsへの書き込みは一切行わない。
 //
 // 7/31のAccess移行(apply_access_booking_merge.js / insert_new_access_bookings.js)後、
@@ -17,7 +23,14 @@
 const fs = require('fs');
 
 const SB_URL = 'https://nzdygjlnzvtdezslnuoy.supabase.co';
-const SB_KEY = process.env.SUPABASE_KEY || 'sb_publishable_Cnloaxzb2Ati8gmCa-1o3Q_t3uy6_mB';
+const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+function requireServiceRoleKey(key) {
+  if (!key) {
+    console.error('SUPABASE_SERVICE_ROLE_KEYが未設定です。anonでは実行できません(anonキーはRLS有効化・権限剥奪によりテーブルを読み書きできず、空の結果による誤判定や書き込み失敗の原因になるため)。ファイル冒頭の【実行に必要な環境変数】の手順で設定してから再実行してください。');
+    process.exit(1);
+  }
+}
+requireServiceRoleKey(SB_KEY);
 
 const PLACEHOLDER_DATES = new Set(['2099-12-28', '2099-12-29', '2099-12-30', '2099-12-31']);
 
