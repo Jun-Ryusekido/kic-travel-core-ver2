@@ -1,3 +1,9 @@
+// 【実行に必要な環境変数】SUPABASE_SERVICE_ROLE_KEY(必須。anonキーでは実行できない)
+//   値の取得: Supabase管理画面 > Project Settings > API Keys > service_role(secret)
+//   設定・実行(PowerShell): $env:SUPABASE_SERVICE_ROLE_KEY="<値>"; node scripts/check_estimation_fit_items_count.js
+//   設定・実行(bash):       SUPABASE_SERVICE_ROLE_KEY=<値> node scripts/check_estimation_fit_items_count.js
+//   キーはファイルに書かずコミットしないこと。未設定時はanonキーにフォールバックせずエラー終了する
+//   (2026-09 RLS対応フェーズ1で全スクリプトをservice_role必須に統一)。
 // F1事前調査: estimation_fit_itemsテーブルの実データ件数を確認する読み取り専用スクリプト。
 // メイン保存処理(saveEstimation)にこのテーブルへのinsert経路が見当たらず、コード上は
 // copyEstimation/deleteEstimationでの削除対象にしか登場しないため、実際にデータが
@@ -7,8 +13,14 @@
 //   SUPABASE_SERVICE_ROLE_KEY=xxxx node scripts/check_estimation_fit_items_count.js
 
 const SB_URL = 'https://nzdygjlnzvtdezslnuoy.supabase.co';
-const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
-  || 'sb_publishable_Cnloaxzb2Ati8gmCa-1o3Q_t3uy6_mB';
+const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+function requireServiceRoleKey(key) {
+  if (!key) {
+    console.error('SUPABASE_SERVICE_ROLE_KEYが未設定です。anonでは実行できません(anonキーはRLS有効化・権限剥奪によりテーブルを読み書きできず、空の結果による誤判定や書き込み失敗の原因になるため)。ファイル冒頭の【実行に必要な環境変数】の手順で設定してから再実行してください。');
+    process.exit(1);
+  }
+}
+requireServiceRoleKey(SB_KEY);
 
 async function countRows(table){
   const res = await fetch(`${SB_URL}/rest/v1/${table}?select=id&limit=1`, {

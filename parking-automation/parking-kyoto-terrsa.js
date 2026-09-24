@@ -31,7 +31,6 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
-const { createClient } = require('@supabase/supabase-js');
 const { getTodayJST, subtractMonths } = require('./lib/date-utils');
 const {
   ensureLoggedIn,
@@ -40,9 +39,6 @@ const {
   logError,
   LOGS_DIR,
 } = require('./lib/kyoto-terrsa-booking-flow');
-
-const SUPABASE_URL = 'https://nzdygjlnzvtdezslnuoy.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_Cnloaxzb2Ati8gmCa-1o3Q_t3uy6_mB';
 
 // 人間が手動でログイン（Cloudflareのロボット確認含む）したセッションを保持し続ける
 // 永続化Chromeプロファイル。このスクリプト専用のプロファイルで、通常使うChromeとは別。
@@ -64,35 +60,12 @@ function parseArgs(argv) {
   return args;
 }
 
-function nextDateISO(dateISO) {
-  const d = new Date(dateISO + 'T00:00:00Z');
-  d.setUTCDate(d.getUTCDate() + 1);
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
-}
-
-async function recordResult(sb, { dateISO, vehicleIndex, totalVehicles, status, resultMessage, screenshotPath }) {
-  const refSuffix = totalVehicles > 1 ? `-${vehicleIndex}` : '';
-  const payload = {
-    facility_type: 'kyoto_terrsa',
-    ref_no: `KYOTO-${dateISO}${refSuffix}`,
-    facility_area: '京都テルサ大型バス駐車場',
-    start_datetime: `${dateISO}T18:00:00`,
-    end_datetime: `${nextDateISO(dateISO)}T08:00:00`,
-    status,
-    result_message: resultMessage || null,
-    screenshot_path: screenshotPath || null,
-    extra: {
-      utilization_group: UTILIZATION_GROUP,
-      bus_company_name: BUS_COMPANY_NAME,
-      vehicle_index: vehicleIndex,
-      total_vehicles: totalVehicles,
-    },
-  };
-  const { error } = await sb.from('parking_reservations').insert(payload);
-  if (error) {
-    console.error('Supabaseへの結果記録に失敗しました:', error.message);
-    logError(`[記録失敗] ${dateISO} (${vehicleIndex}/${totalVehicles}): ${error.message}`);
-  }
+// 2026-09 RLS対応: 以前はここでanonキーを使いSupabaseのparking_reservationsへ結果を
+// 直接INSERTしていたが、このスクリプトは使用禁止(冒頭参照)のため、APIは新設せずDBへの
+// 記録処理とanonキーを削除した。万一実行されてもDBには何も書き込まず、結果はコンソール
+// 出力のみとする。
+function recordResult({ dateISO, vehicleIndex, totalVehicles, status, resultMessage, screenshotPath }) {
+  console.log(`[結果(DB記録なし)] ${dateISO} (${vehicleIndex}/${totalVehicles}): ${status}${resultMessage ? ' - ' + resultMessage : ''}${screenshotPath ? ' / ' + screenshotPath : ''}`);
 }
 
 async function main() {
@@ -117,7 +90,6 @@ async function main() {
     process.exit(1);
   }
 
-  const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
   const context = await chromium.launchPersistentContext(PROFILE_DIR, { headless: HEADLESS, slowMo: HEADLESS ? 200 : 0 });
   const page = context.pages()[0] || await context.newPage();
   const startedAt = Date.now();
@@ -130,7 +102,7 @@ async function main() {
     console.error('ログイン確認に失敗したため、処理を中止します:', e.message);
     logError(`ログイン失敗: ${e.message}`);
     for (let v = 1; v <= totalVehicles; v++) {
-      await recordResult(sb, { dateISO, vehicleIndex: v, totalVehicles, status: '失敗', resultMessage: e.message });
+      await recordResult({ dateISO, vehicleIndex: v, totalVehicles, status: '失敗', resultMessage: e.message });
     }
     await context.close();
     process.exit(1);
@@ -150,7 +122,7 @@ async function main() {
       console.error(msg);
       logError(msg);
       for (let v = 1; v <= totalVehicles; v++) {
-        await recordResult(sb, { dateISO, vehicleIndex: v, totalVehicles, status: '失敗', resultMessage: msg });
+        await recordResult({ dateISO, vehicleIndex: v, totalVehicles, status: '失敗', resultMessage: msg });
       }
       await context.close();
       process.exit(1);
@@ -168,7 +140,7 @@ async function main() {
       if (v > 1) console.log(`  重複予約確認モーダル: ${result.duplicateModalHandled ? '検出して「予約を進める」をクリックしました' : '表示されませんでした（想定外）'}`);
       console.log(`  スクリーンショット: ${result.screenshotPath}`);
       results.push({ vehicleIndex: v, status: '完了', confirmationNumber: result.confirmationNumber, screenshotPath: result.screenshotPath, durationSec: vehicleElapsed() });
-      await recordResult(sb, {
+      await recordResult({
         dateISO,
         vehicleIndex: v,
         totalVehicles,
@@ -183,7 +155,7 @@ async function main() {
       const errShot = path.join(LOGS_DIR, `kyoto-terrsa-${dateISO}-v${v}-error-${Date.now()}.png`);
       await page.screenshot({ path: errShot, fullPage: true }).catch(() => null);
       results.push({ vehicleIndex: v, status: '失敗', resultMessage: e.message, screenshotPath: errShot, durationSec: vehicleElapsed() });
-      await recordResult(sb, { dateISO, vehicleIndex: v, totalVehicles, status: '失敗', resultMessage: e.message, screenshotPath: errShot });
+      await recordResult({ dateISO, vehicleIndex: v, totalVehicles, status: '失敗', resultMessage: e.message, screenshotPath: errShot });
     }
   }
 

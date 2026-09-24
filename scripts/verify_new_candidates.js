@@ -1,3 +1,9 @@
+// 【実行に必要な環境変数】SUPABASE_SERVICE_ROLE_KEY(必須。anonキーでは実行できない)
+//   値の取得: Supabase管理画面 > Project Settings > API Keys > service_role(secret)
+//   設定・実行(PowerShell): $env:SUPABASE_SERVICE_ROLE_KEY="<値>"; node scripts/verify_new_candidates.js
+//   設定・実行(bash):       SUPABASE_SERVICE_ROLE_KEY=<値> node scripts/verify_new_candidates.js
+//   キーはファイルに書かずコミットしないこと。未設定時はanonキーにフォールバックせずエラー終了する
+//   (2026-09 RLS対応フェーズ1で全スクリプトをservice_role必須に統一)。
 // dry_run_access_booking_merge.js が「新規追加候補(本番に存在しないref_no)」として出した
 // access_booking_merge_dryrun_new_candidates.csv の180件について、本当に本番bookingsに
 // 存在しないのか、表記ゆれ(前後空白・全角/半角・大文字小文字・KIC等の接頭辞違い)で
@@ -7,15 +13,19 @@
 // コードは一切存在しない(sbGetAllはGETのみを発行する)。
 //
 // 実行方法: node scripts/verify_new_candidates.js [--input <path>] [--out <path>]
-//   環境変数 SUPABASE_SERVICE_ROLE_KEY があればそれを使う(読み取りのみなのでanonキーでも
-//   結果は同じだが、本番運用時はservice_roleキー経由に統一する)。無ければ既定のanonキーに
-//   フォールバックする(このリポジトリの他の読み取り専用スクリプトと同じ慣行)。
+//   環境変数 SUPABASE_SERVICE_ROLE_KEY が必須(anonキーへのフォールバックは廃止)。
 
 const fs = require('fs');
 const path = require('path');
 
 const SB_URL = 'https://nzdygjlnzvtdezslnuoy.supabase.co';
-const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || 'sb_publishable_Cnloaxzb2Ati8gmCa-1o3Q_t3uy6_mB';
+const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+function requireServiceRoleKey(key) {
+  if (!key) {
+    console.error('SUPABASE_SERVICE_ROLE_KEYが未設定です。anonでは実行できません(anonキーはRLS有効化・権限剥奪によりテーブルを読み書きできず、空の結果による誤判定や書き込み失敗の原因になるため)。ファイル冒頭の【実行に必要な環境変数】の手順で設定してから再実行してください。');
+    process.exit(1);
+  }
+}
 
 function parseArgs(argv) {
   const args = {
@@ -181,6 +191,7 @@ async function main() {
 module.exports = { sbGetAll, buildLookups, matchOne, normTrim, normWidth, normCase, normNumericCore, SB_URL, SB_KEY };
 
 if (require.main === module) {
+  requireServiceRoleKey(SB_KEY);
   main().catch((e) => {
     console.error('エラー:', e);
     process.exit(1);

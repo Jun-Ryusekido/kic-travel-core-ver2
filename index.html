@@ -6446,12 +6446,14 @@ function arrPaymentMethodSelectHtml(arrName, i, value){
 function isFreePaymentMethod(pm){
   return String(pm||'').includes('無料');
 }
+// apiCall: cost_added更新(markCostAdded)に使う各テーブルのApiCall。tableCrudApiCallを直接
+// 呼ばず各ラッパー経由にするのは、書き込み成功時のキャッシュ無効化を他の保存経路と揃えるため。
 const ARR_COST_SECTION_MAP = {
-  hotel: {table:'booking_hotels', nameField:'hotel_name', dateField:'check_in', dateField2:'check_out', label:'ホテル'},
-  bus:   {table:'booking_buses', nameField:'bus_company', dateField:'start_date', dateField2:'end_date', label:'バス'},
-  rest:  {table:'booking_restaurants', nameField:'restaurant_name', dateField:'date', label:'レストラン'},
-  fac:   {table:'booking_facilities', nameField:'facility_name', dateField:'date', label:'観光施設・バス駐車場等'},
-  water: {table:'booking_water_items', nameField:'item_name', dateField:'date', label:'ミネラルウォーター'},
+  hotel: {table:'booking_hotels', nameField:'hotel_name', dateField:'check_in', dateField2:'check_out', label:'ホテル', apiCall:(...a)=>bookingHotelsApiCall(...a)},
+  bus:   {table:'booking_buses', nameField:'bus_company', dateField:'start_date', dateField2:'end_date', label:'バス', apiCall:(...a)=>bookingBusesApiCall(...a)},
+  rest:  {table:'booking_restaurants', nameField:'restaurant_name', dateField:'date', label:'レストラン', apiCall:(...a)=>bookingRestaurantsApiCall(...a)},
+  fac:   {table:'booking_facilities', nameField:'facility_name', dateField:'date', label:'観光施設・バス駐車場等', apiCall:(...a)=>bookingFacilitiesApiCall(...a)},
+  water: {table:'booking_water_items', nameField:'item_name', dateField:'date', label:'ミネラルウォーター', apiCall:(...a)=>bookingWaterItemsApiCall(...a)},
 };
 // arrCostCheckboxHtml/addArrRowToCostNowが「行の配列名」から実際の配列を引くための対応表。
 // SOURCE_TABLE_ARRAYS(booking_costs.source_table→配列)とは向きが違う
@@ -6579,9 +6581,20 @@ async function addArrRowToCostNow(arrName, i, kind, btnEl){
     if(verifyErr || !verifyRows || !verifyRows.length){
       throw new Error('仕入明細への保存を確認できませんでした。再度お試しください。');
     }
+    // cost_addedの永続化は/api/table-crudのmarkCostAdded経由(service_role・ログイン検証つき)。
+    // 以前はanonキーで直接update()していたが、anonのUPDATE権限剥奪後は本番で失敗し続けて
+    // いた(toast:falseのため気づけなかった)。ここで失敗しても仕入明細(booking_costs)への
+    // 追加自体は既に完了しているため、ボタンを「追加」に戻すと再クリックで仕入明細が
+    // 二重に追加されてしまう。そのためボタンは「済み」のまま・メモリ上のcost_addedはtrueに
+    // し(次回の手配タブ保存でcost_added列を含めて保存される)、失敗したことだけを明示する。
+    let costAddedWarn = null;
     if(payload.rowId){
-      const {error} = await sb.from(payload.table).update({cost_added:true}).eq('id', payload.rowId);
-      if(error) logError(`${payload.label}明細のcost_added更新`, error, {toast:false});
+      try{
+        await sec.apiCall('markCostAdded', { id: payload.rowId, value: true });
+      }catch(err){
+        logError(`${payload.label}明細のcost_added更新`, err, {toast:false});
+        costAddedWarn = err.message;
+      }
     }
     // DBへの追加が成功したら、画面下部の「仕入明細」セクションにもリロード不要でその場で
     // 反映されるよう、bdCostItems(仕入明細タブの表示用配列)へ同じ内容を追加して再描画する。
@@ -6603,6 +6616,10 @@ async function addArrRowToCostNow(arrName, i, kind, btnEl){
     btnEl.style.background = '#e2e3e5';
     btnEl.style.color = '#383d41';
     btnEl.style.borderColor = '#c9cace';
+    if(costAddedWarn){
+      alert(`仕入明細への追加は完了しましたが、${payload.label}明細の「済み」記録の保存に失敗しました。\n`+
+        `このまま予約詳細の「保存」を押すと「済み」状態も保存されます(もう一度「追加」を押す必要はありません)。\n\n詳細: ${costAddedWarn}`);
+    }
   }catch(e){
     btnEl.disabled = false;
     btnEl.textContent = origLabel;
