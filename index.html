@@ -29479,8 +29479,9 @@ async function generateInvoice(bookingId, currency, agentFilter){
   // 自動的に最新の内容へ追従させる(請求先が1つの予約でも常に追従させる。1つの予約は
   // 個別=合算の内容になるが、両方のレコードを独立して最新に保つことで、後から請求先が
   // 増えても取りこぼしなく追従し続ける)。DB更新のみでプレビュー表示等は行わない。
+  // 失敗時はtoastで知らせる(以前はtoast:falseで、合算Invoiceが作れない状態に誰も気づけなかった)。
   try{ await upsertConsolidatedInvoice(bookingId, currency, booking); }
-  catch(e){ logError('合算Invoiceの自動更新', e, {toast:false}); }
+  catch(e){ logError('合算Invoiceの自動更新', e); }
 
   await loadInvoicePage();
   await showInvoicePreview(data, booking);
@@ -29496,7 +29497,11 @@ async function upsertConsolidatedInvoice(bookingId, currency, booking){
   const today = new Date();
   const issue = today.toISOString().slice(0,10);
   const refNum = (booking.ref_no||'').replace(/[^0-9]/g,'') || (booking.ref_no||'').replace(/[^A-Za-z0-9]/g,'');
-  const invoiceNo = `INV-${refNum}`;
+  // 合算Invoiceの番号は末尾に -ALL(USDは -ALL-USD)を付ける(2026-09決定)。以前は個別Invoiceと
+  // 同じ INV-<REF> だったため、請求先が1つの予約では個別Invoiceと番号が衝突し、invoice_noの
+  // 一意制約(invoices_invoice_no_key)違反で合算InvoiceのINSERTが失敗し続けていた
+  // (失敗はtoast:falseで画面に出ていなかった)。新規作成時のみ使い、既存行の番号は変更しない。
+  const invoiceNo = `INV-${refNum}-ALL${currency==='USD' ? '-USD' : ''}`;
 
   const {data: salesRows} = await sb.from('booking_sales').select('*').eq('booking_id', bookingId).order('sort_order').order('created_at');
   let amount = (salesRows||[]).reduce((s,r)=>s+Number(r.amount||0),0);
@@ -29516,12 +29521,14 @@ async function upsertConsolidatedInvoice(bookingId, currency, booking){
     is_consolidated: true
   };
 
+  // 合算Invoiceは通貨別に1件(invoices_one_consolidated_per_booking_currency: (booking_id, currency)
+  // WHERE is_consolidated と同じキー)。再発行(UPDATE)時はinvoice_noを送らず、発行済みの番号を維持する。
   const {data: existingInv, error: existingErr} = await sb.from('invoices').select('id')
-    .eq('booking_id', bookingId).eq('is_consolidated', true).maybeSingle();
+    .eq('booking_id', bookingId).eq('is_consolidated', true).eq('currency', currency).maybeSingle();
   if(existingErr) throw existingErr;
   let data;
   if(existingInv && existingInv.id){
-    const updateResult = await invoicesApiCall('updateById', { id: existingInv.id, fields: {...corePayload, invoice_no: invoiceNo} });
+    const updateResult = await invoicesApiCall('updateById', { id: existingInv.id, fields: {...corePayload} });
     data = (updateResult.rows||[])[0];
   }else{
     const insertResult = await invoicesApiCall('insert', { rows: [{
