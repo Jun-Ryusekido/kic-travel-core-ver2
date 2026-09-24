@@ -7663,8 +7663,10 @@ function hideSupplierSuggestions(){
 // (SALES_ITEM_NAME_FIXED_LIST)と重複するものは除外し、頻度上位30件のみ残す。
 async function loadSalesItemNameFreqCache(){
   if(salesItemNameFreqCache.length>0) return;
-  const {data, error} = await sb.from('booking_sales').select('item_name');
-  if(error || !data) return;
+  // 以前はPostgRESTの1,000件上限で黙って切り捨てられていた(古い1,000件だけで頻度集計)。tableQueryAllで取り切る。
+  let data;
+  try{ data = await tableQueryAll('booking_sales', { select: 'item_name' }); }
+  catch(e){ logError('売上明細の項目名候補の読み込み', e, {toast:false}); return; }
   const counts = new Map();
   data.forEach(r=>{
     const name = (r.item_name||'').trim();
@@ -8464,12 +8466,8 @@ async function applyDashboardBankbookEntry(k){
   statusEl.textContent = '更新中...';
   statusEl.style.color = 'var(--text3)';
   try{
-    const {data: salesRows, error} = await sb.from('booking_sales')
-      .select('id,payments')
-      .eq('booking_id', bookingId)
-      .order('id')
-      .limit(1);
-    if(error) throw error;
+    const salesRows = await tableQueryAll('booking_sales', { select: 'id,payments', filters: [{ col: 'booking_id', op: 'eq', value: bookingId }],
+      order: [{ col: 'id' }], limit: 1 });
     if(!salesRows || salesRows.length === 0) throw new Error('売上明細が存在しません');
     const row = salesRows[0];
     const payments = Array.isArray(row.payments) ? [...row.payments] : [];
@@ -9009,10 +9007,24 @@ async function openBookingDetail(id, opts){
   document.getElementById('bd-sales-tbody').innerHTML = '<tr><td colspan="6" class="empty" style="padding:6px;font-size:10px">読み込み中...</td></tr>';
   document.getElementById('bd-cost-tbody').innerHTML = '<tr><td colspan="5" class="empty" style="padding:6px;font-size:10px">読み込み中...</td></tr>';
 
-  const [{data: salesRows}, {data: costRows}] = await Promise.all([
-    sb.from('booking_sales').select('*').eq('booking_id', id).order('sort_order').order('created_at'),
-    asSbResult(tableQueryAll('booking_costs', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: id }], order: [{ col: 'created_at' }] }))
-  ]);
+  // 売上明細・仕入明細・関連Invoiceは1リクエスト(queryBatch)でまとめて取得する
+  // (クライアント→APIの往復とコールドスタートの回数を3回→1回に減らすため)。
+  // 取得に失敗した場合は、空の明細のまま画面を開くと、そのまま保存した時に既存の明細を
+  // 消してしまうおそれがあるため、予約詳細を閉じて中止する。
+  let salesRows, costRows, invoices;
+  try{
+    [salesRows, costRows, invoices] = await tableQueryBatch([
+      { table: 'booking_sales', select: '*', filters: [{ col: 'booking_id', op: 'eq', value: id }], order: [{ col: 'sort_order' }, { col: 'created_at' }] },
+      { table: 'booking_costs', select: '*', filters: [{ col: 'booking_id', op: 'eq', value: id }], order: [{ col: 'created_at' }] },
+      { table: 'invoices', select: '*', filters: [{ col: 'booking_id', op: 'eq', value: id }], order: [{ col: 'created_at', ascending: false }] },
+    ]);
+  }catch(e){
+    if(_stale()) return;
+    logError('予約詳細の売上明細・仕入明細・Invoiceの読み込み', e, {toast:false});
+    closeBookingDetail();
+    alert('売上明細・仕入明細の読み込みに失敗したため、予約詳細を開けませんでした。もう一度開いてください。\n'+e.message);
+    return;
+  }
   if(_stale()) return;
 
   bdSalesItems = (salesRows||[]).map(r=>({item_name:r.item_name, memo:r.memo||'', unit_price:r.unit_price, pax:r.pax||1, qty:r.qty, amount:r.amount, payment_date:r.payment_date, agent_name:r.agent_name||'', agent_id:r.agent_id||null, payments:r.payments||[]}));
@@ -9028,12 +9040,7 @@ async function openBookingDetail(id, opts){
   renderCostTable();
 
   // 関連Invoiceを読み込み（一覧はモーダル内、通常表示はボタンの件数のみ）
-  let invoices = [];
-  try{
-    invoices = await tableQueryAll('invoices', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: id }],
-      order: [{ col: 'created_at', ascending: false }] });
-  }catch(e){ logError('予約詳細の関連Invoice読み込み', e); }
-  if(_stale()) return;
+  // (関連Invoiceは上の売上明細・仕入明細と同じqueryBatchで取得済み)
   bdInvoicesCache = invoices||[];
   document.getElementById('bd-inv-count').textContent = bdInvoicesCache.length;
   document.getElementById('bd-inv-empty-hint').style.display = bdInvoicesCache.length===0 ? '' : 'none';
@@ -9652,16 +9659,19 @@ async function exportBookingArchive(){
   if(!b) return;
 
   const [
-    {data: sales}, {data: costs}, {data: invoices},
+    {data: sales, error: salesErr}, {data: costs, error: costsErr}, {data: invoices, error: invoicesErr},
     {data: arrangements}, {data: estimations}, {data: settlements}
   ] = await Promise.all([
-    sb.from('booking_sales').select('*').eq('booking_id', b.id),
+    asSbResult(tableQueryAll('booking_sales', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: b.id }] })),
     asSbResult(tableQueryAll('booking_costs', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: b.id }] })),
     asSbResult(tableQueryAll('invoices', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: b.id }] })),
     sb.from('tour_arrangements').select('*').eq('booking_ref', b.ref_no),
     sb.from('estimations').select('*').eq('converted_booking_id', b.id),
     sb.from('guide_settlements').select('*').eq('booking_ref', b.ref_no)
   ]);
+  // 売上明細・仕入明細・Invoiceの取得に失敗した場合は、欠けたアーカイブを「正常に」出力しないよう中止する。
+  const __archiveFetchErr = salesErr || costsErr || invoicesErr;
+  if(__archiveFetchErr){ alert('売上明細・仕入明細・Invoiceの取得に失敗したため、出力を中止しました: '+__archiveFetchErr.message); return; }
 
   let arrangementsWithDays = [];
   if(arrangements && arrangements.length>0){
@@ -9729,13 +9739,18 @@ async function exportFullBackup(){
   const ids = data.map(b=>b.id);
   const refNos = data.map(b=>b.ref_no);
 
-  const [{data:sales},{data:costs},{data:invoices},{data:arrangements},{data:settlements}] = await Promise.all([
-    sb.from('booking_sales').select('*').in('booking_id',ids),
+  // 売上明細・仕入明細・Invoiceは、全予約idのin条件(URLが長くなり失敗する/1,000件で切り捨てられる)
+  // ではなく、テーブル全体をAPIのページングで取り切る(全予約分=テーブル全体のため)。
+  const [{data:sales, error:salesErr},{data:costs, error:costsErr},{data:invoices, error:invoicesErr},{data:arrangements},{data:settlements}] = await Promise.all([
+    asSbResult(tableQueryAll('booking_sales', { select: '*' })),
     asSbResult(tableQueryAll('booking_costs', { select: '*' })),
     asSbResult(tableQueryAll('invoices', { select: '*' })),
     sb.from('tour_arrangements').select('*').in('booking_ref',refNos),
     sb.from('guide_settlements').select('*').in('booking_ref',refNos)
   ]);
+  // 売上明細・仕入明細・Invoiceの取得に失敗した場合は、欠けたアーカイブを「正常に」出力しないよう中止する。
+  const __archiveFetchErr = salesErr || costsErr || invoicesErr;
+  if(__archiveFetchErr){ alert('売上明細・仕入明細・Invoiceの取得に失敗したため、出力を中止しました: '+__archiveFetchErr.message); return; }
 
   const zip = new JSZip();
   const exportedAt = new Date().toISOString();
@@ -9776,14 +9791,19 @@ async function exportFiscalYearArchive(){
   const ids = inFy.map(b=>b.id);
   const refNos = inFy.map(b=>b.ref_no);
 
-  const [{data: sales}, {data: costs}, {data: invoices}, {data: arrangements}, {data: estimations}, {data: settlements}] = await Promise.all([
-    sb.from('booking_sales').select('*').in('booking_id', ids),
+  // 売上明細・仕入明細・Invoiceは、年度の予約idを200件ずつに分けたin条件で取得する
+  // (データ全体ではなく年度分のデータ量に比例した負荷に抑えるため。2026-09 JUN決定)。
+  const [{data: sales, error: salesErr}, {data: costs, error: costsErr}, {data: invoices, error: invoicesErr}, {data: arrangements}, {data: estimations}, {data: settlements}] = await Promise.all([
+    asSbResult(tableQueryAllIn('booking_sales', { select: '*' }, 'booking_id', ids)),
     asSbResult(tableQueryAllIn('booking_costs', { select: '*' }, 'booking_id', ids)),
     asSbResult(tableQueryAllIn('invoices', { select: '*' }, 'booking_id', ids)),
     sb.from('tour_arrangements').select('*').in('booking_ref', refNos),
     sb.from('estimations').select('*').in('converted_booking_id', ids),
     sb.from('guide_settlements').select('*').in('booking_ref', refNos)
   ]);
+  // 売上明細・仕入明細・Invoiceの取得に失敗した場合は、欠けたアーカイブを「正常に」出力しないよう中止する。
+  const __archiveFetchErr = salesErr || costsErr || invoicesErr;
+  if(__archiveFetchErr){ alert('売上明細・仕入明細・Invoiceの取得に失敗したため、出力を中止しました: '+__archiveFetchErr.message); return; }
 
   let arrDays = [], estDaysAll = [], estFixedRowsAll = [], gItems = [];
   if(arrangements && arrangements.length>0){
@@ -9847,7 +9867,7 @@ async function exportFiscalYearArchive(){
 async function backupBookingDataBeforeDelete(b, refNo){
   const queries = {
     bookings: sb.from('bookings').select('*').eq('id', b.id),
-    booking_sales: sb.from('booking_sales').select('*').eq('booking_id', b.id),
+    booking_sales: asSbResult(tableQueryAll('booking_sales', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: b.id }] })),
     booking_costs: asSbResult(tableQueryAll('booking_costs', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: b.id }] })),
     invoices: asSbResult(tableQueryAll('invoices', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: b.id }] })),
     booking_hotels: sb.from('booking_hotels').select('*').eq('booking_id', b.id),
@@ -19111,9 +19131,10 @@ async function remapCreditCardStatementSourceIds(bookingId, oldCostRows){
 async function remapSalesAgentIds(bookingId, oldSalesRows){
   if(!oldSalesRows || !oldSalesRows.length) return;
   if(!oldSalesRows.some(r=>r.agent_id)) return; // 引き継ぐべきagent_idが元々無ければ何もしない
-  const {data: freshSales, error} = await sb.from('booking_sales')
-    .select('id,item_name,agent_name,unit_price,pax,qty,agent_id').eq('booking_id', bookingId);
-  if(error || !freshSales || !freshSales.length) return;
+  // 保存後の最新状態の取得に失敗した場合は例外を投げ、付け替えを一切行わない
+  // (呼び出し元のrunSkippableIsolatedで失敗として記録・表示される。以前は黙ってスキップしていた)。
+  const freshSales = await tableQueryAll('booking_sales', { select: 'id,item_name,agent_name,unit_price,pax,qty,agent_id', filters: [{ col: 'booking_id', op: 'eq', value: bookingId }] });
+  if(!freshSales.length) return;
   const sig = r => `${r.item_name||''}|${r.agent_name||''}|${Number(r.unit_price)||0}|${Number(r.pax)||0}|${Number(r.qty)||0}`;
   const groupBySig = list => {
     const m = {};
@@ -20402,8 +20423,13 @@ async function saveBookingDetail(){
     // 最新DB状態を基準にする)。
     let _oldSalesRowsForAgentRemap = null;
     if(salesDirty){
-      const {data: oldSales} = await sb.from('booking_sales').select('id,item_name,agent_name,unit_price,pax,qty,agent_id').eq('booking_id', bookingId);
-      _oldSalesRowsForAgentRemap = oldSales || [];
+      // 取得に失敗した場合は、空の旧状態のまま書き込みに進まないよう以降の保存を中止する
+      // (予約情報(bookings)はこの時点で保存済み)。
+      try{
+        _oldSalesRowsForAgentRemap = await tableQueryAll('booking_sales', { select: 'id,item_name,agent_name,unit_price,pax,qty,agent_id', filters: [{ col: 'booking_id', op: 'eq', value: bookingId }] });
+      }catch(e){
+        throw new Error('売上明細の保存前の状態を取得できなかったため、売上明細・仕入明細以降の保存を中止しました（予約情報は保存済みです）。\n'+e.message);
+      }
     }
 
     await runSkippable('売上明細(booking_sales)', salesDirty, async () => {
@@ -29543,7 +29569,11 @@ async function generateInvoice(bookingId, currency, agentFilter){
 
   // 請求先で金額を絞り込み（売上明細が登録されている場合）。請求先の一覧・件数も
   // ここから求める(理由は distinctBookingAgents のコメント参照)。
-  const {data: salesRows} = await sb.from('booking_sales').select('*').eq('booking_id', bookingId).order('sort_order').order('created_at');
+  // 取得に失敗した場合は発行を中止する(以前は失敗=明細0件扱いで、予約のgross_salesを金額にして発行していた)。
+  let salesRows;
+  try{
+    salesRows = await tableQueryAll('booking_sales', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: bookingId }], order: [{ col: 'sort_order' }, { col: 'created_at' }] });
+  }catch(e){ alert('Invoice発行に失敗しました(売上明細の取得に失敗): '+e.message); return; }
   const distinctAgents = distinctBookingAgents(salesRows, booking.agent_name);
   const targetAgentName = (agentFilter && agentFilter.trim()) || (booking.agent_name||'').trim() || null;
 
@@ -29654,7 +29684,8 @@ async function upsertConsolidatedInvoice(bookingId, currency, booking){
   // (失敗はtoast:falseで画面に出ていなかった)。新規作成時のみ使い、既存行の番号は変更しない。
   const invoiceNo = `INV-${refNum}-ALL${currency==='USD' ? '-USD' : ''}`;
 
-  const {data: salesRows} = await sb.from('booking_sales').select('*').eq('booking_id', bookingId).order('sort_order').order('created_at');
+  // 取得に失敗した場合は例外(呼び出し元でtoast/alert)。空の明細のまま合算を作成・更新しない。
+  const salesRows = await tableQueryAll('booking_sales', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: bookingId }], order: [{ col: 'sort_order' }, { col: 'created_at' }] });
   let amount = (salesRows||[]).reduce((s,r)=>s+Number(r.amount||0),0);
   if(!salesRows || salesRows.length===0) amount = Number(booking.gross_sales||0);
   if(currency==='USD') amount = Math.round((amount/USD_RATE)*100)/100;
@@ -29769,7 +29800,12 @@ async function showInvoicePreview(inv, booking){
   // 全行を対象にする。agent_nameの有無では判定しない — 合算Invoiceも表示用に
   // agent_name(予約代表の請求先名)を保持しているため、agent_nameの有無で判定すると
   // 合算Invoiceでも誤って1社分だけに絞り込んでしまう）。
-  const {data: salesRows} = await sb.from('booking_sales').select('*').eq('booking_id', booking.id).order('sort_order').order('created_at');
+  // 取得に失敗した場合はプレビューを中止する(以前は失敗=明細0件扱いで、「Tour Fee」1行だけの
+  // 誤った請求書を表示していた)。
+  let salesRows;
+  try{
+    salesRows = await tableQueryAll('booking_sales', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: booking.id }], order: [{ col: 'sort_order' }, { col: 'created_at' }] });
+  }catch(e){ alert('Invoiceの表示に失敗しました(売上明細の取得に失敗): '+e.message); return; }
   let items;
   if(salesRows && salesRows.length>0){
     items = (inv.is_consolidated || !inv.agent_name)
