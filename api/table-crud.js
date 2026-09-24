@@ -1338,8 +1338,7 @@ async function runQuery(table, built, budget) {
   let offset = built.offset;
   let pageSize = built.limit || QUERY_FIRST_PAGE_SIZE;
   while (true) {
-    const r = await sbFetch(table, `?${base}&limit=${pageSize}&offset=${offset}`, { method: 'GET' });
-    const text = await r.text();
+    const { r, text } = await timedFetchText(budget, () => sbFetch(table, `?${base}&limit=${pageSize}&offset=${offset}`, { method: 'GET' }));
     if (!r.ok) {
       let msg = '';
       try { msg = JSON.parse(text).message || ''; } catch (e) { /* ignore */ }
@@ -1365,7 +1364,24 @@ async function runQuery(table, built, budget) {
 }
 
 function newQueryBudget() {
-  return { bytes: QUERY_MAX_BYTES, deadline: Date.now() + QUERY_MAX_MS };
+  // sb: このリクエスト内でSupabase(PostgREST)を呼んだ回数・合計時間・最大時間(レスポンスの__sbとして返し、
+  // index.htmlのwindow.__tableCrudCallLogに記録する。速度の内訳を実測で切り分けるため)。
+  return { bytes: QUERY_MAX_BYTES, deadline: Date.now() + QUERY_MAX_MS, sb: { calls: 0, ms: 0, maxMs: 0 } };
+}
+
+// Supabaseへのfetchと本文の読み込みまでを計測する(budget.sbに加算)。
+async function timedFetchText(budget, doFetch) {
+  const t0 = Date.now();
+  try {
+    const r = await doFetch();
+    const text = await r.text();
+    return { r, text };
+  } finally {
+    const ms = Date.now() - t0;
+    budget.sb.calls += 1;
+    budget.sb.ms += ms;
+    if (ms > budget.sb.maxMs) budget.sb.maxMs = ms;
+  }
 }
 
 // 1ページ取得した後に、次のページを何件で取得するか(0なら打ち切ってnextOffsetを返す)。
@@ -1381,8 +1397,9 @@ function nextPageSize(budget, pageBytes, pageRows) {
 async function doQuery(table, q) {
   const built = buildQueryParams(table, q);
   if (built.error) return { status: 400, body: { error: built.error } };
-  const result = await runQuery(table, built, newQueryBudget());
-  return { status: 200, body: { ok: true, ...result } };
+  const budget = newQueryBudget();
+  const result = await runQuery(table, built, budget);
+  return { status: 200, body: { ok: true, ...result, __sb: budget.sb } };
 }
 
 // 複数テーブルのクエリを1リクエストでまとめて取得する(予約詳細を開く時の売上・仕入・
@@ -1401,7 +1418,7 @@ async function doQueryBatch(queries) {
   }
   const budget = newQueryBudget();
   const results = await Promise.all(builtList.map(({ table, built }) => runQuery(table, built, budget)));
-  return { status: 200, body: { ok: true, results } };
+  return { status: 200, body: { ok: true, results, __sb: budget.sb } };
 }
 
 // RPC(入出金画面)。ホワイトリストの3本だけをservice_roleで呼ぶ。関数はSECURITY INVOKERのまま
@@ -1414,64 +1431,144 @@ const RPC_WHITELIST = {
 };
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-async function doRpc(fn, params, offsetIn) {
+// 引数を検証する。不正なら { error } を返す。
+function validateRpcCall(fn, params) {
   const spec = RPC_WHITELIST[fn];
-  if (!spec) return { status: 400, body: { error: `許可されていないRPCです: ${fn}` } };
+  if (!spec) return { error: `許可されていないRPCです: ${fn}` };
   const p = params || {};
   const unknown = Object.keys(p).filter((k) => !['p_from', 'p_to', 'p_search'].includes(k));
-  if (unknown.length) return { status: 400, body: { error: `不明な引数です: ${unknown.join(', ')}` } };
+  if (unknown.length) return { error: `不明な引数です: ${unknown.join(', ')}` };
   if (!DATE_RE.test(String(p.p_from || '')) || !DATE_RE.test(String(p.p_to || ''))) {
-    return { status: 400, body: { error: '日付(p_from/p_to)はYYYY-MM-DD形式で指定してください' } };
+    return { error: '日付(p_from/p_to)はYYYY-MM-DD形式で指定してください' };
   }
   if (p.p_search !== undefined) {
-    if (!spec.paged) return { status: 400, body: { error: `${fn}はp_searchを受け付けません` } };
+    if (!spec.paged) return { error: `${fn}はp_searchを受け付けません` };
     if (typeof p.p_search !== 'string' || !p.p_search || p.p_search.length > 200) {
-      return { status: 400, body: { error: '検索語(p_search)は1〜200文字の文字列で指定してください' } };
+      return { error: '検索語(p_search)は1〜200文字の文字列で指定してください' };
     }
   }
+  return { spec, p };
+}
+
+const RPC_PARALLEL_PAGES = 8; // 残りページを並列取得する時の同時実行数(出金6,370件=残り6ページ+末尾確認1が1段で済む)
+
+// 1本のRPCを予算内で取得する。失敗時は例外(部分結果は返さない)。
+// 集合を返す2本はGET+Rangeでページングする(POSTだとPostgRESTがRangeを無視するため)。関数側でORDER BY済み。
+// 入出金画面(2026-09、Preview実測で本番より大幅に遅かった件の対応): 以前は200件のプローブページの後に
+// 1,000件ずつ「直列」に取得しており、出金6,370件で8回の往復が直列に並んでいた(各回で関数全体が
+// 再実行される)。最初のページ(1,000件)で Prefer: count=exact により総件数を得て、残りのページを
+// 並列に取得する(直列の往復は2段になる)。総件数が得られない場合は従来どおり直列に取得する。
+async function runRpc(fn, params, offsetIn, budget) {
+  const { spec, p } = validateRpcCall(fn, params);
   const serviceKey = getServiceKey();
   const headers = { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, 'Content-Type': 'application/json' };
+  const failMsg = (r, text) => {
+    let msg = '';
+    try { msg = JSON.parse(text).message || ''; } catch (e) { /* ignore */ }
+    return msg || `${fn}の実行に失敗しました(HTTP ${r.status})`;
+  };
   if (!spec.paged) {
-    const r = await fetch(`${SB_URL}/rest/v1/rpc/${fn}`, { method: 'POST', headers, body: JSON.stringify({ p_from: p.p_from, p_to: p.p_to }) });
-    const text = await r.text();
-    if (!r.ok) {
-      let msg = '';
-      try { msg = JSON.parse(text).message || ''; } catch (e) { /* ignore */ }
-      return { status: 500, body: { error: msg || `${fn}の実行に失敗しました(HTTP ${r.status})` } };
-    }
-    return { status: 200, body: { ok: true, rows: JSON.parse(text), nextOffset: null } };
+    const { r, text } = await timedFetchText(budget, () => fetch(`${SB_URL}/rest/v1/rpc/${fn}`, {
+      method: 'POST', headers, body: JSON.stringify({ p_from: p.p_from, p_to: p.p_to }),
+    }));
+    if (!r.ok) throw new Error(failMsg(r, text));
+    return { rows: JSON.parse(text), nextOffset: null };
   }
-  // 集合を返す2本はGET+Rangeでページングする(POSTだとPostgRESTがRangeを無視するため。
-  // 従来のindex.html fetchAllRpcPagesと同じ方式)。関数側でORDER BY済み(一意な並び)。
   // GETでは値がnullでも文字列"null"として渡ってしまうため、p_searchは指定時のみ付ける。
   const qs = [`p_from=${encodeURIComponent(p.p_from)}`, `p_to=${encodeURIComponent(p.p_to)}`];
   if (p.p_search !== undefined) qs.push(`p_search=${encodeURIComponent(p.p_search)}`);
-  const budget = newQueryBudget();
-  let offset = Number.isInteger(offsetIn) && offsetIn >= 0 ? offsetIn : 0;
-  let rows = [];
-  let pageSize = QUERY_FIRST_PAGE_SIZE;
-  while (true) {
-    const r = await fetch(`${SB_URL}/rest/v1/rpc/${fn}?${qs.join('&')}`, {
-      method: 'GET',
-      headers: { ...headers, 'Range-Unit': 'items', Range: `${offset}-${offset + pageSize - 1}` },
-    });
-    const text = await r.text();
-    if (!r.ok) {
-      let msg = '';
-      try { msg = JSON.parse(text).message || ''; } catch (e) { /* ignore */ }
-      return { status: 500, body: { error: msg || `${fn}の実行に失敗しました(HTTP ${r.status})` } };
-    }
+  const url = `${SB_URL}/rest/v1/rpc/${fn}?${qs.join('&')}`;
+  const getPage = async (from, size, withCount) => {
+    const h = { ...headers, 'Range-Unit': 'items', Range: `${from}-${from + size - 1}` };
+    if (withCount) h.Prefer = 'count=exact';
+    const { r, text } = await timedFetchText(budget, () => fetch(url, { method: 'GET', headers: h }));
+    if (!r.ok) throw new Error(failMsg(r, text));
     const page = JSON.parse(text);
-    if (!Array.isArray(page)) return { status: 500, body: { error: `${fn}の結果が不正です` } };
-    const pageBytes = Buffer.byteLength(text, 'utf8');
-    if (rows.length > 0 && pageBytes > budget.bytes) return { status: 200, body: { ok: true, rows, nextOffset: offset } };
-    rows = rows.concat(page);
-    budget.bytes -= pageBytes;
-    offset += page.length;
-    if (page.length < pageSize) return { status: 200, body: { ok: true, rows, nextOffset: null } };
-    pageSize = nextPageSize(budget, pageBytes, page.length);
-    if (pageSize < 1) return { status: 200, body: { ok: true, rows, nextOffset: offset } };
+    if (!Array.isArray(page)) throw new Error(`${fn}の結果が不正です`);
+    let total = null;
+    if (withCount) {
+      const t = Number(String(r.headers.get('content-range') || '').split('/')[1]);
+      if (Number.isFinite(t)) total = t;
+    }
+    return { page, bytes: Buffer.byteLength(text, 'utf8'), total };
+  };
+
+  let offset = Number.isInteger(offsetIn) && offsetIn >= 0 ? offsetIn : 0;
+  const first = await getPage(offset, QUERY_PAGE_SIZE, true);
+  let rows = first.page;
+  budget.bytes -= first.bytes;
+  offset += first.page.length;
+  if (first.page.length < QUERY_PAGE_SIZE) return { rows, nextOffset: null };
+  const avg = first.bytes / first.page.length;
+
+  if (first.total != null) {
+    // 予算内に収まる件数だけ、残りのページを並列に取得する
+    const fitRows = Math.floor(Math.max(0, budget.bytes) / Math.max(avg, 1));
+    const end = Math.min(first.total, offset + fitRows);
+    const reqs = []; // { start, size }
+    for (let st = offset; st < end; st += QUERY_PAGE_SIZE) reqs.push({ start: st, size: Math.min(QUERY_PAGE_SIZE, end - st) });
+    // 総件数の取得後に行が増えた場合に備え、末尾の次のページも同時に確認する(通常は0件。直列の往復は増やさない)
+    const reachesEnd = end >= first.total;
+    if (reachesEnd) reqs.push({ start: end, size: QUERY_PAGE_SIZE });
+    const pages = new Array(reqs.length);
+    let next = 0;
+    const worker = async () => {
+      while (next < reqs.length) {
+        const i = next++;
+        pages[i] = await getPage(reqs[i].start, reqs[i].size, false);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(RPC_PARALLEL_PAGES, reqs.length) }, worker));
+    for (let i = 0; i < pages.length; i++) {
+      const pg = pages[i];
+      if (!pg.page.length) return { rows, nextOffset: null };
+      // 見積もりより大きいページで予算を超える場合は、ここで打ち切り続きの位置を返す
+      if (pg.bytes > budget.bytes) return { rows, nextOffset: offset };
+      rows = rows.concat(pg.page);
+      budget.bytes -= pg.bytes;
+      offset += pg.page.length;
+      // 想定より短いページ(取得中に行が減った、または末尾)ならそこで終わり
+      if (pg.page.length < reqs[i].size) return { rows, nextOffset: null };
+    }
+    // ここに来るのは、予算の都合で途中までしか取得していない場合か、末尾の次のページも満杯だった場合
+    return { rows, nextOffset: offset };
   }
+
+  // 総件数が得られない場合: 従来どおり直列に取得する
+  let pageSize = nextPageSize(budget, first.bytes, first.page.length);
+  while (true) {
+    if (pageSize < 1) return { rows, nextOffset: offset };
+    const pg = await getPage(offset, pageSize, false);
+    if (pg.bytes > budget.bytes) return { rows, nextOffset: offset };
+    rows = rows.concat(pg.page);
+    budget.bytes -= pg.bytes;
+    offset += pg.page.length;
+    if (pg.page.length < pageSize) return { rows, nextOffset: null };
+    pageSize = nextPageSize(budget, pg.bytes, pg.page.length);
+  }
+}
+
+async function doRpc(fn, params, offsetIn) {
+  const v = validateRpcCall(fn, params);
+  if (v.error) return { status: 400, body: { error: v.error } };
+  const budget = newQueryBudget();
+  const result = await runRpc(fn, params, offsetIn, budget);
+  return { status: 200, body: { ok: true, ...result, __sb: budget.sb } };
+}
+
+// 入出金画面を開く時の3本(月別集計・入金明細・出金明細)を1リクエストでまとめて取得する
+// (以前は月別集計→明細の2往復が直列だった)。サイズ予算は全件で共有し、取り切れなかったものは
+// nextOffsetを返す(クライアントがrpc actionで続きを取る)。1件でも検証エラーなら何も実行しない。
+async function doRpcBatch(calls) {
+  if (!Array.isArray(calls) || !calls.length) return { status: 400, body: { error: 'callsが指定されていません' } };
+  if (calls.length > 3) return { status: 400, body: { error: 'callsは3件までです' } };
+  for (const c of calls) {
+    const v = validateRpcCall(c && c.fn, c && c.params);
+    if (v.error) return { status: 400, body: { error: v.error } };
+  }
+  const budget = newQueryBudget();
+  const results = await Promise.all(calls.map((c) => runRpc(c.fn, c.params, 0, budget)));
+  return { status: 200, body: { ok: true, results, __sb: budget.sb } };
 }
 
 async function doAuditHistory(targetTable, recordId) {
@@ -1544,14 +1641,15 @@ export default async function handler(req, res) {
     return res.status(result.status).json(result.body);
   }
 
-  // query/queryBatch/rpcは読み取り専用action。テーブルごとのactionsホワイトリストではなく、
+  // query/queryBatch/rpc/rpcBatchは読み取り専用action。テーブルごとのactionsホワイトリストではなく、
   // TABLE_CONFIG[table].readable(列・演算子)/RPC_WHITELISTで許可範囲を判定する。
   // ゲスト操作からは呼べない(isGuestActionに含めていないため、上でログイン検証済み)。
-  if (action === 'query' || action === 'queryBatch' || action === 'rpc') {
+  if (action === 'query' || action === 'queryBatch' || action === 'rpc' || action === 'rpcBatch') {
     try {
       let result;
       if (action === 'query') result = await doQuery(table, req.body.query);
       else if (action === 'queryBatch') result = await doQueryBatch(req.body.queries);
+      else if (action === 'rpcBatch') result = await doRpcBatch(req.body.calls);
       else result = await doRpc(req.body.fn, req.body.params, req.body.offset);
       return res.status(result.status).json(result.body);
     } catch (e) {

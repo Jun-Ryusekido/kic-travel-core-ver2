@@ -100,6 +100,8 @@ anon向けSELECTポリシー案は不採用(ログインはapp_users独自方式
 - なし(2026-09-24時点)。フェーズ1報告の(a)(error_logsのcost_added更新失敗の件数)は未実行だが、(b)(d)の修正で実害は解消済み。
 
 ### 残タスク
+- 【既存不具合・本番でも発生】入出金管理でFROMだけ変えても集計が更新されないことがある(JUN確認、2026-09-24)。
+  PR #210には含めない。原因調査から(onblur起点の集計・月別レポートがTO基準の年度であること等を確認する)。
 - フェーズ2 バッチ1: 下記「バッチ1 再開用メモ」参照(新しいセッションで開始予定)
 - フェーズ2 バッチ2: business_partner_contacts, estimations, estimation_days
 - フェーズ2 バッチ3: arrangement_document系3件、tour_arrangement系/tour_*系6件、booking_guides,
@@ -138,6 +140,15 @@ RPC3本(get_payment_monthly_summary / search_payment_income / search_payment_out
   - scripts/investigate_batch1_table_sizes.sql: 全件取得画面の件数・サイズ確認(読み取り専用)
   - scripts/enable_rls_batch1.sql: RLS有効化+GRANT/EXECUTE REVOKE(デプロイ→実機確認の後)
 - 次の手順: PRのVercel Preview確認 → マージ → JUNが本番で実機確認 → enable_rls_batch1.sql 実行 → 再確認。
+- Preview実機確認(2026-09-24 JUN): 入出金管理以外は本番と一致。入出金管理のみ遅い(開く2回目 5.8秒 vs 本番1.1秒)+
+  古い集計結果で上書きされる挙動があったため、同PRで修正(PR #210 に追加コミット):
+  - 原因(コード構造): 修正前は「月別集計→明細」のAPI 2往復が直列、出金6,370件はサーバー内で200件プローブ+1,000件ずつ
+    直列8回(各回で関数全体を再実行)= Supabase呼び出しが直列9段。本番(ブラウザ直接)は直列8回だが1回あたりが速い。
+    Vercel関数→Supabaseの1回あたりの時間はPreviewの window.__tableCrudCallLog の sb合計ms/sb最大ms で実測する
+    (vercel.jsonにregions指定なし=関数の既定リージョン。Supabaseと別リージョンなら1回あたりが遅い可能性)。
+  - 対応: rpcBatch(月別集計・入金・出金を1リクエスト)、RPCは最初のページ(1,000件)で総件数を得て残りを並列取得
+    (直列2段)、連番ガード(最新の集計だけ描画)、同条件の実行中集計への合流、window.__payLoadLog(集計のきっかけの記録)。
+  - 集計のきっかけ(pay-from/pay-toのonblur)はこのPRで変更していない(mainと同一)。
 
 ### 決定事項
 - anon向けSELECTポリシーは作らない(ログインはapp_users独自方式でブラウザは常にanon。Supabase Auth使用0件確認済み)。
