@@ -40,7 +40,7 @@ anon向けSELECTポリシー案は不採用(ログインはapp_users独自方式
   スナップショットへ追従(他の未保存編集は引き続き検知)。markCostAddedのみ失敗時は従来どおり「変更あり」。
 - SQL要否: 不要。
 
-### cost_added/仕入明細の整合性修正(計画a/b/c) — このPRで対応(下記コミット3つ)
+### cost_added/仕入明細の整合性修正(計画a/b/c) — PR #208 マージ済み(main 682f6f2)
 - 計画c(最優先): buildFacilityRowsの自動完了を「ステータスが対象外→対象へ変わった時(と新規行)」のみに限定。
   ToDo画面の「完了を取り消す」(ステータスは手配OKのまま)が、予約詳細の保存のついでに新しい完了日時で
   黙って巻き戻されていた+その予約は開くだけで常に「変更あり」だった。既存の完了日時は元々上書きしていない。
@@ -56,7 +56,7 @@ anon向けSELECTポリシー案は不採用(ログインはapp_users独自方式
   - (c)(d) 内訳・一覧: scripts/investigate_cost_added_c_d.sql(読み取り専用)。未実行。(c)の扱いは内訳を見て判断。
   - 手がかり: cost_added列は2026-07-23追加、source_table/source_idは2026-08-05追加(それ以前の追加は紐付けが無い)。
 
-### invoices 一意インデックス(通貨込み) — SQL作成済み・JUN実行待ち
+### invoices 一意インデックス(通貨込み) — JUN実行済み(2026-09-24)。旧合算インデックス削除・新2本作成・currency NOT NULLを確認
 - scripts/invoices_unique_indexes_with_currency.sql: currency NOT NULL化(default 'JPY'維持)、
   旧 invoices_one_consolidated_per_booking(booking_id) を drop → (booking_id, currency) WHERE is_consolidated、
   個別 (booking_id, agent_name, currency) NULLS NOT DISTINCT WHERE NOT is_consolidated を新設。
@@ -66,6 +66,26 @@ anon向けSELECTポリシー案は不採用(ログインはapp_users独自方式
   'JPY'/'USD'が必ず送られる(scripts/はinvoicesのstatus/agent_idのPATCHのみ)。
 - 既存インデックス(JUN確認): invoices_pkey(id) / invoices_invoice_no_key UNIQUE(invoice_no) /
   invoices_agent_id_idx(agent_id) / invoices_one_consolidated_per_booking UNIQUE(booking_id) WHERE is_consolidated。
+
+### 合算Invoiceが作れない不具合 — PR #209 マージ済み(main 4dfeb33)
+- 原因: 合算Invoiceの番号が個別と同じ INV-<REF> で、invoices_invoice_no_key違反によりINSERT失敗
+  (error_logs '合算Invoiceの自動更新' 35件、2026-09-01〜09-24。toast:falseで画面に出ていなかった)。
+- 修正: 新規の合算番号を INV-<REF>-ALL / -ALL-USD、検索キーに currency 追加、再発行時は invoice_no を送らない
+  (既存の合算2件の番号は不変)、失敗時はtoast表示。SQL要否: 不要。
+- 未実行SQL: scripts/investigate_consolidated_and_1069_fix_d8.sql Part 1(35件の原因確認・合算が無い予約一覧)。
+  合算を作り直すため再発行するかはJUNが判断。
+
+### データ修正(cost_added)の状況(2026-09-24)
+- (b) JUN実行結果: 手配行13件・仕入明細17行(12件が#1069 59674e70-…、1件(水)がc24cd3ba-…)。
+  scripts/fix_cost_added_b_linked_but_false.sql のSTEP3は v_expected=13 に更新済み。未実行。
+  #1069の4d6d0a1b(チームラボ1行目)をtrueにしても、紐付け(source_id)調査には影響しない(判定はsource_idとsort_orderで行う)。
+- (d) 9件のうち8件(#1120 8cefb89b / #1153 5b72eb33 / #1229 ee3cf08a, d50cc0ec / #534 7c32fe26, d63b94c9, c53533ae /
+  #782 3ca6764d)をtrueにする: investigate_consolidated_and_1069_fix_d8.sql Part 3。未実行。
+- #1069の同名同日の観光施設(チームラボ2行、トロッコ)と仕入明細の紐付け: 旧_remapArrangementSourceIdの
+  「先頭に付け替わる」不具合(PR #208で修正済み)で1行目に集約された可能性が高い。削除SQLは保留し、
+  Part 2の調査結果を見て付け替え(source_idのUPDATE)を判断する。付け替え/削除SQLはJUNの結果共有後に出す。
+- 注: booking_costsはreplace保存のたびに全行が作り直され、created_atが保存時刻になる(sort_order列も無い)。
+  仕入明細の元の追加時刻はcreated_atでは分からない(audit_logsのinsert履歴が手がかり)。
 
 ### 未実行SQL・JUN確認待ち
 - (a) error_logsのcost_added更新失敗の件数・期間、(b) cost_added=falseのまま仕入明細に追加済みの
