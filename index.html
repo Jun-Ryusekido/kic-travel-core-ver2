@@ -16955,6 +16955,13 @@ function addFacilityRow(){
 // 既に完了済みの行(deadline_completed済み)は上書きしない(deadline_completed_atが
 // 保存の都度更新されるのを防ぐ)。
 //
+// 自動完了も、自動解除と同じく「ステータスの変更遷移」があった場合に限定する
+// (it._orig_statusが自動完了対象外→対象へ変わった行、または新規行のみ)。以前は
+// 「対象ステータスかつ未完了」なら無条件に自動完了していたため、ToDo画面の「完了を
+// 取り消す」(undoFacilityTodoComplete。ステータスは手配OK等のまま)で未完了に戻した行が、
+// 予約詳細を開くだけで常に「変更あり」判定になり、他のタブの保存のついでに新しい完了日時で
+// 黙って完了扱いへ戻されていた(ユーザーの取消操作が巻き戻る不具合、2026-09)。
+//
 // 完了の自動解除は「ステータスの変更遷移」があった場合に限定する。it._orig_status
 // (予約を開いた時点、または直近の保存が成功した時点でのstatus。openBookingDetailの
 // 読み込み処理とsaveFacilityItems成功時の両方で更新)が自動完了対象ステータスから
@@ -16974,7 +16981,9 @@ const FACILITY_ROW_HAS_CONTENT = it=>it.facility_name||it.date||it.amount||it.co
 function buildFacilityRows(bookingId){
   const nowIso = new Date().toISOString();
   return bdFacilityItems.filter(FACILITY_ROW_HAS_CONTENT).map((it,i)=>{
-    const autoComplete = !it.deadline_completed && !!it.deadline_date && FACILITY_AUTO_COMPLETE_STATUSES.includes(it.status);
+    const autoComplete = !it.deadline_completed && !!it.deadline_date
+      && FACILITY_AUTO_COMPLETE_STATUSES.includes(it.status)
+      && !FACILITY_AUTO_COMPLETE_STATUSES.includes(it._orig_status);
     const autoUncomplete = it.deadline_completed
       && FACILITY_AUTO_COMPLETE_STATUSES.includes(it._orig_status)
       && !FACILITY_AUTO_COMPLETE_STATUSES.includes(it.status);
