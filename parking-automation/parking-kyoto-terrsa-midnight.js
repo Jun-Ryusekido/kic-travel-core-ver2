@@ -55,7 +55,6 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
-const { createClient } = require('@supabase/supabase-js');
 const { getTodayJST, subtractDays, addMonths } = require('./lib/date-utils');
 const {
   ensureLoggedIn,
@@ -67,9 +66,6 @@ const {
   logError,
   LOGS_DIR,
 } = require('./lib/kyoto-terrsa-booking-flow');
-
-const SUPABASE_URL = 'https://nzdygjlnzvtdezslnuoy.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_Cnloaxzb2Ati8gmCa-1o3Q_t3uy6_mB';
 
 // 人間が手動でログイン（Cloudflareのロボット確認含む）したセッションを保持し続ける
 // 永続化Chromeプロファイル。parking-kyoto-terrsa.js（通常実行版）と同じプロファイルを
@@ -109,12 +105,6 @@ function autoDetectCandidateDates() {
   return [target, subtractDays(target, 1), subtractDays(target, -1)];
 }
 
-function nextDateISO(dateISO) {
-  const d = new Date(dateISO + 'T00:00:00Z');
-  d.setUTCDate(d.getUTCDate() + 1);
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
-}
-
 function writeSummaryLog(lines) {
   fs.mkdirSync(LOGS_DIR, { recursive: true });
   const p = path.join(LOGS_DIR, `kyoto-terrsa-midnight-summary-${Date.now()}.log`);
@@ -122,35 +112,12 @@ function writeSummaryLog(lines) {
   return p;
 }
 
-async function recordResult(sb, { dateISO, vehicleIndex, totalVehicles, status, resultMessage, screenshotPath }) {
-  const refSuffix = totalVehicles > 1 ? `-${vehicleIndex}` : '';
-  const payload = {
-    facility_type: 'kyoto_terrsa',
-    ref_no: `KYOTO-${dateISO}${refSuffix}`,
-    facility_area: '京都テルサ大型バス駐車場',
-    start_datetime: `${dateISO}T18:00:00`,
-    end_datetime: `${nextDateISO(dateISO)}T08:00:00`,
-    status,
-    result_message: resultMessage || null,
-    screenshot_path: screenshotPath || null,
-    extra: {
-      utilization_group: UTILIZATION_GROUP,
-      bus_company_name: BUS_COMPANY_NAME,
-      vehicle_index: vehicleIndex,
-      total_vehicles: totalVehicles,
-      source: 'midnight-auto-retry',
-    },
-  };
-  try {
-    const { error } = await sb.from('parking_reservations').insert(payload);
-    if (error) {
-      console.error('Supabaseへの結果記録に失敗しました:', error.message);
-      logError(`[深夜自動実行/記録失敗] ${dateISO} (${vehicleIndex}/${totalVehicles}): ${error.message}`);
-    }
-  } catch (e) {
-    console.error('Supabaseへの結果記録中に例外が発生しました:', e.message);
-    logError(`[深夜自動実行/記録例外] ${dateISO} (${vehicleIndex}/${totalVehicles}): ${e.message}`);
-  }
+// 2026-09 RLS対応: 以前はここでanonキーを使いSupabaseのparking_reservationsへ結果を
+// 直接INSERTしていたが、このスクリプトは使用禁止(冒頭参照)のため、APIは新設せずDBへの
+// 記録処理とanonキーを削除した。万一実行されてもDBには何も書き込まず、結果はコンソール
+// 出力のみとする。
+function recordResult({ dateISO, vehicleIndex, totalVehicles, status, resultMessage, screenshotPath }) {
+  console.log(`[結果(DB記録なし)] ${dateISO} (${vehicleIndex}/${totalVehicles}): ${status}${resultMessage ? ' - ' + resultMessage : ''}${screenshotPath ? ' / ' + screenshotPath : ''}`);
 }
 
 async function main() {
@@ -186,7 +153,6 @@ async function main() {
   console.log(`===== 京都テルサ 深夜自動予約 =====`);
   console.log(`候補日（優先順）: ${dates.join(' → ')}${dateSource} / 台数: ${totalVehicles} / dry-run: ${args.dryRun}`);
 
-  const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
   const context = await chromium.launchPersistentContext(PROFILE_DIR, { headless: HEADLESS, slowMo: HEADLESS ? 200 : 0 });
   const page = context.pages()[0] || await context.newPage();
   const startedAt = Date.now();
@@ -201,7 +167,7 @@ async function main() {
     if (!args.dryRun) {
       for (const d of dates) {
         for (let v = 1; v <= totalVehicles; v++) {
-          await recordResult(sb, { dateISO: d, vehicleIndex: v, totalVehicles, status: '失敗', resultMessage: `ログイン失敗: ${e.message}` });
+          await recordResult({ dateISO: d, vehicleIndex: v, totalVehicles, status: '失敗', resultMessage: `ログイン失敗: ${e.message}` });
         }
       }
     }
@@ -295,7 +261,7 @@ async function main() {
         console.log(`✓ [${vehiclesBooked}/${totalVehicles}台目・${dateISO}] 予約完了。確認番号: ${result.confirmationNumber || '(画面上に見つかりませんでした)'}（この台: ${vehicleElapsed()}秒 / 累計: ${elapsed()}秒）`);
         if (localIndex > 1) console.log(`  重複予約確認モーダル: ${result.duplicateModalHandled ? '検出して続行しました' : '表示されませんでした（想定外）'}`);
         results.push({ dateISO, vehicleIndex: localIndex, status: '完了', confirmationNumber: result.confirmationNumber, screenshotPath: result.screenshotPath, durationSec: vehicleElapsed() });
-        await recordResult(sb, {
+        await recordResult({
           dateISO, vehicleIndex: localIndex, totalVehicles, status: '完了',
           resultMessage: result.confirmationNumber ? `確認番号: ${result.confirmationNumber}` : '予約完了（確認番号は画面上に見つかりませんでした）',
           screenshotPath: result.screenshotPath,
@@ -307,7 +273,7 @@ async function main() {
         const errShot = path.join(LOGS_DIR, `kyoto-terrsa-midnight-${dateISO}-v${localIndex}-error-${Date.now()}.png`);
         await page.screenshot({ path: errShot, fullPage: true }).catch(() => null);
         results.push({ dateISO, vehicleIndex: localIndex, status: '失敗', resultMessage: e.message, screenshotPath: errShot, durationSec: vehicleElapsed() });
-        await recordResult(sb, { dateISO, vehicleIndex: localIndex, totalVehicles, status: '失敗', resultMessage: e.message, screenshotPath: errShot });
+        await recordResult({ dateISO, vehicleIndex: localIndex, totalVehicles, status: '失敗', resultMessage: e.message, screenshotPath: errShot });
         break; // この日付はこれ以上予約できないとみなし、次の候補日へ
       }
     }
