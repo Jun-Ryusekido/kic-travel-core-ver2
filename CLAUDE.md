@@ -270,3 +270,24 @@ SQL変更前の古い表示が残る場合がある。
 別工程として分けること。検証がハーネス上で通ったことをそのまま「本体への
 反映が完了した」と混同して報告しないこと。作業完了をユーザーに報告する前に、
 **必ず**`git diff`で実際の差分を提示すること。
+
+## 新規テーブル作成時の必須ルール(Supabase仕様変更対応・2026/10/30〜)
+
+Supabaseの仕様変更により、2026/10/30以降publicスキーマに新規作成したテーブルには、
+anon/authenticated/service_roleのいずれにも自動で権限が付かなくなる。service_roleにも
+GRANTしないと、api/配下のサーバー関数(supabase-js経由)からも permission denied (42501)
+になる。
+
+新規テーブルを作るSQLファイルには、**必ず**CREATE TABLEと同じファイル内に以下を含めること:
+
+```sql
+grant select, insert, update, delete on public.<テーブル名> to service_role;
+alter table public.<テーブル名> enable row level security;
+```
+
+- anon と authenticated には GRANT しない(ブラウザからの直接アクセスは今後作らない方針のため)
+- ポリシーは作らない(service_roleはRLSをバイパスするため不要)
+- シーケンスを使う場合(serial / identity以外の独自シーケンス)は
+  `grant usage, select on sequence ... to service_role` も追加
+- 実装完了報告の「SQL要否」欄に、GRANTとRLS有効化が含まれていることを明記する
+- フロントから新規テーブルへ直接 `.from()` するコードは書かない。必ずapi/経由にする
