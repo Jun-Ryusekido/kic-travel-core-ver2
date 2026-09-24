@@ -18862,13 +18862,15 @@ async function remapArrDayForeignKeys(bookingId){
 // 総入れ替えにbooking_costs側が追従できず孤立し「ソースが削除されました」警告が出る状態に
 // なった)。remapArrDayForeignKeys()と同じ「内容一致で新IDへ付け替える」パターンを、
 // booking_costs.source_id/vendor_email_logs.source_idの両方に適用するための共通部分。
+// 保存後の行はsort_order順(保存時の画面の並び順)で取得する。_remapArrangementSourceIdが
+// 同じキーの行が複数ある場合に「同じキー内で何番目か」で対応付けるため、順序が必要。
 async function _fetchFreshArrangementSourceTables(bookingId){
   const [{data: freshHotels}, {data: freshBuses}, {data: freshRests}, {data: freshFacs}, {data: freshWater}] = await Promise.all([
-    sb.from('booking_hotels').select('id,hotel_name,check_in,check_out').eq('booking_id', bookingId),
-    sb.from('booking_buses').select('id,bus_company,start_date,end_date').eq('booking_id', bookingId),
-    sb.from('booking_restaurants').select('id,restaurant_name,date,meal_type').eq('booking_id', bookingId),
-    sb.from('booking_facilities').select('id,facility_name,date').eq('booking_id', bookingId),
-    sb.from('booking_water_items').select('id,item_name,date').eq('booking_id', bookingId),
+    sb.from('booking_hotels').select('id,hotel_name,check_in,check_out').eq('booking_id', bookingId).order('sort_order').order('created_at'),
+    sb.from('booking_buses').select('id,bus_company,start_date,end_date').eq('booking_id', bookingId).order('sort_order').order('created_at'),
+    sb.from('booking_restaurants').select('id,restaurant_name,date,meal_type').eq('booking_id', bookingId).order('sort_order').order('created_at'),
+    sb.from('booking_facilities').select('id,facility_name,date').eq('booking_id', bookingId).order('sort_order').order('created_at'),
+    sb.from('booking_water_items').select('id,item_name,date').eq('booking_id', bookingId).order('sort_order').order('created_at'),
   ]);
   return { booking_hotels: freshHotels, booking_buses: freshBuses, booking_restaurants: freshRests, booking_facilities: freshFacs, booking_water_items: freshWater };
 }
@@ -18888,12 +18890,28 @@ function _arrangementSourceRemapConfig(freshTables){
 }
 // 一致するものが見つからない場合(実際に削除された場合)はnullにする(remapArrDayForeignKeys
 // と同じ挙動。誤って無関係な行に紐付けてしまうことを避けるため)。
+// 同じキー(施設名+日付等)の行が複数ある場合、以前は保存後の行から最初に一致した1件を
+// 返していたため、2行目以降を参照していた仕入明細/メールログが1行目に付け替わっていた
+// (cost_addedと仕入明細の紐付けが両方向にずれる原因、2026-09)。保存は画面の並び順を
+// そのままsort_orderにするため、同じキーの行の相対順序は保存前後で変わらない。
+// そこで「保存前の同じキーの行の中で何番目か」を、sort_order順に取得した保存後の
+// 同じキーの行の同じ番目に対応付ける。候補数が保存前後で食い違う場合は、無関係な行に
+// 付け替えないようnullにして警告のみ出す。
 function _remapArrangementSourceId(oldId, cfg){
   if(!oldId || !cfg) return oldId;
   const old = cfg.oldList.find(x=>String(x.id)===String(oldId));
   if(!old) return null;
-  const match = (cfg.freshList||[]).find(f=>cfg.matchFn(f, old));
-  return match ? match.id : null;
+  const candidates = (cfg.freshList||[]).filter(f=>cfg.matchFn(f, old));
+  if(candidates.length === 0) return null;
+  // oldListは保存直前の画面上の行(削除した行は含まない)のため、同じキーの行数は保存前後で
+  // 一致するはず。一致しない場合(他ユーザーの同時保存等)は、1件だけでも付け替えない。
+  const sameKeyOld = cfg.oldList.filter(o=>cfg.matchFn(o, old));
+  const k = sameKeyOld.indexOf(old);
+  if(sameKeyOld.length !== candidates.length || k < 0){
+    console.warn('[source_id付け替え] 同じキーの行数が保存前後で一致しないため付け替えを中止しました', {oldId, before: sameKeyOld.length, after: candidates.length});
+    return null;
+  }
+  return candidates[k].id;
 }
 
 // booking_costsの「仕入明細へ追加」経由で作られた行(source_table/source_idを持つ)の
