@@ -5545,6 +5545,8 @@ function appendSchemaErrorHint(message){
 // 専用でない限りここに加えないこと(=デフォルトでリトライしない安全側の設計)。
 //   - auditHistory: 変更履歴の取得（読み取りのみ）
 //   - list/listByField/list_active: 一覧・条件検索・在席ユーザー一覧の取得（読み取りのみ）
+//   - query/queryBatch/rpc: invoices/booking_costs/booking_sales/credit_card_statementsの読み取りと
+//     入出金画面のRPC 3本(RLS対応フェーズ2 バッチ1で追加。tableQueryAll等を参照。読み取りのみ)
 // それ以外の20種類(insert/insertReturning/replace/replaceByKey/copyWithChildren/
 // deleteByBooking/updatePayments/save/delete/updateById/updateByIds/deleteById/
 // deleteByIds/deleteByField/heartbeat/release/upsertConfirm/guestUpsertConfirm/
@@ -5555,7 +5557,7 @@ function appendSchemaErrorHint(message){
 // 加算等)を確定させた"後"にレスポンスがクライアントに届く前だけネットワークが切れる
 // ケースを区別できない、(b)insert/replace系は再実行そのものが二重登録に直結する、という
 // 理由から、安全側に倒して一律リトライ対象外とする。
-const TABLE_CRUD_IDEMPOTENT_READ_ACTIONS = new Set(['auditHistory', 'list', 'listByField', 'list_active']);
+const TABLE_CRUD_IDEMPOTENT_READ_ACTIONS = new Set(['auditHistory', 'list', 'listByField', 'list_active', 'query', 'queryBatch', 'rpc']);
 
 async function tableCrudApiCall(table, action, payload){
   const token = currentUser ? currentUser.token : null;
@@ -5620,6 +5622,77 @@ async function tableCrudApiCall(table, action, payload){
     throw err;
   }
   return data;
+}
+// ===== 読み取りAPI(RLS対応フェーズ2 バッチ1、2026-09) =====
+// invoices/booking_costs/booking_sales/credit_card_statementsは、ブラウザからの直接SELECT
+// (anonキー)をやめ、ログイン検証つきの/api/table-crud(action:'query')経由で読む。
+// 使える列・演算子はapi/table-crud.jsのTABLE_CONFIG[table].readableでホワイトリスト化されている。
+// query: { select, filters:[{col, op:'eq'|'in'|'isNull'|'notNull'|'ilikeContains', value}],
+//          order:[{col, ascending}], limit, offset, count }
+// サーバーは1,000件ずつ取得し、約3MB/約5秒で打ち切ってnextOffsetを返すため、全件が必要な
+// 呼び出しはtableQueryAllで取り切る。途中で1回でも失敗したら例外を投げ、部分的な結果は返さない
+// (1,000件で黙って切り捨てられる不具合、および失敗時に空データのまま処理が進む事故を防ぐため)。
+async function tableQueryAll(table, query){
+  let rows = [];
+  let offset = query.offset || 0;
+  while(true){
+    const d = await tableCrudApiCall(table, 'query', { query: { ...query, offset } });
+    rows = rows.concat(d.rows || []);
+    if(d.nextOffset == null) return rows;
+    if(!(d.nextOffset > offset)) throw new Error(`${table}の取得でページング位置が進みませんでした`);
+    offset = d.nextOffset;
+  }
+}
+// 件数のみ(supabase-jsの {count:'exact', head:true} 相当)
+async function tableQueryCount(table, query){
+  const d = await tableCrudApiCall(table, 'query', { query: { ...query, count: true } });
+  return d.count;
+}
+// supabase-jsの.maybeSingle()相当。0件ならnull、2件以上なら例外(黙って先頭を採用しない)。
+async function tableQueryMaybeSingle(table, query){
+  const rows = await tableQueryAll(table, { ...query, limit: 2 });
+  if(rows.length > 1) throw new Error(`${table}の検索結果が複数件ありました(1件を想定)`);
+  return rows[0] || null;
+}
+// in条件の値が多い場合(サーバー側の上限は1回200件)に200件ずつ分割して取得し連結する。
+// 値が0件なら問い合わせずに空配列を返す。
+async function tableQueryAllIn(table, query, col, values){
+  const uniq = [...new Set((values || []).filter(v => v !== null && v !== undefined))];
+  let rows = [];
+  for(let i=0; i<uniq.length; i+=200){
+    const chunk = uniq.slice(i, i+200);
+    const part = await tableQueryAll(table, { ...query, filters: [...(query.filters || []), { col, op: 'in', value: chunk }] });
+    rows = rows.concat(part);
+  }
+  return rows;
+}
+// 複数テーブルのクエリを1リクエストにまとめて取得する(予約詳細を開く時等、往復回数と
+// コールドスタートの回数を減らすため)。queries: [{table, ...query}]。戻り値は各クエリの
+// 行配列の配列。サーバーの予算内に収まらなかったクエリは、続きをtableQueryAllで取り切る。
+async function tableQueryBatch(queries){
+  const d = await tableCrudApiCall(null, 'queryBatch', { queries });
+  const results = d.results || [];
+  if(results.length !== queries.length) throw new Error('一括取得の結果件数が一致しません');
+  return Promise.all(results.map(async (r, i) => {
+    const rows = r.rows || [];
+    if(r.nextOffset == null) return rows;
+    const { table, ...query } = queries[i];
+    const rest = await tableQueryAll(table, { ...query, offset: r.nextOffset });
+    return rows.concat(rest);
+  }));
+}
+// 入出金画面のRPC(get_payment_monthly_summary / search_payment_income / search_payment_outflow)。
+// サーバー側でホワイトリストの3本だけをservice_roleで呼ぶ。集合を返す2本はnextOffsetで取り切る。
+async function rpcCallAll(fn, params){
+  let rows = [];
+  let offset = 0;
+  while(true){
+    const d = await tableCrudApiCall(null, 'rpc', { fn, params, offset });
+    rows = rows.concat(d.rows || []);
+    if(d.nextOffset == null) return rows;
+    if(!(d.nextOffset > offset)) throw new Error(`${fn}の取得でページング位置が進みませんでした`);
+    offset = d.nextOffset;
+  }
 }
 async function bookingSalesApiCall(action, payload){ return tableCrudApiCall('booking_sales', action, payload); }
 // 2026-09 egress緊急対応: ガイド仮払い一覧(loadGuideAdvanceList)のキャッシュも無効化する。
