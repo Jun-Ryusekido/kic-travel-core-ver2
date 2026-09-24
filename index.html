@@ -6464,18 +6464,49 @@ const ARR_COST_SECTION_MAP = {
 // buildXxxRowsの行にはidが無い(filter後の並び順で対応する)ため、対象行を
 // cost_added=false/trueで2回組み立てて差分が出る位置から、スナップショット上の行位置を求める
 // (deadline_completed_at等の時刻依存の列に影響されないよう、cost_addedの値だけで比較する)。
-function _markSnapshotCostAdded(sec, it, bookingId){
+// value: DBに保存済みになったcost_addedの値(追加時はtrue、仕入明細行の削除確定時はfalse)。
+// 呼び出し後、it.cost_addedはvalueになる。
+function _markSnapshotCostAdded(sec, it, bookingId, value = true){
   try{
     const snap = JSON.parse(bdLoadSnapshot[sec.snapKey] || '[]');
-    it.cost_added = false;
-    const rowsOff = sec.buildRows(bookingId);
-    it.cost_added = true;
-    const rowsOn = sec.buildRows(bookingId);
-    const pos = rowsOn.findIndex((r,i)=>rowsOff[i] && r.cost_added !== rowsOff[i].cost_added);
-    if(pos < 0 || !snap[pos] || snap[pos].cost_added !== false) return;
-    snap[pos].cost_added = true;
+    it.cost_added = !value;
+    const rowsBefore = sec.buildRows(bookingId);
+    it.cost_added = value;
+    const rowsAfter = sec.buildRows(bookingId);
+    const pos = rowsAfter.findIndex((r,i)=>rowsBefore[i] && r.cost_added !== rowsBefore[i].cost_added);
+    if(pos < 0 || !snap[pos] || snap[pos].cost_added !== !value) return;
+    snap[pos].cost_added = value;
     bdLoadSnapshot[sec.snapKey] = JSON.stringify(snap);
   }catch(e){ console.warn('スナップショット(cost_added)の更新に失敗:', e); }
+}
+// 仕入明細(booking_costs)の保存が確定した時点で呼ぶ。直前の保存状態(prevSnapshotJson=
+// bdLoadSnapshot.costs)にあった「仕入明細へ追加」由来の行(source_table/source_id付き)のうち、
+// 今回保存した行(savedRows)のどれからも参照されなくなった追加元の手配行について、
+// cost_addedをfalseに戻す(仕入明細行を削除しても追加元が「済み」のまま残り、再追加できなく
+// なる不具合の修正、2026-09)。削除→保存せずに閉じた場合はこの関数自体が呼ばれないため戻らない。
+// 手配タブの保存(新IDでの再挿入)より前に呼ばれる前提のため、source_idはまだ有効なIDである。
+// 追加元の手配行も同時に削除されていた場合(404)は戻す対象が無いため無視する。
+async function resetCostAddedForRemovedCostRows(bookingId, prevSnapshotJson, savedRows){
+  let prev;
+  try{ prev = JSON.parse(prevSnapshotJson || '[]'); }catch(e){ return; }
+  const refKey = r => (r && r.source_table && r.source_id) ? `${r.source_table}|${r.source_id}` : null;
+  const remaining = new Set((savedRows||[]).map(refKey).filter(Boolean));
+  const removed = new Map();
+  prev.forEach(r=>{ const k = refKey(r); if(k && !remaining.has(k)) removed.set(k, r); });
+  for(const r of removed.values()){
+    const sec = SOURCE_TABLE_SECTION[r.source_table];
+    if(!sec) continue;
+    try{
+      await sec.apiCall('markCostAdded', { id: r.source_id, value: false });
+    }catch(e){
+      if(/見つかりませんでした/.test(e.message||'')) continue; // 追加元の手配行も削除済み
+      logError(`${sec.label}明細のcost_added解除(仕入明細行の削除に伴う)`, e);
+      continue;
+    }
+    const arr = SOURCE_TABLE_ARRAYS[r.source_table] ? SOURCE_TABLE_ARRAYS[r.source_table]() : null;
+    const it = (arr||[]).find(x=>String(x.id)===String(r.source_id));
+    if(it && currentDetailId === bookingId) _markSnapshotCostAdded(sec, it, bookingId, false);
+  }
 }
 function _appendSnapshotCostRow(bookingId){
   try{
@@ -20258,8 +20289,12 @@ async function saveBookingDetail(){
     await runSkippableIsolated('売上明細のagent_id引き継ぎ', 'booking_sales', salesDirty,
       () => remapSalesAgentIds(bookingId, _oldSalesRowsForAgentRemap));
     await runSkippable('仕入明細(booking_costs)', costsDirty, async () => {
+      const prevCostSnapshot = bdLoadSnapshot.costs;
       await bookingCostsApiCall('replace', { bookingId, rows: costRows });
       bdLoadSnapshot.costs = JSON.stringify(costRows);
+      // 保存が確定した後で、削除された「仕入明細へ追加」由来の行の追加元cost_addedを戻す
+      // (手配タブの保存=新IDでの再挿入より前のこの位置で行う必要がある)。
+      await resetCostAddedForRemovedCostRows(bookingId, prevCostSnapshot, costRows);
     });
     // 入金消込は仕入明細(booking_costs)の内容だけを基に計算するため、仕入明細が
     // 無変更なら消込結果も変わらずスキップしてよい。
