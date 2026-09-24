@@ -4933,7 +4933,8 @@ async function refreshAgentUnlinkedBanner(){
   try{
     const [{data: bRows, error: bErr}, {data: iRows, error: iErr}] = await Promise.all([
       sb.from('bookings').select('id,ref_no,agent_name').not('agent_name','is',null).is('agent_id', null),
-      sb.from('invoices').select('id,invoice_no,booking_id,agent_name').not('agent_name','is',null).is('agent_id', null),
+      asSbResult(tableQueryAll('invoices', { select: 'id,invoice_no,booking_id,agent_name',
+        filters: [{ col: 'agent_name', op: 'notNull' }, { col: 'agent_id', op: 'isNull' }] })),
     ]);
     if(bErr) throw bErr;
     if(iErr) throw iErr;
@@ -5693,6 +5694,11 @@ async function rpcCallAll(fn, params){
     if(!(d.nextOffset > offset)) throw new Error(`${fn}の取得でページング位置が進みませんでした`);
     offset = d.nextOffset;
   }
+}
+// 既存の Promise.all([...]) で {data, error} を受け取る形の呼び出し箇所に差し込むためのアダプタ
+// (supabase-jsの戻り値と同じ形に変換する。エラー時の扱いは各呼び出し箇所の既存の判定に任せる)。
+function asSbResult(promise){
+  return promise.then(data => ({ data, error: null }), error => ({ data: null, error }));
 }
 async function bookingSalesApiCall(action, payload){ return tableCrudApiCall('booking_sales', action, payload); }
 // 2026-09 egress緊急対応: ガイド仮払い一覧(loadGuideAdvanceList)のキャッシュも無効化する。
@@ -9019,7 +9025,11 @@ async function openBookingDetail(id, opts){
   renderCostTable();
 
   // 関連Invoiceを読み込み（一覧はモーダル内、通常表示はボタンの件数のみ）
-  const {data: invoices} = await sb.from('invoices').select('*').eq('booking_id', id).order('created_at',{ascending:false});
+  let invoices = [];
+  try{
+    invoices = await tableQueryAll('invoices', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: id }],
+      order: [{ col: 'created_at', ascending: false }] });
+  }catch(e){ logError('予約詳細の関連Invoice読み込み', e); }
   if(_stale()) return;
   bdInvoicesCache = invoices||[];
   document.getElementById('bd-inv-count').textContent = bdInvoicesCache.length;
@@ -9644,7 +9654,7 @@ async function exportBookingArchive(){
   ] = await Promise.all([
     sb.from('booking_sales').select('*').eq('booking_id', b.id),
     sb.from('booking_costs').select('*').eq('booking_id', b.id),
-    sb.from('invoices').select('*').eq('booking_id', b.id),
+    asSbResult(tableQueryAll('invoices', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: b.id }] })),
     sb.from('tour_arrangements').select('*').eq('booking_ref', b.ref_no),
     sb.from('estimations').select('*').eq('converted_booking_id', b.id),
     sb.from('guide_settlements').select('*').eq('booking_ref', b.ref_no)
@@ -9719,7 +9729,7 @@ async function exportFullBackup(){
   const [{data:sales},{data:costs},{data:invoices},{data:arrangements},{data:settlements}] = await Promise.all([
     sb.from('booking_sales').select('*').in('booking_id',ids),
     sb.from('booking_costs').select('*').in('booking_id',ids),
-    sb.from('invoices').select('*').in('booking_id',ids),
+    asSbResult(tableQueryAll('invoices', { select: '*' })),
     sb.from('tour_arrangements').select('*').in('booking_ref',refNos),
     sb.from('guide_settlements').select('*').in('booking_ref',refNos)
   ]);
@@ -9766,7 +9776,7 @@ async function exportFiscalYearArchive(){
   const [{data: sales}, {data: costs}, {data: invoices}, {data: arrangements}, {data: estimations}, {data: settlements}] = await Promise.all([
     sb.from('booking_sales').select('*').in('booking_id', ids),
     sb.from('booking_costs').select('*').in('booking_id', ids),
-    sb.from('invoices').select('*').in('booking_id', ids),
+    asSbResult(tableQueryAllIn('invoices', { select: '*' }, 'booking_id', ids)),
     sb.from('tour_arrangements').select('*').in('booking_ref', refNos),
     sb.from('estimations').select('*').in('converted_booking_id', ids),
     sb.from('guide_settlements').select('*').in('booking_ref', refNos)
@@ -9836,7 +9846,7 @@ async function backupBookingDataBeforeDelete(b, refNo){
     bookings: sb.from('bookings').select('*').eq('id', b.id),
     booking_sales: sb.from('booking_sales').select('*').eq('booking_id', b.id),
     booking_costs: sb.from('booking_costs').select('*').eq('booking_id', b.id),
-    invoices: sb.from('invoices').select('*').eq('booking_id', b.id),
+    invoices: asSbResult(tableQueryAll('invoices', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: b.id }] })),
     booking_hotels: sb.from('booking_hotels').select('*').eq('booking_id', b.id),
     booking_buses: sb.from('booking_buses').select('*').eq('booking_id', b.id),
     booking_restaurants: sb.from('booking_restaurants').select('*').eq('booking_id', b.id),
@@ -20510,40 +20520,21 @@ async function saveBookingDetail(){
     });
 
     // 入金合計が売上合計以上になったらInvoiceをpaidに自動更新
-    // (F12: 複数エージェントが混在する予約で、予約全体の入金合計を予約全体の売上合計と
-    //  比較していたため、一方のエージェント分の入金だけで他方のエージェントのInvoiceまで
-    //  誤ってpaidになる不具合があった。booking_sales.agent_name/invoices.agent_nameで
-    //  エージェント単位に集計し、そのエージェント自身の入金がそのエージェント自身の
-    //  売上に達した場合のみ、そのエージェントのInvoiceをpaidにする。
-    //  agent_nameが無いInvoiceはエージェントを一意に特定できないため自動判定をスキップし、
-    //  手動確認に回す)
-    const bookingAgentForPaidCheck = (b && b.agent_name) ? b.agent_name.trim() : '';
-    const salesTotalsByAgent = {};
-    bdSalesItems.forEach(it=>{
-      const agent = (it.agent_name && it.agent_name.trim()) ? it.agent_name.trim() : bookingAgentForPaidCheck;
-      if(!agent) return; // エージェント不明の売上明細は集計対象外
-      const paid = (it.payments||[]).reduce((ps,p)=>ps+(Number(p.amount)||0),0);
-      const cur = salesTotalsByAgent[agent] || {sales:0, paid:0};
-      cur.sales += Number(it.amount||0);
-      cur.paid += paid;
-      salesTotalsByAgent[agent] = cur;
-    });
-    // 合算Invoice(is_consolidated)は予約全体(全請求先合計)の入金・売上で判定する
-    // (agent_name単位ではなく、salesTotalsByAgentの全エージェント分を合算した値を使う)。
-    const bookingWideTotals = Object.values(salesTotalsByAgent).reduce(
-      (acc,v)=>({sales:acc.sales+v.sales, paid:acc.paid+v.paid}), {sales:0, paid:0});
-    const {data: pendingInvoicesForPaidCheck} = await sb.from('invoices').select('id, agent_name, is_consolidated').eq('booking_id', bookingId).eq('status','pending');
-    for(const inv of (pendingInvoicesForPaidCheck||[])){
-      if(inv.is_consolidated){
-        if(bookingWideTotals.paid>0 && bookingWideTotals.paid>=bookingWideTotals.sales){
-          await invoicesApiCall('updateById', { id: inv.id, fields: {status:'paid'} });
-        }
-        continue;
-      }
-      const invAgent = (inv.agent_name||'').trim();
-      if(!invAgent) continue; // agent_name未設定のInvoiceは自動判定をスキップ(要手動確認)
-      const agg = salesTotalsByAgent[invAgent];
-      if(agg && agg.paid>0 && agg.paid>=agg.sales){
+    // (判定条件はcomputeInvoicePaidTotals/invoiceShouldBePaid参照。合算Invoiceの作成・更新時
+    //  (upsertConsolidatedInvoice)も同じ条件で状態を決める)。
+    // JPY/USDは同じ請求の通貨違いのため、同じ請求先のpending Invoiceは通貨に関係なく両方paidにする
+    // (2026-09 JUN決定)。Invoiceの取得に失敗した場合、予約の保存自体は完了しているため
+    // 保存エラー扱いにはせず、自動判定だけをスキップしてtoastで知らせる。
+    const paidTotals = computeInvoicePaidTotals(bdSalesItems, b && b.agent_name);
+    let pendingInvoicesForPaidCheck = [];
+    try{
+      pendingInvoicesForPaidCheck = await tableQueryAll('invoices', { select: 'id,agent_name,is_consolidated',
+        filters: [{ col: 'booking_id', op: 'eq', value: bookingId }, { col: 'status', op: 'eq', value: 'pending' }] });
+    }catch(e){
+      logError('入金消込の自動判定(Invoiceの取得に失敗したため自動判定をスキップ)', e);
+    }
+    for(const inv of pendingInvoicesForPaidCheck){
+      if(invoiceShouldBePaid(inv, paidTotals)){
         await invoicesApiCall('updateById', { id: inv.id, fields: {status:'paid'} });
       }
     }
@@ -29252,8 +29243,14 @@ async function loadInvoicePage(){
   if(invoicesRawCache.length>0 && cacheIsFresh(invoicesFetchAt)){
     invoices = invoicesRawCache;
   } else {
-    const res = await sb.from('invoices').select('*').order('created_at',{ascending:false});
-    invoices = res.data || [];
+    // 以前はPostgRESTの1,000件上限で黙って切り捨てられていた。tableQueryAllで取り切る。
+    try{
+      invoices = await tableQueryAll('invoices', { select: '*', order: [{ col: 'created_at', ascending: false }] });
+    }catch(e){
+      logError('Invoice一覧の読み込み', e);
+      document.getElementById('iv-tbody').innerHTML='<tr><td colspan="9" class="empty">Invoiceの読み込みに失敗しました。再読み込みしてください。</td></tr>';
+      return;
+    }
     invoicesRawCache = invoices;
     invoicesFetchAt = Date.now();
   }
@@ -29460,6 +29457,42 @@ function distinctBookingAgents(salesRows, bookingAgentName){
   return Array.from(set);
 }
 
+// 入金消込の自動paid判定の集計(saveBookingDetailとupsertConsolidatedInvoiceで共用)。
+// (F12: 複数エージェントが混在する予約で、予約全体の入金合計を予約全体の売上合計と
+//  比較していたため、一方のエージェント分の入金だけで他方のエージェントのInvoiceまで
+//  誤ってpaidになる不具合があった。booking_sales.agent_name/invoices.agent_nameで
+//  エージェント単位に集計し、そのエージェント自身の入金がそのエージェント自身の
+//  売上に達した場合のみ、そのエージェントのInvoiceをpaidにする。)
+// salesItems: {agent_name, amount, payments} の配列(予約詳細のbdSalesItems、またはbooking_salesの行)。
+function computeInvoicePaidTotals(salesItems, bookingAgentName){
+  const bookingAgent = (bookingAgentName||'').trim();
+  const byAgent = {};
+  (salesItems||[]).forEach(it=>{
+    const agent = (it.agent_name && it.agent_name.trim()) ? it.agent_name.trim() : bookingAgent;
+    if(!agent) return; // エージェント不明の売上明細は集計対象外
+    const paid = (it.payments||[]).reduce((ps,p)=>ps+(Number(p.amount)||0),0);
+    const cur = byAgent[agent] || {sales:0, paid:0};
+    cur.sales += Number(it.amount||0);
+    cur.paid += paid;
+    byAgent[agent] = cur;
+  });
+  // 合算Invoice(is_consolidated)は予約全体(全請求先合計)の入金・売上で判定する
+  const bookingWide = Object.values(byAgent).reduce(
+    (acc,v)=>({sales:acc.sales+v.sales, paid:acc.paid+v.paid}), {sales:0, paid:0});
+  return { byAgent, bookingWide };
+}
+// そのInvoiceを入金済み(paid)にすべきか。agent_nameが無い個別Invoiceはエージェントを
+// 一意に特定できないため自動判定しない(要手動確認)。
+function invoiceShouldBePaid(inv, totals){
+  if(inv.is_consolidated){
+    return totals.bookingWide.paid>0 && totals.bookingWide.paid>=totals.bookingWide.sales;
+  }
+  const invAgent = (inv.agent_name||'').trim();
+  if(!invAgent) return false;
+  const agg = totals.byAgent[invAgent];
+  return !!(agg && agg.paid>0 && agg.paid>=agg.sales);
+}
+
 async function generateInvoice(bookingId, currency, agentFilter){
   const bookings = await fetchBookingsListLight();
   const booking = bookings.find(b=>b.id===bookingId);
@@ -29486,6 +29519,10 @@ async function generateInvoice(bookingId, currency, agentFilter){
     const suffix = (targetAgentName && suffixByAgent[targetAgentName]) || agentInvoiceCode(targetAgentName||'');
     invoiceNo = `${base}-${suffix}`;
   }
+  // USDの個別Invoiceは末尾に -USD を付ける(2026-09決定。同じ予約・同じ請求先でJPYとUSDを
+  // 両方残すことがあり、invoice_noの一意制約(invoices_invoice_no_key)と衝突しないように)。
+  // 新規作成時のみ使い、発行済みInvoiceの番号は再発行時も変更しない。
+  if(currency==='USD') invoiceNo = `${invoiceNo}-USD`;
 
   let amount;
   // 予約自体のagent_id(通常はこちらを使う)。按分(請求先を分ける)で明細行ごとに別の
@@ -29505,12 +29542,14 @@ async function generateInvoice(bookingId, currency, agentFilter){
   }
   if(currency==='USD') amount = Math.round((amount/USD_RATE)*100)/100;
 
-  // 同じ請求先の既存行があればUPDATE(番号は増やさない)、無ければ新規INSERTする。
+  // 同じ請求先・同じ通貨の既存行があればUPDATE(番号は増やさない)、無ければ新規INSERTする。
   // 既存行の有無は、以前はinvoice_no文字列で検索していたが、請求先の数(単一/複数)に
   // よって番号の形式自体が変わるため、予約の途中で請求先構成が変わると既存Invoiceを
   // 見失い、孤立した重複Invoiceが生まれる不具合があった(REF#967で発覚)。
-  // booking_id + is_consolidated(false) + agent_name という、請求先構成が変わっても
-  // 揺るがない情報で検索するように変更した。
+  // booking_id + is_consolidated(false) + agent_name + currency という、請求先構成が変わっても
+  // 揺るがない情報で検索する(DBの invoices_one_individual_per_booking_agent_currency と同じキー。
+  // currencyは2026-09追加: JPYとUSDを両方残すことがあるため)。agent_nameがnullの場合は
+  // eqではなくis nullで検索する(PostgRESTのeq.nullは一致しないため)。
   const corePayload = {
     currency: currency,
     amount: amount,
@@ -29523,11 +29562,16 @@ async function generateInvoice(bookingId, currency, agentFilter){
 
   let data;
   try{
-    const {data: existingInv, error: existingErr} = await sb.from('invoices').select('id')
-      .eq('booking_id', bookingId).eq('is_consolidated', false).eq('agent_name', targetAgentName).maybeSingle();
-    if(existingErr) throw existingErr;
+    // 2件以上ヒットした場合・検索自体に失敗した場合は例外となり、INSERTに進まずに中止する。
+    const existingInv = await tableQueryMaybeSingle('invoices', { select: 'id', filters: [
+      { col: 'booking_id', op: 'eq', value: bookingId },
+      { col: 'is_consolidated', op: 'eq', value: false },
+      targetAgentName ? { col: 'agent_name', op: 'eq', value: targetAgentName } : { col: 'agent_name', op: 'isNull' },
+      { col: 'currency', op: 'eq', value: currency },
+    ] });
     if(existingInv && existingInv.id){
-      const updateResult = await invoicesApiCall('updateById', { id: existingInv.id, fields: {...corePayload, invoice_no: invoiceNo} });
+      // 再発行時はinvoice_noを送らず、発行済みの番号を維持する(2026-09決定)。
+      const updateResult = await invoicesApiCall('updateById', { id: existingInv.id, fields: {...corePayload} });
       data = (updateResult.rows||[])[0];
     }else{
       const insertResult = await invoicesApiCall('insert', { rows: [{
@@ -29546,7 +29590,7 @@ async function generateInvoice(bookingId, currency, agentFilter){
 
   // 予約ステータスを invoiced に更新
   await bookingsApiCall('updateById', { id: bookingId, fields: {status:'invoiced'} });
-  await logAction('Invoice発行', invoiceNo + ' (' + booking.ref_no + (agentFilter?(' / '+agentFilter):'') + ')');
+  await logAction('Invoice発行', ((data && data.invoice_no) || invoiceNo) + ' (' + booking.ref_no + (agentFilter?(' / '+agentFilter):'') + ')');
 
   // 個別Invoiceを発行・再発行するたびに、同じbooking_idの合算Invoice(全請求先合計)も
   // 自動的に最新の内容へ追従させる(請求先が1つの予約でも常に追従させる。1つの予約は
@@ -29581,24 +29625,36 @@ async function upsertConsolidatedInvoice(bookingId, currency, booking){
   if(!salesRows || salesRows.length===0) amount = Number(booking.gross_sales||0);
   if(currency==='USD') amount = Math.round((amount/USD_RATE)*100)/100;
 
+  // 状態(status)は、既存の入金消込の自動paid判定(saveBookingDetail)と同じ条件で決める
+  // (2026-09 JUN決定)。以前は常にpendingで作成・更新していたため、支払い済みの予約で後から
+  // 合算Invoiceが作られると、予約詳細を保存し直すまでpendingのまま残っていた。
+  const paidTotals = computeInvoicePaidTotals(salesRows, booking.agent_name);
+  const status = invoiceShouldBePaid({ is_consolidated: true }, paidTotals) ? 'paid' : 'pending';
+
   const corePayload = {
     currency: currency,
     amount: amount,
     issue_date: issue,
-    status: 'pending',
+    status: status,
     // agent_nameは請求書のBill To表示用に予約代表の請求先名をそのまま入れる(空欄にすると
     // 入金消込の自動paid判定で「請求先不明のInvoice」と誤認識され、要手動確認扱いに
     // なってしまうため。合算Invoiceかどうかの判定はis_consolidated列で行う)。
     agent_name: booking.agent_name || null,
-    agent_id: null,
+    // agent_idも予約(bookings)のagent_idを入れる(2026-09 JUN決定)。以前はnull固定だったため、
+    // 合算Invoiceがダッシュボードの「Agentマスタ未紐付け」バナーに数えられていた。
+    // 予約のagent_idがnullならnullのまま(その場合はバナーに出るのが正しい)。
+    agent_id: booking.agent_id || null,
     is_consolidated: true
   };
 
   // 合算Invoiceは通貨別に1件(invoices_one_consolidated_per_booking_currency: (booking_id, currency)
   // WHERE is_consolidated と同じキー)。再発行(UPDATE)時はinvoice_noを送らず、発行済みの番号を維持する。
-  const {data: existingInv, error: existingErr} = await sb.from('invoices').select('id')
-    .eq('booking_id', bookingId).eq('is_consolidated', true).eq('currency', currency).maybeSingle();
-  if(existingErr) throw existingErr;
+  // 2件以上ヒットした場合・検索自体に失敗した場合は例外となり、INSERTに進まずに中止する。
+  const existingInv = await tableQueryMaybeSingle('invoices', { select: 'id', filters: [
+    { col: 'booking_id', op: 'eq', value: bookingId },
+    { col: 'is_consolidated', op: 'eq', value: true },
+    { col: 'currency', op: 'eq', value: currency },
+  ] });
   let data;
   if(existingInv && existingInv.id){
     const updateResult = await invoicesApiCall('updateById', { id: existingInv.id, fields: {...corePayload} });
