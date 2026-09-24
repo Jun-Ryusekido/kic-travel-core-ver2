@@ -6448,13 +6448,46 @@ function isFreePaymentMethod(pm){
 }
 // apiCall: cost_added更新(markCostAdded)に使う各テーブルのApiCall。tableCrudApiCallを直接
 // 呼ばず各ラッパー経由にするのは、書き込み成功時のキャッシュ無効化を他の保存経路と揃えるため。
+// snapKey/buildRows: markCostAdded成功時に、そのタブのbdLoadSnapshotの該当行だけを
+// cost_added:trueへ追従させるため(_markSnapshotCostAdded参照)。
 const ARR_COST_SECTION_MAP = {
-  hotel: {table:'booking_hotels', nameField:'hotel_name', dateField:'check_in', dateField2:'check_out', label:'ホテル', apiCall:(...a)=>bookingHotelsApiCall(...a)},
-  bus:   {table:'booking_buses', nameField:'bus_company', dateField:'start_date', dateField2:'end_date', label:'バス', apiCall:(...a)=>bookingBusesApiCall(...a)},
-  rest:  {table:'booking_restaurants', nameField:'restaurant_name', dateField:'date', label:'レストラン', apiCall:(...a)=>bookingRestaurantsApiCall(...a)},
-  fac:   {table:'booking_facilities', nameField:'facility_name', dateField:'date', label:'観光施設・バス駐車場等', apiCall:(...a)=>bookingFacilitiesApiCall(...a)},
-  water: {table:'booking_water_items', nameField:'item_name', dateField:'date', label:'ミネラルウォーター', apiCall:(...a)=>bookingWaterItemsApiCall(...a)},
+  hotel: {table:'booking_hotels', nameField:'hotel_name', dateField:'check_in', dateField2:'check_out', label:'ホテル', apiCall:(...a)=>bookingHotelsApiCall(...a), snapKey:'hotels', buildRows:id=>buildHotelRows(id)},
+  bus:   {table:'booking_buses', nameField:'bus_company', dateField:'start_date', dateField2:'end_date', label:'バス', apiCall:(...a)=>bookingBusesApiCall(...a), snapKey:'buses', buildRows:id=>buildBusRows(id)},
+  rest:  {table:'booking_restaurants', nameField:'restaurant_name', dateField:'date', label:'レストラン', apiCall:(...a)=>bookingRestaurantsApiCall(...a), snapKey:'restaurants', buildRows:id=>buildRestaurantRows(id)},
+  fac:   {table:'booking_facilities', nameField:'facility_name', dateField:'date', label:'観光施設・バス駐車場等', apiCall:(...a)=>bookingFacilitiesApiCall(...a), snapKey:'facilities', buildRows:id=>buildFacilityRows(id)},
+  water: {table:'booking_water_items', nameField:'item_name', dateField:'date', label:'ミネラルウォーター', apiCall:(...a)=>bookingWaterItemsApiCall(...a), snapKey:'water', buildRows:id=>buildWaterRows(id)},
 };
+// 「仕入明細へ追加」でDBに直接保存済みになった内容を、未保存変更の判定(isBookingDetailDirty/
+// saveBookingDetailの差分検知)用スナップショットにも反映する。スナップショット全体を現在の
+// 画面状態で作り直すと、同じタブの他の未保存編集まで「保存済み」扱いにして見落とさせて
+// しまうため、DBに保存済みになった1点(該当行のcost_added、追加した仕入明細行)だけを追従させる。
+// buildXxxRowsの行にはidが無い(filter後の並び順で対応する)ため、対象行を
+// cost_added=false/trueで2回組み立てて差分が出る位置から、スナップショット上の行位置を求める
+// (deadline_completed_at等の時刻依存の列に影響されないよう、cost_addedの値だけで比較する)。
+function _markSnapshotCostAdded(sec, it, bookingId){
+  try{
+    const snap = JSON.parse(bdLoadSnapshot[sec.snapKey] || '[]');
+    it.cost_added = false;
+    const rowsOff = sec.buildRows(bookingId);
+    it.cost_added = true;
+    const rowsOn = sec.buildRows(bookingId);
+    const pos = rowsOn.findIndex((r,i)=>rowsOff[i] && r.cost_added !== rowsOff[i].cost_added);
+    if(pos < 0 || !snap[pos] || snap[pos].cost_added !== false) return;
+    snap[pos].cost_added = true;
+    bdLoadSnapshot[sec.snapKey] = JSON.stringify(snap);
+  }catch(e){ console.warn('スナップショット(cost_added)の更新に失敗:', e); }
+}
+function _appendSnapshotCostRow(bookingId){
+  try{
+    const snap = JSON.parse(bdLoadSnapshot.costs || '[]');
+    const rows = buildCostRows(bookingId);
+    // 直前にbdCostItemsの末尾へ追加した行(=DBへ保存済みの行)だけをスナップショットの末尾に足す。
+    // 再読み込み時もbooking_costsはcreated_at順で読むため、この行は同じく末尾に来る。
+    if(!rows.length || snap.length !== rows.length - 1) return;
+    snap.push(rows[rows.length-1]);
+    bdLoadSnapshot.costs = JSON.stringify(snap);
+  }catch(e){ console.warn('スナップショット(仕入明細)の更新に失敗:', e); }
+}
 // arrCostCheckboxHtml/addArrRowToCostNowが「行の配列名」から実際の配列を引くための対応表。
 // SOURCE_TABLE_ARRAYS(booking_costs.source_table→配列)とは向きが違う
 // (こちらはbdBusItems等の変数名文字列→配列)ため、あえて別のマップとして持つ。
@@ -6591,6 +6624,10 @@ async function addArrRowToCostNow(arrName, i, kind, btnEl){
     if(payload.rowId){
       try{
         await sec.apiCall('markCostAdded', { id: payload.rowId, value: true });
+        // DBに保存済みになったため、このタブの未保存判定からcost_addedの変化を外す。
+        // 失敗時(catch)はスナップショットを更新せず「変更あり」のまま残す(次回保存でcost_addedを
+        // 含めて永続化されるように)。
+        if(currentDetailId === bookingId) _markSnapshotCostAdded(sec, it, bookingId);
       }catch(err){
         logError(`${payload.label}明細のcost_added更新`, err, {toast:false});
         costAddedWarn = err.message;
@@ -6609,6 +6646,9 @@ async function addArrRowToCostNow(arrName, i, kind, btnEl){
       source_id: newCostRow.source_id,
       source_snapshot: newCostRow.source_snapshot,
     });
+    // 仕入明細行はbooking_costsへ保存済みのため、仕入明細タブの未保存判定にも含めない
+    // (cost_addedの記録だけが失敗した場合も、仕入明細行自体は保存済みなので同様)。
+    if(currentDetailId === bookingId) _appendSnapshotCostRow(bookingId);
     renderCostTable();
     it.cost_added = true;
     btnEl.textContent = '済み';
