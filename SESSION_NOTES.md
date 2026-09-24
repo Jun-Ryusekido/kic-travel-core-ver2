@@ -52,8 +52,7 @@ anon向けSELECTポリシー案は不採用(ログインはapp_users独自方式
   同じキーの行数が保存前後で不一致ならnull+console.warn(1件でも付け替えない)。
 - SQL要否: 不要(コードのみ)。
 - 調査2のSQL結果(JUN実行): (b)17件 / (c)133件 / (d)9件 / (e)0件。
-  - (b) 修正用: scripts/fix_cost_added_b_linked_but_false.sql(SELECT→件数一致チェック付きUPDATE→確認)。未実行。
-  - (c)(d) 内訳・一覧: scripts/investigate_cost_added_c_d.sql(読み取り専用)。未実行。(c)の扱いは内訳を見て判断。
+  - (b)(c)(d)の対応結果は下記「データ修正(cost_added)の状況」参照(すべて対応済み)。
   - 手がかり: cost_added列は2026-07-23追加、source_table/source_idは2026-08-05追加(それ以前の追加は紐付けが無い)。
 
 ### invoices 一意インデックス(通貨込み) — JUN実行済み(2026-09-24)。旧合算インデックス削除・新2本作成・currency NOT NULLを確認
@@ -72,24 +71,33 @@ anon向けSELECTポリシー案は不採用(ログインはapp_users独自方式
   (error_logs '合算Invoiceの自動更新' 35件、2026-09-01〜09-24。toast:falseで画面に出ていなかった)。
 - 修正: 新規の合算番号を INV-<REF>-ALL / -ALL-USD、検索キーに currency 追加、再発行時は invoice_no を送らない
   (既存の合算2件の番号は不変)、失敗時はtoast表示。SQL要否: 不要。
-- 未実行SQL: scripts/investigate_consolidated_and_1069_fix_d8.sql Part 1(35件の原因確認・合算が無い予約一覧)。
-  合算を作り直すため再発行するかはJUNが判断。
+- JUN実行結果: 35件は全件 invoice_no一意制約違反と確定。合算Invoiceが無い予約は23件(すべてJPY)。
+  一括再発行はしない(次回その予約の個別Invoiceを発行・再発行した時に自動で作成される)。
+- 合算Invoiceが無いことの影響(コード調査): 機能的な影響なし。
+  - 入金消込の自動paid判定(saveBookingDetail)はInvoice1件ずつ判定するため、合算が無くても個別の判定は正常。
+  - Invoice一覧・予約詳細の関連Invoice・ダッシュボード・入出金(RPCはbooking_salesベース)・粗利集計(bookingsベース)は
+    invoicesの金額を合計していないため、合算の有無で数値は変わらない。影響は「合算請求書を表示・印刷できない」ことのみ。
+  - 逆に「今後合算が作成された時」に起きること(バッチ1で扱う):
+    (1) 合算は agent_id=null・agent_name=予約代表の請求先で作られるため、ダッシュボードの「Agentマスタ未紐付け」
+        バナー(refreshAgentUnlinkedBanner)に請求書として数えられる(既存の合算2件も同様)。合算を除外するか要判断。
+    (2) 支払い済みの予約で合算が後から作られると status='pending' のまま。予約詳細を保存した時の自動paid判定で
+        初めてpaidになる(合算は予約全体の入金>=売上で判定)。
 
-### データ修正(cost_added)の状況(2026-09-24)
-- (b) JUN実行結果: 手配行13件・仕入明細17行(12件が#1069 59674e70-…、1件(水)がc24cd3ba-…)。
-  scripts/fix_cost_added_b_linked_but_false.sql のSTEP3は v_expected=13 に更新済み。未実行。
-  #1069の4d6d0a1b(チームラボ1行目)をtrueにしても、紐付け(source_id)調査には影響しない(判定はsource_idとsort_orderで行う)。
-- (d) 9件のうち8件(#1120 8cefb89b / #1153 5b72eb33 / #1229 ee3cf08a, d50cc0ec / #534 7c32fe26, d63b94c9, c53533ae /
-  #782 3ca6764d)をtrueにする: investigate_consolidated_and_1069_fix_d8.sql Part 3。未実行。
-- #1069の同名同日の観光施設(チームラボ2行、トロッコ)と仕入明細の紐付け: 旧_remapArrangementSourceIdの
-  「先頭に付け替わる」不具合(PR #208で修正済み)で1行目に集約された可能性が高い。削除SQLは保留し、
-  Part 2の調査結果を見て付け替え(source_idのUPDATE)を判断する。付け替え/削除SQLはJUNの結果共有後に出す。
+### データ修正(cost_added)の状況 — すべてJUNがSQL Editorで実行済み(2026-09-24)
+- (b) 手配行13件(仕入明細17行)をcost_added=trueに更新。remaining=0を確認。
+- (d) #782 3ca6764dは当日の保存で行が作り直されていたため除外し、7件をtrueに更新
+  (#1120 8cefb89b / #1153 5b72eb33 / #1229 ee3cf08a, d50cc0ec / #534 7c32fe26, d63b94c9, c53533ae)。
+  #782の新しい行(2c823229-…、チームラボボーダレス)も個別にtrueに更新。
+- #1069(59674e70-…): 同名同日の手配行がチームラボ2行・トロッコ4行あり、仕入明細も同数。二重登録ではなく
+  旧_remapArrangementSourceIdの「先頭に付け替わる」不具合(PR #208で修正済み)による取り違えだったため、削除はせず、
+  仕入明細3行+1行のsource_idを2行目以降の手配行へ1対1で付け替え、付け替え先4行をtrueに更新。6行ともlinked_cost_rows=1を確認。
+- #782 ホテルクラッド(4ad39f01-…): 仕入明細に行が無いのにcost_added=trueだったためfalseに戻した(単価確定後にJUNが追加)。
+- (c) G1〜G4は、上記以外は未来ツアー分も含めて対応不要とJUNが判断。
 - 注: booking_costsはreplace保存のたびに全行が作り直され、created_atが保存時刻になる(sort_order列も無い)。
   仕入明細の元の追加時刻はcreated_atでは分からない(audit_logsのinsert履歴が手がかり)。
 
 ### 未実行SQL・JUN確認待ち
-- (a) error_logsのcost_added更新失敗の件数・期間、(b) cost_added=falseのまま仕入明細に追加済みの
-  行の件数(どちらも読み取り専用。フェーズ1報告に記載)。修正SQLは件数確認後に別途提示。
+- なし(2026-09-24時点)。フェーズ1報告の(a)(error_logsのcost_added更新失敗の件数)は未実行だが、(b)(d)の修正で実害は解消済み。
 
 ### 残タスク
 - フェーズ2 バッチ1: 下記「バッチ1 再開用メモ」参照(新しいセッションで開始予定)
@@ -104,6 +112,18 @@ anon向けSELECTポリシー案は不採用(ログインはapp_users独自方式
 RPC3本(get_payment_monthly_summary / search_payment_income / search_payment_outflow)をAPI経由化し、
 その後RLS有効化+anon/authenticatedのGRANT全REVOKE+RPCのEXECUTE REVOKE。
 
+### 作業の進め方(このプロジェクトで確立した運用)
+- SQLはJUNがSupabase SQL Editorで実行する。ファイル名だけでなく本文にコードブロックで掲載し、1ブロック=1回の実行単位、
+  各ブロックの前に「何を確認/変更するSQLか・期待される結果」を1行で書く。scripts/配下にもファイルとして保存する。
+- 列名は推測しない。CREATE TABLEはリポジトリに無いテーブルが多い(invoices/booking_costs/手配5テーブル/bookings/audit_logs)ため、
+  ALTER文とコード上の使用実績で確認し、不確かな列はinformation_schema.columnsの確認SQLを先に出す。
+- 金銭テーブル・一括更新は: バックアップSELECT → 件数提示 → 同条件・件数一致チェック付き(不一致なら例外で取り消し)の
+  UPDATE/DELETE → 実行後確認SELECT。WHERE句のidはJUNが実行したSELECT結果からのみ引用する。
+- push前に必ずdiffを提示。検証ハーネス(scratchpadでindex.htmlの実関数を抽出してnode実行)と本体のcommit/pushは別工程として報告。
+- 本番デプロイ完了はこのセッション環境から確認できない(vercel.appへの通信がネットワークポリシーで遮断)。PRのVercel Preview
+  statusはGitHub経由で確認できるので、それを確認してからマージし、本番はJUNがVercel画面で確認する。
+- 作業ブランチは claude/exciting-mccarthy-wi3dla。PRがマージ済みなら origin/main から作り直して続ける。
+
 ### 決定事項
 - anon向けSELECTポリシーは作らない(ログインはapp_users独自方式でブラウザは常にanon。Supabase Auth使用0件確認済み)。
 - 順序厳守: コードをデプロイ → JUNが実機確認 → その後にRLS/REVOKEのSQL(scripts/enable_rls_batch1.sql)を実行。
@@ -117,7 +137,7 @@ RPC3本(get_payment_monthly_summary / search_payment_income / search_payment_out
   audit_logsで通貨が書き換わったinvoices更新は0件(上書きで失われたInvoiceなし)。
   invoicesは api/table-crud.js で auditLog:true(少なくとも2026-08-28以降)。
 
-### ⚠ バッチ1着手前にJUNの判断が必要: invoice_noの一意制約
+### invoice_noの一意制約(判断済み: (A))
 - invoices_invoice_no_key UNIQUE(invoice_no) がある。一方invoice_noは「INV-<REF数字>(+請求先識別子)」の固定番号で
   通貨を含まない。このため:
   1. 通貨込みキーにしても、同じ予約・同じ請求先のUSD Invoiceは同じinvoice_noになり、INSERTが一意制約違反で失敗する。
@@ -134,7 +154,14 @@ RPC3本(get_payment_monthly_summary / search_payment_income / search_payment_out
   - 合算Invoice: 末尾に -ALL(INV-<REF>-ALL)。USDの合算は -ALL-USD(INV-<REF>-ALL-USD)
   - 既に発行済みのInvoiceのinvoice_noは絶対に変更しない。再発行(既存行のUPDATE)時もinvoice_noは既存値を維持する
     (現行コードはUPDATE時にinvoice_noを毎回上書きしているため、updateByIdのfieldsからinvoice_noを外す)
-  - バッチ1の実装に含める(generateInvoice/upsertConsolidatedInvoiceの採番と既存行検索キーの変更)
+  - 進捗: 合算Invoice(upsertConsolidatedInvoice)は PR #209 で対応済み(-ALL/-ALL-USD、検索キーにcurrency、
+    UPDATE時はinvoice_noを送らない、失敗時toast)。
+  - バッチ1で残る作業(generateInvoice): USDは -USD を付与、既存行検索キーに currency を追加
+    (booking_id + is_consolidated=false + agent_name + currency。agent_nameがnullなら is null)、
+    UPDATE時はinvoice_noを送らない、2件以上ヒットでエラー中止、検索失敗時はINSERTに進まない。
+  - DB側は実行済み: currency NOT NULL、invoices_one_consolidated_per_booking_currency (booking_id, currency) WHERE is_consolidated、
+    invoices_one_individual_per_booking_agent_currency (booking_id, agent_name, currency) NULLS NOT DISTINCT WHERE NOT is_consolidated。
+    invoices_invoice_no_key UNIQUE(invoice_no)は維持。
 
 ### 実装計画(報告・承認済みの内容)
 - api/table-crud.js に読み取り専用 action を追加(Vercel関数は増やさない):
@@ -156,7 +183,11 @@ RPC3本(get_payment_monthly_summary / search_payment_income / search_payment_out
   remapCreditCardStatementSourceIds / remapSalesAgentIds はfreshの取得失敗時に付け替えをしない。
   backupBookingDataBeforeDeleteは1テーブルでも取得失敗なら削除中止。ハーネスで失敗/0件/正常の3状態を検証。
 - 入金消込の自動paid判定(saveBookingDetail内、invoicesApiCall('updateById', status:'paid'))が、同じ請求先に
-  JPY/USDの2件がある場合に正しく動くか確認する(同じ請求先のInvoiceが1件である前提の可能性)。
+  JPY/USDの2件がある場合に正しく動くか確認する。現状コード: 請求先ごとに「その請求先の入金合計>=売上合計(円)」なら、
+  その請求先のpending Invoiceを通貨に関係なく全部paidにする(合算は予約全体で判定)。JPY/USD両方ある場合は
+  両方同時にpaidになる。これで良いか(同じ請求内容の通貨違いなので妥当と思われる)をJUNに確認して確定する。
+- 合算Invoiceが今後作成されることの影響(上記「合算Invoiceが作れない不具合」参照): Agentマスタ未紐付けバナーに
+  合算が数えられる件の扱いを決める(合算を除外 or 合算にもagent_idを入れる)。
 - コミットは「API追加」「invoices」「booking_costs」「booking_sales」「credit_card_statements」「RPC」に分ける(1PR)。
 - 各バッチ完了報告: 変更箇所一覧(旧行番号→新実装)、grepで直接アクセス0件の証拠、scripts/enable_rls_batch1.sql
   (RLS有効化+残GRANTのREVOKE+RPC EXECUTE REVOKE+確認クエリ)、実機確認チェックリスト、SQL要否。
