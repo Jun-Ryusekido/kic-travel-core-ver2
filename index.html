@@ -21619,6 +21619,9 @@ async function loadPayments(){
 
   const from = document.getElementById('pay-from').value;
   const to = document.getElementById('pay-to').value;
+  // 期間が逆転している(FROM > TO)間は集計しない(画面は前の集計のまま)。FROMとTOを続けて
+  // 変更する途中のblur(例: FROM 08/01・TO 05/31)で、無意味な集計が走っていたため(2026-09 Previewで確認)。
+  if(from > to){ _logPaymentLoad('loadPayments', `${from}〜${to}`, '期間が逆転(FROM > TO)しているため集計しない'); return; }
   const params = _paymentSearchParams(from, to);
   const loadKey = JSON.stringify(params);
   if(paymentLoadInFlight && paymentLoadInFlight.key === loadKey){
@@ -21706,6 +21709,7 @@ function filterPaymentLists(){
 async function fetchPaymentDetails(){
   const from = document.getElementById('pay-from').value;
   const to = document.getElementById('pay-to').value;
+  if(from > to){ _logPaymentLoad('fetchPaymentDetails', `${from}〜${to}`, '期間が逆転(FROM > TO)しているため集計しない'); return; }
   const params = _paymentSearchParams(from, to);
   _logPaymentLoad('fetchPaymentDetails', JSON.stringify(params));
   const mySeqD = ++paymentDetailsSeq;
