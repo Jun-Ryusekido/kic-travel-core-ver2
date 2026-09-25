@@ -41,7 +41,9 @@
   他の関数: email-importは x-import-key で認証、login/change-password/add-user/list-users は有料API呼び出し無し。
 - SQL要否: 不要。
 
-### 1b. partner-similarity / ai-inbox のログイン確認 — PR #214(ブランチ claude/magical-ride-6phzj3)、未マージ・マージはJUNの確認後
+### 1b. partner-similarity / ai-inbox のログイン確認 — PR #214 マージ済み(main 06b2c8c、2026-09-25)。実機確認は後日
+- 【決定(JUN)】PR #213と同様、Preview status success を確認してマージ。実機確認(取引先・Agentの類似判定、メールの関連性判定・REF#抽出)は後日。
+- 戻し方: Vercelで1つ前の本番デプロイ(main dc065b8)をInstant Rollback → `git revert 1f1962c` のPR。
 - どちらもEdgeランタイムのため、Web Crypto版の検証 api/lib/session-token-edge.js(verifySessionTokenEdge)を追加。
   トークン形式・秘密鍵・期限は lib/session-token.js と同じ(Node側で発行したトークンをEdge側で検証できることをハーネスで確認)。
 - 画面側の変更は不要(PR #213 の fetchラッパーが X-Session-Token を付けている)。
@@ -212,17 +214,30 @@ anon向けSELECTポリシー案は不採用(ログインはapp_users独自方式
   booking_water_items, bullet_train_arrangements, facility_operating_info, vendor_email_logs, error_logs
   (error_logsのINSERTもAPI化。未ログイン時の扱い・サイズ上限・連投対策の案を出す)
 
-## 予約の日付の前後チェック(2026-09-25、ブランチ claude/blissful-rubin-5z8ftu、次のPRに含める)
-- 背景: 帰着日(OUT)が出発日(IN)より前でも保存できた(#1275で発生、JUNが手で修正済み)。
-- 実装: isDateRangeReversed(開始,終了)(sanitizeDateFieldの隣)。新規予約(saveBooking)・予約詳細の保存(saveBookingDetail)で
-  OUT<INなら「帰着日(OUT)が出発日(IN)より前になっています」とalertして保存しない(OUTが空欄・同日はOK)。
-  予約詳細の「Invoice発行」ボタン(issueInvoiceFromBookingDetail)は保存結果に関係なく画面を閉じて発行する作りのため、
-  そこでも先に同じチェックをして止める(入力が消えないように)。
-- 他の日付ペア(報告済み・未実装、JUN判断待ち): ホテル明細 check_in/check_out(逆転すると泊数0と表示されるだけで保存できる)、
-  バス明細 start_date/end_date、(列の実在未確認)バスのドライバー宿泊 driver_check_in/driver_check_out。
-  駐車場予約(pn-start/pn-end)は既に「利用終了日時は利用開始日時より後に」のチェックあり。見積もりは期間の2項目が無い。
-- 既存データ確認SQL(読み取り専用)はチャットで提示。SQL要否: コード側は不要。
-- 検証ハーネス(scratchpad): 判定関数10件+保存3経路7件、すべて成功。
+## 予約・手配の日付の前後チェック、Invoice発行の保存確認、driver_*の引き継ぎ(2026-09-25、ブランチ claude/magical-ride-6phzj3)
+- 経緯: 別セッション(claude/blissful-rubin-5z8ftu、session_01TjKB…)が a を実装したところで停止。JUNの指示で以後はこのセッションだけで作業し、
+  そのブランチ(6783159 / 2a35acb / 9e9d5cd / 753b1fa の4コミット。753b1fa以降の追加コミットは無し)をマージで取り込んだ。
+- a(753b1fa、実装済み): isDateRangeReversed(開始,終了)。新規予約(saveBooking)・予約詳細の保存(saveBookingDetail)で OUT<IN なら
+  「帰着日(OUT)が出発日(IN)より前になっています」とalertして保存しない(OUTが空欄・同日はOK)。#1275で発生。
+- b【決定(JUN): 警告ではなく保存を止める】findArrangementDateRangeErrors: ホテル(check_in/check_out)・バス(start_date/end_date)の
+  逆転行を「・ホテル 2行目(ホテル名): チェックアウト … が チェックイン … より前です」の形で全部列挙してalertし、最初のタブを開いて
+  保存しない(bookingsの更新より前で止めるため、何も保存されない)。行番号は画面の表示順(並べ替え中はその順)。空欄・同日は止めない。
+  既に逆転しているデータがある予約は、直すまで保存できない(scripts/investigate_arrangement_date_reversal.sql の1)2)で確認)。
+- c: saveBookingDetail が true/false を返す(全部保存できた時だけtrue。日付の逆転・「明細が0件」等の確認でキャンセル・形式不正・
+  通信エラー・食い違い検知・一部のタブの保存失敗はfalse)。issueInvoiceFromBookingDetail は false なら画面を開いたまま発行しない
+  (「予約の保存が完了しなかったため、Invoiceは発行していません…」)。753b1faの発行ボタン側の日付の事前チェックは不要になったため削除。
+  呼び出し元は3箇所だけ(保存ボタン2つ=戻り値を使わないので影響なし、Invoice発行ボタン6種=issueInvoiceFromBookingDetail)。
+  一部のタブの保存失敗をfalseにしたため、例えば新幹線の保存だけ失敗しても発行はしない(予約情報・売上は保存済みの旨はalertで出る)。
+- d: buildBusRows に driver_hotel_name/phone/address/check_in/check_out/amount の6列を追加(読み込んだ値をそのまま保存)。
+  以前は全削除→再挿入(replace)でバスタブを保存するたびにNULLに戻っていた(データ消失)。driver_*だけの行も捨てない。
+  「他のREF#からコピー」(ARR_COPY_CONFIG.bus)は driver_* を空欄にする(画面に見えない値を別の予約へ持ち込まない。以前も保存時に落ちていた)。
+  AI読み取りの確認ダイアログ(saveBusConfirm)は従来どおり driver_* を行に入れない(新しく入る値は無い)。
+  影響: 仮払い一覧の自動生成(generateLocalExpensesFromArrangements)は driver_hotel_amount>0 の行で「ドライバー宿泊費」の行を
+  作るため、DBに値が残っている予約では、以前は一度バスを保存すると消えていたこの行が、今後は消えずに出続ける。
+  driver_check_in/out の逆転: 画面に入力欄が無く直せないため、保存は止めない(チェック対象外)。案は報告参照。
+- 古い画面(このPRより前のindex.html)は引き続き driver_* を落として保存する(既存の挙動。APP_VERSIONは上げていない)。
+- 検証ハーネス(scratchpad、acornでindex.htmlの実関数を抽出しvmで実行): 27件すべて成功。
+- SQL要否: 不要(コードのみ)。確認用の読み取り専用SQL: scripts/investigate_arrangement_date_reversal.sql(JUN実行待ち)。
 
 ## バッチ2 実装計画(2026-09-25報告、未着手)
 - 置き換え対象(index.html、関数名で探す): estimations 7箇所(exportBookingArchive / exportFiscalYearArchive / deleteBookingData /
