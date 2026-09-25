@@ -29737,9 +29737,9 @@ async function generateInvoice(bookingId, currency, agentFilter){
   await logAction('Invoice発行', ((data && data.invoice_no) || invoiceNo) + ' (' + booking.ref_no + (agentFilter?(' / '+agentFilter):'') + ')');
 
   // 個別Invoiceを発行・再発行するたびに、同じbooking_idの合算Invoice(全請求先合計)も
-  // 自動的に最新の内容へ追従させる(請求先が1つの予約でも常に追従させる。1つの予約は
-  // 個別=合算の内容になるが、両方のレコードを独立して最新に保つことで、後から請求先が
-  // 増えても取りこぼしなく追従し続ける)。DB更新のみでプレビュー表示等は行わない。
+  // 自動的に最新の内容へ追従させる。ただし売上明細の請求先が2社以上ある予約だけ
+  // (2026-09 JUN決定。1社の予約では合算=個別と同じ内容の請求書が一覧に2件並び、スタッフが
+  // 混乱したため(#877)。判定はupsertConsolidatedInvoice内)。DB更新のみでプレビュー表示等は行わない。
   // 失敗時はtoastで知らせる(以前はtoast:falseで、合算Invoiceが作れない状態に誰も気づけなかった)。
   try{ await upsertConsolidatedInvoice(bookingId, currency, booking); }
   catch(e){ logError('合算Invoiceの自動更新', e); }
@@ -29754,6 +29754,9 @@ async function generateInvoice(bookingId, currency, agentFilter){
 // 呼ばれるため、呼ぶたびに画面が合算Invoiceのプレビューに切り替わってしまうと
 // ユーザー体験を損なうため)。「合算発行」ボタン(generateConsolidatedInvoice)からも
 // この関数を再利用する。
+// 売上明細の請求先(agent)が2社以上ある予約だけ作成・更新する(2026-09 JUN決定)。1社以下の場合は
+// 何も書き込まず { skipped: true, agentCount } を返す。判定は直前に取得した売上明細で行い、
+// 取得に失敗した場合は例外(空データで判断しない)。1社の予約に既にある合算は削除しない(人が判断する)。
 async function upsertConsolidatedInvoice(bookingId, currency, booking){
   const today = new Date();
   const issue = today.toISOString().slice(0,10);
@@ -29766,6 +29769,10 @@ async function upsertConsolidatedInvoice(bookingId, currency, booking){
 
   // 取得に失敗した場合は例外(呼び出し元でtoast/alert)。空の明細のまま合算を作成・更新しない。
   const salesRows = await tableQueryAll('booking_sales', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: bookingId }], order: [{ col: 'sort_order' }, { col: 'created_at' }] });
+  // 請求先の種類数は、個別Invoiceの番号付け(generateInvoice)と同じdistinctBookingAgentsで数える
+  // (明細にagent_nameが無い行は予約の請求先として数える)。
+  const agentCount = distinctBookingAgents(salesRows, booking.agent_name).length;
+  if(agentCount < 2) return { skipped: true, agentCount };
   let amount = (salesRows||[]).reduce((s,r)=>s+Number(r.amount||0),0);
   if(!salesRows || salesRows.length===0) amount = Number(booking.gross_sales||0);
   if(currency==='USD') amount = Math.round((amount/USD_RATE)*100)/100;
@@ -29831,6 +29838,14 @@ async function generateConsolidatedInvoice(bookingId, currency){
     data = await upsertConsolidatedInvoice(bookingId, currency, booking);
   }catch(e){
     alert('合算Invoice発行に失敗しました: '+e.message);
+    return;
+  }
+  // 手動の「合算発行」も自動作成と同じ判定に揃える(請求先が1社以下なら作らない)。
+  // ボタン自体は予約詳細の画面で請求先が2社以上の時だけ表示されるが、押した直後の保存で
+  // 請求先が1社に減った場合等のため、実際の売上明細で判定した結果に従う。
+  if(data && data.skipped){
+    alert(`売上明細の請求先が${data.agentCount}社のため、合算Invoiceは作成しません（合算は請求先が2社以上の予約だけ作成します）。個別のInvoiceを発行してください。`);
+    await loadInvoicePage();
     return;
   }
 
