@@ -128,6 +128,18 @@ anon向けSELECTポリシー案は不採用(ログインはapp_users独自方式
   booking_water_items, bullet_train_arrangements, facility_operating_info, vendor_email_logs, error_logs
   (error_logsのINSERTもAPI化。未ログイン時の扱い・サイズ上限・連投対策の案を出す)
 
+## 予約の日付の前後チェック(2026-09-25、ブランチ claude/blissful-rubin-5z8ftu、次のPRに含める)
+- 背景: 帰着日(OUT)が出発日(IN)より前でも保存できた(#1275で発生、JUNが手で修正済み)。
+- 実装: isDateRangeReversed(開始,終了)(sanitizeDateFieldの隣)。新規予約(saveBooking)・予約詳細の保存(saveBookingDetail)で
+  OUT<INなら「帰着日(OUT)が出発日(IN)より前になっています」とalertして保存しない(OUTが空欄・同日はOK)。
+  予約詳細の「Invoice発行」ボタン(issueInvoiceFromBookingDetail)は保存結果に関係なく画面を閉じて発行する作りのため、
+  そこでも先に同じチェックをして止める(入力が消えないように)。
+- 他の日付ペア(報告済み・未実装、JUN判断待ち): ホテル明細 check_in/check_out(逆転すると泊数0と表示されるだけで保存できる)、
+  バス明細 start_date/end_date、(列の実在未確認)バスのドライバー宿泊 driver_check_in/driver_check_out。
+  駐車場予約(pn-start/pn-end)は既に「利用終了日時は利用開始日時より後に」のチェックあり。見積もりは期間の2項目が無い。
+- 既存データ確認SQL(読み取り専用)はチャットで提示。SQL要否: コード側は不要。
+- 検証ハーネス(scratchpad): 判定関数10件+保存3経路7件、すべて成功。
+
 ## バッチ2 実装計画(2026-09-25報告、未着手)
 - 置き換え対象(index.html、関数名で探す): estimations 7箇所(exportBookingArchive / exportFiscalYearArchive / deleteBookingData /
   loadEstimations / copyEstimation / openEstimationEditor / loadGuideAdvanceList)、estimation_days 4箇所(exportBookingArchive /
