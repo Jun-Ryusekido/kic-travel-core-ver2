@@ -1,4 +1,5 @@
 export const config = { runtime: 'edge' };
+import { verifySessionTokenEdge, sessionRequiredResponse } from './lib/session-token-edge.js';
 
 // 取引先マスタの類似検出(findDuplicatePartner、完全一致。index.html参照)で見つからなかった
 // 場合に、AI(Claude API)で「表記は違うが同一会社の可能性が高い」候補を判定する補助エンドポイント。
@@ -23,6 +24,8 @@ export const config = { runtime: 'edge' };
 // 追加時に汎用化。既存の取引先マスタ側の挙動・出力形式は一切変更しない)。
 export default async function handler(req) {
   if (req.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
+  // 有料のAI呼び出しの前にログインを確認する(index.htmlのfetchラッパーがX-Session-Tokenを付ける)。
+  if (!(await verifySessionTokenEdge(req.headers.get('x-session-token')))) return sessionRequiredResponse();
   try {
     const body = await req.json();
     const candidate = body && body.candidate;

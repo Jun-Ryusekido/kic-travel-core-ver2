@@ -1,4 +1,5 @@
 export const config = { runtime: 'edge' };
+import { verifySessionTokenEdge, sessionRequiredResponse } from './lib/session-token-edge.js';
 
 // メール受信箱(index.html)向けのAI処理2種類をまとめたエンドポイント。
 //
@@ -303,6 +304,8 @@ ${body || ''}${flaggedContextText}`
 
 export default async function handler(req) {
   if (req.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
+  // 有料のAI呼び出しの前にログインを確認する(index.htmlのfetchラッパーがX-Session-Tokenを付ける)。
+  if (!(await verifySessionTokenEdge(req.headers.get('x-session-token')))) return sessionRequiredResponse();
   // 旧URL(/api/classify-email-relevance, /api/extract-email-refs)はvercel.jsonの
   // rewritesでlegacyModeクエリパラメータを付与してこのファイルへ転送される
   // (api/table-crud.jsのlegacyTableと同じ方式)。Edge runtimeのreqはFetch API標準の
