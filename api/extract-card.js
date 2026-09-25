@@ -1,5 +1,28 @@
 ﻿import XLSX from 'xlsx';
 import { isPdfEncrypted, decryptPdfToBase64, isExcelEncrypted, decryptExcelToSheetsText } from './lib/protected-file.js';
+import { verifySessionToken } from './lib/session-token.js';
+import { getServiceKey } from './lib/app-users-db.js';
+
+const SB_URL = 'https://nzdygjlnzvtdezslnuoy.supabase.co';
+
+// このAPIは有料のAI呼び出し(Anthropic API、mode:'facility-operating-info'はWeb検索も)を行うため、
+// 呼び出し元を確認してから処理する(2026-09-25 JUN決定。以前は確認が無く、誰でも呼び出せた)。
+// - 社内スタッフ(index.html): ログインセッショントークン(X-Session-Tokenヘッダー。index.htmlの
+//   fetchラッパーが/api/への全リクエストに付ける)をverifySessionTokenで検証する。全mode利用可。
+// - ガイド本人(guide.html、ログイン機構なし): 精算リンクのaccess_token(guestToken)を
+//   guide_settlementsと照合する(api/table-crud.jsのresolveGuestSettlementと同じ方式)。
+//   利用できるのは領収書読み取り(receiptImageBase64)だけ(下のhandlerで他の入力を捨てる)。
+async function isValidGuideSettlementToken(guestToken) {
+  if (!guestToken || typeof guestToken !== 'string') return false;
+  const serviceKey = getServiceKey();
+  if (!serviceKey) return false;
+  const r = await fetch(`${SB_URL}/rest/v1/guide_settlements?access_token=eq.${encodeURIComponent(guestToken)}&select=id`, {
+    headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
+  });
+  if (!r.ok) return false;
+  const rows = await r.json();
+  return Array.isArray(rows) && rows.length > 0;
+}
 
 // 既定のVercelサーバーレス関数タイムアウト(プランによっては10秒程度)では、行数の多い
 // Excel/PDFの抽出でAnthropic APIの応答生成が終わる前に関数自体が強制終了してしまうため、
@@ -136,6 +159,20 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
   try {
+    const session = verifySessionToken(req.headers['x-session-token']);
+    if (!session) {
+      const body = req.body || {};
+      if (!body.guestToken) {
+        // 古い版の画面(ヘッダーを送らない)・ログインの有効期限切れもここに来る。
+        return res.status(401).json({ error: 'ログインを確認できませんでした。画面を再読み込みしてから、もう一度お試しください(続く場合は再ログインしてください)。', code: 'SESSION_REQUIRED' });
+      }
+      if (!(await isValidGuideSettlementToken(body.guestToken))) {
+        return res.status(401).json({ error: '精算リンクが無効です。リンクの有効期限が切れているか、URLが正しくない可能性があります。', code: 'SESSION_REQUIRED' });
+      }
+      // ガイド本人は領収書読み取りだけ。それ以外の入力は捨てる(他のmodeへ進ませない)。
+      if (!body.receiptImageBase64) return res.status(403).json({ error: 'この操作は利用できません' });
+      req.body = { receiptImageBase64: body.receiptImageBase64, receiptMediaType: body.receiptMediaType };
+    }
     const { variants, mediaType, base64, orientationVariants, orientationMediaType, hotelText, hotelPdfBase64, hotelExcelBase64, hotelImageBase64, hotelImageMediaType, facilityText, facilityPdfBase64, facilityExcelBase64, facilityImageBase64, facilityImageMediaType, waterText, waterPdfBase64, waterExcelBase64, waterImageBase64, waterImageMediaType, busText, busPdfBase64, busExcelBase64, busImageBase64, busImageMediaType, restaurantText, restaurantPdfBase64, restaurantExcelBase64, restaurantImageBase64, restaurantImageMediaType, invoiceText, invoicePdfBase64, invoiceExcelBase64, invoiceImageBase64, invoiceImageMediaType, targetCheckIn, targetCheckOut, password,
       bankbookImageBase64, bankbookMediaType, bankbookPdfBase64, bankbookText, bankbookEra,
       cardstatementImageBase64, cardstatementVariants, cardstatementMediaType, cardstatementPdfBase64, cardstatementText,

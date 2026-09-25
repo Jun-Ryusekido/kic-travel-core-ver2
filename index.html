@@ -3317,6 +3317,12 @@ function _appVersionObserveResponse(resp){
     const opts = Object.assign({}, init || {});
     const headers = new Headers(opts.headers || (input && typeof input !== 'string' ? input.headers : undefined) || {});
     headers.set('X-App-Version', String(APP_VERSION));
+    // ログインセッショントークン。AI呼び出しのAPI(/api/extract-card等)はこのヘッダーでログインを確認する
+    // (/api/table-crudは従来どおりbodyのtokenで確認)。currentUserはこの下で宣言されるため、宣言前
+    // (画面を開いた直後のcheckAppVersionNow)に参照するとReferenceErrorになる。その場合は付けない。
+    let sessionToken = null;
+    try{ sessionToken = currentUser && currentUser.token; }catch(e){ sessionToken = null; }
+    if(sessionToken) headers.set('X-Session-Token', sessionToken);
     opts.headers = headers;
     return origFetch(input, opts).then(resp=>{ _appVersionObserveResponse(resp); return resp; });
   };

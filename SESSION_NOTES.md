@@ -1,5 +1,68 @@
 # SESSION_NOTES
 
+## 最新の決定事項と作業順(2026-09-25 JUN決定。新しいセッションはまずここを読む)
+
+### 作業の順番
+1. extract-card のログイン確認(単独の小さいPR) ← 最優先。他の作業より先
+2. バッチ2 → 3. バッチ3 → 4. 外部から読めるその他のテーブル(バッチ4) → 5. Web取り込み機能
+- 1の後、バッチ2の前に: partner-similarity / ai-inbox のログイン確認(別の小さいPR。JUN決定、下記)
+
+### 1. extract-card のログイン確認 — PR #213(ブランチ claude/magical-ride-6phzj3)、未マージ・マージはJUNの確認後
+- 問題: api/extract-card.js に verifySessionToken が無く、未ログインで有料のAI(Anthropic API)・Web検索
+  (mode:'facility-operating-info'、web_search max_uses 4)を誰でも呼び出せた。
+- ログインなしの正当な呼び出し元(調査結果): guide.html の領収書読み取り(receiptImageBase64、2箇所)だけ。
+  他はすべて index.html(ログイン済み)。public/js/image-compress.js の向き判定(orientationVariants)も index.html からのみ。
+  scripts/・email-automation・parking-automation からの呼び出しは無し。
+- 【決定(JUN)】guide.html は精算リンクで確認する: ログインが無い場合は guestToken(精算リンクのaccess_token)を
+  guide_settlements と照合(table-crudのresolveGuestSettlementと同じ方式)。ゲストは領収書読み取りだけ
+  (他の入力はサーバーで捨てる。receiptImageBase64が無ければ403)。
+- 実装: 画面(index.html)のfetchラッパーが /api/ への全リクエストに X-Session-Token(currentUser.token)を付ける。
+  extract-card はそれを verifySessionToken で検証。無効なら 401 {code:'SESSION_REQUIRED'}(AIは呼ばない)。
+  guide.html は2箇所のbodyに guestToken を追加。
+- 古い画面から呼ばれた場合: 古いindex.htmlはヘッダーを送らないため 401。全呼び出し元(24箇所)が !ok をエラー表示する
+  (「ログインを確認できませんでした。画面を再読み込みしてから…」)。AI読み取りは読み取り専用のためデータは壊れない。
+  向き判定だけは失敗時に黙って0度扱いだが、直後の本体の読み取りが401でエラー表示になる。古いguide.html
+  (キャッシュ)は guestToken を送らないため 401 → 「読み取りに失敗しました: …再読み込み…」。
+  ログインの有効期限(12時間)切れも同じ401。
+- 他のAPIの確認結果(有料APIでログイン確認なし): partner-similarity.js(取引先・Agentの類似判定)、
+  ai-inbox.js(メールの関連性判定・REF#抽出)。どちらも index.html からのみ・Edgeランタイム(Nodeのcryptoが
+  使えないためWeb Crypto版の検証が必要)。【決定(JUN)】別の小さいPRで対応(画面側のヘッダー送信は1のPRで入る)。
+  他の関数: email-importは x-import-key で認証、login/change-password/add-user/list-users は有料API呼び出し無し。
+- SQL要否: 不要。
+
+### バッチ2
+- 計画は承認済み: 空データ対策4件、search_business_partners を先にAPI経由化、APP_VERSIONの引き上げ、コミット4分割。1の完了後に着手。
+- estimation_fixed_rows: 現状確認SQL(scripts/investigate_estimation_fixed_rows_access.sql、読み取り専用)をJUNが実行し、
+  anonから読める状態ならバッチ2に含める。(コード上は index.html の直接SELECT 4箇所: 見積一覧/複製/読み込み等)
+
+### バッチ4の準備
+- バッチ1〜3に入っていないテーブルのうち anon/authenticated が実際に読めるもの(RLS無効、またはRLS有効でも
+  読めるポリシーがある)を洗い出す読み取り専用SQL: scripts/investigate_batch4_readable_tables.sql(JUNが実行)。
+
+### 5. Web取り込み機能(着手は5の順番が来てから)
+- 「観光施設」カテゴリを追加する。「その他」からの振り分けは、予約(booking_facilities)で使われている施設名と
+  照合した候補一覧を出し、JUNが確認してから移す。
+- 新テーブル business_partner_facts / business_partner_web_candidates と business_partners.official_url の追加は案どおり。
+  (新規テーブルはCLAUDE.mdのとおり service_role へのGRANT+RLS有効化を同じSQLファイルに含める)
+- 営業時間は facility_operating_info を正として継続。
+- 追加項目の採否は案どおり(外国語対応・車椅子対応・客室数は保留)。
+- モデルは実装後に10件ほど試し、精度と実費(usage)を比べてから決める。一括実行は必ず費用見込みの確認ダイアログを出す。
+
+### booking_buses.driver_check_in / driver_check_out(2026-09-25 調査、JUN確認: date型で実在)
+- 画面に入力欄は無い(バスタブの表、AI読み取りの確認ダイアログ showBusConfirmDialog のどちらにも無い)。
+  保存処理 buildBusRows にも含まれない(driver_hotel_name/phone/address/amount も同様)。→ JUNの指示どおり報告のみ。
+- 読み込み側の扱い: mapBusDbRow が DB値を bdBusItems に読み込む(保存時の食い違い検知は buildBusRows 同士で
+  比較するため、この列は比較対象外)。「他のREF#からコピー」(ARR_COPY_CONFIG.bus)も読み込むが、保存時に落ちる。
+  AI読み取り(バス)で返る値は、バス自体の情報が無い行の開始日/終了日の補完(fillMissingBusGenericFields)にだけ使われ、
+  列には保存されない。仮払い一覧の自動生成(8893行付近)は DB の driver_check_in を「ドライバー宿泊費」の日付に使うが、
+  driver_hotel_amount>0 の行だけ(画面から保存されないため、実質は過去データのみ)。
+- 注意: バスの保存は replace(全削除→再挿入)のため、DBにこれらの列の値があっても、その予約のバスタブを保存すると
+  NULL に戻る。値が残っている行があるかは JUN の確認SQLで確かめる(下記、未実行)。
+
+### 残課題(追加分)
+- 名前だけで紐付いている箇所のID化(facility_operating_info と施設名など)は、他の「名前だけで紐付いている箇所」と
+  まとめて後で検討する(JUN決定、2026-09-25)。
+
 ## RLS対応(Supabase警告 rls_disabled_in_public、2026-09〜)
 
 最終形: 対象テーブルへのブラウザ直接アクセスを0にし、ログイン検証つきAPI(service_role)経由に統一
@@ -108,8 +171,7 @@ anon向けSELECTポリシー案は不採用(ログインはapp_users独自方式
   (filterInvoiceUnified の yen(row.gross_sales))。請求先が複数の予約では個別Invoiceの金額と一致しない。
 - 【仕様として記録】USD請求書・USD合算は、USD発行(USD Invoice発行/USD合算発行)を押した時だけ更新される。JPYの発行・再発行では
   generateInvoice/upsertConsolidatedInvoiceが同じ通貨の行しか更新しないため、売上が変わってもUSD側の金額・状態は古いまま残る。
-- Webからマスタ情報を取り込む機能: JUNが調査・設計を依頼済み(2026-09-25時点、このセッションでは依頼内容を受け取っておらず未報告。
-  対象マスタ・取り込み元を確認してから調査・設計を報告する)。
+- Webからマスタ情報を取り込む機能: 設計はJUN確認済み(冒頭「5. Web取り込み機能」参照)。着手は作業順の5番目。
 - フェーズ2 バッチ1: コードはPR #211でmainへマージ済み。残りは enable_rls_batch1.sql の実行。
   【決定(JUN、2026-09-25)】実行順は「画面の版による書き込みガードの本番反映 → 全員の再読み込み → 業務時間外に実行」。
   (下記「画面の版による書き込みガード」「RLS有効化SQLの実行時の注意」参照)
@@ -250,7 +312,7 @@ RPC3本(get_payment_monthly_summary / search_payment_income / search_payment_out
   audit_logsで通貨が書き換わったinvoices更新は0件(上書きで失われたInvoiceなし)。
   invoicesは api/table-crud.js で auditLog:true(少なくとも2026-08-28以降)。
 
-### 画面の版による書き込みガード(2026-09-25、PR #212(ブランチ claude/blissful-rubin-5z8ftu)、未マージ・JUN確認待ち)
+### 画面の版による書き込みガード(2026-09-25、PR #212(ブランチ claude/blissful-rubin-5z8ftu)、マージ済み(main 196fd16))
 - 目的: 古い版のindex.htmlを開いたままのタブ(このアプリには版の確認・自動リロードが無かった)から、RLS有効化後に
   空データのまま保存・全削除→再挿入が走ってデータを壊すのを、APIの側で防ぐ。
 - 画面: index.htmlの定数 APP_VERSION(YYYYMMDDNN、今回 2026092501)。window.fetchをラップし、同一オリジンの /api/ への
