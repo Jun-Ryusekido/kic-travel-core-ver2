@@ -7,7 +7,7 @@
 2. バッチ2 → 3. バッチ3 → 4. 外部から読めるその他のテーブル(バッチ4) → 5. Web取り込み機能
 - 1の後、バッチ2の前に: partner-similarity / ai-inbox のログイン確認(別の小さいPR。JUN決定、下記)
 
-### 1. extract-card のログイン確認 — ブランチ claude/magical-ride-6phzj3(PR作成済み・マージはJUNの確認後)
+### 1. extract-card のログイン確認 — PR #213(ブランチ claude/magical-ride-6phzj3)、未マージ・マージはJUNの確認後
 - 問題: api/extract-card.js に verifySessionToken が無く、未ログインで有料のAI(Anthropic API)・Web検索
   (mode:'facility-operating-info'、web_search max_uses 4)を誰でも呼び出せた。
 - ログインなしの正当な呼び出し元(調査結果): guide.html の領収書読み取り(receiptImageBase64、2箇所)だけ。
