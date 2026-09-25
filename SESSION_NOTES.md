@@ -7,7 +7,18 @@
 2. バッチ2 → 3. バッチ3 → 4. 外部から読めるその他のテーブル(バッチ4) → 5. Web取り込み機能
 - 1の後、バッチ2の前に: partner-similarity / ai-inbox のログイン確認(別の小さいPR。JUN決定、下記)
 
-### 1. extract-card のログイン確認 — PR #213(ブランチ claude/magical-ride-6phzj3)、未マージ・マージはJUNの確認後
+### 1. extract-card のログイン確認 — PR #213 マージ済み(main dc065b8、2026-09-25)。実機確認は後日
+- 【決定(JUN、2026-09-25)】有料APIの穴を早く塞ぐため、Previewでの実機確認を後回しにしてマージした
+  (Preview status success を確認してからマージ)。実機確認は後日: ログイン中のAI読み取り(OCR各種・向き判定・
+  観光施設のWeb検索)、guide.html の領収書読み取り(1枚/複数枚)、未ログイン・古い画面で401になること。
+- PR #213 のコミット: d0e041d(コード)/ 5076c25(読み取り専用SQL)/ 2f98fab・74d1365(SESSION_NOTES)。
+  753b1fa(帰着日の逆転チェック)は含まれていない(別セッションのブランチ claude/blissful-rubin-5z8ftu にあり、未マージ)。
+- 動かなかった場合の戻し方(コードのコミットだけを戻す。SESSION_NOTES・SQLは残す):
+  1. 最速: Vercelの Deployments で、1つ前の本番デプロイ(main 196fd16)を「Instant Rollback」する(数十秒。コードは戻らない)。
+  2. その後コードを戻す: origin/main から新しいブランチを作り `git revert d0e041d` → push → PR → Preview確認 → マージ。
+     (GitHubのPR #213画面の「Revert」ボタンはマージ全体(SESSION_NOTES・SQL含む)を戻すため、使うならその点に注意)
+  - 戻した場合: extract-card は再びログイン確認なしになる(穴が開く)。index.htmlがX-Session-Tokenを送るだけ・
+    guide.htmlがguestTokenを送るだけの状態は、戻した後のサーバーでも無害(無視される)。
 - 問題: api/extract-card.js に verifySessionToken が無く、未ログインで有料のAI(Anthropic API)・Web検索
   (mode:'facility-operating-info'、web_search max_uses 4)を誰でも呼び出せた。
 - ログインなしの正当な呼び出し元(調査結果): guide.html の領収書読み取り(receiptImageBase64、2箇所)だけ。
