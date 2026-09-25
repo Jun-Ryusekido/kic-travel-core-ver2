@@ -41,6 +41,17 @@
   他の関数: email-importは x-import-key で認証、login/change-password/add-user/list-users は有料API呼び出し無し。
 - SQL要否: 不要。
 
+### 1b. partner-similarity / ai-inbox のログイン確認 — ブランチ claude/magical-ride-6phzj3、PR作成・マージはJUNの確認後
+- どちらもEdgeランタイムのため、Web Crypto版の検証 api/lib/session-token-edge.js(verifySessionTokenEdge)を追加。
+  トークン形式・秘密鍵・期限は lib/session-token.js と同じ(Node側で発行したトークンをEdge側で検証できることをハーネスで確認)。
+- 画面側の変更は不要(PR #213 の fetchラッパーが X-Session-Token を付けている)。
+- 未ログイン・古い画面(PR #213 より前の index.html)から呼ばれた場合:
+  - 取引先・Agentの類似判定(callPartnerSimilarityAi / callAgentSimilarityAi): !ok を黙って「AI候補なし」扱い →
+    完全一致の重複チェックだけが動く(表記ゆれの重複は警告されない。データは壊れない)。
+  - メールの関連性判定(classify): 判定されないまま一覧に残り、次回再判定(隠れる方向には倒れない)。
+  - REF#抽出(extractRefs): エラー表示。
+- SQL要否: 不要。
+
 ### バッチ2
 - 計画は承認済み: 空データ対策4件、search_business_partners を先にAPI経由化、APP_VERSIONの引き上げ、コミット4分割。1の完了後に着手。
 - estimation_fixed_rows: 現状確認SQL(scripts/investigate_estimation_fixed_rows_access.sql、読み取り専用)をJUNが実行し、
