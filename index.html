@@ -8975,6 +8975,33 @@ async function generateLocalExpensesFromArrangements(){
 
 // 日付フィールドのサニタイズヘルパー: YYYY-MM-DD(4桁年) 以外は null に変換
 function sanitizeDateField(d){ return (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) ? d : null; }
+// 開始日と終了日(YYYY-MM-DD)の前後チェック。終了日が開始日より前ならtrue。どちらかが空欄・形式不正の
+// 場合はチェックしない(false)。同じ日はOK(日帰り)。予約の帰着日(OUT)が出発日(IN)より前のまま
+// 保存できてしまっていた(#1275で発生)ため、新規予約・予約詳細の保存時に使う。
+function isDateRangeReversed(startDate, endDate){
+  const s = sanitizeDateField(startDate), e = sanitizeDateField(endDate);
+  return !!(s && e && e < s);
+}
+const BOOKING_OUT_BEFORE_IN_MSG = '帰着日(OUT)が出発日(IN)より前になっています';
+// 予約詳細の手配タブのうち、ホテル(チェックイン/チェックアウト)・バス(開始日/終了日)の日付が逆転している行を
+// 返す(2026-09-25 JUN決定: 警告ではなく保存を止める。空欄・同日は止めない)。行番号は画面に表示されている
+// 並び順(並べ替え中はその順)での番号。バスのドライバー宿泊(driver_check_in/out)は画面に入力欄が無く
+// 直せないため対象外。
+function findArrangementDateRangeErrors(){
+  const errors = [];
+  const check = (tab, tabLabel, items, sortConfig, nameField, startField, endField, startLabel, endLabel) => {
+    let order;
+    try{ order = arrSortedOrder(sortConfig); }catch(e){ order = items.map((_,i)=>i); }
+    items.forEach((it, i) => {
+      if(!isDateRangeReversed(it[startField], it[endField])) return;
+      const pos = order.indexOf(i) + 1 || i + 1;
+      errors.push({ tab, text: `・${tabLabel} ${pos}行目(${it[nameField] || '名称未入力'}): ${endLabel} ${it[endField]} が ${startLabel} ${it[startField]} より前です` });
+    });
+  };
+  check('hotel', 'ホテル', bdHotelItems, hotelArrSortConfig, 'hotel_name', 'check_in', 'check_out', 'チェックイン', 'チェックアウト');
+  check('bus', 'バス', bdBusItems, busArrSortConfig, 'bus_company', 'start_date', 'end_date', '開始日', '終了日');
+  return errors;
+}
 
 // datetime-local入力の年が4桁を超えて入力されてしまう不具合への対策(駐車場 今すぐ予約の
 // 利用開始/終了日時で発生)。ブラウザネイティブのdatetime-local inputは、年の桁数を超えて
@@ -12614,8 +12641,15 @@ async function reflectEstimationToBookings(){
 async function issueInvoiceFromBookingDetail(currency, agentFilter, consolidated){
   if(!currentDetailId) return;
   const id = currentDetailId;
-  // 売上明細を保存して合計を最新化
-  await saveBookingDetail();
+  // 売上明細を保存して合計を最新化。保存しなかった・中断した・失敗した場合(日付の逆転、「明細が0件」の
+  // 確認でキャンセル、通信エラー、一部のタブの保存失敗等)は、画面を開いたままにして発行しない
+  // (以前は保存結果に関係なく画面を閉じて発行していたため、入力内容が消え、古い明細でInvoiceが作られた)。
+  // 中断・失敗の理由はsaveBookingDetailがalert等で表示済み。
+  const saved = await saveBookingDetail();
+  if(!saved){
+    alert('予約の保存が完了しなかったため、Invoiceは発行していません。内容を確認して保存してから、もう一度発行してください。');
+    return;
+  }
   closeBookingDetail();
   go('invoice');
   if(consolidated) await generateConsolidatedInvoice(id, currency);
@@ -12661,11 +12695,13 @@ let bdGuideDocEditing = null; // 編集モーダルで開いている手配書1�
 // ─── 手配管理タブ共通: 他のREF#から手配内容をコピー ─────────
 // 名称・日付・人数・単価などの「内容」はコピーするが、確認番号・ステータスは
 // 新しいツアーではまだ確定していない情報のため、コピーせず空欄/初期値にリセットする。
+// バスのドライバー宿泊(driver_*)は画面に表示されないため、コピーせず空欄にする(見えない値が他の予約へ
+// 引き継がれ、仮払い一覧のドライバー宿泊費等に使われるのを防ぐ。以前も保存時に落ちていたため挙動は同じ)。
 const ARR_COPY_CONFIG = {
   hotel:  { table:'booking_hotels',        keyField:'booking_id',
     map:r=>({hotel_name:r.hotel_name||'', check_in:r.check_in||'', check_out:r.check_out||'', room_type:r.room_type||'', rooms:r.rooms||1, breakfast:r.breakfast||false, unit_price:r.unit_price||0, amount:r.amount||0, confirmation_no:'', status:'回答待ち', payment_method:r.payment_method||'', memo:r.memo||''}) },
   bus:    { table:'booking_buses',         keyField:'booking_id',
-    map:r=>({bus_company:r.bus_company||'', bus_type:r.bus_type||'', buses:r.buses||1, start_date:r.start_date||'', end_date:r.end_date||'', amount:r.amount||0, status:'問い合わせ中', confirmation_no:'', driver_hotel_name:r.driver_hotel_name||'', driver_hotel_phone:r.driver_hotel_phone||'', driver_hotel_address:r.driver_hotel_address||'', driver_check_in:r.driver_check_in||'', driver_check_out:r.driver_check_out||'', driver_hotel_amount:r.driver_hotel_amount||0, payment_method:r.payment_method||'', memo:r.memo||''}) },
+    map:r=>({bus_company:r.bus_company||'', bus_type:r.bus_type||'', buses:r.buses||1, start_date:r.start_date||'', end_date:r.end_date||'', amount:r.amount||0, status:'問い合わせ中', confirmation_no:'', driver_hotel_name:'', driver_hotel_phone:'', driver_hotel_address:'', driver_check_in:'', driver_check_out:'', driver_hotel_amount:0, payment_method:r.payment_method||'', memo:r.memo||''}) },
   rest:   { table:'booking_restaurants',   keyField:'booking_id',
     map:r=>({restaurant_name:r.restaurant_name||'', meal_type:r.meal_type||'昼食', date:r.date||'', reservation_time:r.reservation_time||'', pax:r.pax||0, amount:r.amount||0, status:'問い合わせ中', payment_method:r.payment_method||'', memo:r.memo||''}) },
   fac:    { table:'booking_facilities',    keyField:'booking_id',
@@ -13017,7 +13053,8 @@ function mapBusDbRow(r){
 // (DBから再取得した最新行との比較)でも、DB行をmapBusDbRow()でこの関数と同じ入力形に
 // 変換した配列を渡すことで、同一の変換ロジックを再利用できるようにしている。
 function buildBusRows(bookingId, items){
-  return (items||bdBusItems).filter(it=>it.bus_company||it.bus_type||it.start_date||it.end_date||it.amount||it.confirmation_no||it.memo).map((it,i)=>({
+  return (items||bdBusItems).filter(it=>it.bus_company||it.bus_type||it.start_date||it.end_date||it.amount||it.confirmation_no||it.memo
+      ||it.driver_hotel_name||it.driver_hotel_phone||it.driver_hotel_address||it.driver_check_in||it.driver_check_out||Number(it.driver_hotel_amount)).map((it,i)=>({
     booking_id: bookingId,
     bus_company: it.bus_company||'', bus_type: it.bus_type||'',
     buses: Number(it.buses)||1,
@@ -13026,6 +13063,12 @@ function buildBusRows(bookingId, items){
     status: it.status||'問い合わせ中',
     confirmation_no: it.confirmation_no||'',
     memo: it.memo||'',
+    // ドライバー宿泊の6列は画面に入力欄が無いが、保存は全削除→再挿入(replace)のため、ここに含めないと
+    // DBに値がある行を保存するたびにNULLに戻っていた(データ消失)。読み込んだ値(mapBusDbRow)をそのまま引き継ぐ。
+    driver_hotel_name: it.driver_hotel_name||'', driver_hotel_phone: it.driver_hotel_phone||'',
+    driver_hotel_address: it.driver_hotel_address||'',
+    driver_check_in: sanitizeDateField(it.driver_check_in), driver_check_out: sanitizeDateField(it.driver_check_out),
+    driver_hotel_amount: Number(it.driver_hotel_amount)||0,
     payment_method: it.payment_method||'',
     cost_added: !!it.cost_added,
     sort_order: i
@@ -20321,48 +20364,64 @@ function buildBookingCompareFields(){
     memo: document.getElementById('bd-memo').value.trim() || null,
   };
 }
+// 予約詳細の保存。すべて保存できた場合はtrue、保存しなかった・中断した・失敗した・一部のタブを保存できなかった
+// 場合はfalseを返す(確認ダイアログでキャンセルした場合もfalse)。保存ボタンは戻り値を使わない。
 async function saveBookingDetail(){
-  if(!currentDetailId) return;
+  if(!currentDetailId) return false;
   // currentDetailIdはグローバル変数のため、保存処理中の複数のawaitの間に
   // モーダルを閉じる/別の予約を開く等の操作が挟まるとnullや別のIDに変わってしまい、
   // 明細がnullのbooking_idで保存されようとして失敗する不具合があった(#782で発生)。
   // 以降はこのローカルスナップショットを使用する。
   const bookingId = currentDetailId;
 
+  // 帰着日(OUT)が出発日(IN)より前なら保存しない(OUTが空欄ならチェックしない)
+  if(isDateRangeReversed(document.getElementById('bd-in').value, document.getElementById('bd-out').value)){
+    alert(BOOKING_OUT_BEFORE_IN_MSG+'。日付を確認してから保存してください。');
+    document.getElementById('bd-out').focus();
+    return false;
+  }
+  // ホテル・バス明細の日付が逆転している行があれば保存しない(どの行かを表示し、そのタブを開く)
+  const arrDateErrors = findArrangementDateRangeErrors();
+  if(arrDateErrors.length){
+    alert('日付が逆転している明細があるため保存できません。\n\n' + arrDateErrors.map(e=>e.text).join('\n') + '\n\n日付を直してから保存してください。');
+    switchArrangTab(arrDateErrors[0].tab);
+    return false;
+  }
+
   // 売上・仕入明細が全削除されている場合に警告
   if(originalSalesCount > 0 && bdSalesItems.length === 0){
-    if(!confirm('売上明細が0件になっています。本当に保存しますか？')) return;
+    if(!confirm('売上明細が0件になっています。本当に保存しますか？')) return false;
   }
   if(originalCostsCount > 0 && bdCostItems.length === 0){
-    if(!confirm('仕入明細が0件になっています。本当に保存しますか？')) return;
+    if(!confirm('仕入明細が0件になっています。本当に保存しますか？')) return false;
   }
   // 手配明細が全削除されている場合に警告（読み込み失敗等による誤消去を防ぐ）
   if(originalHotelCount > 0 && bdHotelItems.length === 0){
-    if(!confirm('ホテル明細が0件になっています。本当に保存しますか？')) return;
+    if(!confirm('ホテル明細が0件になっています。本当に保存しますか？')) return false;
   }
   if(originalBusCount > 0 && bdBusItems.length === 0){
-    if(!confirm('バス明細が0件になっています。本当に保存しますか？')) return;
+    if(!confirm('バス明細が0件になっています。本当に保存しますか？')) return false;
   }
   if(originalRestaurantCount > 0 && bdRestaurantItems.length === 0){
-    if(!confirm('レストラン明細が0件になっています。本当に保存しますか？')) return;
+    if(!confirm('レストラン明細が0件になっています。本当に保存しますか？')) return false;
   }
   if(originalFacilityCount > 0 && bdFacilityItems.length === 0){
-    if(!confirm('観光施設・バス駐車場等の明細が0件になっています。本当に保存しますか？')) return;
+    if(!confirm('観光施設・バス駐車場等の明細が0件になっています。本当に保存しますか？')) return false;
   }
   if(originalWaterCount > 0 && bdWaterItems.length === 0){
-    if(!confirm('ミネラルウォーターの明細が0件になっています。本当に保存しますか？')) return;
+    if(!confirm('ミネラルウォーターの明細が0件になっています。本当に保存しますか？')) return false;
   }
   if(originalGuideCount > 0 && bdGuideItems.length === 0){
-    if(!confirm('ガイドの明細が0件になっています。本当に保存しますか？')) return;
+    if(!confirm('ガイドの明細が0件になっています。本当に保存しますか？')) return false;
   }
   if(originalArrGuideCount > 0 && bdArrGuideItems.length === 0){
-    if(!confirm('手配書のガイドが0件になっています。本当に保存しますか？')) return;
+    if(!confirm('手配書のガイドが0件になっています。本当に保存しますか？')) return false;
   }
   if(originalArrDayCount > 0 && bdArrDayItems.length === 0){
-    if(!confirm('手配書の日毎明細が0件になっています。本当に保存しますか？')) return;
+    if(!confirm('手配書の日毎明細が0件になっています。本当に保存しますか？')) return false;
   }
   if(originalLocalExpenseCount > 0 && bdLocalExpenses.length === 0){
-    if(!confirm('現地費用明細が0件になっています。本当に保存しますか？')) return;
+    if(!confirm('現地費用明細が0件になっています。本当に保存しますか？')) return false;
   }
 
   // 新幹線明細の内部重複チェック（DB制約違反→データ消失を防ぐ）
@@ -20373,7 +20432,7 @@ async function saveBookingDetail(){
       const btKeys = btActive.map(btKey);
       const hasBtDup = btKeys.some((k,i) => btKeys.indexOf(k) !== i);
       if(hasBtDup){
-        if(!confirm('新幹線明細に重複する行があります（乗車日・号数・区間が同一）。\n重複行があるとDB保存でエラーになります。\n\nこのまま保存しますか？（重複行を先に削除することを推奨します）')) return;
+        if(!confirm('新幹線明細に重複する行があります（乗車日・号数・区間が同一）。\n重複行があるとDB保存でエラーになります。\n\nこのまま保存しますか？（重複行を先に削除することを推奨します）')) return false;
       }
     }
   }
@@ -20384,11 +20443,11 @@ async function saveBookingDetail(){
   const _outVal = document.getElementById('bd-out').value;
   if(_inVal && !_dateRe.test(_inVal)){
     alert(`IN-DATEの値が正しくありません（${_inVal}）。\n日付を入力し直してから保存してください。`);
-    return;
+    return false;
   }
   if(_outVal && !_dateRe.test(_outVal)){
     alert(`OUT-DATEの値が正しくありません（${_outVal}）。\n日付を入力し直してから保存してください。`);
-    return;
+    return false;
   }
 
   const totalSales = bdSalesTotal();
@@ -20440,10 +20499,10 @@ async function saveBookingDetail(){
     try{
       const result = await __timed('予約情報(bookings)', () => bookingsApiCall('updateById', { id: bookingId, fields: payload }));
       updatedRows = result.rows;
-    }catch(e){ alert('保存に失敗しました: '+e.message); return; }
+    }catch(e){ alert('保存に失敗しました: '+e.message); return false; }
     if(!updatedRows || updatedRows.length === 0){
       alert('保存に失敗しました: 更新対象の予約が見つかりませんでした。ページを再読み込みして再度お試しください。');
-      return;
+      return false;
     }
 
     if(bookingDirty) bdLoadSnapshot.booking = JSON.stringify(bookingCompareFields);
@@ -20722,6 +20781,9 @@ async function saveBookingDetail(){
         if(cachedInv) cachedInv.status = 'paid';
       }
     }
+    // 呼び出し元(issueInvoiceFromBookingDetail)が保存できたかどうかで続行を判断できるよう、結果を返す。
+    // 一部のタブを保存できなかった場合(newTableSaveWarning)は「保存できていない」扱い(false)にする。
+    return !newTableSaveWarning;
   } catch(e) {
     __savePerfLog.push({ 'ステップ': '─合計(エラー発生まで)', '所要時間(ms)': Math.round(performance.now()-__savePerfT0) });
     console.log('【保存処理の所要時間 内訳(エラーで中断)】(window.__savePerfLogでも参照可)');
@@ -20734,6 +20796,7 @@ async function saveBookingDetail(){
     if(e.isSaveConflict) alert(e.message);
     else alert('保存中にエラーが発生しました: ' + (e.message || String(e)));
     logError('予約台帳の保存', e, {toast:false});
+    return false;
   } finally {
     saveBtns.forEach((b,i)=>{ b.disabled = false; b.innerHTML = saveBtnOrigHtml[i]; });
   }
@@ -20782,6 +20845,13 @@ async function saveBooking(){
     document.getElementById('nb-error-msg').style.display='none';
     alert('REF#を入力してください');
     document.getElementById('nb-ref').focus();
+    return;
+  }
+  // 帰着日(OUT)が出発日(IN)より前なら保存しない(OUTが空欄ならチェックしない)
+  if(isDateRangeReversed(document.getElementById('nb-in').value, document.getElementById('nb-out').value)){
+    document.getElementById('nb-error-msg').style.display='none';
+    alert(BOOKING_OUT_BEFORE_IN_MSG+'。日付を確認してから保存してください。');
+    document.getElementById('nb-out').focus();
     return;
   }
   const adt = Number(document.getElementById('nb-pax-adt').value)||0;
