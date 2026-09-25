@@ -6624,6 +6624,9 @@ const LOCAL_EXPENSE_PAYMENT_METHODS = ['現地払い','事前決済','請求書�
 // クレジットカード払い(法人・個人)を選んだ場合にのみ、名義人・個人立替の精算状況の
 // 入力欄を追加表示する対象の支払方法。
 const CC_PAYMENT_METHODS = ['クレジットカード(法人)','クレジットカード(個人・要精算)'];
+// 仮払い一覧表の印刷で「支払済み・現地購入不要」として注意喚起する支払方法。
+// 全旅クーポン・無料(FREE)・クレジットカードは現地で何らかの手続きが要るため含めない。
+const LOCAL_EXPENSE_PREPAID_METHODS = ['事前決済','請求書払い'];
 // 手配管理タブ(ホテル・バス・ミネラルウォーター・新幹線・ガイド)共通の支払方法選択肢。
 // 「現地払い」のものだけが実際に現金の仮払いが必要な対象、それ以外(事前決済/請求書払い/
 // 全旅クーポン/無料(FREE))は今回のツアー中の現金仮払いは不要、という仮払い一覧表側の
@@ -11100,11 +11103,32 @@ win.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><style>@pag
         <td ${tdR}>${Number(it.unit_price||0).toLocaleString('ja-JP')}</td>
         <td ${tdR}>${it.qty||1}</td>
         <td ${tdR}>${Number(it.amount||0).toLocaleString('ja-JP')}</td>
-        <td ${tdB}>${escHtml(it.payment_method||'')}</td>
+        ${LOCAL_EXPENSE_PREPAID_METHODS.includes(it.payment_method)
+          ? `<td style="border:1px solid #bbb;padding:2px 4px;vertical-align:top;white-space:nowrap;font-weight:700;color:#C00000">${escHtml(it.payment_method)}(支払済)</td>`
+          : `<td ${tdB}>${escHtml(it.payment_method||'')}</td>`}
       </tr>`;
     }).join('');
 
+    // 支払済み(事前決済・請求書払い)の項目を表の上に赤枠で再掲し、現地で購入しないよう
+    // 注意喚起する。ガイドが施設からの予約確認メール等を読み込まず、現地でも現金で購入して
+    // 二重払いになる事案(広島平和記念資料館等)が発生したための対策。表示専用で、
+    // bdLocalExpensesの同じ行から都度組み立てる(別途値を保持しない)。
+    const prepaidItems = items.filter(it=>LOCAL_EXPENSE_PREPAID_METHODS.includes(it.payment_method));
+    const prepaidBoxHtml = prepaidItems.length===0 ? '' : `
+    <div style="border:2px solid #C00000;padding:5px 8px;margin-bottom:8px;font-size:9pt;line-height:1.5">
+      <div style="font-weight:700;color:#C00000;font-size:10.5pt">⚠ 以下は支払済みです。現地で購入・支払いをしないでください。</div>
+      <ul style="margin:3px 0 3px 18px;padding:0">
+        ${prepaidItems.map(it=>{
+          const content = multiBand ? (it.content||'').replace(LOCAL_EXPENSE_BAND_LABEL_RE,'').trim() : (it.content||'');
+          return `<li>${escHtml(shortDate(it.expense_date))}　${escHtml(content)}（${escHtml(it.payment_method)}）</li>`;
+        }).join('')}
+      </ul>
+      <div style="font-weight:700">現地で購入・支払いされた場合は、ご自身でのお支払い（精算対象外）となります。</div>
+      <div>人数変更等で追加購入が必要な場合は、必ず事前に弊社へご連絡ください。</div>
+    </div>`;
+
     return `${multiBand?`<div style="font-size:13pt;font-weight:700;margin-bottom:4px">${band}班</div>`:''}
+    ${prepaidBoxHtml}
     <table style="width:100%;border-collapse:collapse;font-size:8pt;table-layout:fixed">
       <colgroup>
         <col style="width:7%"><col style="width:43%"><col style="width:12%"><col style="width:7%"><col style="width:13%"><col style="width:18%">
