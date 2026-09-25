@@ -122,10 +122,31 @@ anon向けSELECTポリシー案は不採用(ログインはapp_users独自方式
   【決定(JUN、2026-09-25)】実行順は「画面の版による書き込みガードの本番反映 → 全員の再読み込み → 業務時間外に実行」。
   ガードはPR #212でmainへマージ済み(main 196fd16)。次は本番デプロイの確認 → 全員の再読み込み → SQL実行。
   (下記「画面の版による書き込みガード」「RLS有効化SQLの実行時の注意」参照)
-- フェーズ2 バッチ2: business_partner_contacts, estimations, estimation_days
+- フェーズ2 バッチ2: business_partner_contacts, estimations, estimation_days + RPC search_business_partners。
+  実装計画を報告済み(2026-09-25、未着手・JUN承認待ち)。下記「バッチ2 実装計画」参照。
 - フェーズ2 バッチ3: arrangement_document系3件、tour_arrangement系/tour_*系6件、booking_guides,
   booking_water_items, bullet_train_arrangements, facility_operating_info, vendor_email_logs, error_logs
   (error_logsのINSERTもAPI化。未ログイン時の扱い・サイズ上限・連投対策の案を出す)
+
+## バッチ2 実装計画(2026-09-25報告、未着手)
+- 置き換え対象(index.html、関数名で探す): estimations 7箇所(exportBookingArchive / exportFiscalYearArchive / deleteBookingData /
+  loadEstimations / copyEstimation / openEstimationEditor / loadGuideAdvanceList)、estimation_days 4箇所(exportBookingArchive /
+  exportFiscalYearArchive / openEstimationEditor / loadGuideAdvanceList)、business_partner_contacts 4箇所
+  (loadRepresentativeContactsByPartnerIds / renderPartnerContactsList / loadBusinessPartnerContactsIndex / fetchRepresentativeContact)、
+  RPC search_business_partners 1箇所(fetchAndRenderPartners)。計16箇所。
+- 空データで進む既存の危険(必ず直す): openEstimationEditorで日程(estimation_days)の取得失敗が0件扱い→そのまま保存すると
+  replaceByKeyで日程が全削除される / fetchRepresentativeContactが取得失敗でnull→saveRepresentativeContactが代表担当者を
+  重複insert / deleteBookingDataで紐付く見積もりの取得失敗→converted_booking_idの解除をせずに削除へ進む。
+- search_business_partnersはbusiness_partner_contactsをJOINするSECURITY INVOKERのRPCのため、contactsのREVOKE前にAPI経由化が必須。
+- business_partners / bookings / agents 等は今回のバッチ1〜3の一覧に無く、ブラウザから読めるまま(別バッチで扱う)。
+
+## Web公開情報のマスタ取り込み(2026-09-25 調査・設計のみ報告、未着手・JUN判断待ち)
+- 既存: business_partners(カテゴリはホテル/レストラン/バス・ハイヤー等/その他の4つ。観光施設専用カテゴリは無く「その他」)、
+  住所・電話・FAX・メールあり。営業時間・定休日は facility_operating_info(施設名テキストで紐付け、既にextract-card.jsの
+  mode:'facility-operating-info'でWeb検索(claude-sonnet-4-6 + web_search_20250305)して保存している)。公式URL・駐車場・
+  団体料金・最寄駅・チェックイン時刻等の列は無い。予約側(booking_hotels等)はマスタと名前テキストでのみ紐付く。
+- 注意: api/extract-card.js はログイン検証(verifySessionToken)が無く、誰でも有料のAI/Web検索を呼べる状態(既存)。
+- 設計案・費用見込み・入力済み率SQLはチャットの報告を参照(判断待ち項目: 観光施設カテゴリの追加、新テーブル案、使うモデル)。
 
 ## バッチ1 再開用メモ(新しいセッションはここから読む)
 
