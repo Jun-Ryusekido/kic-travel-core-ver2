@@ -7,7 +7,18 @@
 2. バッチ2 → 3. バッチ3 → 4. 外部から読めるその他のテーブル(バッチ4) → 5. Web取り込み機能
 - 1の後、バッチ2の前に: partner-similarity / ai-inbox のログイン確認(別の小さいPR。JUN決定、下記)
 
-### 1. extract-card のログイン確認 — PR #213(ブランチ claude/magical-ride-6phzj3)、未マージ・マージはJUNの確認後
+### 1. extract-card のログイン確認 — PR #213 マージ済み(main dc065b8、2026-09-25)。実機確認は後日
+- 【決定(JUN、2026-09-25)】有料APIの穴を早く塞ぐため、Previewでの実機確認を後回しにしてマージした
+  (Preview status success を確認してからマージ)。実機確認は後日: ログイン中のAI読み取り(OCR各種・向き判定・
+  観光施設のWeb検索)、guide.html の領収書読み取り(1枚/複数枚)、未ログイン・古い画面で401になること。
+- PR #213 のコミット: d0e041d(コード)/ 5076c25(読み取り専用SQL)/ 2f98fab・74d1365(SESSION_NOTES)。
+  753b1fa(帰着日の逆転チェック)は含まれていない(別セッションのブランチ claude/blissful-rubin-5z8ftu にあり、未マージ)。
+- 動かなかった場合の戻し方(コードのコミットだけを戻す。SESSION_NOTES・SQLは残す):
+  1. 最速: Vercelの Deployments で、1つ前の本番デプロイ(main 196fd16)を「Instant Rollback」する(数十秒。コードは戻らない)。
+  2. その後コードを戻す: origin/main から新しいブランチを作り `git revert d0e041d` → push → PR → Preview確認 → マージ。
+     (GitHubのPR #213画面の「Revert」ボタンはマージ全体(SESSION_NOTES・SQL含む)を戻すため、使うならその点に注意)
+  - 戻した場合: extract-card は再びログイン確認なしになる(穴が開く)。index.htmlがX-Session-Tokenを送るだけ・
+    guide.htmlがguestTokenを送るだけの状態は、戻した後のサーバーでも無害(無視される)。
 - 問題: api/extract-card.js に verifySessionToken が無く、未ログインで有料のAI(Anthropic API)・Web検索
   (mode:'facility-operating-info'、web_search max_uses 4)を誰でも呼び出せた。
 - ログインなしの正当な呼び出し元(調査結果): guide.html の領収書読み取り(receiptImageBase64、2箇所)だけ。
@@ -28,6 +39,17 @@
   ai-inbox.js(メールの関連性判定・REF#抽出)。どちらも index.html からのみ・Edgeランタイム(Nodeのcryptoが
   使えないためWeb Crypto版の検証が必要)。【決定(JUN)】別の小さいPRで対応(画面側のヘッダー送信は1のPRで入る)。
   他の関数: email-importは x-import-key で認証、login/change-password/add-user/list-users は有料API呼び出し無し。
+- SQL要否: 不要。
+
+### 1b. partner-similarity / ai-inbox のログイン確認 — PR #214(ブランチ claude/magical-ride-6phzj3)、未マージ・マージはJUNの確認後
+- どちらもEdgeランタイムのため、Web Crypto版の検証 api/lib/session-token-edge.js(verifySessionTokenEdge)を追加。
+  トークン形式・秘密鍵・期限は lib/session-token.js と同じ(Node側で発行したトークンをEdge側で検証できることをハーネスで確認)。
+- 画面側の変更は不要(PR #213 の fetchラッパーが X-Session-Token を付けている)。
+- 未ログイン・古い画面(PR #213 より前の index.html)から呼ばれた場合:
+  - 取引先・Agentの類似判定(callPartnerSimilarityAi / callAgentSimilarityAi): !ok を黙って「AI候補なし」扱い →
+    完全一致の重複チェックだけが動く(表記ゆれの重複は警告されない。データは壊れない)。
+  - メールの関連性判定(classify): 判定されないまま一覧に残り、次回再判定(隠れる方向には倒れない)。
+  - REF#抽出(extractRefs): エラー表示。
 - SQL要否: 不要。
 
 ### バッチ2
