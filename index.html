@@ -880,7 +880,10 @@ input[type=number]{-moz-appearance:textfield}
      トラック11-12、1トラック分の狭い幅にして入力欄のすぐ右に来るようにする)。
      並び替えセルがDOM上も先頭のtdになったため、以降の項目のnth-childは
      全て+1する(nth-child(1)=ホテル名だったものがnth-child(2)になる、等)。 */
-  #bd-hotels-tbody td:nth-child(2){grid-row:2;grid-column:1/12}
+  #bd-hotels-tbody td:nth-child(2){grid-row:2;grid-column:1/12;gap:4px}
+  /* ホテル名のセルに区分(ゲスト/ドライバー)の選択とDRVの目印を同居させる(列を増やすとnth-childの配置がずれるため)。 */
+  #bd-hotels-tbody td select.hotel-lodging-sel{width:92px!important;flex:0 0 92px;margin-top:0!important}
+  #bd-hotels-tbody td:nth-child(2) input{width:auto!important;flex:1;min-width:0}
   #bd-hotels-tbody td.li-del{grid-row:2;grid-column:12/13;justify-content:center}
 
   /* 2行目: イン(col1) / アウト(col2) / 泊数(col3、背景色付きバッジ)。ラベル「イン」
@@ -2713,8 +2716,7 @@ input[type=number]{-moz-appearance:textfield}
       <div class="tbl-wrap arr-tbl-sticky"><table class="li-table confirm-table" style="min-width:970px">
         <thead><tr>
           <th class="li-reorder" style="width:60px"></th>
-          <th style="width:160px">ホテル名</th>
-          <th style="width:80px">区分</th>
+          <th style="width:160px">ホテル名 / 区分</th>
           <th style="width:100px;cursor:pointer;user-select:none" onclick="sortHotelTable('check_in')">チェックイン <span id="hotel-checkin-sort-arrow" style="color:var(--text3)">⇅</span></th>
           <th style="width:100px;cursor:pointer;user-select:none" onclick="sortHotelTable('check_out')">チェックアウト <span id="hotel-checkout-sort-arrow" style="color:var(--text3)">⇅</span></th>
           <th style="width:70px">部屋タイプ</th>
@@ -6753,7 +6755,8 @@ function arrCostCheckboxHtml(arrName, i, it, kind){
   }
   // ホテルのドライバー宿泊の行は、費用をガイド・ドライバーの仮払いの精算で計上するため、仕入明細へは追加しない(二重計上防止)
   if(kind === 'hotel' && isDriverLodging(it)){
-    return `<td data-label="仕入明細へ" style="text-align:center"><button class="btn" disabled style="${btnStyleBase}" title="ドライバー宿泊は仮払いの精算で計上するため、仕入明細へは追加しません" onclick="alert(this.title)">対象外</button><div style="font-size:8px;color:var(--text3);line-height:1.2">仮払いで精算</div></td>`;
+    // disabledのボタンはクリックできず(スマホではツールチップも出ない)理由が分からないため、押すと理由を表示する
+    return `<td data-label="仕入明細へ" style="text-align:center"><button type="button" class="btn" style="${btnStyleBase};opacity:.55;cursor:help" title="ドライバー宿泊は仮払いの精算で計上するため、仕入明細へは追加しません" onclick="alert(this.title)">対象外</button></td>`;
   }
   // 業務フロー点検対応③: 以前はここで仕入先名・日付をJSONにシリアライズしてボタンの
   // onclickへ直接埋め込んでいたが、その後この行の日付・仕入先名欄を編集しても
@@ -12901,7 +12904,7 @@ function renderHotelTable(){
   if(!tbody) return;
   const total = bdHotelItems.reduce((s,it)=>s+Number(it.amount||0),0);
   if(bdHotelItems.length===0){
-    tbody.innerHTML='<tr><td colspan="17" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
+    tbody.innerHTML='<tr><td colspan="16" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
   }else{
     const sorted = hotelSortState.field !== null;
     tbody.innerHTML = arrSortedOrder(hotelArrSortConfig).map(i=>{
@@ -12909,8 +12912,7 @@ function renderHotelTable(){
       const nights = calcHotelNights(it.check_in, it.check_out);
       return `<tr${sorted ? '' : arrRowDropHtml('bdHotelItems',i,'renderHotelTable')}>
         ${arrReorderHtml('bdHotelItems', i, bdHotelItems.length, 'renderHotelTable', sorted)}
-        <td data-label="ホテル名" style="position:relative">${isDriverLodging(it) ? HOTEL_DRV_BADGE_HTML : ''}<input value="${escAttr(it.hotel_name)}" oninput="bdHotelItems[${i}].hotel_name=this.value;showHotelSuggest(this,${i},bdHotelItems)" onfocus="showHotelSuggest(this,${i},bdHotelItems)" onblur="setTimeout(hideHotelSuggest,150)" style="width:100%"></td>
-        <td data-label="区分"><select onchange="setHotelLodgingFor(${i}, this.value)" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px">
+        <td data-label="ホテル名" style="position:relative">${isDriverLodging(it) ? HOTEL_DRV_BADGE_HTML : ''}<input value="${escAttr(it.hotel_name)}" oninput="bdHotelItems[${i}].hotel_name=this.value;showHotelSuggest(this,${i},bdHotelItems)" onfocus="showHotelSuggest(this,${i},bdHotelItems)" onblur="setTimeout(hideHotelSuggest,150)" style="width:100%"><select class="hotel-lodging-sel" title="区分(ゲスト/ドライバー宿泊)" onchange="setHotelLodgingFor(${i}, this.value)" style="width:100%;margin-top:2px;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:2px 4px">
           <option value="guest" ${isDriverLodging(it)?'':'selected'}>ゲスト</option>
           <option value="driver" ${isDriverLodging(it)?'selected':''}>ドライバー</option>
         </select></td>
