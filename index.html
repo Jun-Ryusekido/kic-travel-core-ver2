@@ -3276,6 +3276,102 @@ const SUPABASE_URL = 'https://nzdygjlnzvtdezslnuoy.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Cnloaxzb2Ati8gmCa-1o3Q_t3uy6_mB';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+// ===== 画面の版(APP_VERSION)と「新しい版があります」表示 =====
+// この画面のコードの版。/api/への全リクエストにX-App-Versionヘッダーとして付けて送る(下のfetchラッパー)。
+// サーバー(api/lib/app-version.js)は、書き込み系actionでこの値がMIN_WRITE_APP_VERSIONより古い・または
+// 無いリクエストを拒否する(古い画面を開いたままの保存でデータを壊さないため。2026-09-25 JUN決定)。
+// 形式はYYYYMMDDNN(整数)。通常のデプロイでは上げなくてよい(「新しい版があります」の表示はデプロイID
+// で判定するため)。古い画面のまま書き込まれると壊れる変更をデプロイする時だけ、この値を上げ、
+// api/lib/app-version.jsのMIN_WRITE_APP_VERSIONも同じ値に上げる。
+const APP_VERSION = 2026092501;
+// 画面を開いた後に最初に受け取ったデプロイID(サーバーの応答ヘッダーX-App-Deployment)。以後これと
+// 異なるIDを受け取ったら、新しい版がデプロイされたと判断して再読み込みを促す(自動リロードはしない)。
+let _appLoadedDeployment = null;
+let _appUpdateBannerState = null; // null / 'new'(新しい版あり) / 'outdated'(この画面からは保存できない)
+let _appVersionLastCheckAt = 0;
+const APP_VERSION_CHECK_INTERVAL_MS = 10 * 60 * 1000;
+
+function _isAppApiUrl(url){
+  if(typeof url !== 'string') return false;
+  if(url.startsWith('/api/')) return true;
+  try{ const u = new URL(url, location.href); return u.origin === location.origin && u.pathname.startsWith('/api/'); }
+  catch(e){ return false; }
+}
+// /api/の応答ヘッダーから、新しい版のデプロイ・書き込みに必要な最低版を確認する。
+function _appVersionObserveResponse(resp){
+  try{
+    if(!resp || !resp.headers) return;
+    const minVer = Number(resp.headers.get('X-App-Min-Version'));
+    if(resp.status === 426 || (minVer && minVer > APP_VERSION)){ showAppUpdateBanner('outdated'); return; }
+    const dep = resp.headers.get('X-App-Deployment');
+    if(!dep) return; // デプロイIDを取れない環境では判定しない(誤表示を避ける)
+    if(_appLoadedDeployment === null) _appLoadedDeployment = dep;
+    else if(dep !== _appLoadedDeployment) showAppUpdateBanner('new');
+  }catch(e){ /* 表示のための確認のみ。失敗しても本来の処理には影響させない */ }
+}
+(function installAppVersionFetchHeader(){
+  const origFetch = window.fetch.bind(window);
+  window.fetch = function(input, init){
+    const url = typeof input === 'string' ? input : (input && input.url);
+    if(!_isAppApiUrl(url)) return origFetch(input, init);
+    const opts = Object.assign({}, init || {});
+    const headers = new Headers(opts.headers || (input && typeof input !== 'string' ? input.headers : undefined) || {});
+    headers.set('X-App-Version', String(APP_VERSION));
+    opts.headers = headers;
+    return origFetch(input, opts).then(resp=>{ _appVersionObserveResponse(resp); return resp; });
+  };
+})();
+// 新しい版の有無を確認する(ログイン不要・データに触れないappInfo。応答ヘッダーはfetchラッパーで確認)。
+// 通常のAPI呼び出しの応答でも確認しているため、これは操作の無い間の確認用。
+async function checkAppVersionNow(){
+  _appVersionLastCheckAt = Date.now();
+  try{
+    await fetch('/api/table-crud', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ action: 'appInfo' }) });
+  }catch(e){ /* 通信できない時は次回に確認する */ }
+}
+// 画面を開いた直後に1回確認し、この画面のデプロイIDを早めに記録する。
+checkAppVersionNow();
+setInterval(()=>{ if(document.visibilityState === 'visible') checkAppVersionNow(); }, APP_VERSION_CHECK_INTERVAL_MS);
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState === 'visible' && Date.now() - _appVersionLastCheckAt > 60 * 1000) checkAppVersionNow();
+});
+// 再読み込みを促す帯を画面下部に表示する。自動リロードはしない(保存前の入力を失わせないため)。
+// 「再読み込み」ボタンは通常のlocation.reload()のため、予約詳細に未保存の変更があれば既存の
+// beforeunloadの確認が出る。
+function showAppUpdateBanner(state){
+  if(_appUpdateBannerState === 'outdated' && state === 'new') return; // 重い方の表示を優先
+  if(_appUpdateBannerState === state) return;
+  _appUpdateBannerState = state;
+  let el = document.getElementById('app-update-banner');
+  if(!el){
+    el = document.createElement('div');
+    el.id = 'app-update-banner';
+    el.setAttribute('role', 'alert');
+    el.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:100000;box-sizing:border-box;width:100%;'
+      + 'padding:10px 16px;display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;font-size:13px;line-height:1.5;'
+      + 'box-shadow:0 -2px 8px rgba(0,0,0,.15)';
+    document.body.appendChild(el);
+  }
+  const outdated = state === 'outdated';
+  el.style.background = outdated ? '#fdecea' : '#fff8e1';
+  el.style.color = outdated ? '#8a1c1c' : '#5d4200';
+  el.style.borderTop = outdated ? '2px solid #d93025' : '2px solid #f0b400';
+  const msg = outdated
+    ? 'この画面は古い版のため、保存できません。必要な入力内容を控えてから、Ctrl+Shift+R(MacはCmd+Shift+R)で再読み込みしてください。'
+    : '新しい版があります。作業中の内容を保存してから、Ctrl+Shift+R(MacはCmd+Shift+R)で再読み込みしてください。';
+  el.innerHTML = '';
+  const span = document.createElement('span');
+  span.style.cssText = 'flex:1 1 240px;min-width:0;word-break:break-word';
+  span.textContent = (outdated ? '⚠ ' : 'ℹ ') + msg;
+  const btn = document.createElement('button');
+  btn.className = 'btn btn-p';
+  btn.style.cssText = 'font-size:12px;white-space:nowrap';
+  btn.textContent = '再読み込み';
+  btn.onclick = () => location.reload();
+  el.appendChild(span);
+  el.appendChild(btn);
+}
+
 let currentUser = null;
 const ACCOUNTING_EMAILS = ['admin@kictravel.jp','kanri@kictravel.jp'];
 const BACKUP_EMAILS = ['admin@kictravel.jp','jr@kictravel.jp'];
@@ -5558,6 +5654,8 @@ function appendSchemaErrorHint(message){
 // 加算等)を確定させた"後"にレスポンスがクライアントに届く前だけネットワークが切れる
 // ケースを区別できない、(b)insert/replace系は再実行そのものが二重登録に直結する、という
 // 理由から、安全側に倒して一律リトライ対象外とする。
+// ※サーバー側(api/table-crud.jsのAPP_VERSION_EXEMPT_ACTIONS)で、画面の版による書き込みガードの対象外に
+//   している読み取り専用actionと同じ一覧。読み取り専用actionを追加する時は両方に追加すること。
 const TABLE_CRUD_IDEMPOTENT_READ_ACTIONS = new Set(['auditHistory', 'list', 'listByField', 'list_active', 'query', 'queryBatch', 'rpc', 'rpcBatch']);
 
 async function tableCrudApiCall(table, action, payload){
