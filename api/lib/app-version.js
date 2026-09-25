@@ -20,9 +20,11 @@
 //   X-App-Deploymentヘッダーとして付ける。画面側は最初に受け取った値と異なる値を受け取ったら
 //   再読み込みを促す(自動リロードはしない)。環境変数が無い場合は空文字(画面側は判定しない)。
 
-// この版(2026092501)より古い画面、およびヘッダーを送らない旧コード(main 4dfeb33以前・bbd5731)
-// からの書き込みを拒否する。
-export const MIN_WRITE_APP_VERSION = 2026092501;
+// この版より古い画面、およびヘッダーを送らない旧コード(main 4dfeb33以前・bbd5731)からの書き込みを拒否する。
+// 2026092501: 画面の版による書き込みガードの導入(PR #212)。
+// 2026092502: ホテル明細の区分(booking_hotels.lodging_for)の追加。古い画面はこの列を送らないため、ドライバー宿泊の行を
+//             保存すると全削除→再挿入で既定値の「ゲスト」に戻ってしまう(2026-09-25)。
+export const MIN_WRITE_APP_VERSION = 2026092502;
 
 export const APP_VERSION_OUTDATED_CODE = 'APP_VERSION_OUTDATED';
 export const APP_VERSION_OUTDATED_MESSAGE =

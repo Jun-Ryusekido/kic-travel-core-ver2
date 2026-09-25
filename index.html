@@ -2714,6 +2714,7 @@ input[type=number]{-moz-appearance:textfield}
         <thead><tr>
           <th class="li-reorder" style="width:60px"></th>
           <th style="width:160px">ホテル名</th>
+          <th style="width:80px">区分</th>
           <th style="width:100px;cursor:pointer;user-select:none" onclick="sortHotelTable('check_in')">チェックイン <span id="hotel-checkin-sort-arrow" style="color:var(--text3)">⇅</span></th>
           <th style="width:100px;cursor:pointer;user-select:none" onclick="sortHotelTable('check_out')">チェックアウト <span id="hotel-checkout-sort-arrow" style="color:var(--text3)">⇅</span></th>
           <th style="width:70px">部屋タイプ</th>
@@ -3283,7 +3284,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 // 形式はYYYYMMDDNN(整数)。通常のデプロイでは上げなくてよい(「新しい版があります」の表示はデプロイID
 // で判定するため)。古い画面のまま書き込まれると壊れる変更をデプロイする時だけ、この値を上げ、
 // api/lib/app-version.jsのMIN_WRITE_APP_VERSIONも同じ値に上げる。
-const APP_VERSION = 2026092501;
+const APP_VERSION = 2026092502;
 // 画面を開いた後に最初に受け取ったデプロイID(サーバーの応答ヘッダーX-App-Deployment)。以後これと
 // 異なるIDを受け取ったら、新しい版がデプロイされたと判断して再読み込みを促す(自動リロードはしない)。
 let _appLoadedDeployment = null;
@@ -6161,7 +6162,9 @@ async function fetchVendorEmailCandidates(){
 
   let candidates = [];
   for(const src of VENDOR_EMAIL_SOURCES){
-    const rows = await fetchAllRowsGeneric(src.table, `id,booking_id,status,${src.nameCol},${src.dateCol},created_at`);
+    // ホテルのドライバー宿泊(lodging_for='driver')はKICが手配するものではないため、催促の対象外
+    const rowsAll = await fetchAllRowsGeneric(src.table, `id,booking_id,status,${src.nameCol},${src.dateCol},created_at${src.table==='booking_hotels' ? ',lodging_for' : ''}`);
+    const rows = src.table==='booking_hotels' ? rowsAll.filter(r=>!isDriverLodging(r)) : rowsAll;
     rows.forEach(r=>{
       const name = r[src.nameCol];
       if(!name || !String(name).trim()) return;
@@ -6748,6 +6751,10 @@ function arrCostCheckboxHtml(arrName, i, it, kind){
   if(isFreePaymentMethod(it.payment_method)){
     return `<td data-label="仕入明細へ" style="text-align:center"><button class="btn" disabled style="${btnStyleBase}" title="支払方法が無料(FREE)のため仕入対象外です">追加</button></td>`;
   }
+  // ホテルのドライバー宿泊の行は、費用をガイド・ドライバーの仮払いの精算で計上するため、仕入明細へは追加しない(二重計上防止)
+  if(kind === 'hotel' && isDriverLodging(it)){
+    return `<td data-label="仕入明細へ" style="text-align:center"><button class="btn" disabled style="${btnStyleBase}" title="ドライバー宿泊は仮払いの精算で計上するため、仕入明細へは追加しません" onclick="alert(this.title)">対象外</button><div style="font-size:8px;color:var(--text3);line-height:1.2">仮払いで精算</div></td>`;
+  }
   // 業務フロー点検対応③: 以前はここで仕入先名・日付をJSONにシリアライズしてボタンの
   // onclickへ直接埋め込んでいたが、その後この行の日付・仕入先名欄を編集しても
   // (これらのinputはonchangeで配列を更新するだけで再描画を伴わないため)ボタン側の
@@ -6796,6 +6803,10 @@ async function addArrRowToCostNow(arrName, i, kind, btnEl){
   const arr = ARR_NAME_ARRAYS[arrName] ? ARR_NAME_ARRAYS[arrName]() : null;
   const it = arr ? arr[i] : null;
   if(!it){ alert('対象の行が見つかりませんでした。画面を更新してもう一度お試しください。'); return; }
+  if(kind === 'hotel' && isDriverLodging(it)){
+    alert('ドライバー宿泊は仮払いの精算で計上するため、仕入明細へは追加しません。');
+    return;
+  }
   const sec = ARR_COST_SECTION_MAP[kind];
   const payload = {
     table: sec.table,
@@ -8896,6 +8907,11 @@ async function generateLocalExpensesFromArrangements(){
 
   // ホテル
   (hotelRows||[]).forEach(h=>{
+    // ドライバー宿泊の行(lodging_for='driver')は区分「D（ドライバー）」で出す(支払方法は行の支払方法)
+    if(isDriverLodging(h)){
+      mk(h.check_in||fallbackDate, 'ホテル代', `${h.hotel_name||'ホテル'} ドライバー宿泊`, 'D（ドライバー）', h.amount, h.payment_method||'', false);
+      return;
+    }
     mk(h.check_in||fallbackDate, 'ホテル代', h.hotel_name||'ホテル', 'ゲスト', h.amount, h.payment_method||'', false);
   });
 
@@ -8995,7 +9011,8 @@ function findArrangementDateRangeErrors(){
     items.forEach((it, i) => {
       if(!isDateRangeReversed(it[startField], it[endField])) return;
       const pos = order.indexOf(i) + 1 || i + 1;
-      errors.push({ tab, text: `・${tabLabel} ${pos}行目(${it[nameField] || '名称未入力'}): ${endLabel} ${it[endField]} が ${startLabel} ${it[startField]} より前です` });
+      const drv = (tab === 'hotel' && isDriverLodging(it)) ? '・ドライバー宿泊' : '';
+      errors.push({ tab, text: `・${tabLabel} ${pos}行目(${it[nameField] || '名称未入力'}${drv}): ${endLabel} ${it[endField]} が ${startLabel} ${it[startField]} より前です` });
     });
   };
   check('hotel', 'ホテル', bdHotelItems, hotelArrSortConfig, 'hotel_name', 'check_in', 'check_out', 'チェックイン', 'チェックアウト');
@@ -12699,7 +12716,7 @@ let bdGuideDocEditing = null; // 編集モーダルで開いている手配書1�
 // 引き継がれ、仮払い一覧のドライバー宿泊費等に使われるのを防ぐ。以前も保存時に落ちていたため挙動は同じ)。
 const ARR_COPY_CONFIG = {
   hotel:  { table:'booking_hotels',        keyField:'booking_id',
-    map:r=>({hotel_name:r.hotel_name||'', check_in:r.check_in||'', check_out:r.check_out||'', room_type:r.room_type||'', rooms:r.rooms||1, breakfast:r.breakfast||false, unit_price:r.unit_price||0, amount:r.amount||0, confirmation_no:'', status:'回答待ち', payment_method:r.payment_method||'', memo:r.memo||''}) },
+    map:r=>({hotel_name:r.hotel_name||'', check_in:r.check_in||'', check_out:r.check_out||'', room_type:r.room_type||'', rooms:r.rooms||1, breakfast:r.breakfast||false, unit_price:r.unit_price||0, amount:r.amount||0, confirmation_no:'', status:'回答待ち', payment_method:r.payment_method||'', memo:r.memo||'', lodging_for:normalizeLodgingFor(r.lodging_for)}) },
   bus:    { table:'booking_buses',         keyField:'booking_id',
     map:r=>({bus_company:r.bus_company||'', bus_type:r.bus_type||'', buses:r.buses||1, start_date:r.start_date||'', end_date:r.end_date||'', amount:r.amount||0, status:'問い合わせ中', confirmation_no:'', driver_hotel_name:'', driver_hotel_phone:'', driver_hotel_address:'', driver_check_in:'', driver_check_out:'', driver_hotel_amount:0, payment_method:r.payment_method||'', memo:r.memo||''}) },
   rest:   { table:'booking_restaurants',   keyField:'booking_id',
@@ -12854,6 +12871,25 @@ function switchArrangTab(tab){
   if(tab==='doc') renderArrDayList();
 }
 
+// ホテル明細の区分(booking_hotels.lodging_for): 'guest'(ゲスト、既定)/'driver'(ドライバー宿泊)。
+// 2026-09-25 JUN決定(案C): ドライバーの別宿(ゲストのホテルに大型バスの駐車場が無く、駐車場に近い別ホテルに
+// ドライバーだけ泊まる等)はホテルタブの行として管理する。ドライバーが現地で払い仮払いで精算するのが中心のため、
+// ドライバーの行は「仕入明細へ追加」の対象外(二重計上防止)、ホテル予約管理・キャンセル期日の警告・
+// 手配確定状況の対象外(KICが手配するものではないため)。仮払い一覧の自動生成では区分「D（ドライバー）」で出す。
+// バスのdriver_*列は今後使わない(全行空。列は残す)。
+const HOTEL_LODGING_DRIVER = 'driver';
+function isDriverLodging(it){ return !!it && it.lodging_for === HOTEL_LODGING_DRIVER; }
+function normalizeLodgingFor(v){ return v === HOTEL_LODGING_DRIVER ? HOTEL_LODGING_DRIVER : 'guest'; }
+const HOTEL_DRV_BADGE_HTML = '<span style="display:inline-block;font-size:9px;font-weight:700;color:#fff;background:#6a1b9a;border-radius:3px;padding:0 4px;margin-bottom:2px" title="ドライバー宿泊">DRV</span>';
+// 区分の切り替え。ドライバーにした時、支払方法が未入力なら「現地払い」を入れる(ドライバーが現地で払う運用が中心)。
+function setHotelLodgingFor(i, value){
+  const it = bdHotelItems[i];
+  if(!it) return;
+  it.lodging_for = normalizeLodgingFor(value);
+  if(isDriverLodging(it) && !it.payment_method) it.payment_method = '現地払い';
+  renderHotelTable();
+}
+
 function calcHotelNights(ci, co){
   if(!ci || !co) return 0;
   const d = (new Date(co) - new Date(ci)) / 86400000;
@@ -12865,7 +12901,7 @@ function renderHotelTable(){
   if(!tbody) return;
   const total = bdHotelItems.reduce((s,it)=>s+Number(it.amount||0),0);
   if(bdHotelItems.length===0){
-    tbody.innerHTML='<tr><td colspan="16" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
+    tbody.innerHTML='<tr><td colspan="17" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
   }else{
     const sorted = hotelSortState.field !== null;
     tbody.innerHTML = arrSortedOrder(hotelArrSortConfig).map(i=>{
@@ -12873,7 +12909,11 @@ function renderHotelTable(){
       const nights = calcHotelNights(it.check_in, it.check_out);
       return `<tr${sorted ? '' : arrRowDropHtml('bdHotelItems',i,'renderHotelTable')}>
         ${arrReorderHtml('bdHotelItems', i, bdHotelItems.length, 'renderHotelTable', sorted)}
-        <td data-label="ホテル名" style="position:relative"><input value="${escAttr(it.hotel_name)}" oninput="bdHotelItems[${i}].hotel_name=this.value;showHotelSuggest(this,${i},bdHotelItems)" onfocus="showHotelSuggest(this,${i},bdHotelItems)" onblur="setTimeout(hideHotelSuggest,150)" style="width:100%"></td>
+        <td data-label="ホテル名" style="position:relative">${isDriverLodging(it) ? HOTEL_DRV_BADGE_HTML : ''}<input value="${escAttr(it.hotel_name)}" oninput="bdHotelItems[${i}].hotel_name=this.value;showHotelSuggest(this,${i},bdHotelItems)" onfocus="showHotelSuggest(this,${i},bdHotelItems)" onblur="setTimeout(hideHotelSuggest,150)" style="width:100%"></td>
+        <td data-label="区分"><select onchange="setHotelLodgingFor(${i}, this.value)" style="width:100%;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 4px">
+          <option value="guest" ${isDriverLodging(it)?'':'selected'}>ゲスト</option>
+          <option value="driver" ${isDriverLodging(it)?'selected':''}>ドライバー</option>
+        </select></td>
         <td data-label="ｲﾝ"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.check_in}" onchange="bdHotelItems[${i}].check_in=this.value;hotelCalc(${i})"></td>
         <td data-label="ｱｳﾄ"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.check_out}" onchange="bdHotelItems[${i}].check_out=this.value;hotelCalc(${i})"></td>
         <td data-label="部屋タイプ"><input value="${escAttr(it.room_type)}" oninput="bdHotelItems[${i}].room_type=this.value" placeholder="部屋タイプ" style="width:100%"></td>
@@ -12885,7 +12925,7 @@ function renderHotelTable(){
         ${arrPaymentMethodSelectHtml('bdHotelItems', i, it.payment_method)}
         <td data-label="確認番号"><input value="${escAttr(it.confirmation_no)}" oninput="bdHotelItems[${i}].confirmation_no=this.value" placeholder="確認番号" style="width:100%"></td>
         <td data-label="ステータス">${statusDropdownHtml(o=>`bdHotelItems[${i}].status='${o}';renderHotelTable()`, it.status, ['未予約','回答待ち','手配OK','FNL済','NG回答','キャンセル'], '回答待ち')}</td>
-        <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdHotelItems[${i}].memo=this.value" placeholder="備考" style="width:100%"></td>
+        <td data-label="備考"><input value="${escAttr(it.memo)}" oninput="bdHotelItems[${i}].memo=this.value" placeholder="${isDriverLodging(it) ? '近くのバス駐車場など(例: P 〇〇駐車場 徒歩5分)' : '備考'}" style="width:100%"></td>
         ${arrCostCheckboxHtml('bdHotelItems', i, it, 'hotel')}
         ${arrDelBtnHtml('bdHotelItems', i, 'renderHotelTable', escAttr([it.hotel_name, it.room_type, [it.check_in, it.check_out].filter(Boolean).join('〜')].filter(Boolean).join(' '))+' の行を削除しますか？')}
       </tr>`;
@@ -12910,7 +12950,7 @@ function hotelCalc(i){
 }
 
 function addHotelRow(){
-  bdHotelItems.push({hotel_name:'', check_in:'', check_out:'', room_type:'', rooms:1, breakfast:false, unit_price:0, amount:0, confirmation_no:'', memo:'', payment_method:''});
+  bdHotelItems.push({hotel_name:'', check_in:'', check_out:'', room_type:'', rooms:1, breakfast:false, unit_price:0, amount:0, confirmation_no:'', memo:'', payment_method:'', lodging_for:'guest'});
   renderHotelTable();
 }
 
@@ -12924,7 +12964,8 @@ function mapHotelDbRow(r){
     room_type: r.room_type||'', rooms: r.rooms||1, breakfast: r.breakfast||false,
     unit_price: r.unit_price||0, amount: r.amount||0,
     confirmation_no: r.confirmation_no||'', status: r.status||'回答待ち', memo: r.memo||'', payment_method: r.payment_method||'',
-    cost_added: r.cost_added||false
+    cost_added: r.cost_added||false,
+    lodging_for: normalizeLodgingFor(r.lodging_for)
   };
 }
 // DB行→送信rows形式への変換のみを行う純粋関数。差分保存の比較(ロード直後/保存直前の
@@ -12950,6 +12991,7 @@ function buildHotelRows(bookingId, items){
     memo: it.memo||'',
     payment_method: it.payment_method||'',
     cost_added: !!it.cost_added,
+    lodging_for: normalizeLodgingFor(it.lodging_for),
     sort_order: i
   }));
 }
@@ -18944,7 +18986,7 @@ function renderArrDayList(){
   const hotelOptions = (selectedId) => {
     const opts = ['<option value="">-- 自由記述 --</option>'];
     bdHotelItems.filter(x=>x.id).forEach(x=>{
-      opts.push(`<option value="${x.id}" ${String(selectedId)===String(x.id)?'selected':''}>${escHtml(x.hotel_name||'(名称未入力)')} ${x.check_in||''}〜${x.check_out||''}</option>`);
+      opts.push(`<option value="${x.id}" ${String(selectedId)===String(x.id)?'selected':''}>${isDriverLodging(x)?'【DRV】':''}${escHtml(x.hotel_name||'(名称未入力)')} ${x.check_in||''}〜${x.check_out||''}</option>`);
     });
     return opts.join('');
   };
@@ -19091,7 +19133,8 @@ function parseArrDayPasteText(){
     // 末尾の地点(その日の宿泊ホテル)を既存のホテル入力欄と自動リンク。一致しなければ
     // 自由記述欄(hotel_note)に地点名を入れておく（行程本文にも既に含まれている）。
     const arrivalName = day.stops[day.stops.length-1].name;
-    const hotelMatch = bdHotelItems.find(h=>h.id && h.hotel_name && (h.hotel_name===arrivalName || arrivalName.includes(h.hotel_name) || h.hotel_name.includes(arrivalName)));
+    // ドライバー宿泊の行はその日のゲストの宿泊ホテルではないため、自動リンクの対象外
+    const hotelMatch = bdHotelItems.find(h=>h.id && h.hotel_name && !isDriverLodging(h) && (h.hotel_name===arrivalName || arrivalName.includes(h.hotel_name) || h.hotel_name.includes(arrivalName)));
     if(hotelMatch) target.hotel_booking_id = hotelMatch.id;
     else if(!target.hotel_note) target.hotel_note = arrivalName;
   });
@@ -22581,7 +22624,8 @@ function hmDupContentEqual(a,b){
 async function hmFetchExistingForDupCheck(rows){
   const bookingIds = [...new Set(rows.map(r=>r.booking_id).filter(Boolean))];
   if(bookingIds.length===0) return [];
-  const {data, error} = await sb.from('booking_hotels').select('*').in('booking_id', bookingIds);
+  // ドライバー宿泊(lodging_for='driver')は同じホテル・同じ日でもゲストの手配とは別物のため、重複判定の対象外
+  const {data, error} = await sb.from('booking_hotels').select('*').in('booking_id', bookingIds).eq('lodging_for','guest');
   if(error) throw new Error('重複チェックに失敗しました: '+error.message);
   return data||[];
 }
@@ -24827,7 +24871,8 @@ async function loadHotelManagement(){
   // search_hotel_managementのサーバー側絞り込みRPCから別途取得する。
   let data = []; let hmFrom0 = 0; const hmPageSize0 = 1000;
   while(true){
-    const {data: page, error} = await sb.from('booking_hotels').select('*,bookings(ref_no,agent_name,tour_name,pax)').order('check_in',{ascending:true}).range(hmFrom0, hmFrom0+hmPageSize0-1);
+    // ドライバー宿泊(lodging_for='driver')はKICが手配するものではないため、ホテル予約管理の対象外
+    const {data: page, error} = await sb.from('booking_hotels').select('*,bookings(ref_no,agent_name,tour_name,pax)').eq('lodging_for','guest').order('check_in',{ascending:true}).range(hmFrom0, hmFrom0+hmPageSize0-1);
     if(error){ document.getElementById('hm-tbody').innerHTML = `<tr><td colspan="12" class="empty">読み込みエラー: ${error.message}</td></tr>`; return; }
     data = data.concat(page||[]);
     if((page||[]).length < hmPageSize0) break;
@@ -25964,7 +26009,7 @@ async function printArrangementSummaryList(){
   if(bdHotelItems && bdHotelItems.length){
     const sorted = [...bdHotelItems].sort((a,c)=>(a.check_in||'').localeCompare(c.check_in||''));
     const rows = sorted.map(h=>`<tr>
-      <td ${tdS()}>${escHtml(h.hotel_name||'')}</td>
+      <td ${tdS()}>${escHtml(h.hotel_name||'')}${isDriverLodging(h)?' (ドライバー宿泊)':''}</td>
       <td ${tdS('white-space:nowrap')}>${escHtml(arrPartnerPhone(h.hotel_name))}</td>
       <td ${tdS()}>${escHtml(h.check_in||'')}</td>
       <td ${tdS()}>${escHtml(h.check_out||'')}</td>
