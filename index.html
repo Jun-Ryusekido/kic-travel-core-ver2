@@ -20710,9 +20710,23 @@ async function saveBooking(){
   const saveBtn = document.getElementById('nb-save-btn');
   const saveBtnOrigHtml = saveBtn ? saveBtn.innerHTML : null;
   if(saveBtn){ saveBtn.disabled = true; saveBtn.innerHTML = '⏳ 保存中...'; }
+  // 同じREF#の予約が既にあれば、保存せずにその旨を表示する(以前は「保存に失敗しました」としか
+  // 分からず、原因がREF#の重複だと気づけなかった)。確認自体に失敗した場合は保存に進み、
+  // サーバー側の一意制約エラー(REF#重複の文言に変換済み)に任せる。
+  try{
+    const {data: dupRows, error: dupErr} = await sb.from('bookings').select('id,ref_no,tour_name').eq('ref_no', ref).limit(1);
+    if(!dupErr && dupRows && dupRows.length){
+      if(saveBtn){ saveBtn.disabled = false; saveBtn.innerHTML = saveBtnOrigHtml; }
+      alert(`REF# ${ref} は既に登録されています（${dupRows[0].tour_name||'ツアー名なし'}）。別のREF#を入力してください。`);
+      document.getElementById('nb-ref').focus();
+      return;
+    }
+  }catch(e){ /* 確認に失敗した場合は保存に進む(サーバー側の一意制約で検出する) */ }
   try{ await bookingsApiCall('insert', { rows: [payload] }); }
   catch(e){
-    alert('保存に失敗しました: '+e.message);
+    alert(e.code==='DUPLICATE_KEY' && /ref_no/.test(e.message||'')
+      ? `REF# ${ref} は既に登録されています。別のREF#を入力してください。`
+      : '保存に失敗しました: '+e.message);
     // 保存失敗時は入力内容をあえて消さない(打ち直しの手間を省くため)が、そのまま
     // REF#だけ変えて別の予約用に転用されないよう、画面上に警告を残しておく
     // (この画面を離れて開き直せばresetNewBookingForm()でリセットされる)。

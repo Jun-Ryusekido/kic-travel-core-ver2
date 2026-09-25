@@ -942,6 +942,11 @@ async function doInsert(table, label, rows, config, changedBy) {
   const insRes = await sbFetch(table, '', { method: 'POST', prefer: needAudit ? 'return=representation' : 'return=minimal', body: JSON.stringify(rows) });
   if (!insRes.ok) {
     const e = await readJsonSafe(insRes);
+    // 一意制約違反(PostgreSQL 23505)は、原因が分かるよう日本語の説明と code を付けて返す
+    // (例: 新規予約でREF#が既存と重複した場合。以前は英語のDBエラー文だけで原因が分かりにくかった)。
+    if (e.code === '23505') {
+      return { status: 409, body: { error: `${label}: 同じ値が既に登録されているため保存できません（${e.message || ''}${e.details ? ' / ' + e.details : ''}）`, code: 'DUPLICATE_KEY' } };
+    }
     return { status: 500, body: { error: withGrantHint(e.message, table) || `${label}の保存に失敗しました` } };
   }
   // needAudit時はどのみちreturn=representationで挿入後の行(採番id含む)を取得しているため、
