@@ -11,6 +11,10 @@
 // バリデーション/レスポンス形状は、移行前の各ファイルの実装をそのまま踏襲する。
 import { getServiceKey } from './lib/app-users-db.js';
 import { verifySessionToken } from './lib/session-token.js';
+import {
+  MIN_WRITE_APP_VERSION, APP_VERSION_OUTDATED_CODE, APP_VERSION_OUTDATED_MESSAGE,
+  getRequestAppVersion, isAppVersionAllowedForWrite, getDeploymentId, setAppVersionResponseHeaders,
+} from './lib/app-version.js';
 
 const SB_URL = 'https://nzdygjlnzvtdezslnuoy.supabase.co';
 // クライアント側(index.html)のACCOUNTING_EMAILSと同じ一覧。経理担当者限定操作の
@@ -1594,6 +1598,22 @@ async function doAuditHistory(targetTable, recordId) {
   return { status: 200, body: { ok: true, rows } };
 }
 
+// 画面の版(X-App-Version)による書き込みガードの対象外とするaction(lib/app-version.js参照)。
+// ここに無いactionは全て「書き込み系」として版の確認を必須にする(新しいactionを追加した時に
+// 確認漏れで古い画面から書き込めてしまわないよう、書き込み側を列挙するのではなく対象外側を列挙する)。
+// - 読み取り専用action: 拒否しない。書き込みを止めれば古い画面の読み取りからデータが壊れることは
+//   無く、逆に読み取りを拒否すると、旧コードは多くの箇所でエラーを見ずに「0件」として表示するため、
+//   データが消えたように見えて誤操作を招く。読み取りは表示だけに使われるので許可する。
+//   (index.htmlのTABLE_CRUD_IDEMPOTENT_READ_ACTIONSと同じ一覧+appInfo)
+// - guest系action: guide.html(ガイド本人がログイン無しで使う精算画面)からの呼び出し。guide.htmlは
+//   RLS対象の4テーブルを読み書きせず、ガイドに再読み込みを求める理由が無いため対象外。
+// - appInfo: 版の確認そのもの(データに触れない)。
+const APP_VERSION_EXEMPT_ACTIONS = new Set([
+  'query', 'queryBatch', 'rpc', 'rpcBatch', 'auditHistory', 'list', 'listByField', 'list_active',
+  'guestInsert', 'guestUpdateById', 'guestUpsertConfirm',
+  'appInfo',
+]);
+
 // 旧エンドポイント(/api/booking-costs等)からのリクエストの後方互換対応。
 // 統合前のフロントエンドJSがブラウザに残ったまま(デプロイ後もタブを開きっぱなしのユーザー)
 // でも、bodyにtableが無い場合はvercel.jsonのルーティングで付与されるlegacyTableクエリ
@@ -1617,12 +1637,28 @@ export default async function handler(req, res) {
     return __origJson(body);
   };
 
+  // 画面側の「新しい版があります」表示用(lib/app-version.js参照)。エラー応答も含め全応答に付ける。
+  setAppVersionResponseHeaders(res);
+
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (!getServiceKey()) return res.status(500).json({ error: 'サーバー側にSUPABASE_SERVICE_ROLE_KEYが設定されていません' });
 
   const body = req.body || {};
   const table = body.table || (req.query && req.query.legacyTable);
   const { action, token, guestToken } = body;
+
+  // 版の確認(画面の定期確認用)。データに触れず、デプロイIDと書き込みに必要な最低版だけを返すため
+  // ログイン不要。
+  if (action === 'appInfo') {
+    return res.status(200).json({ ok: true, deployment: getDeploymentId(), minWriteVersion: MIN_WRITE_APP_VERSION });
+  }
+
+  // 書き込み系actionは、画面の版(X-App-Version)が無い・古い場合に拒否する(lib/app-version.js参照)。
+  // ログイン検証より前に行う(古い画面からは、セッションが有効でも書き込ませない)。
+  // 旧エンドポイント(legacyTable)経由の呼び出しは統合前の古い画面からのものなので、同様に拒否される。
+  if (!APP_VERSION_EXEMPT_ACTIONS.has(action) && !isAppVersionAllowedForWrite(getRequestAppVersion(req))) {
+    return res.status(426).json({ error: APP_VERSION_OUTDATED_MESSAGE, code: APP_VERSION_OUTDATED_CODE, minWriteVersion: MIN_WRITE_APP_VERSION });
+  }
 
   // guestInsert/guestUpdateByIdのみ、ログインセッションを持たないguide.html(ガイド本人が
   // 精算リンクのaccess_tokenだけでアクセスする画面)からの呼び出しを許可する。それ以外の
