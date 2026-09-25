@@ -214,7 +214,7 @@ anon向けSELECTポリシー案は不採用(ログインはapp_users独自方式
   booking_water_items, bullet_train_arrangements, facility_operating_info, vendor_email_logs, error_logs
   (error_logsのINSERTもAPI化。未ログイン時の扱い・サイズ上限・連投対策の案を出す)
 
-## 予約・手配の日付の前後チェック、Invoice発行の保存確認、driver_*の引き継ぎ(2026-09-25、ブランチ claude/magical-ride-6phzj3)
+## 予約・手配の日付の前後チェック、Invoice発行の保存確認、driver_*の引き継ぎ(2026-09-25、PR #215(ブランチ claude/magical-ride-6phzj3)、未マージ・マージはJUNの確認後)
 - 経緯: 別セッション(claude/blissful-rubin-5z8ftu、session_01TjKB…)が a を実装したところで停止。JUNの指示で以後はこのセッションだけで作業し、
   そのブランチ(6783159 / 2a35acb / 9e9d5cd / 753b1fa の4コミット。753b1fa以降の追加コミットは無し)をマージで取り込んだ。
 - a(753b1fa、実装済み): isDateRangeReversed(開始,終了)。新規予約(saveBooking)・予約詳細の保存(saveBookingDetail)で OUT<IN なら
