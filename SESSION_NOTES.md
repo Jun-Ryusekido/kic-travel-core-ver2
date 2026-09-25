@@ -100,6 +100,9 @@ anon向けSELECTポリシー案は不採用(ログインはapp_users独自方式
 - なし(2026-09-24時点)。フェーズ1報告の(a)(error_logsのcost_added更新失敗の件数)は未実行だが、(b)(d)の修正で実害は解消済み。
 
 ### 残タスク
+- 【既存・要判断】Invoiceプレビューの INVOICE No. 欄で先頭の「INV-」を外して表示している(D)。INV-付きにするか。
+- 【既存】予約詳細は一覧キャッシュ(allBookingsCache)の値で開くため、別の画面・他の人の変更が反映される前に保存すると、
+  bookingsの列(status等)を古い値で上書きしうる(Invoice発行時のstatusはPR #210で対処済み。一般的な解決は保存前の最新値確認等)。
 - 【既存不具合・本番でも発生】入出金管理でFROMだけ変えても集計が更新されないことがある(JUN確認、2026-09-24)。
   PR #210には含めない。原因調査から(onblur起点の集計・月別レポートがTO基準の年度であること等を確認する)。
 - フェーズ2 バッチ1: 下記「バッチ1 再開用メモ」参照(新しいセッションで開始予定)
@@ -158,6 +161,23 @@ RPC3本(get_payment_monthly_summary / search_payment_income / search_payment_out
     請求先として数える)。取得失敗時は作らずエラー表示(空データで判断しない)。1社の予約に既にある合算は自動削除しない。
   - 手動の「JPY/USD合算発行」も同じ判定に揃えた(1社なら作らずに案内のalert、予約ステータスも変えない)。
   - 既存データ: scripts/investigate_single_agent_consolidated_invoices.sql(読み取り専用)でJUNが一覧を確認 → 削除SQLは別途。
+- TEST-RLSでの書き込み確認(2026-09-25 JUN、Preview ff1c260): 1〜8すべて期待どおり。手順7(請求先を分けた後のSOTC分JPY発行)で
+  既存のINV-TESTRLSがSOTC分に更新され番号は維持(個別の既存行検索キー=booking_id+agent_name+currencyに一致するため。
+  「INV-TESTRLS-<識別子>が新規にできる」は誤った期待値だった)。
+- 確認で見つかった気になる点A〜E(すべて既存の不具合。mainのコードでも同じ)と対応:
+  - A/B 修正済み: USD請求書プレビューのTOTAL AMOUNT/Received deposit/Remaining balanceが二重換算($774.19→$4.995)、
+    浮動小数の誤差で「$-0.00」。換算済み金額用のfmtConvertedで表示(-0は0に丸める)。
+  - C 修正済み: 保存時の自動paid判定後も予約詳細の「関連Invoice」が開き直すまでPending → bdInvoicesCacheに反映。
+    手順7直後のPendingは、再発行でpaidがpendingに戻る既存不具合(下記)が原因。
+  - D 変更なし(要判断): プレビューのINVOICE No.欄は invoice_no から先頭の「INV-」を外して表示している
+    (showInvoicePreviewのinvNoDisplay。git履歴の最古(9f00a65)より前からある意図的な表示と思われる)。「INV-」付きにするかJUNが判断。
+  - E 修正済み: Invoice発行でDBのbookings.statusをinvoicedにしても画面の予約キャッシュが古いまま → その後の予約詳細の保存
+    (合算発行ボタン等は発行前に自動保存)でopenに上書き。発行時にキャッシュも更新(_setLocalBookingStatus)。
+    ※予約詳細は一覧キャッシュの値で開くため、他の人が別の画面でステータスを変えた直後に保存すると古い値で上書きしうる
+      一般的な問題は残る(残タスクに記録)。
+- 追加の既存不具合も修正: 入金済み(paid)の請求書を再発行するとpendingに戻る → 既存行がpaidならpaidのまま(合算も同じ)。
+  新規予約でREF#が重複すると「保存に失敗しました」だけ → 事前確認で「REF# xxx は既に登録されています」、
+  サーバーは一意制約違反を409 DUPLICATE_KEY+日本語で返す。
 
 ### 決定事項
 - anon向けSELECTポリシーは作らない(ログインはapp_users独自方式でブラウザは常にanon。Supabase Auth使用0件確認済み)。
