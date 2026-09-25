@@ -6864,6 +6864,15 @@ const EST_DAY_BLANK = {day_date:'', hotel_name:'', twin_rate:0, breakfast:'', br
 function findBookingById(id){
   return allBookingsCache.find(b=>b.id===id);
 }
+// Invoice発行等でbookings.statusだけをAPIで更新した時に、画面側の予約キャッシュ(allBookingsCache/
+// bookingsListCache)にも反映する。反映しないと、その後に予約詳細を開くとキャッシュの古いステータス
+// (例: open)が表示され、そのまま保存(合算発行ボタン等は発行前に自動保存する)するとDBのステータスを
+// 古い値で上書きしてしまっていた(2026-09 PR #210 のPreview確認で、Invoicedが後からOpenに戻った件)。
+function _setLocalBookingStatus(bookingId, status){
+  [allBookingsCache, bookingsListCache].forEach(list=>{
+    (list||[]).forEach(b=>{ if(b && b.id===bookingId) b.status = status; });
+  });
+}
 
 function bdSalesTotal(){ return bdSalesItems.reduce((s,it)=>s+Number(it.amount||0),0); }
 function bdCostTotal(){ return bdCostItems.reduce((s,it)=>s+Number(it.amount||0),0); }
@@ -20603,6 +20612,10 @@ async function saveBookingDetail(){
     for(const inv of pendingInvoicesForPaidCheck){
       if(invoiceShouldBePaid(inv, paidTotals)){
         await invoicesApiCall('updateById', { id: inv.id, fields: {status:'paid'} });
+        // 予約詳細の「関連Invoice」一覧(開いた時に読み込んだbdInvoicesCache)にも反映する
+        // (以前は予約詳細を閉じて開き直すまでPendingのまま表示されていた)
+        const cachedInv = (bdInvoicesCache||[]).find(x=>x.id===inv.id);
+        if(cachedInv) cachedInv.status = 'paid';
       }
     }
   } catch(e) {
@@ -29707,7 +29720,7 @@ async function generateInvoice(bookingId, currency, agentFilter){
   let data;
   try{
     // 2件以上ヒットした場合・検索自体に失敗した場合は例外となり、INSERTに進まずに中止する。
-    const existingInv = await tableQueryMaybeSingle('invoices', { select: 'id', filters: [
+    const existingInv = await tableQueryMaybeSingle('invoices', { select: 'id,status', filters: [
       { col: 'booking_id', op: 'eq', value: bookingId },
       { col: 'is_consolidated', op: 'eq', value: false },
       targetAgentName ? { col: 'agent_name', op: 'eq', value: targetAgentName } : { col: 'agent_name', op: 'isNull' },
@@ -29715,7 +29728,11 @@ async function generateInvoice(bookingId, currency, agentFilter){
     ] });
     if(existingInv && existingInv.id){
       // 再発行時はinvoice_noを送らず、発行済みの番号を維持する(2026-09決定)。
-      const updateResult = await invoicesApiCall('updateById', { id: existingInv.id, fields: {...corePayload} });
+      // 入金済み(paid)のInvoiceを再発行してもpendingに戻さない(以前は再発行のたびにpendingに
+      // 戻り、次に予約詳細を保存するまでPending表示のままだった。入金消込の自動判定と同じく、
+      // paidから自動でpendingへ戻すことはしない)。
+      const updateResult = await invoicesApiCall('updateById', { id: existingInv.id,
+        fields: {...corePayload, status: existingInv.status==='paid' ? 'paid' : corePayload.status} });
       data = (updateResult.rows||[])[0];
     }else{
       const insertResult = await invoicesApiCall('insert', { rows: [{
@@ -29734,6 +29751,7 @@ async function generateInvoice(bookingId, currency, agentFilter){
 
   // 予約ステータスを invoiced に更新
   await bookingsApiCall('updateById', { id: bookingId, fields: {status:'invoiced'} });
+  _setLocalBookingStatus(bookingId, 'invoiced');
   await logAction('Invoice発行', ((data && data.invoice_no) || invoiceNo) + ' (' + booking.ref_no + (agentFilter?(' / '+agentFilter):'') + ')');
 
   // 個別Invoiceを発行・再発行するたびに、同じbooking_idの合算Invoice(全請求先合計)も
@@ -29802,14 +29820,16 @@ async function upsertConsolidatedInvoice(bookingId, currency, booking){
   // 合算Invoiceは通貨別に1件(invoices_one_consolidated_per_booking_currency: (booking_id, currency)
   // WHERE is_consolidated と同じキー)。再発行(UPDATE)時はinvoice_noを送らず、発行済みの番号を維持する。
   // 2件以上ヒットした場合・検索自体に失敗した場合は例外となり、INSERTに進まずに中止する。
-  const existingInv = await tableQueryMaybeSingle('invoices', { select: 'id', filters: [
+  const existingInv = await tableQueryMaybeSingle('invoices', { select: 'id,status', filters: [
     { col: 'booking_id', op: 'eq', value: bookingId },
     { col: 'is_consolidated', op: 'eq', value: true },
     { col: 'currency', op: 'eq', value: currency },
   ] });
   let data;
   if(existingInv && existingInv.id){
-    const updateResult = await invoicesApiCall('updateById', { id: existingInv.id, fields: {...corePayload} });
+    // 入金済み(paid)の合算は、再作成・更新時もpendingに戻さない(個別Invoiceの再発行と同じ)
+    const updateResult = await invoicesApiCall('updateById', { id: existingInv.id,
+      fields: {...corePayload, status: existingInv.status==='paid' ? 'paid' : corePayload.status} });
     data = (updateResult.rows||[])[0];
   }else{
     const insertResult = await invoicesApiCall('insert', { rows: [{
@@ -29850,6 +29870,7 @@ async function generateConsolidatedInvoice(bookingId, currency){
   }
 
   await bookingsApiCall('updateById', { id: bookingId, fields: {status:'invoiced'} });
+  _setLocalBookingStatus(bookingId, 'invoiced');
   await logAction('Invoice発行', data.invoice_no + ' (' + booking.ref_no + ' / 合算)');
 
   await loadInvoicePage();
