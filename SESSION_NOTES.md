@@ -100,11 +100,10 @@ anon向けSELECTポリシー案は不採用(ログインはapp_users独自方式
 - なし(2026-09-24時点)。フェーズ1報告の(a)(error_logsのcost_added更新失敗の件数)は未実行だが、(b)(d)の修正で実害は解消済み。
 
 ### 残タスク
-- 【既存・要判断】Invoiceプレビューの INVOICE No. 欄で先頭の「INV-」を外して表示している(D)。INV-付きにするか。
 - 【既存】予約詳細は一覧キャッシュ(allBookingsCache)の値で開くため、別の画面・他の人の変更が反映される前に保存すると、
-  bookingsの列(status等)を古い値で上書きしうる(Invoice発行時のstatusはPR #210で対処済み。一般的な解決は保存前の最新値確認等)。
+  bookingsの列(status等)を古い値で上書きしうる(Invoice発行時のstatusはPR #211(旧#210)で対処済み。一般的な解決は保存前の最新値確認等)。
 - 【既存不具合・本番でも発生】入出金管理でFROMだけ変えても集計が更新されないことがある(JUN確認、2026-09-24)。
-  PR #210には含めない。原因調査から(onblur起点の集計・月別レポートがTO基準の年度であること等を確認する)。
+  PR #211には含めない。原因調査から(onblur起点の集計・月別レポートがTO基準の年度であること等を確認する)。
 - フェーズ2 バッチ1: 下記「バッチ1 再開用メモ」参照(新しいセッションで開始予定)
 - フェーズ2 バッチ2: business_partner_contacts, estimations, estimation_days
 - フェーズ2 バッチ3: arrangement_document系3件、tour_arrangement系/tour_*系6件、booking_guides,
@@ -127,11 +126,13 @@ RPC3本(get_payment_monthly_summary / search_payment_income / search_payment_out
 - push前に必ずdiffを提示。検証ハーネス(scratchpadでindex.htmlの実関数を抽出してnode実行)と本体のcommit/pushは別工程として報告。
 - 本番デプロイ完了はこのセッション環境から確認できない(vercel.appへの通信がネットワークポリシーで遮断)。PRのVercel Preview
   statusはGitHub経由で確認できるので、それを確認してからマージし、本番はJUNがVercel画面で確認する。
-- 作業ブランチ: バッチ1は claude/keen-allen-9c46xj(2026-09-24〜。origin/mainから作り直し、未マージだった
-  exciting-mccarthy-wi3dlaのSESSION_NOTES/SQLコミット2件をcherry-pickで載せ直した)。以前は claude/exciting-mccarthy-wi3dla。
+- 作業ブランチ: バッチ1は claude/blissful-rubin-5z8ftu / PR #211(2026-09-25〜。claude/keen-allen-9c46xj(PR #210)の全コミットの上に
+  再発行時の状態判定の修正を1コミット追加し、mainあての新PRにした。PR #210はクローズ済み・ブランチは残してある)。
+  その前は claude/keen-allen-9c46xj(2026-09-24〜。origin/mainから作り直し、未マージだった
+  exciting-mccarthy-wi3dlaのSESSION_NOTES/SQLコミット2件をcherry-pickで載せ直した)。さらに前は claude/exciting-mccarthy-wi3dla。
   セッションごとにpush可能なブランチが指定されるため、新しいセッションでは指定ブランチに従う。PRがマージ済みなら origin/main から作り直して続ける。
 
-### 実装状況(2026-09-24、ブランチ claude/keen-allen-9c46xj、PR作成済み・未マージ)
+### 実装状況(2026-09-24〜、PR #211(ブランチ claude/blissful-rubin-5z8ftu)、未マージ。旧PR #210(claude/keen-allen-9c46xj)はクローズ)
 - 6コミット: API追加 / invoices / booking_costs / booking_sales / credit_card_statements / RPC。
   index.htmlの4テーブル直接SELECT 46箇所・RPC 3本の直接呼び出しは0件(grep確認済み)。
 - API: /api/table-crud に query / queryBatch / rpc を追加(ログイン検証必須、ゲスト不可)。列・演算子は
@@ -181,14 +182,17 @@ RPC3本(get_payment_monthly_summary / search_payment_income / search_payment_out
   新規予約でREF#が重複すると「保存に失敗しました」だけ → 事前確認で「REF# xxx は既に登録されています」、
   サーバーは一意制約違反を409 DUPLICATE_KEY+日本語で返す。
 
-### 再発行時の状態(status)の決め方 — 【決定(JUN、2026-09-25)】ブランチ claude/blissful-rubin-5z8ftu(keen-allen dceda91の上に1コミット)
+### 再発行時の状態(status)の決め方 — 【決定(JUN、2026-09-25)】PR #211(ee3a58e、keen-allen dceda91の上に1コミット)
 - 発行・再発行(個別・合算とも)のたびに、保存時の自動paid判定と同じ条件で状態を決め直す(両方向):
   個別は「その請求先の入金合計>=売上合計(かつ入金>0)」、合算は予約全体。満たせばpaid、満たさなければpending。
   判定は発行時に取得した booking_sales(payments含む)で行う(decideInvoiceStatusOnIssue → invoiceShouldBePaid)。
 - 新規発行(INSERT)にも同じ判定を使う(全額入金済みの予約で初めて発行した個別Invoiceもpaidで作成)。合算の新規作成は元々この判定。
 - 例外: 請求先(agent_name)が無い個別Invoiceは判定できない(保存時の自動判定もスキップ=要手動確認)ため、既存がpaidならpaid維持、
   それ以外はpending。
-- 保存時の自動判定(saveBookingDetail)は従来どおり pending→paid のみ(変更なし)。
+- 新規発行にも同じ判定を使う・請求先なしの個別は既存状態を維持、の2点はJUN承認済み(2026-09-25)。
+- 【決定(JUN、2026-09-25)】保存時の自動paid判定(saveBookingDetail)は pending→paid の一方向のまま維持する。
+  入金を削除しても請求書はPaidのまま残るが、再発行で判定し直される。理由: 入金を売上明細に記録せずpaidにした過去の請求書が、
+  保存だけでまとめてPendingに戻るのを防ぐため。
 - 影響調査(両方向にしてよいか): 画面上にInvoiceのstatusを手動で変える操作は無い(失効モーダル askInvVoidChoice は呼び出し元0件、
   プレビューの保存は name_group等のみ)。statusが変わる経路は 保存時の自動paid判定/発行・再発行/scripts(restore_f12…はpendingに
   戻す一回限り)/SQL直接修正 だけ。「入金消込の手動操作」は booking_sales.payments の入力(予約詳細・通帳OCR反映等)であり
