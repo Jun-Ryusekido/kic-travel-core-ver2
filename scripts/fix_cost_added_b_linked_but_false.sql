@@ -77,7 +77,7 @@ begin;
 
 do $$
 declare
-  v_expected int := 17;   -- ← STEP2の arrangement_rows の値に置き換える(仕入明細側17件と異なる場合がある)
+  v_expected int := 13;   -- STEP2の arrangement_rows(2026-09-24 JUN実行結果: 手配行13件・仕入明細17行)
   v_target int;
   v_updated int := 0;
   v_n int;

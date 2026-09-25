@@ -39,7 +39,15 @@ const TABLE_CONFIG = {
   // 対象(updatePayments/deleteByBookingは今回のスコープ外、既存の挙動のまま変更しない)。
   // updateByIdはremapSalesAgentIds()(replace後のagent_id付け替え)専用に追加した
   // (2026-08、REF#967のagent_id消失不具合の恒久対応)。
-  booking_sales: { actions: ['replace', 'updatePayments', 'deleteByBooking', 'updateById'], label: '売上明細', stampIdentity: true, auditLog: true },
+  booking_sales: {
+    actions: ['replace', 'updatePayments', 'deleteByBooking', 'updateById'], label: '売上明細', stampIdentity: true, auditLog: true,
+    // readable: query/queryBatch action(読み取り専用、RLS対応フェーズ2 バッチ1)で許可する
+    // 絞り込み列と演算子・並び替え列のホワイトリスト(doQueryPage参照)。
+    readable: {
+      filters: { booking_id: ['eq', 'in'] },
+      order: ['sort_order', 'created_at', 'id'],
+    },
+  },
   // booking_costsは書き込みが全てこのAPI経由であることを確認済み(直接anon書き込み0件)。
   // 毎時バックアップの差分化のためupdated_at列を追加し(scripts/add_updated_at_to_booking_costs.sql)、
   // booking_buses/booking_restaurantsと同じ方式でサーバー側に確実にスタンプする。
@@ -50,7 +58,21 @@ const TABLE_CONFIG = {
   // 続けてしまう(2026-08-22点検で判明した肥大化の主因)。doReplace()の新旧内容比較から
   // この列を除外することで、実際にitem_name/amount等が変わった行だけを記録する。
   // source_table/source_snapshotは追加時点で1回だけセットされ以後変化しないため除外しない。
-  booking_costs: { actions: ['replace', 'insert', 'deleteByBooking'], label: '仕入明細', stampIdentity: true, stampUpdatedAt: true, auditLog: true, auditDiffIgnoreFields: ['source_id'] },
+  booking_costs: {
+    actions: ['replace', 'insert', 'deleteByBooking'], label: '仕入明細', stampIdentity: true, stampUpdatedAt: true, auditLog: true, auditDiffIgnoreFields: ['source_id'],
+    readable: {
+      filters: {
+        booking_id: ['eq', 'in'],
+        id: ['eq'],
+        item_name: ['eq'],
+        memo: ['eq', 'isNull', 'ilikeContains'],
+        payment_method: ['eq', 'in', 'isNull'],
+        amount: ['eq'],
+        payment_date: ['isNull'],
+      },
+      order: ['created_at', 'id'],
+    },
+  },
   // deleteByBookingは予約削除(deleteBookingData)用(2026-08-12点検で追加。それまで予約削除の削除対象から漏れていた)
   local_expenses: { actions: ['replace', 'deleteByBooking'], label: '現地費用明細' },
   parking_reservations: { actions: ['list', 'save', 'delete'], label: '駐車場予約' },
@@ -332,6 +354,15 @@ const TABLE_CONFIG = {
     label: 'クレジットカード明細',
     stampIdentity: true,
     auditLog: true,
+    readable: {
+      filters: {
+        matched_booking_id: ['eq'],
+        matched_booking_cost_id: ['notNull'],
+        merchant_name: ['eq'],
+        match_status: ['eq'],
+      },
+      order: ['transaction_date'],
+    },
   },
   // invoices(請求書): 金銭データを扱う最重要テーブルの一つだが、tour_arrangement_headers等
   // 似た名前の別テーブルとの取り違えでservice_role移行対象から漏れ、anonキーからの直接
@@ -357,6 +388,17 @@ const TABLE_CONFIG = {
     actions: ['insert', 'updateById', 'updateByIds', 'deleteById', 'deleteByIds', 'deleteByBooking'],
     label: '請求書',
     auditLog: true,
+    readable: {
+      filters: {
+        booking_id: ['eq', 'in'],
+        agent_name: ['eq', 'isNull', 'notNull'],
+        agent_id: ['isNull'],
+        is_consolidated: ['eq'],
+        currency: ['eq'],
+        status: ['eq'],
+      },
+      order: ['created_at'],
+    },
   },
   // tour_arrangements(手配書ヘッダー・共通ドラフト)/tour_arrangement_days(同日毎明細)/
   // bullet_train_arrangements(新幹線手配)/arrangement_documents(ガイド別手配書ヘッダー):
@@ -900,6 +942,11 @@ async function doInsert(table, label, rows, config, changedBy) {
   const insRes = await sbFetch(table, '', { method: 'POST', prefer: needAudit ? 'return=representation' : 'return=minimal', body: JSON.stringify(rows) });
   if (!insRes.ok) {
     const e = await readJsonSafe(insRes);
+    // 一意制約違反(PostgreSQL 23505)は、原因が分かるよう日本語の説明と code を付けて返す
+    // (例: 新規予約でREF#が既存と重複した場合。以前は英語のDBエラー文だけで原因が分かりにくかった)。
+    if (e.code === '23505') {
+      return { status: 409, body: { error: `${label}: 同じ値が既に登録されているため保存できません（${e.message || ''}${e.details ? ' / ' + e.details : ''}）`, code: 'DUPLICATE_KEY' } };
+    }
     return { status: 500, body: { error: withGrantHint(e.message, table) || `${label}の保存に失敗しました` } };
   }
   // needAudit時はどのみちreturn=representationで挿入後の行(採番id含む)を取得しているため、
@@ -1172,6 +1219,363 @@ async function doGuestUpdateById(table, label, config, id, fields, guestSettleme
 // 読み取り専用: 指定table_name+record_idのaudit_logsを新しい順に返す(変更履歴ボタン用)。
 // ログインセッションのみを要件とし(guestアクションからは呼ばれない)、対象tableは
 // TABLE_CONFIG上でauditLog:trueのものに限定する(監査対象外テーブルの履歴詮索を防ぐ)。
+// ===== 読み取り専用 query/queryBatch/rpc action(RLS対応フェーズ2 バッチ1、2026-09) =====
+// invoices/booking_costs/booking_sales/credit_card_statementsのブラウザ直接SELECT
+// (anonキー)を廃止し、ログイン検証つきのこのAPI(service_role)経由に統一するための汎用
+// 読み取り口。bodyから受け取った列名・演算子をそのままクエリに埋め込まないよう、
+// TABLE_CONFIG[table].readable に明示された列・演算子・並び替え列だけを許可する。
+//
+// 1,000件上限対策: PostgRESTは1リクエスト最大1,000件(Supabase既定のmax-rows)で黙って
+// 切り捨てるため、サーバー内で1,000件ずつ取得を繰り返す。ただしVercelのレスポンス上限
+// (約4.5MB)と関数の実行時間上限を超えないよう、累積サイズ約3MBまたは経過時間約5秒で
+// 打ち切り、続きの位置をnextOffsetとして返す(件数ではなくサイズ・時間で打ち切る)。
+// クライアント(index.htmlのtableQueryAll)はnextOffsetがnullになるまで取り切る。
+// ページ間で並びがぶれて行の重複・欠落が起きないよう、並び順の最後に必ずidを付ける。
+const QUERY_PAGE_SIZE = 1000;
+// 各リクエストの最初のページは200件に抑え、その平均行サイズから以降のページ件数を決める
+// (最初から1,000件取ると、1行が大きいテーブルでは最初の1ページだけでレスポンス上限を超えうるため)。
+// 1予約分のような小さいクエリ(200件未満)は1回の取得で完結するため影響しない。
+const QUERY_FIRST_PAGE_SIZE = 200;
+const QUERY_MAX_BYTES = 3 * 1024 * 1024;
+const QUERY_MAX_MS = 5000;
+const QUERY_MAX_IN_VALUES = 200;
+const QUERY_BATCH_MAX = 5;
+const IDENT_RE = /^[a-z_][a-z0-9_]*$/;
+
+// 値をPostgRESTのin.(...)用にダブルクォートで囲む(カンマ・括弧を含む値でも壊れないように)。
+function pgrstQuote(v) {
+  return '"' + String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+}
+
+// 1つのクエリ指定(body.query)を検証し、PostgRESTのクエリ文字列の配列(key=value)を組み立てる。
+// 不正なら { error } を返す。
+function buildQueryParams(table, q) {
+  const config = TABLE_CONFIG[table];
+  if (!config || !config.readable) return { error: `${table}は読み取り(query)の対象外です` };
+  if (!q || typeof q !== 'object') return { error: '検索条件(query)が指定されていません' };
+  const readable = config.readable;
+
+  // select: '*' か、列名(英小文字の識別子)のカンマ区切り。'*'を許す以上、列を絞る指定の
+  // 可否は安全性に影響しないため、列名の形式チェックのみとする。
+  const selectRaw = q.select == null ? '*' : String(q.select).replace(/\s+/g, '');
+  if (selectRaw !== '*') {
+    const cols = selectRaw.split(',');
+    if (!cols.length || cols.some((c) => !IDENT_RE.test(c))) return { error: `selectの指定が不正です: ${q.select}` };
+  }
+  const params = [`select=${encodeURIComponent(selectRaw)}`];
+
+  const filters = Array.isArray(q.filters) ? q.filters : [];
+  for (const f of filters) {
+    if (!f || typeof f !== 'object') return { error: '絞り込み条件の形式が不正です' };
+    const { col, op, value } = f;
+    const allowedOps = readable.filters[col];
+    if (!allowedOps) return { error: `${table}に対して許可されていない絞り込み列です: ${col}` };
+    if (!allowedOps.includes(op)) return { error: `${table}.${col}に対して許可されていない演算子です: ${op}` };
+    if (op === 'eq') {
+      // PostgRESTのeq.nullは「NULLと一致」にならない(何にも一致しない)ため、nullの検索は
+      // isNullを明示させる(黙って0件になる取り違えを防ぐ)。
+      if (value === null || value === undefined) return { error: `${col}のeqにnullは指定できません(isNullを使ってください)` };
+      if (!['string', 'number', 'boolean'].includes(typeof value)) return { error: `${col}のeqの値が不正です` };
+      params.push(`${col}=eq.${encodeURIComponent(String(value))}`);
+    } else if (op === 'in') {
+      if (!Array.isArray(value) || !value.length) return { error: `${col}のinの値は1件以上の配列で指定してください` };
+      if (value.length > QUERY_MAX_IN_VALUES) return { error: `${col}のinは1回${QUERY_MAX_IN_VALUES}件までです(呼び出し側で分割してください)` };
+      if (value.some((v) => v === null || v === undefined || !['string', 'number', 'boolean'].includes(typeof v))) {
+        return { error: `${col}のinの値が不正です` };
+      }
+      params.push(`${col}=in.(${encodeURIComponent(value.map(pgrstQuote).join(','))})`);
+    } else if (op === 'isNull') {
+      params.push(`${col}=is.null`);
+    } else if (op === 'notNull') {
+      params.push(`${col}=not.is.null`);
+    } else if (op === 'ilikeContains') {
+      // 部分一致。ユーザー入力の%と_はワイルドカードとして扱わないようエスケープし、前後に%を付ける。
+      // PostgRESTはlike/ilikeの値中の*を%に置き換えるため、*を含む値は拒否する。
+      if (typeof value !== 'string' || !value) return { error: `${col}の部分一致の値が不正です` };
+      if (value.includes('*')) return { error: `${col}の部分一致に*は使えません` };
+      if (value.length > 200) return { error: `${col}の部分一致の値が長すぎます` };
+      const escaped = value.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+      params.push(`${col}=ilike.${encodeURIComponent('%' + escaped + '%')}`);
+    } else {
+      return { error: `不明な演算子です: ${op}` };
+    }
+  }
+
+  const orders = Array.isArray(q.order) ? q.order : [];
+  const orderParts = [];
+  for (const o of orders) {
+    if (!o || !readable.order.includes(o.col)) return { error: `${table}に対して許可されていない並び替え列です: ${o && o.col}` };
+    orderParts.push(`${o.col}.${o.ascending === false ? 'desc' : 'asc'}`);
+  }
+  // ページ間の並びを一意にするため、並び順の最後に必ずidを付ける(既にidがあれば付けない)。
+  if (!orders.some((o) => o.col === 'id')) orderParts.push('id.asc');
+  params.push(`order=${orderParts.join(',')}`);
+
+  let limit = null;
+  if (q.limit != null) {
+    limit = Number(q.limit);
+    if (!Number.isInteger(limit) || limit < 1 || limit > QUERY_PAGE_SIZE) return { error: `limitは1〜${QUERY_PAGE_SIZE}で指定してください` };
+  }
+  let offset = 0;
+  if (q.offset != null) {
+    offset = Number(q.offset);
+    if (!Number.isInteger(offset) || offset < 0) return { error: 'offsetの指定が不正です' };
+  }
+  return { params, limit, offset, count: q.count === true };
+}
+
+// 1クエリ分を、サイズ・時間の予算内で取得する。limit指定時はその件数だけ1回取得する
+// (呼び出し元が明示的に件数を絞っているため続きは返さない)。
+// budget: { bytes, deadline } を複数クエリ(queryBatch)で共有する。
+async function runQuery(table, built, budget) {
+  const label = TABLE_CONFIG[table].label;
+  const base = built.params.join('&');
+  if (built.count) {
+    // 件数のみ(supabase-jsの {count:'exact', head:true} 相当)。
+    const r = await sbFetch(table, `?${base}`, { method: 'HEAD', headers: { Prefer: 'count=exact' } });
+    if (!r.ok) throw new Error(withGrantHint(`${label}の件数取得に失敗しました(HTTP ${r.status})`, table));
+    const cr = r.headers.get('content-range') || '';
+    const total = Number(cr.split('/')[1]);
+    if (!Number.isFinite(total)) throw new Error(`${label}の件数取得に失敗しました(content-range不正)`);
+    return { rows: [], count: total, nextOffset: null };
+  }
+  let rows = [];
+  let offset = built.offset;
+  let pageSize = built.limit || QUERY_FIRST_PAGE_SIZE;
+  while (true) {
+    const { r, text } = await timedFetchText(budget, () => sbFetch(table, `?${base}&limit=${pageSize}&offset=${offset}`, { method: 'GET' }));
+    if (!r.ok) {
+      let msg = '';
+      try { msg = JSON.parse(text).message || ''; } catch (e) { /* ignore */ }
+      throw new Error(withGrantHint(msg, table) || `${label}の取得に失敗しました(HTTP ${r.status})`);
+    }
+    const page = JSON.parse(text);
+    if (!Array.isArray(page)) throw new Error(`${label}の取得結果が不正です`);
+    const pageBytes = Buffer.byteLength(text, 'utf8');
+    // 見積もりより大きいページ(行サイズが途中で急に大きくなった場合)で予算を超える場合は、
+    // このページを含めずに打ち切り、同じ位置から次のリクエストで取り直す(このリクエストで
+    // 既に行を取得済みの場合のみ。最初のページは進捗のため必ず含める)。
+    if (rows.length > 0 && pageBytes > budget.bytes) return { rows, nextOffset: offset };
+    rows = rows.concat(page);
+    budget.bytes -= pageBytes;
+    offset += page.length;
+    if (built.limit) return { rows, nextOffset: null };
+    if (page.length < pageSize) return { rows, nextOffset: null };
+    // 予算切れ(次のページが予算に収まらない)なら、ここまでの行と続きの位置を返す
+    // (部分結果ではなく「続きがある」ことを明示する。クライアントがnextOffsetから取り切る)。
+    pageSize = nextPageSize(budget, pageBytes, page.length);
+    if (pageSize < 1) return { rows, nextOffset: offset };
+  }
+}
+
+function newQueryBudget() {
+  // sb: このリクエスト内でSupabase(PostgREST)を呼んだ回数・合計時間・最大時間(レスポンスの__sbとして返し、
+  // index.htmlのwindow.__tableCrudCallLogに記録する。速度の内訳を実測で切り分けるため)。
+  return { bytes: QUERY_MAX_BYTES, deadline: Date.now() + QUERY_MAX_MS, sb: { calls: 0, ms: 0, maxMs: 0 } };
+}
+
+// Supabaseへのfetchと本文の読み込みまでを計測する(budget.sbに加算)。
+async function timedFetchText(budget, doFetch) {
+  const t0 = Date.now();
+  try {
+    const r = await doFetch();
+    const text = await r.text();
+    return { r, text };
+  } finally {
+    const ms = Date.now() - t0;
+    budget.sb.calls += 1;
+    budget.sb.ms += ms;
+    if (ms > budget.sb.maxMs) budget.sb.maxMs = ms;
+  }
+}
+
+// 1ページ取得した後に、次のページを何件で取得するか(0なら打ち切ってnextOffsetを返す)。
+// サイズの判定を「取得した後」だけで行うと、1レスポンスが予算+1ページ分(例: 3MB+3MB)まで
+// 膨らみVercelのレスポンス上限(約4.5MB)を超えうるため、直前のページの1行あたりの平均サイズから
+// 次のページのサイズを見積もり、予算内に収まる件数だけを取得する。
+function nextPageSize(budget, pageBytes, pageRows) {
+  if (budget.bytes <= 0 || Date.now() >= budget.deadline) return 0;
+  const avg = pageRows > 0 ? pageBytes / pageRows : 1;
+  return Math.max(0, Math.min(QUERY_PAGE_SIZE, Math.floor(budget.bytes / Math.max(avg, 1))));
+}
+
+async function doQuery(table, q) {
+  const built = buildQueryParams(table, q);
+  if (built.error) return { status: 400, body: { error: built.error } };
+  const budget = newQueryBudget();
+  const result = await runQuery(table, built, budget);
+  return { status: 200, body: { ok: true, ...result, __sb: budget.sb } };
+}
+
+// 複数テーブルのクエリを1リクエストでまとめて取得する(予約詳細を開く時の売上・仕入・
+// Invoiceの3件等、クライアント→Vercelの往復とコールドスタートの発生回数を減らすため)。
+// サイズ・時間の予算は全クエリで共有し、取り切れなかったクエリはnextOffsetを返す
+// (クライアントが残りをquery actionで取り切る)。1件でも検証エラーなら何も実行しない。
+async function doQueryBatch(queries) {
+  if (!Array.isArray(queries) || !queries.length) return { status: 400, body: { error: 'queriesが指定されていません' } };
+  if (queries.length > QUERY_BATCH_MAX) return { status: 400, body: { error: `queriesは${QUERY_BATCH_MAX}件までです` } };
+  const builtList = [];
+  for (const q of queries) {
+    const table = q && q.table;
+    const built = buildQueryParams(table, q);
+    if (built.error) return { status: 400, body: { error: built.error } };
+    builtList.push({ table, built });
+  }
+  const budget = newQueryBudget();
+  const results = await Promise.all(builtList.map(({ table, built }) => runQuery(table, built, budget)));
+  return { status: 200, body: { ok: true, results, __sb: budget.sb } };
+}
+
+// RPC(入出金画面)。ホワイトリストの3本だけをservice_roleで呼ぶ。関数はSECURITY INVOKERのまま
+// (DEFINER化しない)。移行後にanon/authenticated/publicからEXECUTEをREVOKEする
+// (scripts/enable_rls_batch1.sql参照)。
+const RPC_WHITELIST = {
+  get_payment_monthly_summary: { paged: false },
+  search_payment_income: { paged: true },
+  search_payment_outflow: { paged: true },
+};
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// 引数を検証する。不正なら { error } を返す。
+function validateRpcCall(fn, params) {
+  const spec = RPC_WHITELIST[fn];
+  if (!spec) return { error: `許可されていないRPCです: ${fn}` };
+  const p = params || {};
+  const unknown = Object.keys(p).filter((k) => !['p_from', 'p_to', 'p_search'].includes(k));
+  if (unknown.length) return { error: `不明な引数です: ${unknown.join(', ')}` };
+  if (!DATE_RE.test(String(p.p_from || '')) || !DATE_RE.test(String(p.p_to || ''))) {
+    return { error: '日付(p_from/p_to)はYYYY-MM-DD形式で指定してください' };
+  }
+  if (p.p_search !== undefined) {
+    if (!spec.paged) return { error: `${fn}はp_searchを受け付けません` };
+    if (typeof p.p_search !== 'string' || !p.p_search || p.p_search.length > 200) {
+      return { error: '検索語(p_search)は1〜200文字の文字列で指定してください' };
+    }
+  }
+  return { spec, p };
+}
+
+const RPC_PARALLEL_PAGES = 8; // 残りページを並列取得する時の同時実行数(出金6,370件=残り6ページ+末尾確認1が1段で済む)
+
+// 1本のRPCを予算内で取得する。失敗時は例外(部分結果は返さない)。
+// 集合を返す2本はGET+Rangeでページングする(POSTだとPostgRESTがRangeを無視するため)。関数側でORDER BY済み。
+// 入出金画面(2026-09、Preview実測で本番より大幅に遅かった件の対応): 以前は200件のプローブページの後に
+// 1,000件ずつ「直列」に取得しており、出金6,370件で8回の往復が直列に並んでいた(各回で関数全体が
+// 再実行される)。最初のページ(1,000件)で Prefer: count=exact により総件数を得て、残りのページを
+// 並列に取得する(直列の往復は2段になる)。総件数が得られない場合は従来どおり直列に取得する。
+async function runRpc(fn, params, offsetIn, budget) {
+  const { spec, p } = validateRpcCall(fn, params);
+  const serviceKey = getServiceKey();
+  const headers = { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, 'Content-Type': 'application/json' };
+  const failMsg = (r, text) => {
+    let msg = '';
+    try { msg = JSON.parse(text).message || ''; } catch (e) { /* ignore */ }
+    return msg || `${fn}の実行に失敗しました(HTTP ${r.status})`;
+  };
+  if (!spec.paged) {
+    const { r, text } = await timedFetchText(budget, () => fetch(`${SB_URL}/rest/v1/rpc/${fn}`, {
+      method: 'POST', headers, body: JSON.stringify({ p_from: p.p_from, p_to: p.p_to }),
+    }));
+    if (!r.ok) throw new Error(failMsg(r, text));
+    return { rows: JSON.parse(text), nextOffset: null };
+  }
+  // GETでは値がnullでも文字列"null"として渡ってしまうため、p_searchは指定時のみ付ける。
+  const qs = [`p_from=${encodeURIComponent(p.p_from)}`, `p_to=${encodeURIComponent(p.p_to)}`];
+  if (p.p_search !== undefined) qs.push(`p_search=${encodeURIComponent(p.p_search)}`);
+  const url = `${SB_URL}/rest/v1/rpc/${fn}?${qs.join('&')}`;
+  const getPage = async (from, size, withCount) => {
+    const h = { ...headers, 'Range-Unit': 'items', Range: `${from}-${from + size - 1}` };
+    if (withCount) h.Prefer = 'count=exact';
+    const { r, text } = await timedFetchText(budget, () => fetch(url, { method: 'GET', headers: h }));
+    if (!r.ok) throw new Error(failMsg(r, text));
+    const page = JSON.parse(text);
+    if (!Array.isArray(page)) throw new Error(`${fn}の結果が不正です`);
+    let total = null;
+    if (withCount) {
+      const t = Number(String(r.headers.get('content-range') || '').split('/')[1]);
+      if (Number.isFinite(t)) total = t;
+    }
+    return { page, bytes: Buffer.byteLength(text, 'utf8'), total };
+  };
+
+  let offset = Number.isInteger(offsetIn) && offsetIn >= 0 ? offsetIn : 0;
+  const first = await getPage(offset, QUERY_PAGE_SIZE, true);
+  let rows = first.page;
+  budget.bytes -= first.bytes;
+  offset += first.page.length;
+  if (first.page.length < QUERY_PAGE_SIZE) return { rows, nextOffset: null };
+  const avg = first.bytes / first.page.length;
+
+  if (first.total != null) {
+    // 予算内に収まる件数だけ、残りのページを並列に取得する
+    const fitRows = Math.floor(Math.max(0, budget.bytes) / Math.max(avg, 1));
+    const end = Math.min(first.total, offset + fitRows);
+    const reqs = []; // { start, size }
+    for (let st = offset; st < end; st += QUERY_PAGE_SIZE) reqs.push({ start: st, size: Math.min(QUERY_PAGE_SIZE, end - st) });
+    // 総件数の取得後に行が増えた場合に備え、末尾の次のページも同時に確認する(通常は0件。直列の往復は増やさない)
+    const reachesEnd = end >= first.total;
+    if (reachesEnd) reqs.push({ start: end, size: QUERY_PAGE_SIZE });
+    const pages = new Array(reqs.length);
+    let next = 0;
+    const worker = async () => {
+      while (next < reqs.length) {
+        const i = next++;
+        pages[i] = await getPage(reqs[i].start, reqs[i].size, false);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(RPC_PARALLEL_PAGES, reqs.length) }, worker));
+    for (let i = 0; i < pages.length; i++) {
+      const pg = pages[i];
+      if (!pg.page.length) return { rows, nextOffset: null };
+      // 見積もりより大きいページで予算を超える場合は、ここで打ち切り続きの位置を返す
+      if (pg.bytes > budget.bytes) return { rows, nextOffset: offset };
+      rows = rows.concat(pg.page);
+      budget.bytes -= pg.bytes;
+      offset += pg.page.length;
+      // 想定より短いページ(取得中に行が減った、または末尾)ならそこで終わり
+      if (pg.page.length < reqs[i].size) return { rows, nextOffset: null };
+    }
+    // ここに来るのは、予算の都合で途中までしか取得していない場合か、末尾の次のページも満杯だった場合
+    return { rows, nextOffset: offset };
+  }
+
+  // 総件数が得られない場合: 従来どおり直列に取得する
+  let pageSize = nextPageSize(budget, first.bytes, first.page.length);
+  while (true) {
+    if (pageSize < 1) return { rows, nextOffset: offset };
+    const pg = await getPage(offset, pageSize, false);
+    if (pg.bytes > budget.bytes) return { rows, nextOffset: offset };
+    rows = rows.concat(pg.page);
+    budget.bytes -= pg.bytes;
+    offset += pg.page.length;
+    if (pg.page.length < pageSize) return { rows, nextOffset: null };
+    pageSize = nextPageSize(budget, pg.bytes, pg.page.length);
+  }
+}
+
+async function doRpc(fn, params, offsetIn) {
+  const v = validateRpcCall(fn, params);
+  if (v.error) return { status: 400, body: { error: v.error } };
+  const budget = newQueryBudget();
+  const result = await runRpc(fn, params, offsetIn, budget);
+  return { status: 200, body: { ok: true, ...result, __sb: budget.sb } };
+}
+
+// 入出金画面を開く時の3本(月別集計・入金明細・出金明細)を1リクエストでまとめて取得する
+// (以前は月別集計→明細の2往復が直列だった)。サイズ予算は全件で共有し、取り切れなかったものは
+// nextOffsetを返す(クライアントがrpc actionで続きを取る)。1件でも検証エラーなら何も実行しない。
+async function doRpcBatch(calls) {
+  if (!Array.isArray(calls) || !calls.length) return { status: 400, body: { error: 'callsが指定されていません' } };
+  if (calls.length > 3) return { status: 400, body: { error: 'callsは3件までです' } };
+  for (const c of calls) {
+    const v = validateRpcCall(c && c.fn, c && c.params);
+    if (v.error) return { status: 400, body: { error: v.error } };
+  }
+  const budget = newQueryBudget();
+  const results = await Promise.all(calls.map((c) => runRpc(c.fn, c.params, 0, budget)));
+  return { status: 200, body: { ok: true, results, __sb: budget.sb } };
+}
+
 async function doAuditHistory(targetTable, recordId) {
   if (!targetTable || !recordId) return { status: 400, body: { error: 'table/recordIdが指定されていません' } };
   const targetConfig = TABLE_CONFIG[targetTable];
@@ -1240,6 +1644,22 @@ export default async function handler(req, res) {
     const { recordId } = req.body;
     const result = await doAuditHistory(table, recordId);
     return res.status(result.status).json(result.body);
+  }
+
+  // query/queryBatch/rpc/rpcBatchは読み取り専用action。テーブルごとのactionsホワイトリストではなく、
+  // TABLE_CONFIG[table].readable(列・演算子)/RPC_WHITELISTで許可範囲を判定する。
+  // ゲスト操作からは呼べない(isGuestActionに含めていないため、上でログイン検証済み)。
+  if (action === 'query' || action === 'queryBatch' || action === 'rpc' || action === 'rpcBatch') {
+    try {
+      let result;
+      if (action === 'query') result = await doQuery(table, req.body.query);
+      else if (action === 'queryBatch') result = await doQueryBatch(req.body.queries);
+      else if (action === 'rpcBatch') result = await doRpcBatch(req.body.calls);
+      else result = await doRpc(req.body.fn, req.body.params, req.body.offset);
+      return res.status(result.status).json(result.body);
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
   }
 
   const config = TABLE_CONFIG[table];

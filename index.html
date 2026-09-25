@@ -4933,7 +4933,8 @@ async function refreshAgentUnlinkedBanner(){
   try{
     const [{data: bRows, error: bErr}, {data: iRows, error: iErr}] = await Promise.all([
       sb.from('bookings').select('id,ref_no,agent_name').not('agent_name','is',null).is('agent_id', null),
-      sb.from('invoices').select('id,invoice_no,booking_id,agent_name').not('agent_name','is',null).is('agent_id', null),
+      asSbResult(tableQueryAll('invoices', { select: 'id,invoice_no,booking_id,agent_name',
+        filters: [{ col: 'agent_name', op: 'notNull' }, { col: 'agent_id', op: 'isNull' }] })),
     ]);
     if(bErr) throw bErr;
     if(iErr) throw iErr;
@@ -5545,6 +5546,8 @@ function appendSchemaErrorHint(message){
 // 専用でない限りここに加えないこと(=デフォルトでリトライしない安全側の設計)。
 //   - auditHistory: 変更履歴の取得（読み取りのみ）
 //   - list/listByField/list_active: 一覧・条件検索・在席ユーザー一覧の取得（読み取りのみ）
+//   - query/queryBatch/rpc/rpcBatch: invoices/booking_costs/booking_sales/credit_card_statementsの読み取りと
+//     入出金画面のRPC 3本(RLS対応フェーズ2 バッチ1で追加。tableQueryAll等を参照。読み取りのみ)
 // それ以外の20種類(insert/insertReturning/replace/replaceByKey/copyWithChildren/
 // deleteByBooking/updatePayments/save/delete/updateById/updateByIds/deleteById/
 // deleteByIds/deleteByField/heartbeat/release/upsertConfirm/guestUpsertConfirm/
@@ -5555,7 +5558,7 @@ function appendSchemaErrorHint(message){
 // 加算等)を確定させた"後"にレスポンスがクライアントに届く前だけネットワークが切れる
 // ケースを区別できない、(b)insert/replace系は再実行そのものが二重登録に直結する、という
 // 理由から、安全側に倒して一律リトライ対象外とする。
-const TABLE_CRUD_IDEMPOTENT_READ_ACTIONS = new Set(['auditHistory', 'list', 'listByField', 'list_active']);
+const TABLE_CRUD_IDEMPOTENT_READ_ACTIONS = new Set(['auditHistory', 'list', 'listByField', 'list_active', 'query', 'queryBatch', 'rpc', 'rpcBatch']);
 
 async function tableCrudApiCall(table, action, payload){
   const token = currentUser ? currentUser.token : null;
@@ -5608,7 +5611,12 @@ async function tableCrudApiCall(table, action, payload){
   window.__tableCrudCallLog = window.__tableCrudCallLog || [];
   window.__tableCrudCallLog.push({ 'table': table, 'action': action, 'clientMs(往復合計)': __clientMs,
     'serverMs(関数内処理)': data && data.__meta ? data.__meta.serverMs : null,
-    'coldStart': data && data.__meta ? data.__meta.coldStart : null });
+    'coldStart': data && data.__meta ? data.__meta.coldStart : null,
+    // 読み取りAPI(query/queryBatch/rpc/rpcBatch)のみ: 関数内でSupabaseを呼んだ回数・合計/最大時間(ms)
+    'sb回数': data && data.__sb ? data.__sb.calls : null,
+    'sb合計ms': data && data.__sb ? data.__sb.ms : null,
+    'sb最大ms': data && data.__sb ? data.__sb.maxMs : null,
+    '開始(ms)': Math.round(__t0) });
   if(!resp.ok || data.error){
     const err = new Error(data.error || `${table}の処理でサーバーエラーが発生しました`);
     // business_partners insert時の会社名完全一致エラー(DUPLICATE_COMPANY_NAME)等、
@@ -5620,6 +5628,94 @@ async function tableCrudApiCall(table, action, payload){
     throw err;
   }
   return data;
+}
+// ===== 読み取りAPI(RLS対応フェーズ2 バッチ1、2026-09) =====
+// invoices/booking_costs/booking_sales/credit_card_statementsは、ブラウザからの直接SELECT
+// (anonキー)をやめ、ログイン検証つきの/api/table-crud(action:'query')経由で読む。
+// 使える列・演算子はapi/table-crud.jsのTABLE_CONFIG[table].readableでホワイトリスト化されている。
+// query: { select, filters:[{col, op:'eq'|'in'|'isNull'|'notNull'|'ilikeContains', value}],
+//          order:[{col, ascending}], limit, offset, count }
+// サーバーは1,000件ずつ取得し、約3MB/約5秒で打ち切ってnextOffsetを返すため、全件が必要な
+// 呼び出しはtableQueryAllで取り切る。途中で1回でも失敗したら例外を投げ、部分的な結果は返さない
+// (1,000件で黙って切り捨てられる不具合、および失敗時に空データのまま処理が進む事故を防ぐため)。
+async function tableQueryAll(table, query){
+  let rows = [];
+  let offset = query.offset || 0;
+  while(true){
+    const d = await tableCrudApiCall(table, 'query', { query: { ...query, offset } });
+    rows = rows.concat(d.rows || []);
+    if(d.nextOffset == null) return rows;
+    if(!(d.nextOffset > offset)) throw new Error(`${table}の取得でページング位置が進みませんでした`);
+    offset = d.nextOffset;
+  }
+}
+// 件数のみ(supabase-jsの {count:'exact', head:true} 相当)
+async function tableQueryCount(table, query){
+  const d = await tableCrudApiCall(table, 'query', { query: { ...query, count: true } });
+  return d.count;
+}
+// supabase-jsの.maybeSingle()相当。0件ならnull、2件以上なら例外(黙って先頭を採用しない)。
+async function tableQueryMaybeSingle(table, query){
+  const rows = await tableQueryAll(table, { ...query, limit: 2 });
+  if(rows.length > 1) throw new Error(`${table}の検索結果が複数件ありました(1件を想定)`);
+  return rows[0] || null;
+}
+// in条件の値が多い場合(サーバー側の上限は1回200件)に200件ずつ分割して取得し連結する。
+// 値が0件なら問い合わせずに空配列を返す。
+async function tableQueryAllIn(table, query, col, values){
+  const uniq = [...new Set((values || []).filter(v => v !== null && v !== undefined))];
+  let rows = [];
+  for(let i=0; i<uniq.length; i+=200){
+    const chunk = uniq.slice(i, i+200);
+    const part = await tableQueryAll(table, { ...query, filters: [...(query.filters || []), { col, op: 'in', value: chunk }] });
+    rows = rows.concat(part);
+  }
+  return rows;
+}
+// 複数テーブルのクエリを1リクエストにまとめて取得する(予約詳細を開く時等、往復回数と
+// コールドスタートの回数を減らすため)。queries: [{table, ...query}]。戻り値は各クエリの
+// 行配列の配列。サーバーの予算内に収まらなかったクエリは、続きをtableQueryAllで取り切る。
+async function tableQueryBatch(queries){
+  const d = await tableCrudApiCall(null, 'queryBatch', { queries });
+  const results = d.results || [];
+  if(results.length !== queries.length) throw new Error('一括取得の結果件数が一致しません');
+  return Promise.all(results.map(async (r, i) => {
+    const rows = r.rows || [];
+    if(r.nextOffset == null) return rows;
+    const { table, ...query } = queries[i];
+    const rest = await tableQueryAll(table, { ...query, offset: r.nextOffset });
+    return rows.concat(rest);
+  }));
+}
+// 入出金画面のRPC(get_payment_monthly_summary / search_payment_income / search_payment_outflow)。
+// サーバー側でホワイトリストの3本だけをservice_roleで呼ぶ。集合を返す2本はnextOffsetで取り切る。
+async function rpcCallAll(fn, params, startOffset){
+  let rows = [];
+  let offset = startOffset || 0;
+  while(true){
+    const d = await tableCrudApiCall(null, 'rpc', { fn, params, offset });
+    rows = rows.concat(d.rows || []);
+    if(d.nextOffset == null) return rows;
+    if(!(d.nextOffset > offset)) throw new Error(`${fn}の取得でページング位置が進みませんでした`);
+    offset = d.nextOffset;
+  }
+}
+// 複数のRPCを1リクエストでまとめて取得する(入出金画面の月別集計・入金明細・出金明細)。
+// calls: [{fn, params}]。戻り値は各RPCの行配列の配列。取り切れなかったものは続きをrpcCallAllで取る。
+async function rpcBatchAll(calls){
+  const d = await tableCrudApiCall(null, 'rpcBatch', { calls });
+  const results = d.results || [];
+  if(results.length !== calls.length) throw new Error('RPC一括取得の結果件数が一致しません');
+  return Promise.all(results.map(async (r, i) => {
+    const rows = r.rows || [];
+    if(r.nextOffset == null) return rows;
+    return rows.concat(await rpcCallAll(calls[i].fn, calls[i].params, r.nextOffset));
+  }));
+}
+// 既存の Promise.all([...]) で {data, error} を受け取る形の呼び出し箇所に差し込むためのアダプタ
+// (supabase-jsの戻り値と同じ形に変換する。エラー時の扱いは各呼び出し箇所の既存の判定に任せる)。
+function asSbResult(promise){
+  return promise.then(data => ({ data, error: null }), error => ({ data: null, error }));
 }
 async function bookingSalesApiCall(action, payload){ return tableCrudApiCall('booking_sales', action, payload); }
 // 2026-09 egress緊急対応: ガイド仮払い一覧(loadGuideAdvanceList)のキャッシュも無効化する。
@@ -6635,13 +6731,16 @@ async function addArrRowToCostNow(arrName, i, kind, btnEl){
     if(!insResult || insResult.ok !== true){
       throw new Error('仕入明細への保存結果を確認できませんでした。再度お試しください。');
     }
-    const {data: verifyRows, error: verifyErr} = await sb.from('booking_costs')
-      .select('id')
-      .eq('booking_id', bookingId)
-      .eq('item_name', newCostRow.item_name)
-      .eq('memo', newCostRow.memo)
-      .order('id', {ascending:false})
-      .limit(1);
+    // memo・item_nameがnullの場合はeqではなくisNullで検索する(PostgRESTのeq.nullは一致しないため。
+    // 以前の.eq('memo', null)はnullの行を見つけられず、保存済みでも「確認できない」エラーになり得た)。
+    let verifyRows = null, verifyErr = null;
+    try{
+      verifyRows = await tableQueryAll('booking_costs', { select: 'id', filters: [
+        { col: 'booking_id', op: 'eq', value: bookingId },
+        newCostRow.item_name == null ? { col: 'item_name', op: 'isNull' } : { col: 'item_name', op: 'eq', value: newCostRow.item_name },
+        newCostRow.memo == null ? { col: 'memo', op: 'isNull' } : { col: 'memo', op: 'eq', value: newCostRow.memo },
+      ], order: [{ col: 'id', ascending: false }], limit: 1 });
+    }catch(e){ verifyErr = e; }
     if(verifyErr || !verifyRows || !verifyRows.length){
       throw new Error('仕入明細への保存を確認できませんでした。再度お試しください。');
     }
@@ -6764,6 +6863,15 @@ const EST_DAY_BLANK = {day_date:'', hotel_name:'', twin_rate:0, breakfast:'', br
 
 function findBookingById(id){
   return allBookingsCache.find(b=>b.id===id);
+}
+// Invoice発行等でbookings.statusだけをAPIで更新した時に、画面側の予約キャッシュ(allBookingsCache/
+// bookingsListCache)にも反映する。反映しないと、その後に予約詳細を開くとキャッシュの古いステータス
+// (例: open)が表示され、そのまま保存(合算発行ボタン等は発行前に自動保存する)するとDBのステータスを
+// 古い値で上書きしてしまっていた(2026-09 PR #210 のPreview確認で、Invoicedが後からOpenに戻った件)。
+function _setLocalBookingStatus(bookingId, status){
+  [allBookingsCache, bookingsListCache].forEach(list=>{
+    (list||[]).forEach(b=>{ if(b && b.id===bookingId) b.status = status; });
+  });
 }
 
 function bdSalesTotal(){ return bdSalesItems.reduce((s,it)=>s+Number(it.amount||0),0); }
@@ -7581,8 +7689,10 @@ function hideSupplierSuggestions(){
 // (SALES_ITEM_NAME_FIXED_LIST)と重複するものは除外し、頻度上位30件のみ残す。
 async function loadSalesItemNameFreqCache(){
   if(salesItemNameFreqCache.length>0) return;
-  const {data, error} = await sb.from('booking_sales').select('item_name');
-  if(error || !data) return;
+  // 以前はPostgRESTの1,000件上限で黙って切り捨てられていた(古い1,000件だけで頻度集計)。tableQueryAllで取り切る。
+  let data;
+  try{ data = await tableQueryAll('booking_sales', { select: 'item_name' }); }
+  catch(e){ logError('売上明細の項目名候補の読み込み', e, {toast:false}); return; }
   const counts = new Map();
   data.forEach(r=>{
     const name = (r.item_name||'').trim();
@@ -8382,12 +8492,8 @@ async function applyDashboardBankbookEntry(k){
   statusEl.textContent = '更新中...';
   statusEl.style.color = 'var(--text3)';
   try{
-    const {data: salesRows, error} = await sb.from('booking_sales')
-      .select('id,payments')
-      .eq('booking_id', bookingId)
-      .order('id')
-      .limit(1);
-    if(error) throw error;
+    const salesRows = await tableQueryAll('booking_sales', { select: 'id,payments', filters: [{ col: 'booking_id', op: 'eq', value: bookingId }],
+      order: [{ col: 'id' }], limit: 1 });
     if(!salesRows || salesRows.length === 0) throw new Error('売上明細が存在しません');
     const row = salesRows[0];
     const payments = Array.isArray(row.payments) ? [...row.payments] : [];
@@ -8927,10 +9033,24 @@ async function openBookingDetail(id, opts){
   document.getElementById('bd-sales-tbody').innerHTML = '<tr><td colspan="6" class="empty" style="padding:6px;font-size:10px">読み込み中...</td></tr>';
   document.getElementById('bd-cost-tbody').innerHTML = '<tr><td colspan="5" class="empty" style="padding:6px;font-size:10px">読み込み中...</td></tr>';
 
-  const [{data: salesRows}, {data: costRows}] = await Promise.all([
-    sb.from('booking_sales').select('*').eq('booking_id', id).order('sort_order').order('created_at'),
-    sb.from('booking_costs').select('*').eq('booking_id', id).order('created_at')
-  ]);
+  // 売上明細・仕入明細・関連Invoiceは1リクエスト(queryBatch)でまとめて取得する
+  // (クライアント→APIの往復とコールドスタートの回数を3回→1回に減らすため)。
+  // 取得に失敗した場合は、空の明細のまま画面を開くと、そのまま保存した時に既存の明細を
+  // 消してしまうおそれがあるため、予約詳細を閉じて中止する。
+  let salesRows, costRows, invoices;
+  try{
+    [salesRows, costRows, invoices] = await tableQueryBatch([
+      { table: 'booking_sales', select: '*', filters: [{ col: 'booking_id', op: 'eq', value: id }], order: [{ col: 'sort_order' }, { col: 'created_at' }] },
+      { table: 'booking_costs', select: '*', filters: [{ col: 'booking_id', op: 'eq', value: id }], order: [{ col: 'created_at' }] },
+      { table: 'invoices', select: '*', filters: [{ col: 'booking_id', op: 'eq', value: id }], order: [{ col: 'created_at', ascending: false }] },
+    ]);
+  }catch(e){
+    if(_stale()) return;
+    logError('予約詳細の売上明細・仕入明細・Invoiceの読み込み', e, {toast:false});
+    closeBookingDetail();
+    alert('売上明細・仕入明細の読み込みに失敗したため、予約詳細を開けませんでした。もう一度開いてください。\n'+e.message);
+    return;
+  }
   if(_stale()) return;
 
   bdSalesItems = (salesRows||[]).map(r=>({item_name:r.item_name, memo:r.memo||'', unit_price:r.unit_price, pax:r.pax||1, qty:r.qty, amount:r.amount, payment_date:r.payment_date, agent_name:r.agent_name||'', agent_id:r.agent_id||null, payments:r.payments||[]}));
@@ -8946,8 +9066,7 @@ async function openBookingDetail(id, opts){
   renderCostTable();
 
   // 関連Invoiceを読み込み（一覧はモーダル内、通常表示はボタンの件数のみ）
-  const {data: invoices} = await sb.from('invoices').select('*').eq('booking_id', id).order('created_at',{ascending:false});
-  if(_stale()) return;
+  // (関連Invoiceは上の売上明細・仕入明細と同じqueryBatchで取得済み)
   bdInvoicesCache = invoices||[];
   document.getElementById('bd-inv-count').textContent = bdInvoicesCache.length;
   document.getElementById('bd-inv-empty-hint').style.display = bdInvoicesCache.length===0 ? '' : 'none';
@@ -9566,16 +9685,19 @@ async function exportBookingArchive(){
   if(!b) return;
 
   const [
-    {data: sales}, {data: costs}, {data: invoices},
+    {data: sales, error: salesErr}, {data: costs, error: costsErr}, {data: invoices, error: invoicesErr},
     {data: arrangements}, {data: estimations}, {data: settlements}
   ] = await Promise.all([
-    sb.from('booking_sales').select('*').eq('booking_id', b.id),
-    sb.from('booking_costs').select('*').eq('booking_id', b.id),
-    sb.from('invoices').select('*').eq('booking_id', b.id),
+    asSbResult(tableQueryAll('booking_sales', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: b.id }] })),
+    asSbResult(tableQueryAll('booking_costs', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: b.id }] })),
+    asSbResult(tableQueryAll('invoices', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: b.id }] })),
     sb.from('tour_arrangements').select('*').eq('booking_ref', b.ref_no),
     sb.from('estimations').select('*').eq('converted_booking_id', b.id),
     sb.from('guide_settlements').select('*').eq('booking_ref', b.ref_no)
   ]);
+  // 売上明細・仕入明細・Invoiceの取得に失敗した場合は、欠けたアーカイブを「正常に」出力しないよう中止する。
+  const __archiveFetchErr = salesErr || costsErr || invoicesErr;
+  if(__archiveFetchErr){ alert('売上明細・仕入明細・Invoiceの取得に失敗したため、出力を中止しました: '+__archiveFetchErr.message); return; }
 
   let arrangementsWithDays = [];
   if(arrangements && arrangements.length>0){
@@ -9643,13 +9765,18 @@ async function exportFullBackup(){
   const ids = data.map(b=>b.id);
   const refNos = data.map(b=>b.ref_no);
 
-  const [{data:sales},{data:costs},{data:invoices},{data:arrangements},{data:settlements}] = await Promise.all([
-    sb.from('booking_sales').select('*').in('booking_id',ids),
-    sb.from('booking_costs').select('*').in('booking_id',ids),
-    sb.from('invoices').select('*').in('booking_id',ids),
+  // 売上明細・仕入明細・Invoiceは、全予約idのin条件(URLが長くなり失敗する/1,000件で切り捨てられる)
+  // ではなく、テーブル全体をAPIのページングで取り切る(全予約分=テーブル全体のため)。
+  const [{data:sales, error:salesErr},{data:costs, error:costsErr},{data:invoices, error:invoicesErr},{data:arrangements},{data:settlements}] = await Promise.all([
+    asSbResult(tableQueryAll('booking_sales', { select: '*' })),
+    asSbResult(tableQueryAll('booking_costs', { select: '*' })),
+    asSbResult(tableQueryAll('invoices', { select: '*' })),
     sb.from('tour_arrangements').select('*').in('booking_ref',refNos),
     sb.from('guide_settlements').select('*').in('booking_ref',refNos)
   ]);
+  // 売上明細・仕入明細・Invoiceの取得に失敗した場合は、欠けたアーカイブを「正常に」出力しないよう中止する。
+  const __archiveFetchErr = salesErr || costsErr || invoicesErr;
+  if(__archiveFetchErr){ alert('売上明細・仕入明細・Invoiceの取得に失敗したため、出力を中止しました: '+__archiveFetchErr.message); return; }
 
   const zip = new JSZip();
   const exportedAt = new Date().toISOString();
@@ -9690,14 +9817,19 @@ async function exportFiscalYearArchive(){
   const ids = inFy.map(b=>b.id);
   const refNos = inFy.map(b=>b.ref_no);
 
-  const [{data: sales}, {data: costs}, {data: invoices}, {data: arrangements}, {data: estimations}, {data: settlements}] = await Promise.all([
-    sb.from('booking_sales').select('*').in('booking_id', ids),
-    sb.from('booking_costs').select('*').in('booking_id', ids),
-    sb.from('invoices').select('*').in('booking_id', ids),
+  // 売上明細・仕入明細・Invoiceは、年度の予約idを200件ずつに分けたin条件で取得する
+  // (データ全体ではなく年度分のデータ量に比例した負荷に抑えるため。2026-09 JUN決定)。
+  const [{data: sales, error: salesErr}, {data: costs, error: costsErr}, {data: invoices, error: invoicesErr}, {data: arrangements}, {data: estimations}, {data: settlements}] = await Promise.all([
+    asSbResult(tableQueryAllIn('booking_sales', { select: '*' }, 'booking_id', ids)),
+    asSbResult(tableQueryAllIn('booking_costs', { select: '*' }, 'booking_id', ids)),
+    asSbResult(tableQueryAllIn('invoices', { select: '*' }, 'booking_id', ids)),
     sb.from('tour_arrangements').select('*').in('booking_ref', refNos),
     sb.from('estimations').select('*').in('converted_booking_id', ids),
     sb.from('guide_settlements').select('*').in('booking_ref', refNos)
   ]);
+  // 売上明細・仕入明細・Invoiceの取得に失敗した場合は、欠けたアーカイブを「正常に」出力しないよう中止する。
+  const __archiveFetchErr = salesErr || costsErr || invoicesErr;
+  if(__archiveFetchErr){ alert('売上明細・仕入明細・Invoiceの取得に失敗したため、出力を中止しました: '+__archiveFetchErr.message); return; }
 
   let arrDays = [], estDaysAll = [], estFixedRowsAll = [], gItems = [];
   if(arrangements && arrangements.length>0){
@@ -9761,9 +9893,9 @@ async function exportFiscalYearArchive(){
 async function backupBookingDataBeforeDelete(b, refNo){
   const queries = {
     bookings: sb.from('bookings').select('*').eq('id', b.id),
-    booking_sales: sb.from('booking_sales').select('*').eq('booking_id', b.id),
-    booking_costs: sb.from('booking_costs').select('*').eq('booking_id', b.id),
-    invoices: sb.from('invoices').select('*').eq('booking_id', b.id),
+    booking_sales: asSbResult(tableQueryAll('booking_sales', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: b.id }] })),
+    booking_costs: asSbResult(tableQueryAll('booking_costs', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: b.id }] })),
+    invoices: asSbResult(tableQueryAll('invoices', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: b.id }] })),
     booking_hotels: sb.from('booking_hotels').select('*').eq('booking_id', b.id),
     booking_buses: sb.from('booking_buses').select('*').eq('booking_id', b.id),
     booking_restaurants: sb.from('booking_restaurants').select('*').eq('booking_id', b.id),
@@ -10314,7 +10446,12 @@ async function resetGuideAdvanceOverride(id, idx){
 // 割り当てない（#1086でBHARTI SHARAN分がRONIの仮払金に合算されてしまった事故の対応）。
 async function syncAdvancePaymentsFromCosts(bookingId, refNo){
   if(!refNo) return;
-  const {data: costs} = await sb.from('booking_costs').select('item_name, amount, memo').eq('booking_id', bookingId).order('id');
+  // 取得に失敗した場合は仮払金の自動反映を行わない(以前は失敗=0件扱いで何もしなかったのと同じ結果だが、
+  // 失敗したことをログに残す)。
+  let costs;
+  try{
+    costs = await tableQueryAll('booking_costs', { select: 'item_name,amount,memo', filters: [{ col: 'booking_id', op: 'eq', value: bookingId }], order: [{ col: 'id' }] });
+  }catch(e){ logError('仕入明細の仮払金→ガイド精算への自動反映(仕入明細の取得)', e); return; }
   const advanceRows = (costs||[]).filter(c => (c.item_name||'').includes('仮払金') && !(c.item_name||'').includes('戻し'));
   if(advanceRows.length === 0) return;
 
@@ -11095,10 +11232,16 @@ async function reflectVoucherToCost(settlementId, guideIndex){
     await guideSettlementsApiCall('updateById', { id: settlementId, fields: {voucher_reflected_guides: newReflectedGuides} });
     s.voucher_reflected_guides = newReflectedGuides;
   }catch(e){ logError('ガイド精算の反映済みフラグ更新', e, {toast:false}); }
-  const {data: allCosts} = await sb.from('booking_costs').select('amount').eq('booking_id', b.id);
-  const newGrossCost = (allCosts||[]).reduce((sum,c)=>sum+Number(c.amount||0),0);
-  await bookingsApiCall('updateById', { id: b.id, fields: {gross_cost:newGrossCost} });
-  b.gross_cost = newGrossCost;
+  // 取得に失敗した場合はgross_costを更新しない(以前は失敗=0件扱いでgross_cost=0を書き込んでいた)。
+  let allCosts = null;
+  try{
+    allCosts = await tableQueryAll('booking_costs', { select: 'amount', filters: [{ col: 'booking_id', op: 'eq', value: b.id }] });
+  }catch(e){ logError('伝票反映後のgross_cost再計算(仕入明細の取得に失敗したため未更新)', e); }
+  if(allCosts){
+    const newGrossCost = allCosts.reduce((sum,c)=>sum+Number(c.amount||0),0);
+    await bookingsApiCall('updateById', { id: b.id, fields: {gross_cost:newGrossCost} });
+    b.gross_cost = newGrossCost;
+  }
   await logAction('伝票内容を仕入明細に反映', b.ref_no);
   // 全件再取得してbdCostItemsを丸ごと差し替えると、仕入明細タブで他の行を編集中(まだ
   // 「保存」ボタンを押していない)の未保存の編集が黙って失われてしまう不具合があった。
@@ -15312,12 +15455,14 @@ async function appendEmailExcerptAsDraftRow(tab, excerpt){
         // それを参照しているcredit_card_statements.matched_booking_cost_id(クレカ明細の
         // 消込確定リンク)も孤立しうる。メインの保存フローと同じく、replaceで書き換わる前の
         // 状態(id/item_name/amount/payment_date)をあらかじめ取得しておく。
-        const {data: oldCostRows} = await sb.from('booking_costs').select('id,item_name,amount,payment_date').eq('booking_id', bookingId);
+        // 取得に失敗した場合は例外で下のcatchへ抜け、仕入明細の再保存(付け替え)自体を行わない
+        // (空の旧状態のまま進むとクレカ明細の消込リンクを付け替えられないため)。
+        const oldCostRows = await tableQueryAll('booking_costs', { select: 'id,item_name,amount,payment_date', filters: [{ col: 'booking_id', op: 'eq', value: bookingId }] });
         const rows = buildCostRows(bookingId);
         await bookingCostsApiCall('replace', { bookingId, rows });
         bdLoadSnapshot.costs = JSON.stringify(rows);
         renderCostTable();
-        await remapCreditCardStatementSourceIds(bookingId, oldCostRows || []);
+        await remapCreditCardStatementSourceIds(bookingId, oldCostRows);
       }
       await remapVendorEmailLogSourceIds(bookingId, config);
       // 手配書タブの日毎明細(bdArrDayItems)もホテル/バス/レストランのIDを外部キーとして
@@ -18964,10 +19109,13 @@ async function remapVendorEmailLogSourceIds(bookingId, config){
 // 別途SQLで検出・目視確認できる)。
 async function remapCreditCardStatementSourceIds(bookingId, oldCostRows){
   if(!oldCostRows || !oldCostRows.length) return;
-  const {data: stmts, error} = await sb.from('credit_card_statements')
-    .select('id,matched_booking_cost_id').eq('matched_booking_id', bookingId).not('matched_booking_cost_id', 'is', null);
-  if(error || !stmts || !stmts.length) return;
-  const {data: freshCosts} = await sb.from('booking_costs').select('id,item_name,amount,payment_date').eq('booking_id', bookingId);
+  // 取得に失敗した場合は例外を投げる(以前は黙ってスキップしていたため、付け替え漏れに気づけなかった)。
+  const stmts = await tableQueryAll('credit_card_statements', { select: 'id,matched_booking_cost_id', filters: [
+    { col: 'matched_booking_id', op: 'eq', value: bookingId }, { col: 'matched_booking_cost_id', op: 'notNull' } ] });
+  if(!stmts.length) return;
+  // 保存後の最新状態の取得に失敗した場合は例外を投げ、付け替えを一切行わない
+  // (呼び出し元のrunSkippableIsolated等で失敗として記録される)。
+  const freshCosts = await tableQueryAll('booking_costs', { select: 'id,item_name,amount,payment_date', filters: [{ col: 'booking_id', op: 'eq', value: bookingId }] });
   const sig = r => `${r.item_name||''}|${Number(r.amount)||0}|${r.payment_date||''}`;
   const groupBySig = list => {
     const m = {};
@@ -19010,9 +19158,10 @@ async function remapCreditCardStatementSourceIds(bookingId, oldCostRows){
 async function remapSalesAgentIds(bookingId, oldSalesRows){
   if(!oldSalesRows || !oldSalesRows.length) return;
   if(!oldSalesRows.some(r=>r.agent_id)) return; // 引き継ぐべきagent_idが元々無ければ何もしない
-  const {data: freshSales, error} = await sb.from('booking_sales')
-    .select('id,item_name,agent_name,unit_price,pax,qty,agent_id').eq('booking_id', bookingId);
-  if(error || !freshSales || !freshSales.length) return;
+  // 保存後の最新状態の取得に失敗した場合は例外を投げ、付け替えを一切行わない
+  // (呼び出し元のrunSkippableIsolatedで失敗として記録・表示される。以前は黙ってスキップしていた)。
+  const freshSales = await tableQueryAll('booking_sales', { select: 'id,item_name,agent_name,unit_price,pax,qty,agent_id', filters: [{ col: 'booking_id', op: 'eq', value: bookingId }] });
+  if(!freshSales.length) return;
   const sig = r => `${r.item_name||''}|${r.agent_name||''}|${Number(r.unit_price)||0}|${Number(r.pax)||0}|${Number(r.qty)||0}`;
   const groupBySig = list => {
     const m = {};
@@ -20287,8 +20436,13 @@ async function saveBookingDetail(){
     // (bdCostItemsはidを保持しないため、書き換わった後からは元のidを辿れない)。
     let _oldCostRowsForCcRemap = null;
     if(costsIdsMayChange){
-      const {data: oldCosts} = await sb.from('booking_costs').select('id,item_name,amount,payment_date').eq('booking_id', bookingId);
-      _oldCostRowsForCcRemap = oldCosts || [];
+      // 取得に失敗した場合は、空の旧状態のまま書き込みに進まないよう以降の保存を中止する
+      // (予約情報(bookings)はこの時点で保存済み)。
+      try{
+        _oldCostRowsForCcRemap = await tableQueryAll('booking_costs', { select: 'id,item_name,amount,payment_date', filters: [{ col: 'booking_id', op: 'eq', value: bookingId }] });
+      }catch(e){
+        throw new Error('仕入明細の保存前の状態を取得できなかったため、売上明細・仕入明細以降の保存を中止しました（予約情報は保存済みです）。\n'+e.message);
+      }
     }
     // remapSalesAgentIds()用に、booking_salesがこのあと書き換わる(replaceで新IDが
     // 振られる)"前"のDB上の実際の状態をあらかじめ取得しておく(_oldCostRowsForCcRemapと
@@ -20296,8 +20450,13 @@ async function saveBookingDetail(){
     // 最新DB状態を基準にする)。
     let _oldSalesRowsForAgentRemap = null;
     if(salesDirty){
-      const {data: oldSales} = await sb.from('booking_sales').select('id,item_name,agent_name,unit_price,pax,qty,agent_id').eq('booking_id', bookingId);
-      _oldSalesRowsForAgentRemap = oldSales || [];
+      // 取得に失敗した場合は、空の旧状態のまま書き込みに進まないよう以降の保存を中止する
+      // (予約情報(bookings)はこの時点で保存済み)。
+      try{
+        _oldSalesRowsForAgentRemap = await tableQueryAll('booking_sales', { select: 'id,item_name,agent_name,unit_price,pax,qty,agent_id', filters: [{ col: 'booking_id', op: 'eq', value: bookingId }] });
+      }catch(e){
+        throw new Error('売上明細の保存前の状態を取得できなかったため、売上明細・仕入明細以降の保存を中止しました（予約情報は保存済みです）。\n'+e.message);
+      }
     }
 
     await runSkippable('売上明細(booking_sales)', salesDirty, async () => {
@@ -20437,41 +20596,26 @@ async function saveBookingDetail(){
     });
 
     // 入金合計が売上合計以上になったらInvoiceをpaidに自動更新
-    // (F12: 複数エージェントが混在する予約で、予約全体の入金合計を予約全体の売上合計と
-    //  比較していたため、一方のエージェント分の入金だけで他方のエージェントのInvoiceまで
-    //  誤ってpaidになる不具合があった。booking_sales.agent_name/invoices.agent_nameで
-    //  エージェント単位に集計し、そのエージェント自身の入金がそのエージェント自身の
-    //  売上に達した場合のみ、そのエージェントのInvoiceをpaidにする。
-    //  agent_nameが無いInvoiceはエージェントを一意に特定できないため自動判定をスキップし、
-    //  手動確認に回す)
-    const bookingAgentForPaidCheck = (b && b.agent_name) ? b.agent_name.trim() : '';
-    const salesTotalsByAgent = {};
-    bdSalesItems.forEach(it=>{
-      const agent = (it.agent_name && it.agent_name.trim()) ? it.agent_name.trim() : bookingAgentForPaidCheck;
-      if(!agent) return; // エージェント不明の売上明細は集計対象外
-      const paid = (it.payments||[]).reduce((ps,p)=>ps+(Number(p.amount)||0),0);
-      const cur = salesTotalsByAgent[agent] || {sales:0, paid:0};
-      cur.sales += Number(it.amount||0);
-      cur.paid += paid;
-      salesTotalsByAgent[agent] = cur;
-    });
-    // 合算Invoice(is_consolidated)は予約全体(全請求先合計)の入金・売上で判定する
-    // (agent_name単位ではなく、salesTotalsByAgentの全エージェント分を合算した値を使う)。
-    const bookingWideTotals = Object.values(salesTotalsByAgent).reduce(
-      (acc,v)=>({sales:acc.sales+v.sales, paid:acc.paid+v.paid}), {sales:0, paid:0});
-    const {data: pendingInvoicesForPaidCheck} = await sb.from('invoices').select('id, agent_name, is_consolidated').eq('booking_id', bookingId).eq('status','pending');
-    for(const inv of (pendingInvoicesForPaidCheck||[])){
-      if(inv.is_consolidated){
-        if(bookingWideTotals.paid>0 && bookingWideTotals.paid>=bookingWideTotals.sales){
-          await invoicesApiCall('updateById', { id: inv.id, fields: {status:'paid'} });
-        }
-        continue;
-      }
-      const invAgent = (inv.agent_name||'').trim();
-      if(!invAgent) continue; // agent_name未設定のInvoiceは自動判定をスキップ(要手動確認)
-      const agg = salesTotalsByAgent[invAgent];
-      if(agg && agg.paid>0 && agg.paid>=agg.sales){
+    // (判定条件はcomputeInvoicePaidTotals/invoiceShouldBePaid参照。合算Invoiceの作成・更新時
+    //  (upsertConsolidatedInvoice)も同じ条件で状態を決める)。
+    // JPY/USDは同じ請求の通貨違いのため、同じ請求先のpending Invoiceは通貨に関係なく両方paidにする
+    // (2026-09 JUN決定)。Invoiceの取得に失敗した場合、予約の保存自体は完了しているため
+    // 保存エラー扱いにはせず、自動判定だけをスキップしてtoastで知らせる。
+    const paidTotals = computeInvoicePaidTotals(bdSalesItems, b && b.agent_name);
+    let pendingInvoicesForPaidCheck = [];
+    try{
+      pendingInvoicesForPaidCheck = await tableQueryAll('invoices', { select: 'id,agent_name,is_consolidated',
+        filters: [{ col: 'booking_id', op: 'eq', value: bookingId }, { col: 'status', op: 'eq', value: 'pending' }] });
+    }catch(e){
+      logError('入金消込の自動判定(Invoiceの取得に失敗したため自動判定をスキップ)', e);
+    }
+    for(const inv of pendingInvoicesForPaidCheck){
+      if(invoiceShouldBePaid(inv, paidTotals)){
         await invoicesApiCall('updateById', { id: inv.id, fields: {status:'paid'} });
+        // 予約詳細の「関連Invoice」一覧(開いた時に読み込んだbdInvoicesCache)にも反映する
+        // (以前は予約詳細を閉じて開き直すまでPendingのまま表示されていた)
+        const cachedInv = (bdInvoicesCache||[]).find(x=>x.id===inv.id);
+        if(cachedInv) cachedInv.status = 'paid';
       }
     }
   } catch(e) {
@@ -20566,9 +20710,23 @@ async function saveBooking(){
   const saveBtn = document.getElementById('nb-save-btn');
   const saveBtnOrigHtml = saveBtn ? saveBtn.innerHTML : null;
   if(saveBtn){ saveBtn.disabled = true; saveBtn.innerHTML = '⏳ 保存中...'; }
+  // 同じREF#の予約が既にあれば、保存せずにその旨を表示する(以前は「保存に失敗しました」としか
+  // 分からず、原因がREF#の重複だと気づけなかった)。確認自体に失敗した場合は保存に進み、
+  // サーバー側の一意制約エラー(REF#重複の文言に変換済み)に任せる。
+  try{
+    const {data: dupRows, error: dupErr} = await sb.from('bookings').select('id,ref_no,tour_name').eq('ref_no', ref).limit(1);
+    if(!dupErr && dupRows && dupRows.length){
+      if(saveBtn){ saveBtn.disabled = false; saveBtn.innerHTML = saveBtnOrigHtml; }
+      alert(`REF# ${ref} は既に登録されています（${dupRows[0].tour_name||'ツアー名なし'}）。別のREF#を入力してください。`);
+      document.getElementById('nb-ref').focus();
+      return;
+    }
+  }catch(e){ /* 確認に失敗した場合は保存に進む(サーバー側の一意制約で検出する) */ }
   try{ await bookingsApiCall('insert', { rows: [payload] }); }
   catch(e){
-    alert('保存に失敗しました: '+e.message);
+    alert(e.code==='DUPLICATE_KEY' && /ref_no/.test(e.message||'')
+      ? `REF# ${ref} は既に登録されています。別のREF#を入力してください。`
+      : '保存に失敗しました: '+e.message);
     // 保存失敗時は入力内容をあえて消さない(打ち直しの手間を省くため)が、そのまま
     // REF#だけ変えて別の予約用に転用されないよう、画面上に警告を残しておく
     // (この画面を離れて開き直せばresetNewBookingForm()でリセットされる)。
@@ -21436,27 +21594,47 @@ let paymentMonthlyCache = [];
 let paySearchDebounceTimer = null;
 
 async function fetchAllRpcPages(fnName, params, errLabel, throwOnError){
-  // .rpc()はデフォルトPOSTで、PostgRESTはPOSTのRangeヘッダを無視して常に先頭ページを
-  // 返す(無限ループの原因になる)。{get:true}でGETリクエストにするとRangeが機能する。
-  let all=[]; let from=0; const pageSize=1000;
-  while(true){
-    const {data,error} = await sb.rpc(fnName, params, {get:true}).range(from, from+pageSize-1);
-    if(error){
-      logError(errLabel, error);
-      if(throwOnError) throw error;
-      break;
-    }
-    all = all.concat(data||[]);
-    if((data||[]).length < pageSize) break;
-    from += pageSize;
+  // RLS対応フェーズ2 バッチ1(2026-09): ブラウザからの直接RPC呼び出し(anonキー)をやめ、
+  // /api/table-crud(action:'rpc'、ログイン検証つき・service_role)経由にした。ページング
+  // (GET+Range、1,000件ずつ)はサーバー側で行い、rpcCallAllが取り切る。
+  // 途中で失敗した場合は部分的な結果を返さず、throwOnErrorでなければ空配列を返す
+  // (以前は失敗したページ以降を黙って切り捨てた部分結果を返していた)。
+  try{
+    return await rpcCallAll(fnName, params);
+  }catch(error){
+    logError(errLabel, error);
+    if(throwOnError) throw error;
+    return [];
   }
-  return all;
 }
 
 // 2026-09 egress緊急対応: 月別集計RPC(get_payment_monthly_summary)は日付範囲を変えなければ
 // タブを開き直すたびに毎回同じ結果を取り直していたため、(from,to)をキーに5分TTLで
 // キャッシュする。明細本体(fetchPaymentDetails、検索語で毎回変わりうる)は対象外。
 let paymentMonthlyRpcCache = {}; // { "from|to": {monthly, at} }
+// 入出金画面の集計は非同期で、期間を続けて変更すると先に始めた(古い条件の)集計の結果が後から
+// 返ってきて、新しい条件の結果を上書きしてしまう(2026-09 Previewで発生: 8/1〜9/30の結果の後に
+// 年度全体の結果で上書きされた)。呼び出しごとに連番を振り、最新の呼び出しの結果だけを描画する
+// (月別集計と明細は別々の連番。検索(fetchPaymentDetails)は明細だけを更新するため)。
+let paymentMonthlySeq = 0;
+let paymentDetailsSeq = 0;
+// 同じ条件(期間・検索語)の集計が実行中なら、新しく始めずにその結果を待つ(画面を開いた時等の二重呼び出し対策)。
+let paymentLoadInFlight = null; // { key, promise }
+// 集計のきっかけの記録(速度・二重呼び出しの切り分け用)。コンソールで console.table(window.__payLoadLog) で確認できる。
+function _logPaymentLoad(kind, key, note){
+  window.__payLoadLog = window.__payLoadLog || [];
+  const ev = window.event ? `${window.event.type}:${(window.event.target && window.event.target.id) || ''}` : '(イベント外)';
+  window.__payLoadLog.push({ '種類': kind, '条件': key, 'きっかけ': ev, '備考': note || '', '開始(ms)': Math.round(performance.now()) });
+}
+function _paymentSearchParams(from, to){
+  const q = toHalfWidth(document.getElementById('pay-search').value.trim());
+  // GETリクエストのRPC呼び出しは、値がnullでもクエリ文字列に"null"という文字列として
+  // 載ってしまい(date型はキャストエラー、text型は"null"という文字列検索になってしまう)、
+  // キー自体を省略しないと正しくSQL側のdefault nullが使われない。
+  const params = {p_from: from, p_to: to};
+  if(q) params.p_search = q;
+  return params;
+}
 async function loadPayments(){
   initPaymentFiscalYearSelect();
   if(!document.getElementById('pay-from').value || !document.getElementById('pay-to').value){
@@ -21466,27 +21644,63 @@ async function loadPayments(){
     return loadPayments();
   }
 
+  const from = document.getElementById('pay-from').value;
+  const to = document.getElementById('pay-to').value;
+  // 期間が逆転している(FROM > TO)間は集計しない(画面は前の集計のまま)。FROMとTOを続けて
+  // 変更する途中のblur(例: FROM 08/01・TO 05/31)で、無意味な集計が走っていたため(2026-09 Previewで確認)。
+  if(from > to){ _logPaymentLoad('loadPayments', `${from}〜${to}`, '期間が逆転(FROM > TO)しているため集計しない'); return; }
+  const params = _paymentSearchParams(from, to);
+  const loadKey = JSON.stringify(params);
+  if(paymentLoadInFlight && paymentLoadInFlight.key === loadKey){
+    _logPaymentLoad('loadPayments', loadKey, '同じ条件の集計が実行中のため合流');
+    return paymentLoadInFlight.promise;
+  }
+  _logPaymentLoad('loadPayments', loadKey);
+  const promise = _loadPaymentsRun(from, to, params);
+  paymentLoadInFlight = { key: loadKey, promise };
+  try{ return await promise; }
+  finally{ if(paymentLoadInFlight && paymentLoadInFlight.promise === promise) paymentLoadInFlight = null; }
+}
+async function _loadPaymentsRun(from, to, params){
+  const mySeqM = ++paymentMonthlySeq;
+  const mySeqD = ++paymentDetailsSeq;
   document.getElementById('pin-tbody').innerHTML='<tr><td colspan="5" class="empty">読み込み中...</td></tr>';
   document.getElementById('pout-tbody').innerHTML='<tr><td colspan="5" class="empty">読み込み中...</td></tr>';
   document.getElementById('pay-monthly-tbody').innerHTML='<tr><td colspan="4" class="empty">読み込み中...</td></tr>';
 
-  const from = document.getElementById('pay-from').value;
-  const to = document.getElementById('pay-to').value;
   const rpcKey = from+'|'+to;
-
   const cachedMonthly = paymentMonthlyRpcCache[rpcKey];
-  if(cachedMonthly && cacheIsFresh(cachedMonthly.at)){
-    paymentMonthlyCache = cachedMonthly.monthly;
-  } else {
-    const {data: monthly, error: monthlyErr} = await sb.rpc('get_payment_monthly_summary', {p_from: from, p_to: to});
-    if(monthlyErr) logError('入出金月別集計の読み込み(get_payment_monthly_summary)', monthlyErr);
-    paymentMonthlyCache = monthly||[];
-    paymentMonthlyRpcCache[rpcKey] = { monthly: paymentMonthlyCache, at: Date.now() };
+  const monthlyCached = !!(cachedMonthly && cacheIsFresh(cachedMonthly.at));
+  // 月別集計・入金明細・出金明細を1リクエスト(rpcBatch)でまとめて取得する
+  // (以前は月別集計→明細の2往復が直列だった)。月別集計は5分TTLキャッシュがあれば取得しない。
+  const calls = [
+    { fn: 'search_payment_income', params },
+    { fn: 'search_payment_outflow', params },
+  ];
+  if(!monthlyCached) calls.push({ fn: 'get_payment_monthly_summary', params: {p_from: from, p_to: to} });
+  let results;
+  try{
+    results = await rpcBatchAll(calls);
+  }catch(e){
+    logError('入出金の読み込み(get_payment_monthly_summary/search_payment_income/search_payment_outflow)', e);
+    if(mySeqM === paymentMonthlySeq){ paymentMonthlyCache = monthlyCached ? cachedMonthly.monthly : []; renderPaymentMonthly(); }
+    if(mySeqD === paymentDetailsSeq){ salesPaymentsCache = []; costPaymentsCache = []; payState.pin.page=1; payState.pout.page=1; renderPaymentLists(); }
+    return;
   }
-  renderPaymentMonthly();
-
-  payState.pin.page=1; payState.pout.page=1;
-  await fetchPaymentDetails();
+  const [inRows, outRows, monthlyRows] = results;
+  // 失敗時は空の結果をキャッシュしない(以前は失敗時の空の結果を5分間キャッシュしていた)
+  if(!monthlyCached) paymentMonthlyRpcCache[rpcKey] = { monthly: monthlyRows, at: Date.now() };
+  // 後から始まった集計がある場合、この(古い)結果は捨てる
+  if(mySeqM === paymentMonthlySeq){
+    paymentMonthlyCache = monthlyCached ? cachedMonthly.monthly : monthlyRows;
+    renderPaymentMonthly();
+  }
+  if(mySeqD === paymentDetailsSeq){
+    salesPaymentsCache = inRows;
+    costPaymentsCache = outRows;
+    payState.pin.page=1; payState.pout.page=1;
+    renderPaymentLists();
+  }
 }
 
 function renderPaymentMonthly(){
@@ -21518,21 +21732,24 @@ function filterPaymentLists(){
 }
 
 // 日付範囲・検索語の絞り込みはsearch_payment_income/search_payment_outflow RPCでサーバー側実行する
+// (入金・出金の2本を1リクエスト(rpcBatch)で取得。最新の呼び出しの結果だけを描画する)
 async function fetchPaymentDetails(){
   const from = document.getElementById('pay-from').value;
   const to = document.getElementById('pay-to').value;
-  const q = toHalfWidth(document.getElementById('pay-search').value.trim());
-
-  // GETリクエストのRPC呼び出しは、値がnullでもクエリ文字列に"null"という文字列として
-  // 載ってしまい(date型はキャストエラー、text型は"null"という文字列検索になってしまう)、
-  // キー自体を省略しないと正しくSQL側のdefault nullが使われない。
-  const params = {p_from: from, p_to: to};
-  if(q) params.p_search = q;
-
-  const [inRows, outRows] = await Promise.all([
-    fetchAllRpcPages('search_payment_income', params, '入出金(入金)明細の読み込み(search_payment_income)'),
-    fetchAllRpcPages('search_payment_outflow', params, '入出金(出金)明細の読み込み(search_payment_outflow)')
-  ]);
+  if(from > to){ _logPaymentLoad('fetchPaymentDetails', `${from}〜${to}`, '期間が逆転(FROM > TO)しているため集計しない'); return; }
+  const params = _paymentSearchParams(from, to);
+  _logPaymentLoad('fetchPaymentDetails', JSON.stringify(params));
+  const mySeqD = ++paymentDetailsSeq;
+  let inRows = [], outRows = [];
+  try{
+    [inRows, outRows] = await rpcBatchAll([
+      { fn: 'search_payment_income', params },
+      { fn: 'search_payment_outflow', params },
+    ]);
+  }catch(e){
+    logError('入出金明細の読み込み(search_payment_income/search_payment_outflow)', e);
+  }
+  if(mySeqD !== paymentDetailsSeq) return; // 後から始まった検索がある場合、この(古い)結果は捨てる
   salesPaymentsCache = inRows;
   costPaymentsCache = outRows;
   renderPaymentLists();
@@ -22888,8 +23105,11 @@ async function findCcMatchCandidates(statement){
   // payment_date/card_holderのみ取得する(payment_method/memoはWHERE条件のみで参照)
   const CC_MATCH_COST_COLUMNS = 'id,booking_id,item_name,amount,payment_date,card_holder';
   const [{data: costsNew, error: errNew}, {data: costsLegacy, error: errLegacy}] = await Promise.all([
-    sb.from('booking_costs').select(CC_MATCH_COST_COLUMNS).in('payment_method', CC_PAYMENT_METHODS).eq('amount', statement.amount),
-    sb.from('booking_costs').select(CC_MATCH_COST_COLUMNS).eq('payment_method','事前決済').eq('amount', statement.amount).ilike('memo','%法人カード決済%'),
+    asSbResult(tableQueryAll('booking_costs', { select: CC_MATCH_COST_COLUMNS, filters: [
+      { col: 'payment_method', op: 'in', value: CC_PAYMENT_METHODS }, { col: 'amount', op: 'eq', value: statement.amount } ] })),
+    asSbResult(tableQueryAll('booking_costs', { select: CC_MATCH_COST_COLUMNS, filters: [
+      { col: 'payment_method', op: 'eq', value: '事前決済' }, { col: 'amount', op: 'eq', value: statement.amount },
+      { col: 'memo', op: 'ilikeContains', value: '法人カード決済' } ] })),
   ]);
   const amountMatchedMap = new Map();
   [...(!errNew && costsNew ? costsNew : []), ...(!errLegacy && costsLegacy ? costsLegacy : [])].forEach(c=>amountMatchedMap.set(c.id, c));
@@ -22908,8 +23128,9 @@ async function findCcMatchCandidates(statement){
   let amountBandOk = false;
   if(statement.merchant_name && statement.amount){
     try{
-      const {data: pastConfirmed} = await sb.from('credit_card_statements').select('amount')
-        .eq('merchant_name', statement.merchant_name).eq('match_status','確定済み').limit(50);
+      const pastConfirmed = await tableQueryAll('credit_card_statements', { select: 'amount', filters: [
+        { col: 'merchant_name', op: 'eq', value: statement.merchant_name }, { col: 'match_status', op: 'eq', value: '確定済み' } ],
+        limit: 50 });
       const pastAmounts = (pastConfirmed||[]).map(r=>Number(r.amount)).filter(n=>n>0);
       amountBandOk = pastAmounts.some(a=>Math.abs(a-statement.amount) <= a*0.15);
     }catch(e){ amountBandOk = false; }
@@ -22932,8 +23153,10 @@ async function findCcMatchCandidates(statement){
       const mmIds = mismatchBookings.map(b=>b.id);
       if(mmIds.length){
         const [{data: mmCostsNew}, {data: mmCostsLegacy}] = await Promise.all([
-          sb.from('booking_costs').select(CC_MATCH_COST_COLUMNS).in('booking_id', mmIds).in('payment_method', CC_PAYMENT_METHODS),
-          sb.from('booking_costs').select(CC_MATCH_COST_COLUMNS).in('booking_id', mmIds).eq('payment_method','事前決済').ilike('memo','%法人カード決済%'),
+          asSbResult(tableQueryAllIn('booking_costs', { select: CC_MATCH_COST_COLUMNS, filters: [
+            { col: 'payment_method', op: 'in', value: CC_PAYMENT_METHODS } ] }, 'booking_id', mmIds)),
+          asSbResult(tableQueryAllIn('booking_costs', { select: CC_MATCH_COST_COLUMNS, filters: [
+            { col: 'payment_method', op: 'eq', value: '事前決済' }, { col: 'memo', op: 'ilikeContains', value: '法人カード決済' } ] }, 'booking_id', mmIds)),
         ]);
         const mmMap = new Map();
         [...(mmCostsNew||[]), ...(mmCostsLegacy||[])].forEach(c=>mmMap.set(c.id, c));
@@ -23028,7 +23251,9 @@ async function loadCreditCardStatements(){
   }
 
   tbody.innerHTML = '<tr><td colspan="7" class="empty">読み込み中...</td></tr>';
-  const {data, error} = await sb.from('credit_card_statements').select('*').order('transaction_date',{ascending:false});
+  // 以前はPostgRESTの1,000件上限で黙って切り捨てられていた。tableQueryAllで取り切る。
+  const {data, error} = await asSbResult(tableQueryAll('credit_card_statements', { select: '*',
+    order: [{ col: 'transaction_date', ascending: false }] }));
   if(error){ logError('クレジットカード明細の読み込み', error); tbody.innerHTML = '<tr><td colspan="7" class="empty">読み込みに失敗しました</td></tr>'; return; }
   ccStatementsCache = data||[];
   ccStatementsCacheAt = Date.now();
@@ -23053,10 +23278,9 @@ async function renderUnreimbursedPersonalAdvanceBanner(){
   const el = document.getElementById('cc-unreimbursed-banner');
   if(!el) return;
   try{
-    const {data, error} = await sb.from('booking_costs').select('id,amount,card_holder,booking_id')
-      .eq('payment_method','クレジットカード(個人・要精算)').is('payment_date', null);
-    if(error) throw error;
-    const rows = data||[];
+    // 以前はPostgRESTの1,000件上限で黙って切り捨てられていた。tableQueryAllで取り切る。
+    const rows = await tableQueryAll('booking_costs', { select: 'id,amount,card_holder,booking_id', filters: [
+      { col: 'payment_method', op: 'eq', value: 'クレジットカード(個人・要精算)' }, { col: 'payment_date', op: 'isNull' } ] });
     if(rows.length===0){ el.innerHTML=''; return; }
     const total = rows.reduce((s,r)=>s+Number(r.amount||0),0);
     const byHolder = {};
@@ -23092,17 +23316,16 @@ async function openCcPaymentMigrationPreview(){
   try{
     // payment_methodが未設定(移行前)の行のうち、memoに「カード」を含むものだけを対象に
     // 判定する(既に新しい支払方法へ移行済みの行、カードと無関係な行は対象外)。
-    const {count: totalCount} = await sb.from('booking_costs').select('id',{count:'exact',head:true})
-      .is('payment_method', null).ilike('memo','%カード%');
+    const migrationFilters = [{ col: 'payment_method', op: 'isNull' }, { col: 'memo', op: 'ilikeContains', value: 'カード' }];
+    const totalCount = await tableQueryCount('booking_costs', { select: 'id', filters: migrationFilters });
     // PostgRESTのdb-max-rows既定値(1000)により.limit()だけでは全件取得できないため、
     // rangeで1000件ずつページングして取得する(上限5000件=5ページまで、それ以上は
     // 想定外の異常増加とみなし打ち切ってtruncated扱いにする)。
     const rows = [];
     const PAGE_SIZE = 1000;
     for(let page=0; page<5; page++){
-      const {data, error} = await sb.from('booking_costs').select('id,booking_id,item_name,amount,memo,payment_method')
-        .is('payment_method', null).ilike('memo','%カード%').range(page*PAGE_SIZE, page*PAGE_SIZE+PAGE_SIZE-1);
-      if(error) throw error;
+      const data = await tableQueryAll('booking_costs', { select: 'id,booking_id,item_name,amount,memo,payment_method',
+        filters: migrationFilters, limit: PAGE_SIZE, offset: page*PAGE_SIZE });
       rows.push(...(data||[]));
       if(!data || data.length<PAGE_SIZE) break;
     }
@@ -23251,7 +23474,8 @@ async function openCcMatchModal(id){
     const [{data: bk}, {data: cost}] = await Promise.all([
       sb.from('bookings').select('id,ref_no,tour_name').eq('id', s.matched_booking_id).maybeSingle(),
       // 2026-09 egress緊急対応(Tier C): currentMatchHtmlで参照するitem_name/amountのみ取得する
-      s.matched_booking_cost_id ? sb.from('booking_costs').select('id,item_name,amount').eq('id', s.matched_booking_cost_id).maybeSingle() : Promise.resolve({data:null}),
+      s.matched_booking_cost_id ? asSbResult(tableQueryMaybeSingle('booking_costs', { select: 'id,item_name,amount',
+        filters: [{ col: 'id', op: 'eq', value: s.matched_booking_cost_id }] })) : Promise.resolve({data:null}),
     ]);
     currentMatch = { booking: bk||null, cost: cost||null };
   }
@@ -23427,7 +23651,14 @@ async function searchCcManualMatch(ccId){
   const bookingIds = bks.map(b=>b.id);
   // 2026-09 egress緊急対応(Tier C): existingRowsの表示・確定ボタンで参照するid/booking_id/
   // item_name/amountのみ取得する
-  const {data: costs} = await sb.from('booking_costs').select('id,booking_id,item_name,amount').in('booking_id', bookingIds);
+  let costs;
+  try{
+    costs = await tableQueryAllIn('booking_costs', { select: 'id,booking_id,item_name,amount' }, 'booking_id', bookingIds);
+  }catch(e){
+    logError('クレジットカード明細の手動検索(仕入明細の取得)', e);
+    resultsEl.innerHTML = '<div class="empty" style="font-size:11px">仕入明細の読み込みに失敗しました</div>';
+    return;
+  }
   const costsByBooking = {};
   (costs||[]).forEach(c=>{ (costsByBooking[c.booking_id] = costsByBooking[c.booking_id]||[]).push(c); });
   // 予約ごとに「既存の仕入明細から選ぶ」候補と、「新しい仕入明細をその場で作成して紐付ける」
@@ -24353,7 +24584,7 @@ async function saveInvoiceConfirm(){
   // 不具合があった)。
   const otherBookingIds = [...savedIds].filter(bid=>bid && bid!==currentDetailId);
   for(const bid of otherBookingIds){
-    const {data: costsForBid, error: costsErr} = await sb.from('booking_costs').select('amount').eq('booking_id', bid);
+    const {data: costsForBid, error: costsErr} = await asSbResult(tableQueryAll('booking_costs', { select: 'amount', filters: [{ col: 'booking_id', op: 'eq', value: bid }] }));
     if(costsErr){ logError('請求書取込後のgross_cost再計算', costsErr, {toast:false}); continue; }
     const newGross = (costsForBid||[]).reduce((s,r)=>s+Number(r.amount||0),0);
     await bookingsApiCall('updateById', { id: bid, fields: {gross_cost:newGross} });
@@ -29179,8 +29410,14 @@ async function loadInvoicePage(){
   if(invoicesRawCache.length>0 && cacheIsFresh(invoicesFetchAt)){
     invoices = invoicesRawCache;
   } else {
-    const res = await sb.from('invoices').select('*').order('created_at',{ascending:false});
-    invoices = res.data || [];
+    // 以前はPostgRESTの1,000件上限で黙って切り捨てられていた。tableQueryAllで取り切る。
+    try{
+      invoices = await tableQueryAll('invoices', { select: '*', order: [{ col: 'created_at', ascending: false }] });
+    }catch(e){
+      logError('Invoice一覧の読み込み', e);
+      document.getElementById('iv-tbody').innerHTML='<tr><td colspan="9" class="empty">Invoiceの読み込みに失敗しました。再読み込みしてください。</td></tr>';
+      return;
+    }
     invoicesRawCache = invoices;
     invoicesFetchAt = Date.now();
   }
@@ -29387,6 +29624,55 @@ function distinctBookingAgents(salesRows, bookingAgentName){
   return Array.from(set);
 }
 
+// 入金消込の自動paid判定の集計(saveBookingDetailとupsertConsolidatedInvoiceで共用)。
+// (F12: 複数エージェントが混在する予約で、予約全体の入金合計を予約全体の売上合計と
+//  比較していたため、一方のエージェント分の入金だけで他方のエージェントのInvoiceまで
+//  誤ってpaidになる不具合があった。booking_sales.agent_name/invoices.agent_nameで
+//  エージェント単位に集計し、そのエージェント自身の入金がそのエージェント自身の
+//  売上に達した場合のみ、そのエージェントのInvoiceをpaidにする。)
+// salesItems: {agent_name, amount, payments} の配列(予約詳細のbdSalesItems、またはbooking_salesの行)。
+function computeInvoicePaidTotals(salesItems, bookingAgentName){
+  const bookingAgent = (bookingAgentName||'').trim();
+  const byAgent = {};
+  (salesItems||[]).forEach(it=>{
+    const agent = (it.agent_name && it.agent_name.trim()) ? it.agent_name.trim() : bookingAgent;
+    if(!agent) return; // エージェント不明の売上明細は集計対象外
+    const paid = (it.payments||[]).reduce((ps,p)=>ps+(Number(p.amount)||0),0);
+    const cur = byAgent[agent] || {sales:0, paid:0};
+    cur.sales += Number(it.amount||0);
+    cur.paid += paid;
+    byAgent[agent] = cur;
+  });
+  // 合算Invoice(is_consolidated)は予約全体(全請求先合計)の入金・売上で判定する
+  const bookingWide = Object.values(byAgent).reduce(
+    (acc,v)=>({sales:acc.sales+v.sales, paid:acc.paid+v.paid}), {sales:0, paid:0});
+  return { byAgent, bookingWide };
+}
+// そのInvoiceを入金済み(paid)にすべきか。agent_nameが無い個別Invoiceはエージェントを
+// 一意に特定できないため自動判定しない(要手動確認)。
+function invoiceShouldBePaid(inv, totals){
+  if(inv.is_consolidated){
+    return totals.bookingWide.paid>0 && totals.bookingWide.paid>=totals.bookingWide.sales;
+  }
+  const invAgent = (inv.agent_name||'').trim();
+  if(!invAgent) return false;
+  const agg = totals.byAgent[invAgent];
+  return !!(agg && agg.paid>0 && agg.paid>=agg.sales);
+}
+// Invoiceの発行・再発行(個別・合算とも)で書き込む状態(status)を決める(2026-09 JUN決定)。
+// 保存時の自動判定(invoiceShouldBePaid)と同じ条件を、pending→paidだけでなく両方向に適用する:
+// 満たしていればpaid、満たしていなければpending。以前は「既存行がpaidならpaidのまま」だったため、
+// 入金済みの後に売上が増えて再発行すると、未入金の残額があるのにpaidと表示されていた。
+// 例外: 請求先(agent_name)が無い個別Invoiceは判定できない(保存時の自動判定もスキップして手動確認に
+// 回している)ため、既存の状態がpaidならpaidのまま、それ以外はpendingにする。
+// existingStatus: 再発行時の既存行のstatus(新規発行時はnull)。
+function decideInvoiceStatusOnIssue(inv, totals, existingStatus){
+  if(!inv.is_consolidated && !(inv.agent_name||'').trim()){
+    return existingStatus==='paid' ? 'paid' : 'pending';
+  }
+  return invoiceShouldBePaid(inv, totals) ? 'paid' : 'pending';
+}
+
 async function generateInvoice(bookingId, currency, agentFilter){
   const bookings = await fetchBookingsListLight();
   const booking = bookings.find(b=>b.id===bookingId);
@@ -29403,7 +29689,11 @@ async function generateInvoice(bookingId, currency, agentFilter){
 
   // 請求先で金額を絞り込み（売上明細が登録されている場合）。請求先の一覧・件数も
   // ここから求める(理由は distinctBookingAgents のコメント参照)。
-  const {data: salesRows} = await sb.from('booking_sales').select('*').eq('booking_id', bookingId).order('sort_order').order('created_at');
+  // 取得に失敗した場合は発行を中止する(以前は失敗=明細0件扱いで、予約のgross_salesを金額にして発行していた)。
+  let salesRows;
+  try{
+    salesRows = await tableQueryAll('booking_sales', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: bookingId }], order: [{ col: 'sort_order' }, { col: 'created_at' }] });
+  }catch(e){ alert('Invoice発行に失敗しました(売上明細の取得に失敗): '+e.message); return; }
   const distinctAgents = distinctBookingAgents(salesRows, booking.agent_name);
   const targetAgentName = (agentFilter && agentFilter.trim()) || (booking.agent_name||'').trim() || null;
 
@@ -29413,6 +29703,10 @@ async function generateInvoice(bookingId, currency, agentFilter){
     const suffix = (targetAgentName && suffixByAgent[targetAgentName]) || agentInvoiceCode(targetAgentName||'');
     invoiceNo = `${base}-${suffix}`;
   }
+  // USDの個別Invoiceは末尾に -USD を付ける(2026-09決定。同じ予約・同じ請求先でJPYとUSDを
+  // 両方残すことがあり、invoice_noの一意制約(invoices_invoice_no_key)と衝突しないように)。
+  // 新規作成時のみ使い、発行済みInvoiceの番号は再発行時も変更しない。
+  if(currency==='USD') invoiceNo = `${invoiceNo}-USD`;
 
   let amount;
   // 予約自体のagent_id(通常はこちらを使う)。按分(請求先を分ける)で明細行ごとに別の
@@ -29432,17 +29726,22 @@ async function generateInvoice(bookingId, currency, agentFilter){
   }
   if(currency==='USD') amount = Math.round((amount/USD_RATE)*100)/100;
 
-  // 同じ請求先の既存行があればUPDATE(番号は増やさない)、無ければ新規INSERTする。
+  // 同じ請求先・同じ通貨の既存行があればUPDATE(番号は増やさない)、無ければ新規INSERTする。
   // 既存行の有無は、以前はinvoice_no文字列で検索していたが、請求先の数(単一/複数)に
   // よって番号の形式自体が変わるため、予約の途中で請求先構成が変わると既存Invoiceを
   // 見失い、孤立した重複Invoiceが生まれる不具合があった(REF#967で発覚)。
-  // booking_id + is_consolidated(false) + agent_name という、請求先構成が変わっても
-  // 揺るがない情報で検索するように変更した。
+  // booking_id + is_consolidated(false) + agent_name + currency という、請求先構成が変わっても
+  // 揺るがない情報で検索する(DBの invoices_one_individual_per_booking_agent_currency と同じキー。
+  // currencyは2026-09追加: JPYとUSDを両方残すことがあるため)。agent_nameがnullの場合は
+  // eqではなくis nullで検索する(PostgRESTのeq.nullは一致しないため)。
+  // 状態(status)は発行・再発行のたびに、保存時の自動paid判定と同じ条件(この請求先の入金合計>=売上合計)で
+  // 決め直す(decideInvoiceStatusOnIssue参照)。判定には上で取得した売上明細(booking_sales.payments)を使う。
+  const paidTotals = computeInvoicePaidTotals(salesRows, booking.agent_name);
   const corePayload = {
     currency: currency,
     amount: amount,
     issue_date: issue,
-    status: 'pending',
+    status: decideInvoiceStatusOnIssue({ is_consolidated: false, agent_name: targetAgentName }, paidTotals, null),
     agent_name: targetAgentName,
     agent_id: agentId,
     is_consolidated: false
@@ -29450,11 +29749,19 @@ async function generateInvoice(bookingId, currency, agentFilter){
 
   let data;
   try{
-    const {data: existingInv, error: existingErr} = await sb.from('invoices').select('id')
-      .eq('booking_id', bookingId).eq('is_consolidated', false).eq('agent_name', targetAgentName).maybeSingle();
-    if(existingErr) throw existingErr;
+    // 2件以上ヒットした場合・検索自体に失敗した場合は例外となり、INSERTに進まずに中止する。
+    const existingInv = await tableQueryMaybeSingle('invoices', { select: 'id,status', filters: [
+      { col: 'booking_id', op: 'eq', value: bookingId },
+      { col: 'is_consolidated', op: 'eq', value: false },
+      targetAgentName ? { col: 'agent_name', op: 'eq', value: targetAgentName } : { col: 'agent_name', op: 'isNull' },
+      { col: 'currency', op: 'eq', value: currency },
+    ] });
     if(existingInv && existingInv.id){
-      const updateResult = await invoicesApiCall('updateById', { id: existingInv.id, fields: {...corePayload, invoice_no: invoiceNo} });
+      // 再発行時はinvoice_noを送らず、発行済みの番号を維持する(2026-09決定)。
+      // 状態は既存行の状態に関係なく入金・売上から判定し直す(入金済みの後に売上が増えた場合はpendingに戻る)。
+      // 請求先が無く判定できない場合だけ既存の状態(paid)を維持する(decideInvoiceStatusOnIssue参照)。
+      const updateResult = await invoicesApiCall('updateById', { id: existingInv.id,
+        fields: {...corePayload, status: decideInvoiceStatusOnIssue({ is_consolidated: false, agent_name: targetAgentName }, paidTotals, existingInv.status)} });
       data = (updateResult.rows||[])[0];
     }else{
       const insertResult = await invoicesApiCall('insert', { rows: [{
@@ -29473,12 +29780,13 @@ async function generateInvoice(bookingId, currency, agentFilter){
 
   // 予約ステータスを invoiced に更新
   await bookingsApiCall('updateById', { id: bookingId, fields: {status:'invoiced'} });
-  await logAction('Invoice発行', invoiceNo + ' (' + booking.ref_no + (agentFilter?(' / '+agentFilter):'') + ')');
+  _setLocalBookingStatus(bookingId, 'invoiced');
+  await logAction('Invoice発行', ((data && data.invoice_no) || invoiceNo) + ' (' + booking.ref_no + (agentFilter?(' / '+agentFilter):'') + ')');
 
   // 個別Invoiceを発行・再発行するたびに、同じbooking_idの合算Invoice(全請求先合計)も
-  // 自動的に最新の内容へ追従させる(請求先が1つの予約でも常に追従させる。1つの予約は
-  // 個別=合算の内容になるが、両方のレコードを独立して最新に保つことで、後から請求先が
-  // 増えても取りこぼしなく追従し続ける)。DB更新のみでプレビュー表示等は行わない。
+  // 自動的に最新の内容へ追従させる。ただし売上明細の請求先が2社以上ある予約だけ
+  // (2026-09 JUN決定。1社の予約では合算=個別と同じ内容の請求書が一覧に2件並び、スタッフが
+  // 混乱したため(#877)。判定はupsertConsolidatedInvoice内)。DB更新のみでプレビュー表示等は行わない。
   // 失敗時はtoastで知らせる(以前はtoast:falseで、合算Invoiceが作れない状態に誰も気づけなかった)。
   try{ await upsertConsolidatedInvoice(bookingId, currency, booking); }
   catch(e){ logError('合算Invoiceの自動更新', e); }
@@ -29493,6 +29801,9 @@ async function generateInvoice(bookingId, currency, agentFilter){
 // 呼ばれるため、呼ぶたびに画面が合算Invoiceのプレビューに切り替わってしまうと
 // ユーザー体験を損なうため)。「合算発行」ボタン(generateConsolidatedInvoice)からも
 // この関数を再利用する。
+// 売上明細の請求先(agent)が2社以上ある予約だけ作成・更新する(2026-09 JUN決定)。1社以下の場合は
+// 何も書き込まず { skipped: true, agentCount } を返す。判定は直前に取得した売上明細で行い、
+// 取得に失敗した場合は例外(空データで判断しない)。1社の予約に既にある合算は削除しない(人が判断する)。
 async function upsertConsolidatedInvoice(bookingId, currency, booking){
   const today = new Date();
   const issue = today.toISOString().slice(0,10);
@@ -29503,31 +29814,51 @@ async function upsertConsolidatedInvoice(bookingId, currency, booking){
   // (失敗はtoast:falseで画面に出ていなかった)。新規作成時のみ使い、既存行の番号は変更しない。
   const invoiceNo = `INV-${refNum}-ALL${currency==='USD' ? '-USD' : ''}`;
 
-  const {data: salesRows} = await sb.from('booking_sales').select('*').eq('booking_id', bookingId).order('sort_order').order('created_at');
+  // 取得に失敗した場合は例外(呼び出し元でtoast/alert)。空の明細のまま合算を作成・更新しない。
+  const salesRows = await tableQueryAll('booking_sales', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: bookingId }], order: [{ col: 'sort_order' }, { col: 'created_at' }] });
+  // 請求先の種類数は、個別Invoiceの番号付け(generateInvoice)と同じdistinctBookingAgentsで数える
+  // (明細にagent_nameが無い行は予約の請求先として数える)。
+  const agentCount = distinctBookingAgents(salesRows, booking.agent_name).length;
+  if(agentCount < 2) return { skipped: true, agentCount };
   let amount = (salesRows||[]).reduce((s,r)=>s+Number(r.amount||0),0);
   if(!salesRows || salesRows.length===0) amount = Number(booking.gross_sales||0);
   if(currency==='USD') amount = Math.round((amount/USD_RATE)*100)/100;
+
+  // 状態(status)は、既存の入金消込の自動paid判定(saveBookingDetail)と同じ条件(予約全体の入金合計>=
+  // 売上合計)で、作成・再作成のたびに両方向に決め直す(2026-09 JUN決定。decideInvoiceStatusOnIssue参照)。
+  // 以前は常にpendingで作成・更新していたため、支払い済みの予約で後から合算Invoiceが作られると、
+  // 予約詳細を保存し直すまでpendingのまま残っていた。
+  const paidTotals = computeInvoicePaidTotals(salesRows, booking.agent_name);
+  const status = decideInvoiceStatusOnIssue({ is_consolidated: true }, paidTotals, null);
 
   const corePayload = {
     currency: currency,
     amount: amount,
     issue_date: issue,
-    status: 'pending',
+    status: status,
     // agent_nameは請求書のBill To表示用に予約代表の請求先名をそのまま入れる(空欄にすると
     // 入金消込の自動paid判定で「請求先不明のInvoice」と誤認識され、要手動確認扱いに
     // なってしまうため。合算Invoiceかどうかの判定はis_consolidated列で行う)。
     agent_name: booking.agent_name || null,
-    agent_id: null,
+    // agent_idも予約(bookings)のagent_idを入れる(2026-09 JUN決定)。以前はnull固定だったため、
+    // 合算Invoiceがダッシュボードの「Agentマスタ未紐付け」バナーに数えられていた。
+    // 予約のagent_idがnullならnullのまま(その場合はバナーに出るのが正しい)。
+    agent_id: booking.agent_id || null,
     is_consolidated: true
   };
 
   // 合算Invoiceは通貨別に1件(invoices_one_consolidated_per_booking_currency: (booking_id, currency)
   // WHERE is_consolidated と同じキー)。再発行(UPDATE)時はinvoice_noを送らず、発行済みの番号を維持する。
-  const {data: existingInv, error: existingErr} = await sb.from('invoices').select('id')
-    .eq('booking_id', bookingId).eq('is_consolidated', true).eq('currency', currency).maybeSingle();
-  if(existingErr) throw existingErr;
+  // 2件以上ヒットした場合・検索自体に失敗した場合は例外となり、INSERTに進まずに中止する。
+  const existingInv = await tableQueryMaybeSingle('invoices', { select: 'id', filters: [
+    { col: 'booking_id', op: 'eq', value: bookingId },
+    { col: 'is_consolidated', op: 'eq', value: true },
+    { col: 'currency', op: 'eq', value: currency },
+  ] });
   let data;
   if(existingInv && existingInv.id){
+    // 既存行の状態に関係なく、上で判定した状態(corePayload.status)で更新する(入金済みの後に売上が
+    // 増えた場合はpendingに戻る。個別Invoiceの再発行と同じ)。
     const updateResult = await invoicesApiCall('updateById', { id: existingInv.id, fields: {...corePayload} });
     data = (updateResult.rows||[])[0];
   }else{
@@ -29559,8 +29890,17 @@ async function generateConsolidatedInvoice(bookingId, currency){
     alert('合算Invoice発行に失敗しました: '+e.message);
     return;
   }
+  // 手動の「合算発行」も自動作成と同じ判定に揃える(請求先が1社以下なら作らない)。
+  // ボタン自体は予約詳細の画面で請求先が2社以上の時だけ表示されるが、押した直後の保存で
+  // 請求先が1社に減った場合等のため、実際の売上明細で判定した結果に従う。
+  if(data && data.skipped){
+    alert(`売上明細の請求先が${data.agentCount}社のため、合算Invoiceは作成しません（合算は請求先が2社以上の予約だけ作成します）。個別のInvoiceを発行してください。`);
+    await loadInvoicePage();
+    return;
+  }
 
   await bookingsApiCall('updateById', { id: bookingId, fields: {status:'invoiced'} });
+  _setLocalBookingStatus(bookingId, 'invoiced');
   await logAction('Invoice発行', data.invoice_no + ' (' + booking.ref_no + ' / 合算)');
 
   await loadInvoicePage();
@@ -29601,12 +29941,26 @@ async function showInvoicePreview(inv, booking){
   const invNoDisplay = (inv.invoice_no || '').replace(/^INV-/i, '');
 
   const fmtMoney = v => isUSD ? '$'+(Number(v)/USD_RATE).toLocaleString(undefined,{minimumFractionDigits:2}) : yen(v);
+  // 既にInvoiceの通貨に換算済みの金額(残額・入金額)用。fmtMoneyは円→ドル換算を含むため、換算済みの
+  // ドル金額に使うと二重に割られてしまう(USD請求書のTOTAL AMOUNTが$774.19ではなく$4.995と表示された)。
+  // また浮動小数の誤差で残額が-0.0035等になった場合に「$-0.00」と出ないよう、表示桁で丸めて-0を0にする。
+  const fmtConverted = v => {
+    const digits = isUSD ? 2 : 0;
+    let r = Math.round(Number(v||0) * 10**digits) / 10**digits;
+    if(r === 0) r = 0; // -0 を 0 にする
+    return isUSD ? '$'+r.toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2}) : yen(r);
+  };
 
   // 売上明細を取得（請求先で絞り込み。合算Invoice(is_consolidated)は請求先を問わず
   // 全行を対象にする。agent_nameの有無では判定しない — 合算Invoiceも表示用に
   // agent_name(予約代表の請求先名)を保持しているため、agent_nameの有無で判定すると
   // 合算Invoiceでも誤って1社分だけに絞り込んでしまう）。
-  const {data: salesRows} = await sb.from('booking_sales').select('*').eq('booking_id', booking.id).order('sort_order').order('created_at');
+  // 取得に失敗した場合はプレビューを中止する(以前は失敗=明細0件扱いで、「Tour Fee」1行だけの
+  // 誤った請求書を表示していた)。
+  let salesRows;
+  try{
+    salesRows = await tableQueryAll('booking_sales', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: booking.id }], order: [{ col: 'sort_order' }, { col: 'created_at' }] });
+  }catch(e){ alert('Invoiceの表示に失敗しました(売上明細の取得に失敗): '+e.message); return; }
   let items;
   if(salesRows && salesRows.length>0){
     items = (inv.is_consolidated || !inv.agent_name)
@@ -29641,7 +29995,7 @@ async function showInvoicePreview(inv, booking){
   // 差し引いた残額(Remaining balanceと同じ値)を表示する。明細テーブル内の
   // 「Total」行(明細の満額合計)・Received deposit・Remaining balanceは従来通り。
   // 入金が0円の場合はbalance===amountとなり見た目は変わらない。
-  const totalAmountBoxStr = fmtMoney(balance);
+  const totalAmountBoxStr = fmtConverted(balance);
 
   // 請求先名・住所を取得。取引先マスタ(agents、取引先/エージェントマスタ管理画面が
   // 読み書きしている実体)を参照する。以前はagent_infoという別テーブル
@@ -29737,8 +30091,8 @@ async function showInvoicePreview(inv, booking){
         <tbody>
           ${itemRows}
           <tr><td style="border-right:1px solid #000;border-bottom:1px solid #000;padding:8px 6px;text-align:center">Total (all inclusive taxes)</td><td style="border-right:1px solid #000;border-bottom:1px solid #000;padding:8px 6px"></td><td style="border-bottom:1px solid #000;padding:8px 6px;text-align:right">${amountStr}</td></tr>
-          <tr><td style="border-right:1px solid #000;border-bottom:1px solid #000;padding:8px 6px;text-align:center">Received deposit</td><td style="border-right:1px solid #000;border-bottom:1px solid #000;padding:8px 6px"></td><td style="border-bottom:1px solid #000;padding:8px 6px;text-align:right">${fmtMoney(depositConverted)}</td></tr>
-          <tr><td style="border-right:1px solid #000;padding:8px 6px;text-align:center">Remaining balance</td><td style="border-right:1px solid #000;padding:8px 6px"></td><td style="padding:8px 6px;text-align:right">${fmtMoney(balance)}</td></tr>
+          <tr><td style="border-right:1px solid #000;border-bottom:1px solid #000;padding:8px 6px;text-align:center">Received deposit</td><td style="border-right:1px solid #000;border-bottom:1px solid #000;padding:8px 6px"></td><td style="border-bottom:1px solid #000;padding:8px 6px;text-align:right">${fmtConverted(depositConverted)}</td></tr>
+          <tr><td style="border-right:1px solid #000;padding:8px 6px;text-align:center">Remaining balance</td><td style="border-right:1px solid #000;padding:8px 6px"></td><td style="padding:8px 6px;text-align:right">${fmtConverted(balance)}</td></tr>
         </tbody>
       </table>
 
