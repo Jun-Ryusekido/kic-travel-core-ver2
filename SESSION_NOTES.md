@@ -94,6 +94,13 @@ anon向けSELECTポリシー案は不採用(ログインはapp_users独自方式
 
 ### 完了テーブル(RLS有効化済み・JUNがSQL Editorで実行)
 - guide_bank_accounts, app_users, audit_logs, email_import_queue_archive, estimation_day_fixed_items(A区分5件)
+- 【バッチ1完了(2026-09-25夜、JUN実行・確認済み)】invoices, booking_costs, booking_sales, credit_card_statements
+  - enable_rls_batch1.sql を業務時間後に実行。STEP1で 1-5(4テーブルを参照する他の関数・ビュー)0件、1-2(ポリシー)0件を
+    確認してから本体を実行。実行後、4テーブルとも rowsecurity=true、anon/authenticatedのSELECT権限なしを確認。
+    RPC 3本(get_payment_monthly_summary / search_payment_income / search_payment_outflow)のEXECUTE REVOKEも本体に含む。
+  - 実行後、本番で予約詳細の明細・Invoice一覧・入出金管理が正常に表示されることを確認。
+  - テスト予約TEST-RLSは削除済み(予約0件・請求書0件を確認)。
+  - 翌朝(2026-09-26)スタッフ全員に再読み込みを依頼する(書き込みガード(PR #212)により旧画面からの保存は426で止まる)。
 
 ### 実行済みSQL(JUN実行・確認済み)
 - 上記A区分5件のRLS有効化
@@ -194,13 +201,48 @@ anon向けSELECTポリシー案は不採用(ログインはapp_users独自方式
 - 【仕様として記録】USD請求書・USD合算は、USD発行(USD Invoice発行/USD合算発行)を押した時だけ更新される。JPYの発行・再発行では
   generateInvoice/upsertConsolidatedInvoiceが同じ通貨の行しか更新しないため、売上が変わってもUSD側の金額・状態は古いまま残る。
 - Webからマスタ情報を取り込む機能: 設計はJUN確認済み(冒頭「5. Web取り込み機能」参照)。着手は作業順の5番目。
-- フェーズ2 バッチ1: コードはPR #211でmainへマージ済み。残りは enable_rls_batch1.sql の実行。
+- フェーズ2 バッチ1: 【完了(2026-09-25)】コードPR #211・書き込みガードPR #212マージ済み、enable_rls_batch1.sql実行・確認済み。
+  残り: scripts/fix_consolidated_invoice_agent_id.sql(合算Invoiceのagent_id埋め戻し、JUN実行待ち)。
   【決定(JUN、2026-09-25)】実行順は「画面の版による書き込みガードの本番反映 → 全員の再読み込み → 業務時間外に実行」。
+  ガードはPR #212でmainへマージ済み(main 196fd16)。次は本番デプロイの確認 → 全員の再読み込み → SQL実行。
   (下記「画面の版による書き込みガード」「RLS有効化SQLの実行時の注意」参照)
-- フェーズ2 バッチ2: business_partner_contacts, estimations, estimation_days
+- フェーズ2 バッチ2: business_partner_contacts, estimations, estimation_days + RPC search_business_partners。
+  実装計画を報告済み(2026-09-25、未着手・JUN承認待ち)。下記「バッチ2 実装計画」参照。
 - フェーズ2 バッチ3: arrangement_document系3件、tour_arrangement系/tour_*系6件、booking_guides,
   booking_water_items, bullet_train_arrangements, facility_operating_info, vendor_email_logs, error_logs
   (error_logsのINSERTもAPI化。未ログイン時の扱い・サイズ上限・連投対策の案を出す)
+
+## 予約の日付の前後チェック(2026-09-25、ブランチ claude/blissful-rubin-5z8ftu、次のPRに含める)
+- 背景: 帰着日(OUT)が出発日(IN)より前でも保存できた(#1275で発生、JUNが手で修正済み)。
+- 実装: isDateRangeReversed(開始,終了)(sanitizeDateFieldの隣)。新規予約(saveBooking)・予約詳細の保存(saveBookingDetail)で
+  OUT<INなら「帰着日(OUT)が出発日(IN)より前になっています」とalertして保存しない(OUTが空欄・同日はOK)。
+  予約詳細の「Invoice発行」ボタン(issueInvoiceFromBookingDetail)は保存結果に関係なく画面を閉じて発行する作りのため、
+  そこでも先に同じチェックをして止める(入力が消えないように)。
+- 他の日付ペア(報告済み・未実装、JUN判断待ち): ホテル明細 check_in/check_out(逆転すると泊数0と表示されるだけで保存できる)、
+  バス明細 start_date/end_date、(列の実在未確認)バスのドライバー宿泊 driver_check_in/driver_check_out。
+  駐車場予約(pn-start/pn-end)は既に「利用終了日時は利用開始日時より後に」のチェックあり。見積もりは期間の2項目が無い。
+- 既存データ確認SQL(読み取り専用)はチャットで提示。SQL要否: コード側は不要。
+- 検証ハーネス(scratchpad): 判定関数10件+保存3経路7件、すべて成功。
+
+## バッチ2 実装計画(2026-09-25報告、未着手)
+- 置き換え対象(index.html、関数名で探す): estimations 7箇所(exportBookingArchive / exportFiscalYearArchive / deleteBookingData /
+  loadEstimations / copyEstimation / openEstimationEditor / loadGuideAdvanceList)、estimation_days 4箇所(exportBookingArchive /
+  exportFiscalYearArchive / openEstimationEditor / loadGuideAdvanceList)、business_partner_contacts 4箇所
+  (loadRepresentativeContactsByPartnerIds / renderPartnerContactsList / loadBusinessPartnerContactsIndex / fetchRepresentativeContact)、
+  RPC search_business_partners 1箇所(fetchAndRenderPartners)。計16箇所。
+- 空データで進む既存の危険(必ず直す): openEstimationEditorで日程(estimation_days)の取得失敗が0件扱い→そのまま保存すると
+  replaceByKeyで日程が全削除される / fetchRepresentativeContactが取得失敗でnull→saveRepresentativeContactが代表担当者を
+  重複insert / deleteBookingDataで紐付く見積もりの取得失敗→converted_booking_idの解除をせずに削除へ進む。
+- search_business_partnersはbusiness_partner_contactsをJOINするSECURITY INVOKERのRPCのため、contactsのREVOKE前にAPI経由化が必須。
+- business_partners / bookings / agents 等は今回のバッチ1〜3の一覧に無く、ブラウザから読めるまま(別バッチで扱う)。
+
+## Web公開情報のマスタ取り込み(2026-09-25 調査・設計のみ報告、未着手・JUN判断待ち)
+- 既存: business_partners(カテゴリはホテル/レストラン/バス・ハイヤー等/その他の4つ。観光施設専用カテゴリは無く「その他」)、
+  住所・電話・FAX・メールあり。営業時間・定休日は facility_operating_info(施設名テキストで紐付け、既にextract-card.jsの
+  mode:'facility-operating-info'でWeb検索(claude-sonnet-4-6 + web_search_20250305)して保存している)。公式URL・駐車場・
+  団体料金・最寄駅・チェックイン時刻等の列は無い。予約側(booking_hotels等)はマスタと名前テキストでのみ紐付く。
+- (解消済み)api/extract-card.js にログイン検証が無かった件は PR #213 で対応(partner-similarity・ai-inbox は PR #214)。
+- 設計案・費用見込み・入力済み率SQLはチャットの報告を参照(判断待ち項目: 観光施設カテゴリの追加、新テーブル案、使うモデル)。
 
 ## バッチ1 再開用メモ(新しいセッションはここから読む)
 
@@ -334,7 +376,11 @@ RPC3本(get_payment_monthly_summary / search_payment_income / search_payment_out
   audit_logsで通貨が書き換わったinvoices更新は0件(上書きで失われたInvoiceなし)。
   invoicesは api/table-crud.js で auditLog:true(少なくとも2026-08-28以降)。
 
-### 画面の版による書き込みガード(2026-09-25、PR #212(ブランチ claude/blissful-rubin-5z8ftu)、マージ済み(main 196fd16))
+### 画面の版による書き込みガード(2026-09-25、PR #212 マージ済み(main 196fd16))
+- Preview確認(2026-09-25 JUN): 新しい画面の保存・仕入明細へ追加が成功、X-App-Versionヘッダーの付与、ヘッダー無しの書き込みは426、
+  読み取りは200、すべてOK。テスト予約TEST-RLSは削除済み。
+- 本番デプロイ完了はJUNがVercel画面で確認する(このセッションからは確認できない)。デプロイ後は、開いたままの旧画面(bbd5731以前)
+  からの保存がすべて426になるため、全員に再読み込み(Ctrl+Shift+R)を依頼する。その後、業務時間外にenable_rls_batch1.sqlを実行する。
 - 目的: 古い版のindex.htmlを開いたままのタブ(このアプリには版の確認・自動リロードが無かった)から、RLS有効化後に
   空データのまま保存・全削除→再挿入が走ってデータを壊すのを、APIの側で防ぐ。
 - 画面: index.htmlの定数 APP_VERSION(YYYYMMDDNN、今回 2026092501)。window.fetchをラップし、同一オリジンの /api/ への

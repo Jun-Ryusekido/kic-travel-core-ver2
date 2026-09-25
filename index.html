@@ -8975,6 +8975,14 @@ async function generateLocalExpensesFromArrangements(){
 
 // 日付フィールドのサニタイズヘルパー: YYYY-MM-DD(4桁年) 以外は null に変換
 function sanitizeDateField(d){ return (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) ? d : null; }
+// 開始日と終了日(YYYY-MM-DD)の前後チェック。終了日が開始日より前ならtrue。どちらかが空欄・形式不正の
+// 場合はチェックしない(false)。同じ日はOK(日帰り)。予約の帰着日(OUT)が出発日(IN)より前のまま
+// 保存できてしまっていた(#1275で発生)ため、新規予約・予約詳細の保存時に使う。
+function isDateRangeReversed(startDate, endDate){
+  const s = sanitizeDateField(startDate), e = sanitizeDateField(endDate);
+  return !!(s && e && e < s);
+}
+const BOOKING_OUT_BEFORE_IN_MSG = '帰着日(OUT)が出発日(IN)より前になっています';
 
 // datetime-local入力の年が4桁を超えて入力されてしまう不具合への対策(駐車場 今すぐ予約の
 // 利用開始/終了日時で発生)。ブラウザネイティブのdatetime-local inputは、年の桁数を超えて
@@ -12614,6 +12622,13 @@ async function reflectEstimationToBookings(){
 async function issueInvoiceFromBookingDetail(currency, agentFilter, consolidated){
   if(!currentDetailId) return;
   const id = currentDetailId;
+  // 帰着日(OUT)が出発日(IN)より前だとsaveBookingDetailが保存を止めるが、この後の処理は保存結果に
+  // 関係なく画面を閉じてInvoiceを発行してしまうため、ここで先に止める(画面を開いたまま直せるように)。
+  if(isDateRangeReversed(document.getElementById('bd-in').value, document.getElementById('bd-out').value)){
+    alert(BOOKING_OUT_BEFORE_IN_MSG+'。日付を直して保存してから、Invoiceを発行してください。');
+    document.getElementById('bd-out').focus();
+    return;
+  }
   // 売上明細を保存して合計を最新化
   await saveBookingDetail();
   closeBookingDetail();
@@ -20329,6 +20344,13 @@ async function saveBookingDetail(){
   // 以降はこのローカルスナップショットを使用する。
   const bookingId = currentDetailId;
 
+  // 帰着日(OUT)が出発日(IN)より前なら保存しない(OUTが空欄ならチェックしない)
+  if(isDateRangeReversed(document.getElementById('bd-in').value, document.getElementById('bd-out').value)){
+    alert(BOOKING_OUT_BEFORE_IN_MSG+'。日付を確認してから保存してください。');
+    document.getElementById('bd-out').focus();
+    return;
+  }
+
   // 売上・仕入明細が全削除されている場合に警告
   if(originalSalesCount > 0 && bdSalesItems.length === 0){
     if(!confirm('売上明細が0件になっています。本当に保存しますか？')) return;
@@ -20782,6 +20804,13 @@ async function saveBooking(){
     document.getElementById('nb-error-msg').style.display='none';
     alert('REF#を入力してください');
     document.getElementById('nb-ref').focus();
+    return;
+  }
+  // 帰着日(OUT)が出発日(IN)より前なら保存しない(OUTが空欄ならチェックしない)
+  if(isDateRangeReversed(document.getElementById('nb-in').value, document.getElementById('nb-out').value)){
+    document.getElementById('nb-error-msg').style.display='none';
+    alert(BOOKING_OUT_BEFORE_IN_MSG+'。日付を確認してから保存してください。');
+    document.getElementById('nb-out').focus();
     return;
   }
   const adt = Number(document.getElementById('nb-pax-adt').value)||0;
