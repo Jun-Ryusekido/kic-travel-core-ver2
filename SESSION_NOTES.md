@@ -112,6 +112,7 @@ anon向けSELECTポリシー案は不採用(ログインはapp_users独自方式
   対象マスタ・取り込み元を確認してから調査・設計を報告する)。
 - フェーズ2 バッチ1: コードはPR #211でmainへマージ済み。残りは enable_rls_batch1.sql の実行。
   【決定(JUN、2026-09-25)】実行順は「画面の版による書き込みガードの本番反映 → 全員の再読み込み → 業務時間外に実行」。
+  ガードはPR #212でmainへマージ済み(main 196fd16)。次は本番デプロイの確認 → 全員の再読み込み → SQL実行。
   (下記「画面の版による書き込みガード」「RLS有効化SQLの実行時の注意」参照)
 - フェーズ2 バッチ2: business_partner_contacts, estimations, estimation_days
 - フェーズ2 バッチ3: arrangement_document系3件、tour_arrangement系/tour_*系6件、booking_guides,
@@ -250,7 +251,11 @@ RPC3本(get_payment_monthly_summary / search_payment_income / search_payment_out
   audit_logsで通貨が書き換わったinvoices更新は0件(上書きで失われたInvoiceなし)。
   invoicesは api/table-crud.js で auditLog:true(少なくとも2026-08-28以降)。
 
-### 画面の版による書き込みガード(2026-09-25、PR #212(ブランチ claude/blissful-rubin-5z8ftu)、未マージ・JUN確認待ち)
+### 画面の版による書き込みガード(2026-09-25、PR #212 マージ済み(main 196fd16))
+- Preview確認(2026-09-25 JUN): 新しい画面の保存・仕入明細へ追加が成功、X-App-Versionヘッダーの付与、ヘッダー無しの書き込みは426、
+  読み取りは200、すべてOK。テスト予約TEST-RLSは削除済み。
+- 本番デプロイ完了はJUNがVercel画面で確認する(このセッションからは確認できない)。デプロイ後は、開いたままの旧画面(bbd5731以前)
+  からの保存がすべて426になるため、全員に再読み込み(Ctrl+Shift+R)を依頼する。その後、業務時間外にenable_rls_batch1.sqlを実行する。
 - 目的: 古い版のindex.htmlを開いたままのタブ(このアプリには版の確認・自動リロードが無かった)から、RLS有効化後に
   空データのまま保存・全削除→再挿入が走ってデータを壊すのを、APIの側で防ぐ。
 - 画面: index.htmlの定数 APP_VERSION(YYYYMMDDNN、今回 2026092501)。window.fetchをラップし、同一オリジンの /api/ への
