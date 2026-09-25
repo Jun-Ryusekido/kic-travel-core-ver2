@@ -250,7 +250,7 @@ RPC3本(get_payment_monthly_summary / search_payment_income / search_payment_out
   audit_logsで通貨が書き換わったinvoices更新は0件(上書きで失われたInvoiceなし)。
   invoicesは api/table-crud.js で auditLog:true(少なくとも2026-08-28以降)。
 
-### 画面の版による書き込みガード(2026-09-25、ブランチ claude/blissful-rubin-5z8ftu。PR作成済み・未マージ)
+### 画面の版による書き込みガード(2026-09-25、PR #212(ブランチ claude/blissful-rubin-5z8ftu)、未マージ・JUN確認待ち)
 - 目的: 古い版のindex.htmlを開いたままのタブ(このアプリには版の確認・自動リロードが無かった)から、RLS有効化後に
   空データのまま保存・全削除→再挿入が走ってデータを壊すのを、APIの側で防ぐ。
 - 画面: index.htmlの定数 APP_VERSION(YYYYMMDDNN、今回 2026092501)。window.fetchをラップし、同一オリジンの /api/ への
