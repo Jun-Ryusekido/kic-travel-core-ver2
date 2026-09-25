@@ -9,6 +9,13 @@ anon向けSELECTポリシー案は不採用(ログインはapp_users独自方式
 
 ### 完了テーブル(RLS有効化済み・JUNがSQL Editorで実行)
 - guide_bank_accounts, app_users, audit_logs, email_import_queue_archive, estimation_day_fixed_items(A区分5件)
+- 【バッチ1完了(2026-09-25夜、JUN実行・確認済み)】invoices, booking_costs, booking_sales, credit_card_statements
+  - enable_rls_batch1.sql を業務時間後に実行。STEP1で 1-5(4テーブルを参照する他の関数・ビュー)0件、1-2(ポリシー)0件を
+    確認してから本体を実行。実行後、4テーブルとも rowsecurity=true、anon/authenticatedのSELECT権限なしを確認。
+    RPC 3本(get_payment_monthly_summary / search_payment_income / search_payment_outflow)のEXECUTE REVOKEも本体に含む。
+  - 実行後、本番で予約詳細の明細・Invoice一覧・入出金管理が正常に表示されることを確認。
+  - テスト予約TEST-RLSは削除済み(予約0件・請求書0件を確認)。
+  - 翌朝(2026-09-26)スタッフ全員に再読み込みを依頼する(書き込みガード(PR #212)により旧画面からの保存は426で止まる)。
 
 ### 実行済みSQL(JUN実行・確認済み)
 - 上記A区分5件のRLS有効化
@@ -110,7 +117,8 @@ anon向けSELECTポリシー案は不採用(ログインはapp_users独自方式
   generateInvoice/upsertConsolidatedInvoiceが同じ通貨の行しか更新しないため、売上が変わってもUSD側の金額・状態は古いまま残る。
 - Webからマスタ情報を取り込む機能: JUNが調査・設計を依頼済み(2026-09-25時点、このセッションでは依頼内容を受け取っておらず未報告。
   対象マスタ・取り込み元を確認してから調査・設計を報告する)。
-- フェーズ2 バッチ1: コードはPR #211でmainへマージ済み。残りは enable_rls_batch1.sql の実行。
+- フェーズ2 バッチ1: 【完了(2026-09-25)】コードPR #211・書き込みガードPR #212マージ済み、enable_rls_batch1.sql実行・確認済み。
+  残り: scripts/fix_consolidated_invoice_agent_id.sql(合算Invoiceのagent_id埋め戻し、JUN実行待ち)。
   【決定(JUN、2026-09-25)】実行順は「画面の版による書き込みガードの本番反映 → 全員の再読み込み → 業務時間外に実行」。
   ガードはPR #212でmainへマージ済み(main 196fd16)。次は本番デプロイの確認 → 全員の再読み込み → SQL実行。
   (下記「画面の版による書き込みガード」「RLS有効化SQLの実行時の注意」参照)
