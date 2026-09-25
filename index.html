@@ -29659,6 +29659,19 @@ function invoiceShouldBePaid(inv, totals){
   const agg = totals.byAgent[invAgent];
   return !!(agg && agg.paid>0 && agg.paid>=agg.sales);
 }
+// Invoiceの発行・再発行(個別・合算とも)で書き込む状態(status)を決める(2026-09 JUN決定)。
+// 保存時の自動判定(invoiceShouldBePaid)と同じ条件を、pending→paidだけでなく両方向に適用する:
+// 満たしていればpaid、満たしていなければpending。以前は「既存行がpaidならpaidのまま」だったため、
+// 入金済みの後に売上が増えて再発行すると、未入金の残額があるのにpaidと表示されていた。
+// 例外: 請求先(agent_name)が無い個別Invoiceは判定できない(保存時の自動判定もスキップして手動確認に
+// 回している)ため、既存の状態がpaidならpaidのまま、それ以外はpendingにする。
+// existingStatus: 再発行時の既存行のstatus(新規発行時はnull)。
+function decideInvoiceStatusOnIssue(inv, totals, existingStatus){
+  if(!inv.is_consolidated && !(inv.agent_name||'').trim()){
+    return existingStatus==='paid' ? 'paid' : 'pending';
+  }
+  return invoiceShouldBePaid(inv, totals) ? 'paid' : 'pending';
+}
 
 async function generateInvoice(bookingId, currency, agentFilter){
   const bookings = await fetchBookingsListLight();
@@ -29721,11 +29734,14 @@ async function generateInvoice(bookingId, currency, agentFilter){
   // 揺るがない情報で検索する(DBの invoices_one_individual_per_booking_agent_currency と同じキー。
   // currencyは2026-09追加: JPYとUSDを両方残すことがあるため)。agent_nameがnullの場合は
   // eqではなくis nullで検索する(PostgRESTのeq.nullは一致しないため)。
+  // 状態(status)は発行・再発行のたびに、保存時の自動paid判定と同じ条件(この請求先の入金合計>=売上合計)で
+  // 決め直す(decideInvoiceStatusOnIssue参照)。判定には上で取得した売上明細(booking_sales.payments)を使う。
+  const paidTotals = computeInvoicePaidTotals(salesRows, booking.agent_name);
   const corePayload = {
     currency: currency,
     amount: amount,
     issue_date: issue,
-    status: 'pending',
+    status: decideInvoiceStatusOnIssue({ is_consolidated: false, agent_name: targetAgentName }, paidTotals, null),
     agent_name: targetAgentName,
     agent_id: agentId,
     is_consolidated: false
@@ -29742,11 +29758,10 @@ async function generateInvoice(bookingId, currency, agentFilter){
     ] });
     if(existingInv && existingInv.id){
       // 再発行時はinvoice_noを送らず、発行済みの番号を維持する(2026-09決定)。
-      // 入金済み(paid)のInvoiceを再発行してもpendingに戻さない(以前は再発行のたびにpendingに
-      // 戻り、次に予約詳細を保存するまでPending表示のままだった。入金消込の自動判定と同じく、
-      // paidから自動でpendingへ戻すことはしない)。
+      // 状態は既存行の状態に関係なく入金・売上から判定し直す(入金済みの後に売上が増えた場合はpendingに戻る)。
+      // 請求先が無く判定できない場合だけ既存の状態(paid)を維持する(decideInvoiceStatusOnIssue参照)。
       const updateResult = await invoicesApiCall('updateById', { id: existingInv.id,
-        fields: {...corePayload, status: existingInv.status==='paid' ? 'paid' : corePayload.status} });
+        fields: {...corePayload, status: decideInvoiceStatusOnIssue({ is_consolidated: false, agent_name: targetAgentName }, paidTotals, existingInv.status)} });
       data = (updateResult.rows||[])[0];
     }else{
       const insertResult = await invoicesApiCall('insert', { rows: [{
@@ -29809,11 +29824,12 @@ async function upsertConsolidatedInvoice(bookingId, currency, booking){
   if(!salesRows || salesRows.length===0) amount = Number(booking.gross_sales||0);
   if(currency==='USD') amount = Math.round((amount/USD_RATE)*100)/100;
 
-  // 状態(status)は、既存の入金消込の自動paid判定(saveBookingDetail)と同じ条件で決める
-  // (2026-09 JUN決定)。以前は常にpendingで作成・更新していたため、支払い済みの予約で後から
-  // 合算Invoiceが作られると、予約詳細を保存し直すまでpendingのまま残っていた。
+  // 状態(status)は、既存の入金消込の自動paid判定(saveBookingDetail)と同じ条件(予約全体の入金合計>=
+  // 売上合計)で、作成・再作成のたびに両方向に決め直す(2026-09 JUN決定。decideInvoiceStatusOnIssue参照)。
+  // 以前は常にpendingで作成・更新していたため、支払い済みの予約で後から合算Invoiceが作られると、
+  // 予約詳細を保存し直すまでpendingのまま残っていた。
   const paidTotals = computeInvoicePaidTotals(salesRows, booking.agent_name);
-  const status = invoiceShouldBePaid({ is_consolidated: true }, paidTotals) ? 'paid' : 'pending';
+  const status = decideInvoiceStatusOnIssue({ is_consolidated: true }, paidTotals, null);
 
   const corePayload = {
     currency: currency,
@@ -29834,16 +29850,16 @@ async function upsertConsolidatedInvoice(bookingId, currency, booking){
   // 合算Invoiceは通貨別に1件(invoices_one_consolidated_per_booking_currency: (booking_id, currency)
   // WHERE is_consolidated と同じキー)。再発行(UPDATE)時はinvoice_noを送らず、発行済みの番号を維持する。
   // 2件以上ヒットした場合・検索自体に失敗した場合は例外となり、INSERTに進まずに中止する。
-  const existingInv = await tableQueryMaybeSingle('invoices', { select: 'id,status', filters: [
+  const existingInv = await tableQueryMaybeSingle('invoices', { select: 'id', filters: [
     { col: 'booking_id', op: 'eq', value: bookingId },
     { col: 'is_consolidated', op: 'eq', value: true },
     { col: 'currency', op: 'eq', value: currency },
   ] });
   let data;
   if(existingInv && existingInv.id){
-    // 入金済み(paid)の合算は、再作成・更新時もpendingに戻さない(個別Invoiceの再発行と同じ)
-    const updateResult = await invoicesApiCall('updateById', { id: existingInv.id,
-      fields: {...corePayload, status: existingInv.status==='paid' ? 'paid' : corePayload.status} });
+    // 既存行の状態に関係なく、上で判定した状態(corePayload.status)で更新する(入金済みの後に売上が
+    // 増えた場合はpendingに戻る。個別Invoiceの再発行と同じ)。
+    const updateResult = await invoicesApiCall('updateById', { id: existingInv.id, fields: {...corePayload} });
     data = (updateResult.rows||[])[0];
   }else{
     const insertResult = await invoicesApiCall('insert', { rows: [{
