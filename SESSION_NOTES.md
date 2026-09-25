@@ -41,7 +41,7 @@
   他の関数: email-importは x-import-key で認証、login/change-password/add-user/list-users は有料API呼び出し無し。
 - SQL要否: 不要。
 
-### 1b. partner-similarity / ai-inbox のログイン確認 — ブランチ claude/magical-ride-6phzj3、PR作成・マージはJUNの確認後
+### 1b. partner-similarity / ai-inbox のログイン確認 — PR #214(ブランチ claude/magical-ride-6phzj3)、未マージ・マージはJUNの確認後
 - どちらもEdgeランタイムのため、Web Crypto版の検証 api/lib/session-token-edge.js(verifySessionTokenEdge)を追加。
   トークン形式・秘密鍵・期限は lib/session-token.js と同じ(Node側で発行したトークンをEdge側で検証できることをハーネスで確認)。
 - 画面側の変更は不要(PR #213 の fetchラッパーが X-Session-Token を付けている)。
