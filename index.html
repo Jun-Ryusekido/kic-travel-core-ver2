@@ -29890,6 +29890,15 @@ async function showInvoicePreview(inv, booking){
   const invNoDisplay = (inv.invoice_no || '').replace(/^INV-/i, '');
 
   const fmtMoney = v => isUSD ? '$'+(Number(v)/USD_RATE).toLocaleString(undefined,{minimumFractionDigits:2}) : yen(v);
+  // 既にInvoiceの通貨に換算済みの金額(残額・入金額)用。fmtMoneyは円→ドル換算を含むため、換算済みの
+  // ドル金額に使うと二重に割られてしまう(USD請求書のTOTAL AMOUNTが$774.19ではなく$4.995と表示された)。
+  // また浮動小数の誤差で残額が-0.0035等になった場合に「$-0.00」と出ないよう、表示桁で丸めて-0を0にする。
+  const fmtConverted = v => {
+    const digits = isUSD ? 2 : 0;
+    let r = Math.round(Number(v||0) * 10**digits) / 10**digits;
+    if(r === 0) r = 0; // -0 を 0 にする
+    return isUSD ? '$'+r.toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2}) : yen(r);
+  };
 
   // 売上明細を取得（請求先で絞り込み。合算Invoice(is_consolidated)は請求先を問わず
   // 全行を対象にする。agent_nameの有無では判定しない — 合算Invoiceも表示用に
@@ -29935,7 +29944,7 @@ async function showInvoicePreview(inv, booking){
   // 差し引いた残額(Remaining balanceと同じ値)を表示する。明細テーブル内の
   // 「Total」行(明細の満額合計)・Received deposit・Remaining balanceは従来通り。
   // 入金が0円の場合はbalance===amountとなり見た目は変わらない。
-  const totalAmountBoxStr = fmtMoney(balance);
+  const totalAmountBoxStr = fmtConverted(balance);
 
   // 請求先名・住所を取得。取引先マスタ(agents、取引先/エージェントマスタ管理画面が
   // 読み書きしている実体)を参照する。以前はagent_infoという別テーブル
@@ -30031,8 +30040,8 @@ async function showInvoicePreview(inv, booking){
         <tbody>
           ${itemRows}
           <tr><td style="border-right:1px solid #000;border-bottom:1px solid #000;padding:8px 6px;text-align:center">Total (all inclusive taxes)</td><td style="border-right:1px solid #000;border-bottom:1px solid #000;padding:8px 6px"></td><td style="border-bottom:1px solid #000;padding:8px 6px;text-align:right">${amountStr}</td></tr>
-          <tr><td style="border-right:1px solid #000;border-bottom:1px solid #000;padding:8px 6px;text-align:center">Received deposit</td><td style="border-right:1px solid #000;border-bottom:1px solid #000;padding:8px 6px"></td><td style="border-bottom:1px solid #000;padding:8px 6px;text-align:right">${fmtMoney(depositConverted)}</td></tr>
-          <tr><td style="border-right:1px solid #000;padding:8px 6px;text-align:center">Remaining balance</td><td style="border-right:1px solid #000;padding:8px 6px"></td><td style="padding:8px 6px;text-align:right">${fmtMoney(balance)}</td></tr>
+          <tr><td style="border-right:1px solid #000;border-bottom:1px solid #000;padding:8px 6px;text-align:center">Received deposit</td><td style="border-right:1px solid #000;border-bottom:1px solid #000;padding:8px 6px"></td><td style="border-bottom:1px solid #000;padding:8px 6px;text-align:right">${fmtConverted(depositConverted)}</td></tr>
+          <tr><td style="border-right:1px solid #000;padding:8px 6px;text-align:center">Remaining balance</td><td style="border-right:1px solid #000;padding:8px 6px"></td><td style="padding:8px 6px;text-align:right">${fmtConverted(balance)}</td></tr>
         </tbody>
       </table>
 
