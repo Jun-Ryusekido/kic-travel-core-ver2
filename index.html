@@ -6632,6 +6632,9 @@ const CC_PAYMENT_METHODS = ['クレジットカード(法人)','クレジット�
 // 仮払い一覧表の印刷で「支払済み・現地購入不要」として注意喚起する支払方法。
 // 全旅クーポン・無料(FREE)・クレジットカードは現地で何らかの手続きが要るため含めない。
 const LOCAL_EXPENSE_PREPAID_METHODS = ['事前決済','請求書払い'];
+// 仮払い一覧表の行の数量が未確定(空欄/DBではNULL)かどうか。未確定の行は金額0円で保存され、
+// 表示側では数量を「1」扱いにせず「数量未確定」と出す(印刷・ガイド仮払い一覧で共通)。
+function isLocalExpenseQtyUndetermined(it){ return !!it && (it.qty==null || it.qty===''); }
 // 手配管理タブ(ホテル・バス・ミネラルウォーター・新幹線・ガイド)共通の支払方法選択肢。
 // 「現地払い」のものだけが実際に現金の仮払いが必要な対象、それ以外(事前決済/請求書払い/
 // 全旅クーポン/無料(FREE))は今回のツアー中の現金仮払いは不要、という仮払い一覧表側の
@@ -11166,8 +11169,8 @@ win.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><style>@pag
         <td ${tdB}>${showDate?shortDate(it.expense_date):''}</td>
         <td ${tdContent} title="${escAttr(displayContent)}">${escHtml(displayContent)}</td>
         <td ${tdR}>${Number(it.unit_price||0).toLocaleString('ja-JP')}</td>
-        <td ${tdR}>${it.qty||1}</td>
-        <td ${tdR}>${Number(it.amount||0).toLocaleString('ja-JP')}</td>
+        <td ${tdR}>${isLocalExpenseQtyUndetermined(it) ? '' : it.qty}</td>
+        <td ${tdR}>${isLocalExpenseQtyUndetermined(it) ? '<span style="font-weight:700">数量未確定</span>' : Number(it.amount||0).toLocaleString('ja-JP')}</td>
         ${LOCAL_EXPENSE_PREPAID_METHODS.includes(it.payment_method)
           ? `<td style="border:1px solid #bbb;padding:2px 4px;vertical-align:top;white-space:nowrap;font-weight:700;color:#C00000">${escHtml(it.payment_method)}(支払済)</td>`
           : `<td ${tdB}>${escHtml(it.payment_method||'')}</td>`}
@@ -21289,7 +21292,7 @@ async function loadGuideAdvanceList(){
       <td style="padding:2px 8px;color:var(--text3)"></td>
       <td style="padding:2px 8px" colspan="2">　└ ${it.expense_date||''} ${escHtml(it.content||'')}</td>
       <td style="padding:2px 8px">${escHtml(it.category||'')}</td>
-      <td style="padding:2px 8px;text-align:right">${Number(it.unit_price||0).toLocaleString()}×${it.qty||1}</td>
+      <td style="padding:2px 8px;text-align:right">${Number(it.unit_price||0).toLocaleString()}×${isLocalExpenseQtyUndetermined(it) ? '<span style="color:var(--amber);font-weight:600">数量未確定</span>' : it.qty}</td>
       <td></td>
       <td style="padding:2px 8px">${escHtml(it.payment_method||'')}</td>
       <td></td>
