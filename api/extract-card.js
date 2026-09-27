@@ -102,6 +102,16 @@ function buildDateFilterInstruction(fieldLabel, targetCheckIn, targetCheckOut) {
 重要（日程の絞り込み）: メール本文に複数の日程・複数の予約情報が含まれる場合、${fieldLabel}が${rangeStart} 〜 ${rangeEnd}の範囲に該当する行のみを抽出してください。${periodNote}それ以外の日程の行は無視してください。該当する行が1件も見つからない場合は、空のJSON配列 [] だけを返してください。`;
 }
 
+// バスのテキスト読み取りで日程の絞り込みがある場合、「文書にバスが1件も無い」のか「バスはあるが日程の範囲外で
+// 除外した」のかを画面で区別できるよう、結果を {buses, excluded_by_date} のオブジェクトで返させる(2026-09 JUN決定:
+// 対象日程の文言は後者の時だけ出す)。新しい画面が busResponseFormat:'object' を送った時だけ有効(古い画面は配列のまま)。
+function buildBusObjectFormatInstruction(busResponseFormat, targetCheckIn, targetCheckOut) {
+  if (busResponseFormat !== 'object' || (!targetCheckIn && !targetCheckOut)) return '';
+  return `
+
+出力形式（重要・上の「空のJSON配列 [] だけを返してください」より優先）: 配列ではなく、{"buses": [抽出したバス手配の配列], "excluded_by_date": 日程の範囲外として除外したバス手配の件数} の形のJSONオブジェクトだけを返してください。文書にバス手配が1件も無い場合は {"buses": [], "excluded_by_date": 0}、バス手配はあるがすべて範囲外の場合は {"buses": [], "excluded_by_date": 範囲外の件数} としてください。`;
+}
+
 // ホテルのcheck_in/check_outのような「チェックイン・チェックアウトのペア」で日付を抽出する
 // プロンプトで共通して必要な指示(以前はバスのdriver_check_in/driver_check_outにも同様の指示があったが、
 // ドライバー宿泊はホテル明細(区分=ドライバー)で扱うことになり、2026-09 バスの読み取り対象から外した)。「2026年10月21日〜1泊」のように
@@ -939,7 +949,7 @@ text: `以下のバス手配確認書やメールからバス手配情報を抽�
 
 statusは予約確定・確認番号あり・手配完了等の表現があれば「手配OK」、見積もり・問い合わせ・検討中等であれば「問い合わせ中」としてください。
 金額が不明な場合は0、台数不明は1としてください。
-JSONのみ返し、説明文・コードブロック記号は不要です。${buildDateFilterInstruction('バスの運行開始日(start_date)', targetCheckIn, targetCheckOut)}
+JSONのみ返し、説明文・コードブロック記号は不要です。${buildDateFilterInstruction('バスの運行開始日(start_date)', targetCheckIn, targetCheckOut)}${buildBusObjectFormatInstruction(req.body.busResponseFormat, targetCheckIn, targetCheckOut)}
 
 ${resolvedBusText}`
       }], 8000);

@@ -2750,10 +2750,10 @@ input[type=number]{-moz-appearance:textfield}
       <div id="bus-ocr-area" style="display:none;margin-bottom:8px;border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--bg)">
         <div style="font-size:11px;color:var(--text3);margin-bottom:6px">メールや文書の内容をコピーして貼り付けてください</div>
         <textarea id="bus-ocr-text" rows="5" style="width:100%;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:11px;font-family:inherit;resize:vertical" placeholder="バス手配確認書・メールの本文をここに貼り付け..."></textarea>
-        <div style="margin-top:6px;display:flex;gap:6px;align-items:center">
-          <button class="btn btn-p" style="font-size:11px" onclick="extractBusFromText()">🤖 AIで読み取り</button>
-          <button class="btn" style="font-size:11px" onclick="document.getElementById('bus-ocr-area').style.display='none'">閉じる</button>
-          <span id="bus-ocr-status" style="font-size:11px;color:var(--text3)"></span>
+        <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+          <button class="btn btn-p" style="font-size:11px;flex-shrink:0;white-space:nowrap" onclick="extractBusFromText()">🤖 AIで読み取り</button>
+          <button class="btn" style="font-size:11px;flex-shrink:0;white-space:nowrap" onclick="document.getElementById('bus-ocr-area').style.display='none'">閉じる</button>
+          <span id="bus-ocr-status" style="font-size:11px;color:var(--text3);flex:1 1 220px;min-width:0"></span>
         </div>
       </div>
       <div id="bus-sort-banner" style="display:none;font-size:11px;color:var(--text3);margin-bottom:4px"></div>
@@ -9099,6 +9099,9 @@ async function saveLocalExpenses(){
   const rows = buildLocalExpenseRows(bookingId);
   await localExpensesApiCall('replace', { bookingId, rows });
   bdLoadSnapshot.localExpenses = JSON.stringify(rows);
+  // 「0件になっています」確認の基準(読み込み時の件数)を、保存した内容に合わせる。以前は読み込み時の件数のままだったため、
+  // 一度0件にして保存した後も、他のタブを保存するたびに毎回確認が出ていた(2026-09 JUN報告)。
+  originalLocalExpenseCount = bdLocalExpenses.length;
 }
 
 // openBookingDetail()は非常に多くのawait(明細の各テーブル読み込み)を挟む長い処理のため、
@@ -15959,8 +15962,8 @@ function toggleBusOcrArea(){
 // バスのAI読み取りで結果が0件の時の案内。バスの読み取りはドライバーの宿泊情報を抽出しない(宿泊だけの文書は0件)ため、
 // ホテルタブで読み取って区分を「ドライバー」にするよう案内する(2026-09 JUN決定)。
 const BUS_OCR_EMPTY_HINT = 'バスの手配情報が見つかりませんでした。ドライバーの宿泊の情報は、ホテルタブで読み取り、区分を「ドライバー」にしてください。';
-function showBusOcrEmptyHint(statusEl, prefix){
-  statusEl.textContent = (prefix ? prefix + ' ' : '') + BUS_OCR_EMPTY_HINT;
+function showBusOcrEmptyHint(statusEl){
+  statusEl.textContent = BUS_OCR_EMPTY_HINT;
   statusEl.classList.remove('ocr-loading');
   hideGlobalOcrBanner();
   statusEl.style.color = 'var(--amber)';
@@ -15974,18 +15977,28 @@ async function extractBusFromText(){
   showGlobalOcrBanner();
   try{
     const {targetCheckIn, targetCheckOut} = getEmailOcrTargetDates();
-    const resp=await fetch('/api/extract-card',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({busText:text.trim(), targetCheckIn, targetCheckOut})});
+    const resp=await fetch('/api/extract-card',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({busText:text.trim(), targetCheckIn, targetCheckOut, busResponseFormat:'object'})});
     if(!resp.ok){const e=await resp.json();throw new Error(e.error||'サーバーエラー');}
     const data=await resp.json();
     const tb=data.content.find(b=>b.type==='text');
     const cleaned=(tb.text||'').replace(/```json|```/g,'').trim();
     const parsed=JSON.parse(cleaned);
-    let buses=Array.isArray(parsed)?parsed:[parsed];
-    if(buses.length===0 && (targetCheckIn||targetCheckOut)){
-      showBusOcrEmptyHint(statusEl, `対象日程（チェックイン: ${targetCheckIn||'未設定'}）に一致する内容が見つかりませんでした。メール内容をご確認ください。`);
+    // 日程の絞り込みがある時は {buses, excluded_by_date} のオブジェクトで返る(api/extract-card.js の
+    // buildBusObjectFormatInstruction)。配列で返った場合(絞り込み無し等)はそのまま使う。
+    const excludedByDate = (parsed && !Array.isArray(parsed) && Array.isArray(parsed.buses)) ? (Number(parsed.excluded_by_date)||0) : 0;
+    let buses = Array.isArray(parsed) ? parsed : ((parsed && Array.isArray(parsed.buses)) ? parsed.buses : [parsed]);
+    if(buses.length===0){
+      // バスは見つかったが日程の範囲外で除外された時だけ、対象日程の文言を出す。バス自体が無い時は案内だけを出す。
+      if(excludedByDate > 0 && (targetCheckIn||targetCheckOut)){
+        statusEl.textContent = `対象日程（チェックイン: ${targetCheckIn||'未設定'}）に一致する内容が見つかりませんでした（日程の範囲外のバス手配 ${excludedByDate}件を除外しました）。メール内容をご確認ください。`;
+        statusEl.classList.remove('ocr-loading');
+        hideGlobalOcrBanner();
+        statusEl.style.color = 'var(--amber)';
+      }else{
+        showBusOcrEmptyHint(statusEl);
+      }
       return;
     }
-    if(buses.length===0){ showBusOcrEmptyHint(statusEl); return; }
     statusEl.textContent=`✓ ${buses.length}件を読み取りました。内容を確認してください。`;
     statusEl.classList.remove('ocr-loading');
     hideGlobalOcrBanner();
