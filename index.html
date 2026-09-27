@@ -8684,8 +8684,8 @@ function renderLocalExpenses(){
           ${LOCAL_EXPENSE_CATEGORIES.map(c=>`<option value="${c}" ${it.category===c?'selected':''}>${c}</option>`).join('')}
         </select></td>
         <td data-label="単価"><input type="text" inputmode="numeric" value="${Number(it.unit_price||0).toLocaleString('ja-JP')}" onchange="localExpenseCalc(${i},this)" style="width:70px;text-align:right"></td>
-        <td data-label="数量"><input type="number" value="${it.qty||1}" onchange="bdLocalExpenses[${i}].qty=Number(this.value);bdLocalExpenses[${i}].amount=Math.round(Number(bdLocalExpenses[${i}].unit_price||0)*Number(this.value||1));renderLocalExpenses()" style="width:45px"></td>
-        <td data-label="金額" style="text-align:right;white-space:nowrap">${yen(it.amount||0)}</td>
+        <td data-label="数量"><input type="number" value="${isLocalExpenseQtyUndetermined(it) ? '' : it.qty}" placeholder="未確定" onchange="localExpenseQtyChange(${i},this)" style="width:45px${isLocalExpenseQtyUndetermined(it) ? ';border-color:var(--amber);background:#fff8e6' : ''}"></td>
+        <td data-label="金額" style="text-align:right;white-space:nowrap">${isLocalExpenseQtyUndetermined(it) ? '<span style="color:var(--amber);font-size:10px;font-weight:600" title="数量が決まっていないため金額は0円です。数量を入力してください。">数量未確定</span>' : yen(it.amount||0)}</td>
         <td data-label="支払方法"><select onchange="bdLocalExpenses[${i}].payment_method=this.value" style="width:100%">
           ${LOCAL_EXPENSE_PAYMENT_METHODS.map(m=>`<option value="${m}" ${it.payment_method===m?'selected':''}>${m}</option>`).join('')}
         </select></td>
@@ -8699,7 +8699,24 @@ function localExpenseCalc(i, el){
   const v = parseNum(el.value);
   bdLocalExpenses[i].unit_price = v;
   el.value = v.toLocaleString('ja-JP');
-  bdLocalExpenses[i].amount = Math.round(v * Number(bdLocalExpenses[i].qty||1));
+  // 数量未確定(空欄)の行は金額0のまま(数量を入力した時点で計算する)
+  bdLocalExpenses[i].amount = isLocalExpenseQtyUndetermined(bdLocalExpenses[i]) ? 0 : Math.round(v * Number(bdLocalExpenses[i].qty||1));
+  renderLocalExpenses();
+}
+// 仮払い一覧表の数量が未確定(空欄)か。「よく使う項目」で数量を自動計算できなかった行が該当する(2026-09 JUN決定:
+// 数量1・金額=単価にはしない。それらしい金額が入って誤りに気づきにくいため)。未確定の行は金額0・数量は空欄のまま
+// 表示・保存する(以前は画面で「1」と表示し保存も1にしながら金額は0という食い違いがあった)。
+function isLocalExpenseQtyUndetermined(it){ return !!it && (it.qty === '' || it.qty == null); }
+function localExpenseQtyChange(i, el){
+  const it = bdLocalExpenses[i];
+  if(!it) return;
+  if(String(el.value).trim() === ''){
+    it.qty = '';
+    it.amount = 0;
+  }else{
+    it.qty = Number(el.value);
+    it.amount = Math.round(Number(it.unit_price||0) * Number(el.value||1));
+  }
   renderLocalExpenses();
 }
 
@@ -8768,10 +8785,11 @@ const COMMON_LOCAL_EXPENSE_ITEMS = [
 //
 // opts (「手配内容から概算行を生成」ボタンからのみ渡される。ボタン単体では未指定=従来通り):
 //   date              : 各行の「日付」欄の初期値(このツアーのIN-DATE)
-//   busCompanyDayCount: バス手配タブの延べ会社日数(1日2社の日は2件とカウント) → お茶代の数量に使う
+//   busCompanyDayCount: 延べ会社日数(手配書の日毎明細のバス割当。1日2社の日は2件とカウント。割当が無ければ
+//                       バス明細タブの開始日〜終了日から数える) → お茶代の数量に使う
 //   workingDays       : バスが割り当てられているユニークな日数 → 朝食・昼食・夕食(乗務員)・通信費の数量に使う
-// busCompanyDayCount/workingDaysが未指定(バスタブにデータが無い場合)は、数量を空欄のまま
-// (＝表示上は既存仕様通り1)にし、無理に0にはしない。準備金・ガイド費は常に自動計算しない。
+// busCompanyDayCount/workingDaysが未指定(バスの日数を数えられない場合)は、数量を空欄(未確定)・金額0のままにし、
+// 画面でも「数量未確定」と表示する(数量1・金額=単価にはしない)。準備金・ガイド費は常に自動計算しない。
 function getCommonLocalExpenseRowsIfNotAdded(opts){
   const existingContents = new Set(bdLocalExpenses.map(it=>(it.content||'').trim()));
   const alreadyAdded = COMMON_LOCAL_EXPENSE_ITEMS.some(item=>existingContents.has(item.content));
@@ -8815,6 +8833,26 @@ function _localExpenseGenMapPaymentMethod(src){
   return '';
 }
 
+// バス明細(booking_buses)の開始日〜終了日から、延べ会社日数・実働日数を数える。数えられる行が無ければnull。
+function countBusDaysFromBusRows(busRows){
+  const dayMs = 86400000;
+  const toUtc = d => Date.parse(d + 'T00:00:00Z');
+  const dates = new Set();
+  let busCompanyDayCount = 0;
+  (busRows||[]).forEach(r=>{
+    const start = sanitizeDateField(r.start_date);
+    if(!start) return;
+    const end = sanitizeDateField(r.end_date);
+    const s0 = toUtc(start);
+    const e0 = (end && toUtc(end) >= s0) ? toUtc(end) : s0;
+    const n = Math.round((e0 - s0) / dayMs) + 1;
+    busCompanyDayCount += n;
+    for(let k=0; k<n; k++) dates.add(new Date(s0 + k*dayMs).toISOString().slice(0,10));
+  });
+  if(!busCompanyDayCount) return null;
+  return { busCompanyDayCount, workingDays: dates.size };
+}
+
 async function generateLocalExpensesFromArrangements(){
   if(!currentDetailId) return;
   const bookingId = currentDetailId;
@@ -8849,14 +8887,22 @@ async function generateLocalExpensesFromArrangements(){
   // 1日に2社(bus_booking_id_2/bus_company_text_2、新幹線区間の乗り継ぎ等)入っている日は、
   // busCompanyDayCountでは2件、workingDaysでは1日としてカウントする。
   const busAssignedDays = (dayRows||[]).filter(r=>r.bus_booking_id||r.bus_company_text||r.bus_booking_id_2||r.bus_company_text_2);
-  const hasBusData = busAssignedDays.length>0;
-  const workingDays = new Set(busAssignedDays.map((r,idx)=>r.date||('_no_date_'+idx))).size;
-  const busCompanyDayCount = busAssignedDays.reduce((sum,r)=>{
+  let hasBusData = busAssignedDays.length>0;
+  let workingDays = new Set(busAssignedDays.map((r,idx)=>r.date||('_no_date_'+idx))).size;
+  let busCompanyDayCount = busAssignedDays.reduce((sum,r)=>{
     let c = 0;
     if(r.bus_booking_id||r.bus_company_text) c+=1;
     if(r.bus_booking_id_2||r.bus_company_text_2) c+=1;
     return sum+c;
   }, 0);
+  // 手配書の日毎明細にバスの割当が無い場合は、バス明細タブ(booking_buses)の開始日〜終了日から数える
+  // (2026-09 JUN決定)。1行=1社として、延べ会社日数=各行の日数(終了日が空欄なら1日)の合計、
+  // 実働日数=いずれかのバス行の期間に含まれる日付の数。開始日が空欄の行は数えない。
+  // それでも決まらなければ数量は未確定(空欄・金額0)のまま(getCommonLocalExpenseRowsIfNotAdded参照)。
+  if(!hasBusData){
+    const fromBus = countBusDaysFromBusRows(busRows);
+    if(fromBus){ hasBusData = true; workingDays = fromBus.workingDays; busCompanyDayCount = fromBus.busCompanyDayCount; }
+  }
   let guideSettlementRows = [];
   if(b && b.ref_no){
     const {data: gsRows, error: gsErr} = await sb.from('guide_settlements').select('*').eq('booking_ref', b.ref_no);
@@ -9041,7 +9087,7 @@ function buildLocalExpenseRows(bookingId){
     content: it.content||'',
     category: it.category||'',
     unit_price: Number(it.unit_price)||0,
-    qty: Number(it.qty)||1,
+    qty: isLocalExpenseQtyUndetermined(it) ? null : (Number(it.qty)||1),
     amount: Number(it.amount)||0,
     payment_method: it.payment_method||'',
     sort_order: i
@@ -9386,7 +9432,7 @@ async function openBookingDetail(id, opts){
   bdLocalExpenses = (localRows||[]).map(r=>({
     id: r.id,
     expense_date: r.expense_date||'', expense_type: r.expense_type||'', content: r.content||'', category: r.category||'',
-    unit_price: r.unit_price||0, qty: r.qty||1, amount: r.amount||0, payment_method: r.payment_method||''
+    unit_price: r.unit_price||0, qty: (r.qty == null ? '' : (r.qty||1)), amount: r.amount||0, payment_method: r.payment_method||''
   }));
   originalLocalExpenseCount = bdLocalExpenses.length;
   bdLoadSnapshot.localExpenses = JSON.stringify(buildLocalExpenseRows(id));
@@ -15910,6 +15956,16 @@ function toggleBusOcrArea(){
   if(a) a.style.display=a.style.display==='none'?'':'none';
 }
 
+// バスのAI読み取りで結果が0件の時の案内。バスの読み取りはドライバーの宿泊情報を抽出しない(宿泊だけの文書は0件)ため、
+// ホテルタブで読み取って区分を「ドライバー」にするよう案内する(2026-09 JUN決定)。
+const BUS_OCR_EMPTY_HINT = 'バスの手配情報が見つかりませんでした。ドライバーの宿泊の情報は、ホテルタブで読み取り、区分を「ドライバー」にしてください。';
+function showBusOcrEmptyHint(statusEl, prefix){
+  statusEl.textContent = (prefix ? prefix + ' ' : '') + BUS_OCR_EMPTY_HINT;
+  statusEl.classList.remove('ocr-loading');
+  hideGlobalOcrBanner();
+  statusEl.style.color = 'var(--amber)';
+}
+
 async function extractBusFromText(){
   const text=(document.getElementById('bus-ocr-text')||{}).value||'';
   if(!text.trim()){ alert('テキストを入力してください'); return; }
@@ -15926,12 +15982,10 @@ async function extractBusFromText(){
     const parsed=JSON.parse(cleaned);
     let buses=Array.isArray(parsed)?parsed:[parsed];
     if(buses.length===0 && (targetCheckIn||targetCheckOut)){
-      statusEl.textContent = `対象日程（チェックイン: ${targetCheckIn||'未設定'}）に一致する内容が見つかりませんでした。メール内容をご確認ください。`;
-      statusEl.classList.remove('ocr-loading');
-      hideGlobalOcrBanner();
-      statusEl.style.color = 'var(--amber)';
+      showBusOcrEmptyHint(statusEl, `対象日程（チェックイン: ${targetCheckIn||'未設定'}）に一致する内容が見つかりませんでした。メール内容をご確認ください。`);
       return;
     }
+    if(buses.length===0){ showBusOcrEmptyHint(statusEl); return; }
     statusEl.textContent=`✓ ${buses.length}件を読み取りました。内容を確認してください。`;
     statusEl.classList.remove('ocr-loading');
     hideGlobalOcrBanner();
@@ -16138,6 +16192,7 @@ async function extractBusFromFile(event, mode){
     const cleaned=(tb.text||'').replace(/```json|```/g,'').trim();
     const parsed=JSON.parse(cleaned);
     const buses=Array.isArray(parsed)?parsed:[parsed];
+    if(buses.length===0){ showBusOcrEmptyHint(statusEl); return; }
     if(!checkBulkReadSanity(buses, 'start_date')){ statusEl.textContent='読み取りをキャンセルしました（件数・日付範囲が不自然なため）'; statusEl.classList.remove('ocr-loading'); hideGlobalOcrBanner(); statusEl.style.color='var(--text3)'; return; }
     // ファイル/画像添付経由は案A(プレースホルダー行の再利用)の対象外。テキスト貼り付け
     // (extractBusFromText)からの古い判定結果が残っていた場合に誤って引き継がないようクリアする。
