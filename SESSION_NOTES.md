@@ -83,7 +83,11 @@
 - 注意: バスの保存は replace(全削除→再挿入)のため、DBにこれらの列の値があっても、その予約のバスタブを保存すると
   NULL に戻る。値が残っている行があるかは JUN の確認SQLで確かめる(下記、未実行)。
 
-### ドライバー宿泊(2026-09-25 JUN決定: 案C。第1段階 PR #216(ブランチ claude/magical-ride-6phzj3)、未マージ・SQL未実行。マージはJUNの確認後)
+### ドライバー宿泊(2026-09-25 JUN決定: 案C。第1段階 PR #216 マージ済み(main 294fc32、2026-09-27))
+- SQL(add_lodging_for_to_booking_hotels.sql)はJUNが本番で実行済み(列追加・関数2本の更新、2本とも lodging_for を含むことを確認)。
+- Preview確認(JUN、テスト予約TEST-DRV、確認後に削除済み): DRVの目印、区分切替で支払方法が現地払い、備考の駐車場案内、「対象外」ボタンの
+  メッセージ、日付逆転で保存が止まる、仮払い一覧でD(ドライバー)として生成、ホテル予約管理に出ない、すべてOK。
+- デプロイ後は APP_VERSION 2026092502 のため、古い画面からの保存は426 → 全員に再読み込みを依頼する。
 - 実態(JUN): ドライバーが現地で払い仮払いで精算するのが多い。別宿は「ゲストのホテルに大型バスの駐車場が無く、駐車場に近い別ホテルに
   ドライバーだけ泊まる」が中心(ゲストと同じ夜に別ホテル)。前泊・後泊で別ホテルもたまにある。
 - 【決定】案C: booking_hotels に区分 lodging_for('guest'既定/'driver')を追加し、ホテルタブの行として管理する。
@@ -110,13 +114,25 @@
 - SQL(JUN実行待ち・未実行): scripts/add_lodging_for_to_booking_hotels.sql。STEP 0(RPC定義の確認)→ STEP 1(列追加・CHECK制約)→
   STEP 2(RPC 2本の置き換え)→ STEP 3(確認)。**コードのデプロイ(マージ)より前に実行する**(Previewも本番DBを使うため、Previewの
   確認より前)。列を先に足しても古いコードは影響なし。
-- driver_*(booking_buses の6列、全154行が空)の整理案(未実施・JUN確認待ち): (1) 仮払い一覧の自動生成のバスの driver_hotel_amount
+- driver_*(booking_buses の6列、全154行が空)の整理(JUN承認済み・2026-09-27 実装中、ブランチ claude/magical-ride-6phzj3、未push): (1) 仮払い一覧の自動生成のバスの driver_hotel_amount
   分岐を削除 (2) バスのAI読み取りのプロンプトから driver_* を外し、fillMissingDriverHotelDates / fillMissingBusGenericFields の
   driver_* 参照を削除(宿泊情報はホテルタブで入力する) (3) #215 で入れた buildBusRows / mapBusDbRow の driver_* 引き継ぎは、
   (1)(2)と同じPRで削除(値が無いことを確認済みのため)。ARR_COPY_CONFIG.bus の空欄化も同時に削除。列自体は削除しない。
 - 第2段階(検討事項): 手配書・手配確認書・PDF等へのドライバー宿泊の表示 / ゲストのホテルに駐車場が無い夜に、ドライバー宿泊と
   バス駐車場(観光施設・バス駐車場タブ)の手配が揃っているかの確認(手配漏れの警告) / ツアー運行カレンダーでの扱い /
   markCostAdded のサーバー側拒否。
+
+### 仮払い一覧「手配内容から概算行を生成」の「よく使う項目」が ¥0 になる件(2026-09-27 調査のみ・未修正)
+- 原因(既存の不具合): getCommonLocalExpenseRowsIfNotAdded は、数量を自動計算できない時(手配書タブの日毎明細にバスの割当が1日も無い=
+  tour_day_itinerary の bus_booking_id/bus_company_text(_2) が全て空。「予備費」は単価も空)に qty='' ・ amount=0 で行を作る。
+  画面は数量欄を it.qty||1 で「1」と表示し、保存時も buildLocalExpenseRows が qty=Number('')||1=1 にするが、金額は0のまま
+  → 「単価3,000 × 数量1 = 金額¥0」という矛盾した行が表示・保存される。「よく使う項目を追加」ボタン単体(opts無し)でも常に同じ。
+  数量や単価を編集し直すと金額は再計算される。コメントに「バス手配タブ」とあるが、実際に見ているのは手配書タブの日毎明細のバス割当。
+- 修正案(JUN判断待ち): (a) 数量が決まらない時は qty=1・amount=単価 にする / (b) qty='' のまま、表示・保存とも数量を空欄・金額0で揃え
+  (「数量未確定」と分かる表示にする) / (c) 数量をバス明細タブ(booking_buses の開始日〜終了日の日数)からも計算する。
+  仮払い一覧表の印刷部分は別セッション(claude/compassionate-franklin-fks2nl)が変更中のため触らない(生成側の修正なら競合しない)。
+
+### 作業の進め方(再確認、2026-09-27 JUN): push の前に必ず git diff を提示し、JUNの確認を得てから push する(CLAUDE.md)。
 
 ### 残課題(追加分)
 - 名前だけで紐付いている箇所のID化(facility_operating_info と施設名など)は、他の「名前だけで紐付いている箇所」と
