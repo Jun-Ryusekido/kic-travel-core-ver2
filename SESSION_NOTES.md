@@ -83,6 +83,41 @@
 - 注意: バスの保存は replace(全削除→再挿入)のため、DBにこれらの列の値があっても、その予約のバスタブを保存すると
   NULL に戻る。値が残っている行があるかは JUN の確認SQLで確かめる(下記、未実行)。
 
+### ドライバー宿泊(2026-09-25 JUN決定: 案C。第1段階 PR #216(ブランチ claude/magical-ride-6phzj3)、未マージ・SQL未実行。マージはJUNの確認後)
+- 実態(JUN): ドライバーが現地で払い仮払いで精算するのが多い。別宿は「ゲストのホテルに大型バスの駐車場が無く、駐車場に近い別ホテルに
+  ドライバーだけ泊まる」が中心(ゲストと同じ夜に別ホテル)。前泊・後泊で別ホテルもたまにある。
+- 【決定】案C: booking_hotels に区分 lodging_for('guest'既定/'driver')を追加し、ホテルタブの行として管理する。
+- 第1段階の実装(index.html):
+  - ホテルタブの「ホテル名」セルの中に区分の選択(ゲスト/ドライバー)を置く(列を増やすと、スマホのカード表示がnth-childで配置している
+    ため全項目がずれる。セル内に置けばずれない)。見出しは「ホテル名 / 区分」。ドライバーの行は紫の「DRV」、備考欄の案内文を
+    「近くのバス駐車場など」に。375px幅で横スクロールなし・PC表示もChromiumのスクリーンショットで確認。
+    ドライバーに切り替えた時、支払方法が未入力なら「現地払い」を入れる(入力済みなら変えない)。
+  - 日付の逆転チェック(#215)はドライバーの行にもそのまま適用(表示に「・ドライバー宿泊」)。ツアー日程の外でも止めない。
+  - 仮払い一覧の自動生成: ドライバーの行は区分「D（ドライバー）」、内容「ホテル名 ドライバー宿泊」、支払方法は行の支払方法。
+  - 仕入明細へ追加: ドライバーの行は薄い「対象外」ボタン(押すと理由「仮払いの精算で計上するため…」を表示。スマホはツールチップが出ないため)。
+    addArrRowToCostNow でも拒否。
+    既に追加済み(cost_added)の行は従来どおり「済み」。サーバー側(markCostAdded)の拒否は入れていない(画面のみ)。
+  - 「他のREF#からコピー」は区分もコピーする。手配書の日毎明細のホテル選択肢に【DRV】を付け、行程貼り付けの自動リンクはドライバーの行を除外。
+    手配一覧の印刷(printArrangementSummaryList)はホテル名に「(ドライバー宿泊)」を付けた(出力の本格対応は第2段階)。
+  - 除外した箇所: ホテル予約管理の一覧RPC search_hotel_management・キャンセル期日アラートRPC get_hotel_cancel_alert_counts(SQL)、
+    ホテル予約管理の全件読み込み(ホテル別/マトリクス/ツアー別タブ、hotelManagementCache)、ホテル予約管理の取込時の重複チェック
+    (hmFetchExistingForDupCheck)、手配確定状況の催促一覧(fetchVendorEmailCandidates)。ダッシュボードのアラートはホテル明細を
+    参照していない(到着日アラート・対応が必要な予約は bookings・観光施設が対象)ため変更なし。
+  - 除外していない箇所(判断が必要なら第2段階): ツアー運行カレンダー(renderTourCalendar、ドライバーのホテルも表示される)、
+    メール受信箱のREF#候補インデックス(ホテル名で予約を探すだけ)、予約の削除・アーカイブ・バックアップ(全件対象のまま)。
+  - APP_VERSION / MIN_WRITE_APP_VERSION を 2026092502 に上げた(古い画面は lodging_for を送らず、ドライバーの行を保存すると
+    全削除→再挿入で「ゲスト」に戻るため)。デプロイ後、古い画面からの保存は426になる → 全員に再読み込みを依頼する。
+- SQL(JUN実行待ち・未実行): scripts/add_lodging_for_to_booking_hotels.sql。STEP 0(RPC定義の確認)→ STEP 1(列追加・CHECK制約)→
+  STEP 2(RPC 2本の置き換え)→ STEP 3(確認)。**コードのデプロイ(マージ)より前に実行する**(Previewも本番DBを使うため、Previewの
+  確認より前)。列を先に足しても古いコードは影響なし。
+- driver_*(booking_buses の6列、全154行が空)の整理案(未実施・JUN確認待ち): (1) 仮払い一覧の自動生成のバスの driver_hotel_amount
+  分岐を削除 (2) バスのAI読み取りのプロンプトから driver_* を外し、fillMissingDriverHotelDates / fillMissingBusGenericFields の
+  driver_* 参照を削除(宿泊情報はホテルタブで入力する) (3) #215 で入れた buildBusRows / mapBusDbRow の driver_* 引き継ぎは、
+  (1)(2)と同じPRで削除(値が無いことを確認済みのため)。ARR_COPY_CONFIG.bus の空欄化も同時に削除。列自体は削除しない。
+- 第2段階(検討事項): 手配書・手配確認書・PDF等へのドライバー宿泊の表示 / ゲストのホテルに駐車場が無い夜に、ドライバー宿泊と
+  バス駐車場(観光施設・バス駐車場タブ)の手配が揃っているかの確認(手配漏れの警告) / ツアー運行カレンダーでの扱い /
+  markCostAdded のサーバー側拒否。
+
 ### 残課題(追加分)
 - 名前だけで紐付いている箇所のID化(facility_operating_info と施設名など)は、他の「名前だけで紐付いている箇所」と
   まとめて後で検討する(JUN決定、2026-09-25)。
@@ -214,7 +249,7 @@ anon向けSELECTポリシー案は不採用(ログインはapp_users独自方式
   booking_water_items, bullet_train_arrangements, facility_operating_info, vendor_email_logs, error_logs
   (error_logsのINSERTもAPI化。未ログイン時の扱い・サイズ上限・連投対策の案を出す)
 
-## 予約・手配の日付の前後チェック、Invoice発行の保存確認、driver_*の引き継ぎ(2026-09-25、PR #215(ブランチ claude/magical-ride-6phzj3)、未マージ・マージはJUNの確認後)
+## 予約・手配の日付の前後チェック、Invoice発行の保存確認、driver_*の引き継ぎ(2026-09-25、PR #215 マージ済み(main a227222))
 - 経緯: 別セッション(claude/blissful-rubin-5z8ftu、session_01TjKB…)が a を実装したところで停止。JUNの指示で以後はこのセッションだけで作業し、
   そのブランチ(6783159 / 2a35acb / 9e9d5cd / 753b1fa の4コミット。753b1fa以降の追加コミットは無し)をマージで取り込んだ。
 - a(753b1fa、実装済み): isDateRangeReversed(開始,終了)。新規予約(saveBooking)・予約詳細の保存(saveBookingDetail)で OUT<IN なら
@@ -237,6 +272,14 @@ anon向けSELECTポリシー案は不採用(ログインはapp_users独自方式
   driver_check_in/out の逆転: 画面に入力欄が無く直せないため、保存は止めない(チェック対象外)。案は報告参照。
 - 古い画面(このPRより前のindex.html)は引き続き driver_* を落として保存する(既存の挙動。APP_VERSIONは上げていない)。
 - 検証ハーネス(scratchpad、acornでindex.htmlの実関数を抽出しvmで実行): 27件すべて成功。
+- マージ前の確認SQL(JUN実行、2026-09-25): 逆転しているホテル明細0件・バス明細0件。booking_buses 154行すべてで driver_* は空
+  (reversed_driver_dates=0)。Preview status success を確認してマージ(実機確認は後日)。
+- booking_busesの全列(JUN確認): id, booking_id, bus_company, bus_type, buses, start_date, end_date, amount, status, confirmation_no, memo,
+  created_at, driver_hotel_name/phone/address, driver_check_in/out, driver_hotel_amount, payment_method, cost_added, created_by,
+  updated_by, updated_at, sort_order。buildBusRows と照合し、保存で送っていないため消える列は無し(id は replace で振り直し、
+  created_at は DB既定値、created_by/updated_by/updated_at はサーバー(stampIdentity/stampUpdatedAt)が付ける)。
+  注: replace のたびに行が作り直されるため、created_at・created_by は「最後に保存した時刻・人」になる(元の作成日時・作成者は
+  audit_logs でしか分からない。booking_costs と同じ既存の仕様)。
 - SQL要否: 不要(コードのみ)。確認用の読み取り専用SQL: scripts/investigate_arrangement_date_reversal.sql(JUN実行待ち)。
 
 ## バッチ2 実装計画(2026-09-25報告、未着手)
