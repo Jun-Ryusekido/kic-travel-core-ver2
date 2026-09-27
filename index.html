@@ -8903,9 +8903,6 @@ async function generateLocalExpensesFromArrangements(){
   // バス
   (busRows||[]).forEach(bus=>{
     mk(bus.start_date||fallbackDate, '交通費', `${bus.bus_company||'バス会社'}${bus.bus_type?'('+bus.bus_type+')':''}`, 'D（ドライバー）', bus.amount, bus.payment_method||'', false);
-    if(Number(bus.driver_hotel_amount)>0){
-      mk(bus.driver_check_in||bus.start_date||fallbackDate, 'ホテル代', `${bus.bus_company||'バス会社'} ドライバー宿泊費${bus.driver_hotel_name?'('+bus.driver_hotel_name+')':''}`, 'D（ドライバー）', bus.driver_hotel_amount, bus.payment_method||'', false);
-    }
   });
 
   // ホテル
@@ -9004,8 +9001,7 @@ function isDateRangeReversed(startDate, endDate){
 const BOOKING_OUT_BEFORE_IN_MSG = '帰着日(OUT)が出発日(IN)より前になっています';
 // 予約詳細の手配タブのうち、ホテル(チェックイン/チェックアウト)・バス(開始日/終了日)の日付が逆転している行を
 // 返す(2026-09-25 JUN決定: 警告ではなく保存を止める。空欄・同日は止めない)。行番号は画面に表示されている
-// 並び順(並べ替え中はその順)での番号。バスのドライバー宿泊(driver_check_in/out)は画面に入力欄が無く
-// 直せないため対象外。
+// 並び順(並べ替え中はその順)での番号。ドライバー宿泊はホテルタブの行(区分=ドライバー)として同じチェックの対象。
 function findArrangementDateRangeErrors(){
   const errors = [];
   const check = (tab, tabLabel, items, sortConfig, nameField, startField, endField, startLabel, endLabel) => {
@@ -12715,13 +12711,11 @@ let bdGuideDocEditing = null; // 編集モーダルで開いている手配書1�
 // ─── 手配管理タブ共通: 他のREF#から手配内容をコピー ─────────
 // 名称・日付・人数・単価などの「内容」はコピーするが、確認番号・ステータスは
 // 新しいツアーではまだ確定していない情報のため、コピーせず空欄/初期値にリセットする。
-// バスのドライバー宿泊(driver_*)は画面に表示されないため、コピーせず空欄にする(見えない値が他の予約へ
-// 引き継がれ、仮払い一覧のドライバー宿泊費等に使われるのを防ぐ。以前も保存時に落ちていたため挙動は同じ)。
 const ARR_COPY_CONFIG = {
   hotel:  { table:'booking_hotels',        keyField:'booking_id',
     map:r=>({hotel_name:r.hotel_name||'', check_in:r.check_in||'', check_out:r.check_out||'', room_type:r.room_type||'', rooms:r.rooms||1, breakfast:r.breakfast||false, unit_price:r.unit_price||0, amount:r.amount||0, confirmation_no:'', status:'回答待ち', payment_method:r.payment_method||'', memo:r.memo||'', lodging_for:normalizeLodgingFor(r.lodging_for)}) },
   bus:    { table:'booking_buses',         keyField:'booking_id',
-    map:r=>({bus_company:r.bus_company||'', bus_type:r.bus_type||'', buses:r.buses||1, start_date:r.start_date||'', end_date:r.end_date||'', amount:r.amount||0, status:'問い合わせ中', confirmation_no:'', driver_hotel_name:'', driver_hotel_phone:'', driver_hotel_address:'', driver_check_in:'', driver_check_out:'', driver_hotel_amount:0, payment_method:r.payment_method||'', memo:r.memo||''}) },
+    map:r=>({bus_company:r.bus_company||'', bus_type:r.bus_type||'', buses:r.buses||1, start_date:r.start_date||'', end_date:r.end_date||'', amount:r.amount||0, status:'問い合わせ中', confirmation_no:'', payment_method:r.payment_method||'', memo:r.memo||''}) },
   rest:   { table:'booking_restaurants',   keyField:'booking_id',
     map:r=>({restaurant_name:r.restaurant_name||'', meal_type:r.meal_type||'昼食', date:r.date||'', reservation_time:r.reservation_time||'', pax:r.pax||0, amount:r.amount||0, status:'問い合わせ中', payment_method:r.payment_method||'', memo:r.memo||''}) },
   fac:    { table:'booking_facilities',    keyField:'booking_id',
@@ -12879,7 +12873,7 @@ function switchArrangTab(tab){
 // ドライバーだけ泊まる等)はホテルタブの行として管理する。ドライバーが現地で払い仮払いで精算するのが中心のため、
 // ドライバーの行は「仕入明細へ追加」の対象外(二重計上防止)、ホテル予約管理・キャンセル期日の警告・
 // 手配確定状況の対象外(KICが手配するものではないため)。仮払い一覧の自動生成では区分「D（ドライバー）」で出す。
-// バスのdriver_*列は今後使わない(全行空。列は残す)。
+// バス明細(booking_buses)のdriver_*列は使わない(全行空。列は残すが、画面・保存・AI読み取り・仮払い一覧のどこからも参照しない)。
 const HOTEL_LODGING_DRIVER = 'driver';
 function isDriverLodging(it){ return !!it && it.lodging_for === HOTEL_LODGING_DRIVER; }
 function normalizeLodgingFor(v){ return v === HOTEL_LODGING_DRIVER ? HOTEL_LODGING_DRIVER : 'guest'; }
@@ -13091,14 +13085,13 @@ function addBusRow(){
 // openBookingDetail()でのロード時と、保存時の食い違い検知でDBを再取得した際の両方から
 // このロジックを使うことで、変換のズレによる誤検知を防ぐ。
 function mapBusDbRow(r){
-  return {id:r.id,bus_company:r.bus_company||'',bus_type:r.bus_type||'',buses:r.buses||1,start_date:r.start_date||'',end_date:r.end_date||'',amount:r.amount||0,status:r.status||'問い合わせ中',confirmation_no:r.confirmation_no||'',driver_hotel_name:r.driver_hotel_name||'',driver_hotel_phone:r.driver_hotel_phone||'',driver_hotel_address:r.driver_hotel_address||'',driver_check_in:r.driver_check_in||'',driver_check_out:r.driver_check_out||'',driver_hotel_amount:r.driver_hotel_amount||0,memo:r.memo||'',payment_method:r.payment_method||'',cost_added:r.cost_added||false};
+  return {id:r.id,bus_company:r.bus_company||'',bus_type:r.bus_type||'',buses:r.buses||1,start_date:r.start_date||'',end_date:r.end_date||'',amount:r.amount||0,status:r.status||'問い合わせ中',confirmation_no:r.confirmation_no||'',memo:r.memo||'',payment_method:r.payment_method||'',cost_added:r.cost_added||false};
 }
 // itemsを省略するとbdBusItems(画面上の現在の内容)を対象にする。保存時の食い違い検知
 // (DBから再取得した最新行との比較)でも、DB行をmapBusDbRow()でこの関数と同じ入力形に
 // 変換した配列を渡すことで、同一の変換ロジックを再利用できるようにしている。
 function buildBusRows(bookingId, items){
-  return (items||bdBusItems).filter(it=>it.bus_company||it.bus_type||it.start_date||it.end_date||it.amount||it.confirmation_no||it.memo
-      ||it.driver_hotel_name||it.driver_hotel_phone||it.driver_hotel_address||it.driver_check_in||it.driver_check_out||Number(it.driver_hotel_amount)).map((it,i)=>({
+  return (items||bdBusItems).filter(it=>it.bus_company||it.bus_type||it.start_date||it.end_date||it.amount||it.confirmation_no||it.memo).map((it,i)=>({
     booking_id: bookingId,
     bus_company: it.bus_company||'', bus_type: it.bus_type||'',
     buses: Number(it.buses)||1,
@@ -13107,12 +13100,6 @@ function buildBusRows(bookingId, items){
     status: it.status||'問い合わせ中',
     confirmation_no: it.confirmation_no||'',
     memo: it.memo||'',
-    // ドライバー宿泊の6列は画面に入力欄が無いが、保存は全削除→再挿入(replace)のため、ここに含めないと
-    // DBに値がある行を保存するたびにNULLに戻っていた(データ消失)。読み込んだ値(mapBusDbRow)をそのまま引き継ぐ。
-    driver_hotel_name: it.driver_hotel_name||'', driver_hotel_phone: it.driver_hotel_phone||'',
-    driver_hotel_address: it.driver_hotel_address||'',
-    driver_check_in: sanitizeDateField(it.driver_check_in), driver_check_out: sanitizeDateField(it.driver_check_out),
-    driver_hotel_amount: Number(it.driver_hotel_amount)||0,
     payment_method: it.payment_method||'',
     cost_added: !!it.cost_added,
     sort_order: i
@@ -15605,7 +15592,7 @@ async function appendEmailExcerptAsDraftRow(tab, excerpt){
     await saveHotelItems();
   }else if(tab==='bus'){
     if(hasBlankDraftRowWithExcerpt(bdBusItems, 'bus_company', excerpt)) return;
-    bdBusItems.push({bus_company:'', bus_type:'', buses:1, start_date:'', end_date:'', amount:0, status:'問い合わせ中', confirmation_no:'', driver_hotel_name:'', driver_hotel_phone:'', driver_hotel_address:'', driver_check_in:'', driver_check_out:'', driver_hotel_amount:0, memo:excerpt});
+    bdBusItems.push({bus_company:'', bus_type:'', buses:1, start_date:'', end_date:'', amount:0, status:'問い合わせ中', confirmation_no:'', memo:excerpt});
     renderBusTable();
     await saveBusItems();
   }else if(tab==='rest'){
@@ -15923,85 +15910,6 @@ function toggleBusOcrArea(){
   if(a) a.style.display=a.style.display==='none'?'':'none';
 }
 
-// AIの応答でチェックイン/アウト日が空欄だった場合に備え、原文から直接
-// 「チェックイン」「チェックアウト」等のキーワード付近の日付をフォールバック抽出する
-function fallbackExtractHotelDate(text, keywords){
-  const lines = String(text||'').split(/\r?\n/);
-  for(const line of lines){
-    if(!keywords.some(k=>line.includes(k))) continue;
-    const m = line.match(/(\d{4})[年\/\-.](\d{1,2})[月\/\-.](\d{1,2})日?/) || line.match(/(\d{1,2})[月\/\-](\d{1,2})日?/);
-    if(!m) continue;
-    if(m.length===4){
-      return `${m[1]}-${String(m[2]).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}`;
-    } else {
-      // 年が省略されている場合、原文中の別の西暦（4桁年）を探して補う
-      const yearMatch = String(text||'').match(/(\d{4})年/) || String(text||'').match(/(\d{4})[\/\-]\d{1,2}[\/\-]\d{1,2}/);
-      const year = yearMatch ? yearMatch[1] : new Date().getFullYear();
-      return `${year}-${String(m[1]).padStart(2,'0')}-${String(m[2]).padStart(2,'0')}`;
-    }
-  }
-  return '';
-}
-function fillMissingDriverHotelDates(buses, sourceText){
-  buses.forEach(b=>{
-    if(b.driver_hotel_name && !b.driver_check_in){
-      const found = fallbackExtractHotelDate(sourceText, ['チェックイン','宿泊日','IN:','IN：']);
-      if(found) b.driver_check_in = found;
-    }
-    if(b.driver_hotel_name && !b.driver_check_out){
-      const found = fallbackExtractHotelDate(sourceText, ['チェックアウト','退室日','OUT:','OUT：']);
-      if(found) b.driver_check_out = found;
-    }
-  });
-  return buses;
-}
-// 「合計金額」「合計」「total」等の直後の数値を金額として拾う汎用フォールバック。
-function fallbackExtractAmount(text){
-  const patterns = [
-    /合計金額[:：\s]*[¥￥]?\s*([\d,]+)\s*円?/,
-    /合計[:：\s]*[¥￥]?\s*([\d,]+)\s*円?/,
-    /total\s*amount[:：\s]*[¥$]?\s*([\d,]+)/i,
-    /total[:：\s]*[¥$]?\s*([\d,]+)/i,
-  ];
-  for(const re of patterns){
-    const m = String(text||'').match(re);
-    if(m) return Number(m[1].replace(/,/g,'')) || 0;
-  }
-  return 0;
-}
-// バス手配確認書に実質バスの情報(バス会社・運行日・金額)が一切無く、宿泊情報のみが
-// 記載されているケース(ドライバー用の別ホテル手配等)で、AIがdriver_hotel_*系の
-// 専用フィールドへの分類に失敗し(実運用のAI応答は必ずしもプロンプト通りにならない)、
-// start_date/end_date/amountも空のまま返ってくることがあったため保険を掛ける。
-// 既にバスらしい情報が何か1つでも入っている場合は(実データの可能性が高いため)上書きしない。
-const BUS_DRIVER_LODGING_MEMO_PREFIX = 'ドライバー宿泊';
-function fillMissingBusGenericFields(buses, sourceText){
-  buses.forEach(b=>{
-    const hasBusData = b.bus_company || b.start_date || b.end_date || Number(b.amount);
-    if(hasBusData) return;
-    if(!b.start_date){
-      const found = b.driver_check_in || fallbackExtractHotelDate(sourceText, ['チェックイン','宿泊日','IN:','IN：']);
-      if(found) b.start_date = found;
-    }
-    if(!b.end_date){
-      const found = b.driver_check_out || fallbackExtractHotelDate(sourceText, ['チェックアウト','退室日','OUT:','OUT：']);
-      if(found) b.end_date = found;
-    }
-    if(!Number(b.amount)){
-      const found = Number(b.driver_hotel_amount) || fallbackExtractAmount(sourceText);
-      if(found) b.amount = found;
-    }
-    // バス自体の情報が無く宿泊情報のみの行だと、備考を見ただけでは「何のための行か」が
-    // 分からず紛らわしいため、既存の備考を上書きせず先頭に用途を追記する
-    // (重複追記を避けるため、既に同じ文言が付いている場合は追加しない)。
-    const memo = b.memo || '';
-    if(!memo.includes(BUS_DRIVER_LODGING_MEMO_PREFIX)){
-      b.memo = memo ? `${BUS_DRIVER_LODGING_MEMO_PREFIX}: ${memo}` : BUS_DRIVER_LODGING_MEMO_PREFIX;
-    }
-  });
-  return buses;
-}
-
 async function extractBusFromText(){
   const text=(document.getElementById('bus-ocr-text')||{}).value||'';
   if(!text.trim()){ alert('テキストを入力してください'); return; }
@@ -16017,8 +15925,6 @@ async function extractBusFromText(){
     const cleaned=(tb.text||'').replace(/```json|```/g,'').trim();
     const parsed=JSON.parse(cleaned);
     let buses=Array.isArray(parsed)?parsed:[parsed];
-    buses = fillMissingDriverHotelDates(buses, text);
-    buses = fillMissingBusGenericFields(buses, text);
     if(buses.length===0 && (targetCheckIn||targetCheckOut)){
       statusEl.textContent = `対象日程（チェックイン: ${targetCheckIn||'未設定'}）に一致する内容が見つかりませんでした。メール内容をご確認ください。`;
       statusEl.classList.remove('ocr-loading');
