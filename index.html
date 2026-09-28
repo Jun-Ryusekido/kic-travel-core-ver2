@@ -11163,8 +11163,8 @@ win.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><style>@pag
         <td ${tdB}>${showDate?shortDate(it.expense_date):''}</td>
         <td ${tdContent} title="${escAttr(displayContent)}">${escHtml(displayContent)}</td>
         <td ${tdR}>${Number(it.unit_price||0).toLocaleString('ja-JP')}</td>
-        <td ${tdR}>${it.qty||1}</td>
-        <td ${tdR}>${Number(it.amount||0).toLocaleString('ja-JP')}</td>
+        <td ${tdR}>${isLocalExpenseQtyUndetermined(it) ? '' : it.qty}</td>
+        <td ${tdR}>${isLocalExpenseQtyUndetermined(it) ? '<span style="font-weight:700">数量未確定</span>' : Number(it.amount||0).toLocaleString('ja-JP')}</td>
         <td ${tdB}>${escHtml(it.payment_method||'')}</td>
       </tr>`;
     }).join('');
@@ -21265,7 +21265,7 @@ async function loadGuideAdvanceList(){
       <td style="padding:2px 8px;color:var(--text3)"></td>
       <td style="padding:2px 8px" colspan="2">　└ ${it.expense_date||''} ${escHtml(it.content||'')}</td>
       <td style="padding:2px 8px">${escHtml(it.category||'')}</td>
-      <td style="padding:2px 8px;text-align:right">${Number(it.unit_price||0).toLocaleString()}×${it.qty||1}</td>
+      <td style="padding:2px 8px;text-align:right">${Number(it.unit_price||0).toLocaleString()}×${isLocalExpenseQtyUndetermined(it) ? '<span style="color:var(--amber);font-weight:600">数量未確定</span>' : it.qty}</td>
       <td></td>
       <td style="padding:2px 8px">${escHtml(it.payment_method||'')}</td>
       <td></td>
