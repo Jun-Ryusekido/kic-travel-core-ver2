@@ -8195,7 +8195,7 @@ async function runFinalCheck(){
   bdFacilityItems.forEach((it,i)=>{
     const name = (it.facility_name||'').trim();
     if(!name || it.status==='キャンセル') return;
-    const label = `${it.date||'日付未入力'} ${name}`;
+    const label = `観光施設 ${i+1}行目(${it.date||'日付未入力'} ${name})`;
     const r = resolveFacilityPartner(name, it.business_partner_id);
     if(!r){ unlinked.push({ tab:'fac', i, text: label }); return; }
     if(r.via==='alias_exact' || r.via==='alias_contains'){
@@ -8265,8 +8265,15 @@ function finalCheckJump(tab, i){
   const tr = tab==='fac' ? document.querySelector(`#bd-facilities-tbody tr[data-fac-idx="${i}"]`) : null;
   if(!tr) return;
   tr.scrollIntoView({ behavior:'smooth', block:'center' });
-  tr.style.outline = '2px solid var(--amber,#854F0B)';
-  setTimeout(()=>{ tr.style.outline = ''; }, 2500);
+  // <tr>のoutlineはテーブルレイアウトで見えないことがあるため、背景色(td単位)+枠(box-shadow)の
+  // 両方で強調する(2026-09-28 JUN指摘: 移動しても行が分かりにくかった)。
+  const prevBg = [];
+  tr.querySelectorAll('td').forEach(td=>{ prevBg.push([td, td.style.backgroundColor]); td.style.backgroundColor = 'var(--amber-lt,#FEF3C7)'; });
+  tr.style.boxShadow = 'inset 0 0 0 2px var(--amber,#854F0B)';
+  setTimeout(()=>{
+    prevBg.forEach(([td,bg])=>{ td.style.backgroundColor = bg; });
+    tr.style.boxShadow = '';
+  }, 3000);
 }
 async function finalCheckUnifyFacility(i){
   const it = bdFacilityItems[i];
