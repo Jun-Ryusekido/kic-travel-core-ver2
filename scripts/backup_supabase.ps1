@@ -76,6 +76,8 @@ $Tables = @(
   'access_logs',
   'agents',
   'business_partner_contacts',
+  'business_partner_guide_notices',
+  'business_partner_aliases',
   'card_holders',
   'credit_card_statements',
   'error_logs',

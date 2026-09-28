@@ -132,6 +132,8 @@ $Tables = @(
   'bookings',
   'bullet_train_arrangements',
   'business_partner_contacts',
+  'business_partner_guide_notices',
+  'business_partner_aliases',
   'business_partners',
   'card_holders',
   'credit_card_statements',
