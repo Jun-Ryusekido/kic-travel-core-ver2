@@ -164,6 +164,13 @@
 ### 残課題(追加分)
 - 名前だけで紐付いている箇所のID化(facility_operating_info と施設名など)は、他の「名前だけで紐付いている箇所」と
   まとめて後で検討する(JUN決定、2026-09-25)。
+- 【別PRでまとめて直す(JUN決定、2026-09-28)】AI読み取り欄のボタンが長い文言で潰れる可能性: ホテル・レストラン・観光施設・
+  ミネラルウォーター・請求書・ホテル予約管理・施設管理の各AI読み取り欄(hotel/rest/fac/water/inv/hm/fm-ocr-status)。バスは PR #218 で
+  修正済み(行を折り返し可能にし、ボタンは flex-shrink:0・nowrap、状態の文は flex:1 1 220px で折り返す)。同じ直し方で揃える。
+- 【別PRでまとめて直す(JUN決定、2026-09-28)】「〜明細が0件になっています」確認が、保存後も基準を更新せず出続ける件: 売上・仕入・
+  ホテル・バス・レストラン・観光施設・ミネラルウォーター・ガイド・手配書のガイド・手配書の日毎明細(originalSalesCount / CostsCount /
+  HotelCount / BusCount / RestaurantCount / FacilityCount / WaterCount / GuideCount / ArrGuideCount / ArrDayCount)。仮払い一覧表は
+  PR #218 で修正済み(saveLocalExpenses の保存成功後に originalLocalExpenseCount を更新)。各タブの保存成功後に同様に更新する。
 
 ## RLS対応(Supabase警告 rls_disabled_in_public、2026-09〜)
 
