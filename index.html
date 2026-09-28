@@ -2750,10 +2750,10 @@ input[type=number]{-moz-appearance:textfield}
       <div id="bus-ocr-area" style="display:none;margin-bottom:8px;border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--bg)">
         <div style="font-size:11px;color:var(--text3);margin-bottom:6px">メールや文書の内容をコピーして貼り付けてください</div>
         <textarea id="bus-ocr-text" rows="5" style="width:100%;padding:7px 9px;border-radius:8px;border:1px solid var(--border);font-size:11px;font-family:inherit;resize:vertical" placeholder="バス手配確認書・メールの本文をここに貼り付け..."></textarea>
-        <div style="margin-top:6px;display:flex;gap:6px;align-items:center">
-          <button class="btn btn-p" style="font-size:11px" onclick="extractBusFromText()">🤖 AIで読み取り</button>
-          <button class="btn" style="font-size:11px" onclick="document.getElementById('bus-ocr-area').style.display='none'">閉じる</button>
-          <span id="bus-ocr-status" style="font-size:11px;color:var(--text3)"></span>
+        <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+          <button class="btn btn-p" style="font-size:11px;flex-shrink:0;white-space:nowrap" onclick="extractBusFromText()">🤖 AIで読み取り</button>
+          <button class="btn" style="font-size:11px;flex-shrink:0;white-space:nowrap" onclick="document.getElementById('bus-ocr-area').style.display='none'">閉じる</button>
+          <span id="bus-ocr-status" style="font-size:11px;color:var(--text3);flex:1 1 220px;min-width:0"></span>
         </div>
       </div>
       <div id="bus-sort-banner" style="display:none;font-size:11px;color:var(--text3);margin-bottom:4px"></div>
@@ -8684,8 +8684,8 @@ function renderLocalExpenses(){
           ${LOCAL_EXPENSE_CATEGORIES.map(c=>`<option value="${c}" ${it.category===c?'selected':''}>${c}</option>`).join('')}
         </select></td>
         <td data-label="単価"><input type="text" inputmode="numeric" value="${Number(it.unit_price||0).toLocaleString('ja-JP')}" onchange="localExpenseCalc(${i},this)" style="width:70px;text-align:right"></td>
-        <td data-label="数量"><input type="number" value="${it.qty||1}" onchange="bdLocalExpenses[${i}].qty=Number(this.value);bdLocalExpenses[${i}].amount=Math.round(Number(bdLocalExpenses[${i}].unit_price||0)*Number(this.value||1));renderLocalExpenses()" style="width:45px"></td>
-        <td data-label="金額" style="text-align:right;white-space:nowrap">${yen(it.amount||0)}</td>
+        <td data-label="数量"><input type="number" value="${isLocalExpenseQtyUndetermined(it) ? '' : it.qty}" placeholder="未確定" onchange="localExpenseQtyChange(${i},this)" style="width:45px${isLocalExpenseQtyUndetermined(it) ? ';border-color:var(--amber);background:#fff8e6' : ''}"></td>
+        <td data-label="金額" style="text-align:right;white-space:nowrap">${isLocalExpenseQtyUndetermined(it) ? '<span style="color:var(--amber);font-size:10px;font-weight:600" title="数量が決まっていないため金額は0円です。数量を入力してください。">数量未確定</span>' : yen(it.amount||0)}</td>
         <td data-label="支払方法"><select onchange="bdLocalExpenses[${i}].payment_method=this.value" style="width:100%">
           ${LOCAL_EXPENSE_PAYMENT_METHODS.map(m=>`<option value="${m}" ${it.payment_method===m?'selected':''}>${m}</option>`).join('')}
         </select></td>
@@ -8699,7 +8699,24 @@ function localExpenseCalc(i, el){
   const v = parseNum(el.value);
   bdLocalExpenses[i].unit_price = v;
   el.value = v.toLocaleString('ja-JP');
-  bdLocalExpenses[i].amount = Math.round(v * Number(bdLocalExpenses[i].qty||1));
+  // 数量未確定(空欄)の行は金額0のまま(数量を入力した時点で計算する)
+  bdLocalExpenses[i].amount = isLocalExpenseQtyUndetermined(bdLocalExpenses[i]) ? 0 : Math.round(v * Number(bdLocalExpenses[i].qty||1));
+  renderLocalExpenses();
+}
+// 仮払い一覧表の数量が未確定(空欄)か。「よく使う項目」で数量を自動計算できなかった行が該当する(2026-09 JUN決定:
+// 数量1・金額=単価にはしない。それらしい金額が入って誤りに気づきにくいため)。未確定の行は金額0・数量は空欄のまま
+// 表示・保存する(以前は画面で「1」と表示し保存も1にしながら金額は0という食い違いがあった)。
+function isLocalExpenseQtyUndetermined(it){ return !!it && (it.qty === '' || it.qty == null); }
+function localExpenseQtyChange(i, el){
+  const it = bdLocalExpenses[i];
+  if(!it) return;
+  if(String(el.value).trim() === ''){
+    it.qty = '';
+    it.amount = 0;
+  }else{
+    it.qty = Number(el.value);
+    it.amount = Math.round(Number(it.unit_price||0) * Number(el.value||1));
+  }
   renderLocalExpenses();
 }
 
@@ -8768,10 +8785,11 @@ const COMMON_LOCAL_EXPENSE_ITEMS = [
 //
 // opts (「手配内容から概算行を生成」ボタンからのみ渡される。ボタン単体では未指定=従来通り):
 //   date              : 各行の「日付」欄の初期値(このツアーのIN-DATE)
-//   busCompanyDayCount: バス手配タブの延べ会社日数(1日2社の日は2件とカウント) → お茶代の数量に使う
+//   busCompanyDayCount: 延べ会社日数(手配書の日毎明細のバス割当。1日2社の日は2件とカウント。割当が無ければ
+//                       バス明細タブの開始日〜終了日から数える) → お茶代の数量に使う
 //   workingDays       : バスが割り当てられているユニークな日数 → 朝食・昼食・夕食(乗務員)・通信費の数量に使う
-// busCompanyDayCount/workingDaysが未指定(バスタブにデータが無い場合)は、数量を空欄のまま
-// (＝表示上は既存仕様通り1)にし、無理に0にはしない。準備金・ガイド費は常に自動計算しない。
+// busCompanyDayCount/workingDaysが未指定(バスの日数を数えられない場合)は、数量を空欄(未確定)・金額0のままにし、
+// 画面でも「数量未確定」と表示する(数量1・金額=単価にはしない)。準備金・ガイド費は常に自動計算しない。
 function getCommonLocalExpenseRowsIfNotAdded(opts){
   const existingContents = new Set(bdLocalExpenses.map(it=>(it.content||'').trim()));
   const alreadyAdded = COMMON_LOCAL_EXPENSE_ITEMS.some(item=>existingContents.has(item.content));
@@ -8815,6 +8833,26 @@ function _localExpenseGenMapPaymentMethod(src){
   return '';
 }
 
+// バス明細(booking_buses)の開始日〜終了日から、延べ会社日数・実働日数を数える。数えられる行が無ければnull。
+function countBusDaysFromBusRows(busRows){
+  const dayMs = 86400000;
+  const toUtc = d => Date.parse(d + 'T00:00:00Z');
+  const dates = new Set();
+  let busCompanyDayCount = 0;
+  (busRows||[]).forEach(r=>{
+    const start = sanitizeDateField(r.start_date);
+    if(!start) return;
+    const end = sanitizeDateField(r.end_date);
+    const s0 = toUtc(start);
+    const e0 = (end && toUtc(end) >= s0) ? toUtc(end) : s0;
+    const n = Math.round((e0 - s0) / dayMs) + 1;
+    busCompanyDayCount += n;
+    for(let k=0; k<n; k++) dates.add(new Date(s0 + k*dayMs).toISOString().slice(0,10));
+  });
+  if(!busCompanyDayCount) return null;
+  return { busCompanyDayCount, workingDays: dates.size };
+}
+
 async function generateLocalExpensesFromArrangements(){
   if(!currentDetailId) return;
   const bookingId = currentDetailId;
@@ -8849,14 +8887,22 @@ async function generateLocalExpensesFromArrangements(){
   // 1日に2社(bus_booking_id_2/bus_company_text_2、新幹線区間の乗り継ぎ等)入っている日は、
   // busCompanyDayCountでは2件、workingDaysでは1日としてカウントする。
   const busAssignedDays = (dayRows||[]).filter(r=>r.bus_booking_id||r.bus_company_text||r.bus_booking_id_2||r.bus_company_text_2);
-  const hasBusData = busAssignedDays.length>0;
-  const workingDays = new Set(busAssignedDays.map((r,idx)=>r.date||('_no_date_'+idx))).size;
-  const busCompanyDayCount = busAssignedDays.reduce((sum,r)=>{
+  let hasBusData = busAssignedDays.length>0;
+  let workingDays = new Set(busAssignedDays.map((r,idx)=>r.date||('_no_date_'+idx))).size;
+  let busCompanyDayCount = busAssignedDays.reduce((sum,r)=>{
     let c = 0;
     if(r.bus_booking_id||r.bus_company_text) c+=1;
     if(r.bus_booking_id_2||r.bus_company_text_2) c+=1;
     return sum+c;
   }, 0);
+  // 手配書の日毎明細にバスの割当が無い場合は、バス明細タブ(booking_buses)の開始日〜終了日から数える
+  // (2026-09 JUN決定)。1行=1社として、延べ会社日数=各行の日数(終了日が空欄なら1日)の合計、
+  // 実働日数=いずれかのバス行の期間に含まれる日付の数。開始日が空欄の行は数えない。
+  // それでも決まらなければ数量は未確定(空欄・金額0)のまま(getCommonLocalExpenseRowsIfNotAdded参照)。
+  if(!hasBusData){
+    const fromBus = countBusDaysFromBusRows(busRows);
+    if(fromBus){ hasBusData = true; workingDays = fromBus.workingDays; busCompanyDayCount = fromBus.busCompanyDayCount; }
+  }
   let guideSettlementRows = [];
   if(b && b.ref_no){
     const {data: gsRows, error: gsErr} = await sb.from('guide_settlements').select('*').eq('booking_ref', b.ref_no);
@@ -8903,9 +8949,6 @@ async function generateLocalExpensesFromArrangements(){
   // バス
   (busRows||[]).forEach(bus=>{
     mk(bus.start_date||fallbackDate, '交通費', `${bus.bus_company||'バス会社'}${bus.bus_type?'('+bus.bus_type+')':''}`, 'D（ドライバー）', bus.amount, bus.payment_method||'', false);
-    if(Number(bus.driver_hotel_amount)>0){
-      mk(bus.driver_check_in||bus.start_date||fallbackDate, 'ホテル代', `${bus.bus_company||'バス会社'} ドライバー宿泊費${bus.driver_hotel_name?'('+bus.driver_hotel_name+')':''}`, 'D（ドライバー）', bus.driver_hotel_amount, bus.payment_method||'', false);
-    }
   });
 
   // ホテル
@@ -9004,8 +9047,7 @@ function isDateRangeReversed(startDate, endDate){
 const BOOKING_OUT_BEFORE_IN_MSG = '帰着日(OUT)が出発日(IN)より前になっています';
 // 予約詳細の手配タブのうち、ホテル(チェックイン/チェックアウト)・バス(開始日/終了日)の日付が逆転している行を
 // 返す(2026-09-25 JUN決定: 警告ではなく保存を止める。空欄・同日は止めない)。行番号は画面に表示されている
-// 並び順(並べ替え中はその順)での番号。バスのドライバー宿泊(driver_check_in/out)は画面に入力欄が無く
-// 直せないため対象外。
+// 並び順(並べ替え中はその順)での番号。ドライバー宿泊はホテルタブの行(区分=ドライバー)として同じチェックの対象。
 function findArrangementDateRangeErrors(){
   const errors = [];
   const check = (tab, tabLabel, items, sortConfig, nameField, startField, endField, startLabel, endLabel) => {
@@ -9045,7 +9087,7 @@ function buildLocalExpenseRows(bookingId){
     content: it.content||'',
     category: it.category||'',
     unit_price: Number(it.unit_price)||0,
-    qty: Number(it.qty)||1,
+    qty: isLocalExpenseQtyUndetermined(it) ? null : (Number(it.qty)||1),
     amount: Number(it.amount)||0,
     payment_method: it.payment_method||'',
     sort_order: i
@@ -9057,6 +9099,9 @@ async function saveLocalExpenses(){
   const rows = buildLocalExpenseRows(bookingId);
   await localExpensesApiCall('replace', { bookingId, rows });
   bdLoadSnapshot.localExpenses = JSON.stringify(rows);
+  // 「0件になっています」確認の基準(読み込み時の件数)を、保存した内容に合わせる。以前は読み込み時の件数のままだったため、
+  // 一度0件にして保存した後も、他のタブを保存するたびに毎回確認が出ていた(2026-09 JUN報告)。
+  originalLocalExpenseCount = bdLocalExpenses.length;
 }
 
 // openBookingDetail()は非常に多くのawait(明細の各テーブル読み込み)を挟む長い処理のため、
@@ -9390,7 +9435,7 @@ async function openBookingDetail(id, opts){
   bdLocalExpenses = (localRows||[]).map(r=>({
     id: r.id,
     expense_date: r.expense_date||'', expense_type: r.expense_type||'', content: r.content||'', category: r.category||'',
-    unit_price: r.unit_price||0, qty: r.qty||1, amount: r.amount||0, payment_method: r.payment_method||''
+    unit_price: r.unit_price||0, qty: (r.qty == null ? '' : (r.qty||1)), amount: r.amount||0, payment_method: r.payment_method||''
   }));
   originalLocalExpenseCount = bdLocalExpenses.length;
   bdLoadSnapshot.localExpenses = JSON.stringify(buildLocalExpenseRows(id));
@@ -12715,13 +12760,11 @@ let bdGuideDocEditing = null; // 編集モーダルで開いている手配書1�
 // ─── 手配管理タブ共通: 他のREF#から手配内容をコピー ─────────
 // 名称・日付・人数・単価などの「内容」はコピーするが、確認番号・ステータスは
 // 新しいツアーではまだ確定していない情報のため、コピーせず空欄/初期値にリセットする。
-// バスのドライバー宿泊(driver_*)は画面に表示されないため、コピーせず空欄にする(見えない値が他の予約へ
-// 引き継がれ、仮払い一覧のドライバー宿泊費等に使われるのを防ぐ。以前も保存時に落ちていたため挙動は同じ)。
 const ARR_COPY_CONFIG = {
   hotel:  { table:'booking_hotels',        keyField:'booking_id',
     map:r=>({hotel_name:r.hotel_name||'', check_in:r.check_in||'', check_out:r.check_out||'', room_type:r.room_type||'', rooms:r.rooms||1, breakfast:r.breakfast||false, unit_price:r.unit_price||0, amount:r.amount||0, confirmation_no:'', status:'回答待ち', payment_method:r.payment_method||'', memo:r.memo||'', lodging_for:normalizeLodgingFor(r.lodging_for)}) },
   bus:    { table:'booking_buses',         keyField:'booking_id',
-    map:r=>({bus_company:r.bus_company||'', bus_type:r.bus_type||'', buses:r.buses||1, start_date:r.start_date||'', end_date:r.end_date||'', amount:r.amount||0, status:'問い合わせ中', confirmation_no:'', driver_hotel_name:'', driver_hotel_phone:'', driver_hotel_address:'', driver_check_in:'', driver_check_out:'', driver_hotel_amount:0, payment_method:r.payment_method||'', memo:r.memo||''}) },
+    map:r=>({bus_company:r.bus_company||'', bus_type:r.bus_type||'', buses:r.buses||1, start_date:r.start_date||'', end_date:r.end_date||'', amount:r.amount||0, status:'問い合わせ中', confirmation_no:'', payment_method:r.payment_method||'', memo:r.memo||''}) },
   rest:   { table:'booking_restaurants',   keyField:'booking_id',
     map:r=>({restaurant_name:r.restaurant_name||'', meal_type:r.meal_type||'昼食', date:r.date||'', reservation_time:r.reservation_time||'', pax:r.pax||0, amount:r.amount||0, status:'問い合わせ中', payment_method:r.payment_method||'', memo:r.memo||''}) },
   fac:    { table:'booking_facilities',    keyField:'booking_id',
@@ -12879,7 +12922,7 @@ function switchArrangTab(tab){
 // ドライバーだけ泊まる等)はホテルタブの行として管理する。ドライバーが現地で払い仮払いで精算するのが中心のため、
 // ドライバーの行は「仕入明細へ追加」の対象外(二重計上防止)、ホテル予約管理・キャンセル期日の警告・
 // 手配確定状況の対象外(KICが手配するものではないため)。仮払い一覧の自動生成では区分「D（ドライバー）」で出す。
-// バスのdriver_*列は今後使わない(全行空。列は残す)。
+// バス明細(booking_buses)のdriver_*列は使わない(全行空。列は残すが、画面・保存・AI読み取り・仮払い一覧のどこからも参照しない)。
 const HOTEL_LODGING_DRIVER = 'driver';
 function isDriverLodging(it){ return !!it && it.lodging_for === HOTEL_LODGING_DRIVER; }
 function normalizeLodgingFor(v){ return v === HOTEL_LODGING_DRIVER ? HOTEL_LODGING_DRIVER : 'guest'; }
@@ -13091,14 +13134,13 @@ function addBusRow(){
 // openBookingDetail()でのロード時と、保存時の食い違い検知でDBを再取得した際の両方から
 // このロジックを使うことで、変換のズレによる誤検知を防ぐ。
 function mapBusDbRow(r){
-  return {id:r.id,bus_company:r.bus_company||'',bus_type:r.bus_type||'',buses:r.buses||1,start_date:r.start_date||'',end_date:r.end_date||'',amount:r.amount||0,status:r.status||'問い合わせ中',confirmation_no:r.confirmation_no||'',driver_hotel_name:r.driver_hotel_name||'',driver_hotel_phone:r.driver_hotel_phone||'',driver_hotel_address:r.driver_hotel_address||'',driver_check_in:r.driver_check_in||'',driver_check_out:r.driver_check_out||'',driver_hotel_amount:r.driver_hotel_amount||0,memo:r.memo||'',payment_method:r.payment_method||'',cost_added:r.cost_added||false};
+  return {id:r.id,bus_company:r.bus_company||'',bus_type:r.bus_type||'',buses:r.buses||1,start_date:r.start_date||'',end_date:r.end_date||'',amount:r.amount||0,status:r.status||'問い合わせ中',confirmation_no:r.confirmation_no||'',memo:r.memo||'',payment_method:r.payment_method||'',cost_added:r.cost_added||false};
 }
 // itemsを省略するとbdBusItems(画面上の現在の内容)を対象にする。保存時の食い違い検知
 // (DBから再取得した最新行との比較)でも、DB行をmapBusDbRow()でこの関数と同じ入力形に
 // 変換した配列を渡すことで、同一の変換ロジックを再利用できるようにしている。
 function buildBusRows(bookingId, items){
-  return (items||bdBusItems).filter(it=>it.bus_company||it.bus_type||it.start_date||it.end_date||it.amount||it.confirmation_no||it.memo
-      ||it.driver_hotel_name||it.driver_hotel_phone||it.driver_hotel_address||it.driver_check_in||it.driver_check_out||Number(it.driver_hotel_amount)).map((it,i)=>({
+  return (items||bdBusItems).filter(it=>it.bus_company||it.bus_type||it.start_date||it.end_date||it.amount||it.confirmation_no||it.memo).map((it,i)=>({
     booking_id: bookingId,
     bus_company: it.bus_company||'', bus_type: it.bus_type||'',
     buses: Number(it.buses)||1,
@@ -13107,12 +13149,6 @@ function buildBusRows(bookingId, items){
     status: it.status||'問い合わせ中',
     confirmation_no: it.confirmation_no||'',
     memo: it.memo||'',
-    // ドライバー宿泊の6列は画面に入力欄が無いが、保存は全削除→再挿入(replace)のため、ここに含めないと
-    // DBに値がある行を保存するたびにNULLに戻っていた(データ消失)。読み込んだ値(mapBusDbRow)をそのまま引き継ぐ。
-    driver_hotel_name: it.driver_hotel_name||'', driver_hotel_phone: it.driver_hotel_phone||'',
-    driver_hotel_address: it.driver_hotel_address||'',
-    driver_check_in: sanitizeDateField(it.driver_check_in), driver_check_out: sanitizeDateField(it.driver_check_out),
-    driver_hotel_amount: Number(it.driver_hotel_amount)||0,
     payment_method: it.payment_method||'',
     cost_added: !!it.cost_added,
     sort_order: i
@@ -15605,7 +15641,7 @@ async function appendEmailExcerptAsDraftRow(tab, excerpt){
     await saveHotelItems();
   }else if(tab==='bus'){
     if(hasBlankDraftRowWithExcerpt(bdBusItems, 'bus_company', excerpt)) return;
-    bdBusItems.push({bus_company:'', bus_type:'', buses:1, start_date:'', end_date:'', amount:0, status:'問い合わせ中', confirmation_no:'', driver_hotel_name:'', driver_hotel_phone:'', driver_hotel_address:'', driver_check_in:'', driver_check_out:'', driver_hotel_amount:0, memo:excerpt});
+    bdBusItems.push({bus_company:'', bus_type:'', buses:1, start_date:'', end_date:'', amount:0, status:'問い合わせ中', confirmation_no:'', memo:excerpt});
     renderBusTable();
     await saveBusItems();
   }else if(tab==='rest'){
@@ -15923,83 +15959,14 @@ function toggleBusOcrArea(){
   if(a) a.style.display=a.style.display==='none'?'':'none';
 }
 
-// AIの応答でチェックイン/アウト日が空欄だった場合に備え、原文から直接
-// 「チェックイン」「チェックアウト」等のキーワード付近の日付をフォールバック抽出する
-function fallbackExtractHotelDate(text, keywords){
-  const lines = String(text||'').split(/\r?\n/);
-  for(const line of lines){
-    if(!keywords.some(k=>line.includes(k))) continue;
-    const m = line.match(/(\d{4})[年\/\-.](\d{1,2})[月\/\-.](\d{1,2})日?/) || line.match(/(\d{1,2})[月\/\-](\d{1,2})日?/);
-    if(!m) continue;
-    if(m.length===4){
-      return `${m[1]}-${String(m[2]).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}`;
-    } else {
-      // 年が省略されている場合、原文中の別の西暦（4桁年）を探して補う
-      const yearMatch = String(text||'').match(/(\d{4})年/) || String(text||'').match(/(\d{4})[\/\-]\d{1,2}[\/\-]\d{1,2}/);
-      const year = yearMatch ? yearMatch[1] : new Date().getFullYear();
-      return `${year}-${String(m[1]).padStart(2,'0')}-${String(m[2]).padStart(2,'0')}`;
-    }
-  }
-  return '';
-}
-function fillMissingDriverHotelDates(buses, sourceText){
-  buses.forEach(b=>{
-    if(b.driver_hotel_name && !b.driver_check_in){
-      const found = fallbackExtractHotelDate(sourceText, ['チェックイン','宿泊日','IN:','IN：']);
-      if(found) b.driver_check_in = found;
-    }
-    if(b.driver_hotel_name && !b.driver_check_out){
-      const found = fallbackExtractHotelDate(sourceText, ['チェックアウト','退室日','OUT:','OUT：']);
-      if(found) b.driver_check_out = found;
-    }
-  });
-  return buses;
-}
-// 「合計金額」「合計」「total」等の直後の数値を金額として拾う汎用フォールバック。
-function fallbackExtractAmount(text){
-  const patterns = [
-    /合計金額[:：\s]*[¥￥]?\s*([\d,]+)\s*円?/,
-    /合計[:：\s]*[¥￥]?\s*([\d,]+)\s*円?/,
-    /total\s*amount[:：\s]*[¥$]?\s*([\d,]+)/i,
-    /total[:：\s]*[¥$]?\s*([\d,]+)/i,
-  ];
-  for(const re of patterns){
-    const m = String(text||'').match(re);
-    if(m) return Number(m[1].replace(/,/g,'')) || 0;
-  }
-  return 0;
-}
-// バス手配確認書に実質バスの情報(バス会社・運行日・金額)が一切無く、宿泊情報のみが
-// 記載されているケース(ドライバー用の別ホテル手配等)で、AIがdriver_hotel_*系の
-// 専用フィールドへの分類に失敗し(実運用のAI応答は必ずしもプロンプト通りにならない)、
-// start_date/end_date/amountも空のまま返ってくることがあったため保険を掛ける。
-// 既にバスらしい情報が何か1つでも入っている場合は(実データの可能性が高いため)上書きしない。
-const BUS_DRIVER_LODGING_MEMO_PREFIX = 'ドライバー宿泊';
-function fillMissingBusGenericFields(buses, sourceText){
-  buses.forEach(b=>{
-    const hasBusData = b.bus_company || b.start_date || b.end_date || Number(b.amount);
-    if(hasBusData) return;
-    if(!b.start_date){
-      const found = b.driver_check_in || fallbackExtractHotelDate(sourceText, ['チェックイン','宿泊日','IN:','IN：']);
-      if(found) b.start_date = found;
-    }
-    if(!b.end_date){
-      const found = b.driver_check_out || fallbackExtractHotelDate(sourceText, ['チェックアウト','退室日','OUT:','OUT：']);
-      if(found) b.end_date = found;
-    }
-    if(!Number(b.amount)){
-      const found = Number(b.driver_hotel_amount) || fallbackExtractAmount(sourceText);
-      if(found) b.amount = found;
-    }
-    // バス自体の情報が無く宿泊情報のみの行だと、備考を見ただけでは「何のための行か」が
-    // 分からず紛らわしいため、既存の備考を上書きせず先頭に用途を追記する
-    // (重複追記を避けるため、既に同じ文言が付いている場合は追加しない)。
-    const memo = b.memo || '';
-    if(!memo.includes(BUS_DRIVER_LODGING_MEMO_PREFIX)){
-      b.memo = memo ? `${BUS_DRIVER_LODGING_MEMO_PREFIX}: ${memo}` : BUS_DRIVER_LODGING_MEMO_PREFIX;
-    }
-  });
-  return buses;
+// バスのAI読み取りで結果が0件の時の案内。バスの読み取りはドライバーの宿泊情報を抽出しない(宿泊だけの文書は0件)ため、
+// ホテルタブで読み取って区分を「ドライバー」にするよう案内する(2026-09 JUN決定)。
+const BUS_OCR_EMPTY_HINT = 'バスの手配情報が見つかりませんでした。ドライバーの宿泊の情報は、ホテルタブで読み取り、区分を「ドライバー」にしてください。';
+function showBusOcrEmptyHint(statusEl){
+  statusEl.textContent = BUS_OCR_EMPTY_HINT;
+  statusEl.classList.remove('ocr-loading');
+  hideGlobalOcrBanner();
+  statusEl.style.color = 'var(--amber)';
 }
 
 async function extractBusFromText(){
@@ -16010,20 +15977,26 @@ async function extractBusFromText(){
   showGlobalOcrBanner();
   try{
     const {targetCheckIn, targetCheckOut} = getEmailOcrTargetDates();
-    const resp=await fetch('/api/extract-card',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({busText:text.trim(), targetCheckIn, targetCheckOut})});
+    const resp=await fetch('/api/extract-card',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({busText:text.trim(), targetCheckIn, targetCheckOut, busResponseFormat:'object'})});
     if(!resp.ok){const e=await resp.json();throw new Error(e.error||'サーバーエラー');}
     const data=await resp.json();
     const tb=data.content.find(b=>b.type==='text');
     const cleaned=(tb.text||'').replace(/```json|```/g,'').trim();
     const parsed=JSON.parse(cleaned);
-    let buses=Array.isArray(parsed)?parsed:[parsed];
-    buses = fillMissingDriverHotelDates(buses, text);
-    buses = fillMissingBusGenericFields(buses, text);
-    if(buses.length===0 && (targetCheckIn||targetCheckOut)){
-      statusEl.textContent = `対象日程（チェックイン: ${targetCheckIn||'未設定'}）に一致する内容が見つかりませんでした。メール内容をご確認ください。`;
-      statusEl.classList.remove('ocr-loading');
-      hideGlobalOcrBanner();
-      statusEl.style.color = 'var(--amber)';
+    // 日程の絞り込みがある時は {buses, excluded_by_date} のオブジェクトで返る(api/extract-card.js の
+    // buildBusObjectFormatInstruction)。配列で返った場合(絞り込み無し等)はそのまま使う。
+    const excludedByDate = (parsed && !Array.isArray(parsed) && Array.isArray(parsed.buses)) ? (Number(parsed.excluded_by_date)||0) : 0;
+    let buses = Array.isArray(parsed) ? parsed : ((parsed && Array.isArray(parsed.buses)) ? parsed.buses : [parsed]);
+    if(buses.length===0){
+      // バスは見つかったが日程の範囲外で除外された時だけ、対象日程の文言を出す。バス自体が無い時は案内だけを出す。
+      if(excludedByDate > 0 && (targetCheckIn||targetCheckOut)){
+        statusEl.textContent = `対象日程（チェックイン: ${targetCheckIn||'未設定'}）に一致する内容が見つかりませんでした（日程の範囲外のバス手配 ${excludedByDate}件を除外しました）。メール内容をご確認ください。`;
+        statusEl.classList.remove('ocr-loading');
+        hideGlobalOcrBanner();
+        statusEl.style.color = 'var(--amber)';
+      }else{
+        showBusOcrEmptyHint(statusEl);
+      }
       return;
     }
     statusEl.textContent=`✓ ${buses.length}件を読み取りました。内容を確認してください。`;
@@ -16232,6 +16205,7 @@ async function extractBusFromFile(event, mode){
     const cleaned=(tb.text||'').replace(/```json|```/g,'').trim();
     const parsed=JSON.parse(cleaned);
     const buses=Array.isArray(parsed)?parsed:[parsed];
+    if(buses.length===0){ showBusOcrEmptyHint(statusEl); return; }
     if(!checkBulkReadSanity(buses, 'start_date')){ statusEl.textContent='読み取りをキャンセルしました（件数・日付範囲が不自然なため）'; statusEl.classList.remove('ocr-loading'); hideGlobalOcrBanner(); statusEl.style.color='var(--text3)'; return; }
     // ファイル/画像添付経由は案A(プレースホルダー行の再利用)の対象外。テキスト貼り付け
     // (extractBusFromText)からの古い判定結果が残っていた場合に誤って引き継がないようクリアする。

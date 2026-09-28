@@ -83,7 +83,11 @@
 - 注意: バスの保存は replace(全削除→再挿入)のため、DBにこれらの列の値があっても、その予約のバスタブを保存すると
   NULL に戻る。値が残っている行があるかは JUN の確認SQLで確かめる(下記、未実行)。
 
-### ドライバー宿泊(2026-09-25 JUN決定: 案C。第1段階 PR #216(ブランチ claude/magical-ride-6phzj3)、未マージ・SQL未実行。マージはJUNの確認後)
+### ドライバー宿泊(2026-09-25 JUN決定: 案C。第1段階 PR #216 マージ済み(main 294fc32、2026-09-27))
+- SQL(add_lodging_for_to_booking_hotels.sql)はJUNが本番で実行済み(列追加・関数2本の更新、2本とも lodging_for を含むことを確認)。
+- Preview確認(JUN、テスト予約TEST-DRV、確認後に削除済み): DRVの目印、区分切替で支払方法が現地払い、備考の駐車場案内、「対象外」ボタンの
+  メッセージ、日付逆転で保存が止まる、仮払い一覧でD(ドライバー)として生成、ホテル予約管理に出ない、すべてOK。
+- デプロイ後は APP_VERSION 2026092502 のため、古い画面からの保存は426 → 全員に再読み込みを依頼する。
 - 実態(JUN): ドライバーが現地で払い仮払いで精算するのが多い。別宿は「ゲストのホテルに大型バスの駐車場が無く、駐車場に近い別ホテルに
   ドライバーだけ泊まる」が中心(ゲストと同じ夜に別ホテル)。前泊・後泊で別ホテルもたまにある。
 - 【決定】案C: booking_hotels に区分 lodging_for('guest'既定/'driver')を追加し、ホテルタブの行として管理する。
@@ -110,13 +114,52 @@
 - SQL(JUN実行待ち・未実行): scripts/add_lodging_for_to_booking_hotels.sql。STEP 0(RPC定義の確認)→ STEP 1(列追加・CHECK制約)→
   STEP 2(RPC 2本の置き換え)→ STEP 3(確認)。**コードのデプロイ(マージ)より前に実行する**(Previewも本番DBを使うため、Previewの
   確認より前)。列を先に足しても古いコードは影響なし。
-- driver_*(booking_buses の6列、全154行が空)の整理案(未実施・JUN確認待ち): (1) 仮払い一覧の自動生成のバスの driver_hotel_amount
+- driver_*(booking_buses の6列、全154行が空)の整理(JUN承認済み・2026-09-27 実装中、ブランチ claude/magical-ride-6phzj3、未push): (1) 仮払い一覧の自動生成のバスの driver_hotel_amount
   分岐を削除 (2) バスのAI読み取りのプロンプトから driver_* を外し、fillMissingDriverHotelDates / fillMissingBusGenericFields の
   driver_* 参照を削除(宿泊情報はホテルタブで入力する) (3) #215 で入れた buildBusRows / mapBusDbRow の driver_* 引き継ぎは、
   (1)(2)と同じPRで削除(値が無いことを確認済みのため)。ARR_COPY_CONFIG.bus の空欄化も同時に削除。列自体は削除しない。
 - 第2段階(検討事項): 手配書・手配確認書・PDF等へのドライバー宿泊の表示 / ゲストのホテルに駐車場が無い夜に、ドライバー宿泊と
   バス駐車場(観光施設・バス駐車場タブ)の手配が揃っているかの確認(手配漏れの警告) / ツアー運行カレンダーでの扱い /
   markCostAdded のサーバー側拒否。
+
+### 仮払い一覧「よく使う項目」が ¥0 になる件(2026-09-27 JUN決定: (c)→(b)。PR #218(ブランチ claude/magical-ride-6phzj3)、未マージ)
+- 原因(既存の不具合): 数量を自動計算できない時(手配書タブの日毎明細にバスの割当が無い)に qty=''・amount=0 で行を作るのに、画面は
+  数量を「1」と表示し、保存も qty=1 にしていた →「単価3,000 × 数量1 = ¥0」。「よく使う項目を追加」ボタン単体でも同じ。
+- 修正: (c) 手配書の日毎明細にバスの割当が無ければ、バス明細タブの開始日〜終了日から数える(countBusDaysFromBusRows。1行=1社、
+  延べ会社日数=各行の日数の合計(終了日が空欄なら1日)、実働日数=いずれかの行の期間に含まれる日付の数)。
+  (b) それでも決まらなければ数量は空欄(未確定)・金額0のまま、画面は数量欄を空欄(案内「未確定」・黄色枠)、金額欄に「数量未確定」、
+  保存は qty=NULL(読み込みも NULL→空欄)。(a) 数量1・金額=単価 は不採用(それらしい金額が入り誤りに気づきにくいため)。
+  単価を変えても未確定の間は金額0、数量を入力すると計算、数量を消すと未確定に戻る。
+- 列の確認(JUN実行、2026-09-27): local_expenses.qty numeric NULL許容・既定値1 / unit_price integer NULL許容・既定値0 /
+  amount integer NULL許容・既定値0。STEP 2(drop not null)は不要(実行していない)。
+  既定値1が入るのは qty を「省略」した時だけ。画面は qty:null を明示的に送り(JSONでnullは残る)、table-crud の replace は行を
+  スプレッドするだけで null を落とさず、PostgREST への INSERT に Prefer: missing=default も付けないため、NULL のまま入る
+  (実handlerで Supabase への送信本文を捕捉するハーネスで確認)。Preview(TEST-QTY、JUN)でも DB で未確定5行が qty=NULL・amount=0、
+  数量2を入れたお茶代が qty=2・amount=6000 を確認。バス明細(3日間)から数量3で生成、予備費は未確定のままもOK。
+- 印刷部分(printLocalExpenses)は別セッション(claude/compassionate-franklin-fks2nl)担当のため変更していない。印刷は数量を it.qty||1 で
+  出すため、未確定の行は「1」と印刷される(金額は0) → 別セッション側で「未確定」表示にするかの判断が必要。
+  ガイド仮払い一覧(loadGuideAdvanceList)の明細表示「単価×数量」も it.qty||1 のまま(同様に「×1」と出る。今回は変更していない)。
+
+### バスのAI読み取りで0件の時の案内(2026-09-27 JUN決定、PR #218)
+- テキスト・ファイル/画像の両方で、0件なら確認ダイアログを開かず「バスの手配情報が見つかりませんでした。ドライバーの宿泊の情報は、
+  ホテルタブで読み取り、区分を「ドライバー」にしてください。」を表示。Preview(JUN)で確認済み。
+- 【修正(JUN、マージ前)】対象日程の文言は「AIがバスを見つけたが日程の範囲外で除外した」時だけ出す。テキスト読み取りで日程の絞り込みが
+  ある時、画面は busResponseFormat:'object' を送り、api/extract-card.js がAIに {buses, excluded_by_date} で返させる
+  (buildBusObjectFormatInstruction。フラグの無い古い画面・絞り込みが無い時・他のタブは従来どおり配列)。excluded_by_date>0 なら
+  対象日程の文言(除外件数つき)だけ、それ以外は案内だけ。ファイル/画像の読み取りは元々日程の絞り込みが無いため案内だけ。
+- 【修正】案内の文が長く、「AIで読み取り」「閉じる」ボタンが縦に潰れていた(375px幅でボタンの高さ72px)→ 行を折り返し可能にし、
+  ボタンを縮めない(flex-shrink:0・nowrap)、状態の文は残りの幅で折り返す。Chromiumで375px・1280pxとも潰れないこと・横スクロール
+  なしを確認。ホテル・レストラン・観光施設・水・請求書・ホテル予約管理・施設管理のAI読み取り欄も同じ作り(未修正。長い文言が出ると同様)。
+
+### 「〜明細が0件になっています。本当に保存しますか？」が保存のたびに出る件(2026-09-27 JUN報告、PR #218で仮払い一覧表のみ修正)
+- 原因: 確認の基準 originalXxxCount は予約を開いた時(openBookingDetail)にだけ設定され、保存後に更新されない。そのため、編集中に
+  行を全部消して保存(1回目は正しく確認が出る)した後も基準が1件以上のまま残り、他のタブだけを保存しても毎回確認が出る。
+- 修正(仮払い一覧表のみ): saveLocalExpenses の保存成功後に originalLocalExpenseCount = bdLocalExpenses.length。
+- 同じ問題(未修正): 売上・仕入・ホテル・バス・レストラン・観光施設・ミネラルウォーター・ガイド・手配書のガイド・手配書の日毎明細
+  (originalSalesCount/CostsCount/HotelCount/BusCount/RestaurantCount/FacilityCount/WaterCount/GuideCount/ArrGuideCount/ArrDayCount)。
+  いずれも保存後に基準を更新していない。予約を開き直せば基準は正しくなる。
+
+### 作業の進め方(再確認、2026-09-27 JUN): push の前に必ず git diff を提示し、JUNの確認を得てから push する(CLAUDE.md)。
 
 ### 残課題(追加分)
 - 名前だけで紐付いている箇所のID化(facility_operating_info と施設名など)は、他の「名前だけで紐付いている箇所」と
