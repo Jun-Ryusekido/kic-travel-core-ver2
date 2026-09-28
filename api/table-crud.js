@@ -136,6 +136,32 @@ const TABLE_CONFIG = {
     stampIdentity: true,
     auditLog: true,
   },
+  // business_partner_guide_notices(取引先ごとの「ガイドへの注意事項」)/ business_partner_aliases(取引先の
+  // 別名。手配行の施設名の表記揺れを取引先に結び付ける): 2026-09-28 新設(scripts/add_guide_notices_and_partner_aliases.sql)。
+  // service_role専用(anon/authenticatedにはGRANTしない)のため、読み取りもこのAPIのqueryで行う。
+  // 登録・編集は取引先マスタの画面からだけ。business_partner_aliases.alias_keyは生成列のため送らない。
+  business_partner_guide_notices: {
+    actions: ['insert', 'updateById', 'deleteById'],
+    label: 'ガイドへの注意事項',
+    stampIdentity: true,
+    stampUpdatedAt: true,
+    auditLog: true,
+    readable: {
+      filters: { business_partner_id: ['eq', 'in'], is_active: ['eq'] },
+      order: ['business_partner_id', 'sort_order', 'created_at'],
+    },
+  },
+  business_partner_aliases: {
+    actions: ['insert', 'deleteById'],
+    label: '取引先の別名',
+    stampIdentity: true,
+    stampUpdatedAt: true,
+    auditLog: true,
+    readable: {
+      filters: { business_partner_id: ['eq', 'in'] },
+      order: ['business_partner_id', 'created_at'],
+    },
+  },
   // agents(取引先マスタ・Agent): business_partnersと完全に同じ論理削除/復元/完全削除の
   // 構造を持つ、送客元エージェント専用の別テーブル。
   // F4/F15対応: created_by/updated_by列追加SQL実行済みのため、auditLogに加えて

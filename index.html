@@ -3144,6 +3144,7 @@ input[type=number]{-moz-appearance:textfield}
       <button class="btn btn-p bd-save-btn" onclick="saveBookingDetail()">💾 保存</button>
       <button class="btn" onclick="closeBookingDetailWithConfirm()">閉じる</button>
       <button class="btn" onclick="openAuditHistory('bookings', currentDetailId, document.getElementById('bd-ref').textContent)">🕓 変更履歴</button>
+      <button class="btn" onclick="runFinalCheck()" title="手配の漏れ・入力ミスを確認します(保存前の入力内容で確認)">✅ ファイナルチェック</button>
       <span class="msg-ok" id="bd-msg">✓ 保存しました</span>
       <span style="margin-left:auto;font-size:10px;color:var(--text3)" id="bd-updated"></span>
     </div>
@@ -3286,7 +3287,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 // 形式はYYYYMMDDNN(整数)。通常のデプロイでは上げなくてよい(「新しい版があります」の表示はデプロイID
 // で判定するため)。古い画面のまま書き込まれると壊れる変更をデプロイする時だけ、この値を上げ、
 // api/lib/app-version.jsのMIN_WRITE_APP_VERSIONも同じ値に上げる。
-const APP_VERSION = 2026092502;
+const APP_VERSION = 2026092801;
 // 画面を開いた後に最初に受け取ったデプロイID(サーバーの応答ヘッダーX-App-Deployment)。以後これと
 // 異なるIDを受け取ったら、新しい版がデプロイされたと判断して再読み込みを促す(自動リロードはしない)。
 let _appLoadedDeployment = null;
@@ -5855,9 +5856,22 @@ async function businessPartnersApiCall(action, payload){
   partnersCacheAt = 0;
   allPartnersCacheAt = 0; // オートコンプリート/ミールバウチャー/レストラン一覧表共有キャッシュも無効化
   vendorEmailCandidatesFetchAt = 0; // 手配確定状況のメールアドレス突合キャッシュも無効化
+  facilityPartnersCacheAt = 0; // 観光施設の施設名候補(論理削除・統合した取引先を候補から外す)
   return result;
 }
 async function businessPartnerContactsApiCall(action, payload){ return tableCrudApiCall('business_partner_contacts', action, payload); }
+// 取引先ごとの「ガイドへの注意事項」・取引先の別名(2026-09-28新設、service_role専用テーブル)。
+// 書き込み後は照合用のキャッシュ(partnerGuideDataCache)を無効化する。
+async function partnerGuideNoticesApiCall(action, payload){
+  const result = await tableCrudApiCall('business_partner_guide_notices', action, payload);
+  partnerGuideDataCacheAt = 0;
+  return result;
+}
+async function partnerAliasesApiCall(action, payload){
+  const result = await tableCrudApiCall('business_partner_aliases', action, payload);
+  partnerGuideDataCacheAt = 0;
+  return result;
+}
 // card_holders(カード名義人マスタ)への書き込み(insert/updateById)。admin@kictravel.jp限定の
 // チェックはUI側(isCardHolderAdmin())に加え、api/table-crud.js側でも検証済みセッションの
 // emailを確認してから実行する(二重の防御、error_logsのlistアクションと同じ考え方)。
@@ -7985,7 +7999,7 @@ async function loadFacilityPartnersCache(){
   // 電話番号はbusiness_partner_contacts(代表担当者)側の値を使う(business_partners.phone
   // は担当者情報一本化により廃止列のため参照しない)。
   if(businessPartnerContactsIndex.size===0) await loadBusinessPartnerContactsIndex();
-  facilityPartnersCache = (data||[]).map(p=>({ company_name: p.company_name, phone: getDisplayContactForPartner(p).phone||'' }));
+  facilityPartnersCache = (data||[]).map(p=>({ id: p.id, company_name: p.company_name, phone: getDisplayContactForPartner(p).phone||'' }));
   facilityPartnersCacheAt = Date.now();
 }
 // onSelect省略時は従来通りbdFacilityItems[idx]を直接書き換える(保存済み一覧テーブル向け)。
@@ -8008,7 +8022,7 @@ async function showFacilitySuggest(inputEl, idx, onSelect){
   box.style.left = (rect.left+window.scrollX)+'px';
   box.style.top  = (rect.bottom+window.scrollY)+'px';
   box.style.width = Math.max(rect.width,180)+'px';
-  box.innerHTML = matches.map(p=>`<div class="facility-item" style="padding:4px 8px;cursor:pointer" data-name="${escAttr(p.company_name)}">${escHtml(p.company_name)}${p.phone?`<span style="color:var(--text3);margin-left:6px;font-size:10px">${escHtml(p.phone)}</span>`:''}</div>`).join('');
+  box.innerHTML = matches.map(p=>`<div class="facility-item" style="padding:4px 8px;cursor:pointer" data-name="${escAttr(p.company_name)}" data-id="${escAttr(p.id||'')}">${escHtml(p.company_name)}${p.phone?`<span style="color:var(--text3);margin-left:6px;font-size:10px">${escHtml(p.phone)}</span>`:''}</div>`).join('');
   document.body.appendChild(box);
   box.querySelectorAll('.facility-item').forEach(item=>{
     item.addEventListener('mousedown',e=>{
@@ -8016,7 +8030,8 @@ async function showFacilitySuggest(inputEl, idx, onSelect){
       const n=item.getAttribute('data-name');
       inputEl.value=n;
       // showBusCompanySuggestと同じ理由(候補表示中に行が削除される等)のガード。
-      if(onSelect){ onSelect(n); } else if(bdFacilityItems[idx]){ bdFacilityItems[idx].facility_name=n; }
+      // 候補(取引先マスタ)から選んだ時は、行に取引先ID(business_partner_id)も入れる(2026-09-28)。
+      if(onSelect){ onSelect(n); } else if(bdFacilityItems[idx]){ bdFacilityItems[idx].facility_name=n; bdFacilityItems[idx].business_partner_id=item.getAttribute('data-id')||null; }
       hideFacilitySuggest();
     });
     item.addEventListener('mouseenter',()=>{ item.style.background='var(--bg)'; });
@@ -8026,6 +8041,240 @@ async function showFacilitySuggest(inputEl, idx, onSelect){
 function hideFacilitySuggest(){
   const box = document.getElementById('facility-suggest-box');
   if(box) box.remove();
+}
+
+// ─── 取引先の「ガイドへの注意事項」と別名(2026-09-28 JUN決定) ─────────────────
+// 観光施設の行(booking_facilities)と取引先マスタ(business_partners)は、以前は施設名の文字列だけで
+// 紐付いており、表記揺れ(例:「平和記念資料館、原爆ﾄﾞｰﾑ､貞子碑」)ではマスタの情報を引けなかった。
+// 行に取引先ID(business_partner_id)を持たせ、IDが無い行は次の順で照合する(3か所=仮払い一覧表の印刷・
+// ガイド資料確認書類・ファイナルチェックで同じ関数を使う):
+//   行のID → 正規化した名前がマスタ名と完全一致 → 別名(完全一致) → 別名(含む)
+// 正規化は scripts/add_guide_notices_and_partner_aliases.sql の alias_key と同じ規則
+// (NFKC・小文字・空白と「、,・」の除去)。班の印(末尾の「(2班)」等)は照合から外す。
+// 照合の対象は観光施設の候補と同じ取引先(カテゴリ「その他」・削除されていないもの。facilityPartnersCache)。
+let partnerGuideDataCache = null; // { notices:[...], aliases:[...] }
+let partnerGuideDataCacheAt = 0;
+let partnerGuideDataLoading = null;
+const GUIDE_NOTICE_TYPE_LABELS = { payment:'支払い', document:'持参書類', other:'その他' };
+function normalizePartnerAliasKey(s){
+  return String(s||'').normalize('NFKC').toLowerCase().replace(/[\s、,・]/g,'');
+}
+function splitFacilityBandLabel(name){
+  const s = String(name||'');
+  const m = s.match(ARR_ROW_BAND_LABEL_RE);
+  return m ? { base: s.slice(0, m.index).trim(), suffix: m[0].trim() } : { base: s.trim(), suffix: '' };
+}
+// 注意事項・別名を読み込む(5分TTL。取引先マスタ画面で書き込むとキャッシュを無効化する)。
+// 失敗時は例外を投げる(呼び出し側で「照合できなかった」ことを表示する。空として扱わない)。
+async function ensurePartnerGuideDataLoaded(){
+  if(partnerGuideDataCache && cacheIsFresh(partnerGuideDataCacheAt)) return partnerGuideDataCache;
+  if(partnerGuideDataLoading) return partnerGuideDataLoading;
+  partnerGuideDataLoading = (async()=>{
+    try{
+      const [notices, aliases] = await Promise.all([
+        tableQueryAll('business_partner_guide_notices', { select:'id,business_partner_id,notice_type,content,required_doc,sort_order,is_active', filters:[{col:'is_active', op:'eq', value:true}], order:[{col:'business_partner_id'},{col:'sort_order'},{col:'created_at'}] }),
+        tableQueryAll('business_partner_aliases', { select:'id,business_partner_id,alias,alias_key,match_type', order:[{col:'business_partner_id'},{col:'created_at'}] }),
+      ]);
+      partnerGuideDataCache = { notices, aliases };
+      partnerGuideDataCacheAt = Date.now();
+      return partnerGuideDataCache;
+    } finally {
+      partnerGuideDataLoading = null;
+    }
+  })();
+  return partnerGuideDataLoading;
+}
+// 施設名(とID)から取引先を照合する。事前に loadFacilityPartnersCache() と ensurePartnerGuideDataLoaded() を
+// 済ませておくこと(同期関数)。戻り値: { partnerId, partnerName, via:'id'|'name'|'alias_exact'|'alias_contains' } / null。
+// 「含む」の別名が2つ以上の取引先に当たる場合は、推測せず null(未紐付け)とする。
+function resolveFacilityPartner(name, partnerId){
+  const partners = facilityPartnersCache || [];
+  const byId = id => partners.find(p=>String(p.id)===String(id));
+  if(partnerId){
+    const p = byId(partnerId);
+    return { partnerId, partnerName: p ? p.company_name : '', via:'id' };
+  }
+  const key = normalizePartnerAliasKey(splitFacilityBandLabel(name).base);
+  if(!key) return null;
+  const nameHit = partners.filter(p=>normalizePartnerAliasKey(p.company_name)===key);
+  if(nameHit.length===1) return { partnerId: nameHit[0].id, partnerName: nameHit[0].company_name, via:'name' };
+  if(nameHit.length>1) return null;
+  const aliases = (partnerGuideDataCache && partnerGuideDataCache.aliases || []).filter(a=>byId(a.business_partner_id));
+  const exact = [...new Set(aliases.filter(a=>a.match_type==='exact' && a.alias_key===key).map(a=>String(a.business_partner_id)))];
+  if(exact.length===1){ const p = byId(exact[0]); return { partnerId: p.id, partnerName: p.company_name, via:'alias_exact' }; }
+  if(exact.length>1) return null;
+  const contains = [...new Set(aliases.filter(a=>a.match_type==='contains' && a.alias_key && key.includes(a.alias_key)).map(a=>String(a.business_partner_id)))];
+  if(contains.length===1){ const p = byId(contains[0]); return { partnerId: p.id, partnerName: p.company_name, via:'alias_contains' }; }
+  return null;
+}
+// 取引先の有効な注意事項(type省略時は全種類)。
+function partnerGuideNoticesFor(partnerId, type){
+  if(!partnerId || !partnerGuideDataCache) return [];
+  return partnerGuideDataCache.notices.filter(n=>String(n.business_partner_id)===String(partnerId) && n.is_active!==false && (!type || n.notice_type===type));
+}
+// 施設名を取引先マスタの名前に統一する(2026-09-28 JUN決定: 別名に一致する名前は、確認のうえでマスタの名前に
+// 置き換える。黙って変えない)。items は観光施設の行オブジェクト(facility_name/business_partner_id/memoを持つ)の配列で、
+// その場で書き換える。
+//  - 名前がマスタ名と同じ(班の印を除く)でIDが無い行: 確認なしでIDだけ入れる(表示は変わらない)。
+//  - 別名で一致した行: 一覧を出して確認し、OKなら名前をマスタ名(班の印は残す)に置き換えてIDを入れる。
+//    元の表記がマスタ名の一部でない(他の見学先を含む等)行は、備考の先頭に「元の表記: …」を残す(既存の備考は後ろに残す。
+//    既存行の一括統一SQL(STEP 3)と同じ規則)。キャンセルした行は変更しない(IDも入れない)。
+// 戻り値: 何か変更したら true。照合用データの読み込みに失敗した場合は何もしない(false)。
+async function unifyFacilityNamesWithMaster(items){
+  const targets = (items||[]).filter(it=>it && (it.facility_name||'').trim());
+  if(!targets.length) return false;
+  try{
+    await loadFacilityPartnersCache();
+    await ensurePartnerGuideDataLoaded();
+  }catch(e){
+    logError('施設名の照合(取引先マスタ・別名の読み込み)', e, {toast:false});
+    return false;
+  }
+  let changed = false;
+  const proposals = [];
+  targets.forEach(it=>{
+    if(it.business_partner_id) return;
+    const r = resolveFacilityPartner(it.facility_name, null);
+    if(!r || !r.partnerName) return;
+    const { base, suffix } = splitFacilityBandLabel(it.facility_name);
+    if(base === r.partnerName){ it.business_partner_id = r.partnerId; changed = true; return; }
+    const keepMemo = !normalizePartnerAliasKey(r.partnerName).includes(normalizePartnerAliasKey(base));
+    proposals.push({ it, r, newName: r.partnerName + suffix, keepMemo });
+  });
+  if(proposals.length){
+    const lines = proposals.map(p=>`・「${p.it.facility_name}」→「${p.newName}」${p.keepMemo?'(元の表記を備考に残す)':''}`);
+    const msg = `次の施設名は、取引先マスタに登録されている施設の別の表記です。マスタの名前に置き換えますか？\n\n${lines.join('\n')}\n\n`
+      + `置き換えると、取引先マスタの「ガイドへの注意事項」が確実に表示されます。\n（キャンセルすると名前はそのままです）`;
+    if(confirm(msg)){
+      proposals.forEach(p=>{
+        const original = p.it.facility_name;
+        if(p.keepMemo){
+          const prefix = `元の表記: ${original}`;
+          const memo = (p.it.memo||'').trim();
+          if(!memo.startsWith(prefix)) p.it.memo = memo ? `${prefix} / ${memo}` : prefix;
+        }
+        p.it.facility_name = p.newName;
+        p.it.business_partner_id = p.r.partnerId;
+      });
+      changed = true;
+    }
+  }
+  return changed;
+}
+// 観光施設タブの施設名欄を手入力で変更した時(onchange)。候補から選んだ時はIDが入っているため何もしない。
+// 名前・備考が変わった時だけ再描画する(IDだけ入れた場合は表示が変わらないため、再描画して次の入力欄の
+// フォーカスを失わせない)。
+async function onFacilityNameChanged(i){
+  const it = bdFacilityItems[i];
+  if(!it) return;
+  const before = `${it.facility_name}\u0000${it.memo||''}`;
+  await unifyFacilityNamesWithMaster([it]);
+  if(bdFacilityItems[i]===it && `${it.facility_name}\u0000${it.memo||''}` !== before) renderFacilityTable();
+}
+
+// ─── ファイナルチェック(第1段階: 2026-09-28) ─────────────────────────────────
+// 予約詳細の「✅ ファイナルチェック」ボタン。保存前の入力内容(メモリ上のbd*Items)で判定し、❌エラー/⚠要確認/✓OK を
+// 一覧表示する。各項目の「移動」で該当タブの行へ移動する(行はindexで参照し、値は埋め込まない)。
+// 第1段階の項目(JUN決定: まず施設ごとの「ガイドへの注意事項」):
+//  - 「支払い」の注意事項がある施設の行(キャンセル以外)の支払方法: 現地払いなら❌、空欄なら⚠、それ以外は✓。
+//  - 取引先マスタと照合できない観光施設の行: ⚠(折りたたみ)。
+//  - 別名で一致したが名前が統一されていない行: ⚠(「名前を統一」ボタン)。
+// ファイナル済みにする時の自動実行・記録・他のタブの項目は次の段階。
+const FINAL_CHECK_LOCAL_PAYMENT_METHODS = ['現地払い','現金払い'];
+let finalCheckResult = null;
+async function runFinalCheck(){
+  if(!currentDetailId){ alert('予約詳細を開いてください'); return; }
+  try{
+    await loadFacilityPartnersCache();
+    await ensurePartnerGuideDataLoaded();
+  }catch(e){
+    alert('取引先マスタ・注意事項の読み込みに失敗したため、ファイナルチェックを実行できませんでした。\n'+e.message);
+    return;
+  }
+  const errors = [], warns = [], oks = [], unlinked = [];
+  bdFacilityItems.forEach((it,i)=>{
+    const name = (it.facility_name||'').trim();
+    if(!name || it.status==='キャンセル') return;
+    const label = `${it.date||'日付未入力'} ${name}`;
+    const r = resolveFacilityPartner(name, it.business_partner_id);
+    if(!r){ unlinked.push({ tab:'fac', i, text: label }); return; }
+    if(r.via==='alias_exact' || r.via==='alias_contains'){
+      warns.push({ tab:'fac', i, text: `${label}: 取引先マスタの別名です。名前を「${r.partnerName}」に統一してください`, unify:true });
+    }
+    const payNotices = partnerGuideNoticesFor(r.partnerId, 'payment');
+    if(!payNotices.length) return;
+    const noticeText = payNotices.map(n=>n.content).join(' / ');
+    const pm = it.payment_method||'';
+    if(FINAL_CHECK_LOCAL_PAYMENT_METHODS.includes(pm)){
+      errors.push({ tab:'fac', i, text: `${label}: 支払方法が「${pm}」です。注意事項: ${noticeText}` });
+    }else if(!pm){
+      warns.push({ tab:'fac', i, text: `${label}: 支払方法が未入力です。注意事項: ${noticeText}` });
+    }else{
+      oks.push({ tab:'fac', i, text: `${label}: 支払方法「${pm}」` });
+    }
+  });
+  finalCheckResult = { errors, warns, oks, unlinked };
+  renderFinalCheckModal();
+}
+function renderFinalCheckModal(){
+  const res = finalCheckResult;
+  if(!res) return;
+  document.getElementById('final-check-modal')?.remove();
+  const itemHtml = (x, idx, color, icon) => `
+    <div style="display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-bottom:1px solid var(--border);flex-wrap:wrap">
+      <span style="color:${color};font-weight:700">${icon}</span>
+      <span style="flex:1;min-width:180px;font-size:12px;line-height:1.5;word-break:break-all">${escHtml(x.text)}</span>
+      <span style="display:flex;gap:4px;flex-shrink:0">
+        ${x.unify?`<button class="btn" style="font-size:10px;padding:2px 8px" onclick="finalCheckUnifyFacility(${x.i})">名前を統一</button>`:''}
+        <button class="btn" style="font-size:10px;padding:2px 8px" onclick="finalCheckJump('${x.tab}',${x.i})">移動</button>
+      </span>
+    </div>`;
+  const section = (title, list, color, icon, open) => !list.length ? '' : `
+    <details ${open?'open':''} style="margin-bottom:10px">
+      <summary style="cursor:pointer;font-size:13px;font-weight:700;color:${color};padding:4px 0">${icon} ${title}(${list.length}件)</summary>
+      ${list.map((x,idx)=>itemHtml(x, idx, color, icon)).join('')}
+    </details>`;
+  const nothing = !res.errors.length && !res.warns.length && !res.oks.length && !res.unlinked.length;
+  const modal = document.createElement('div');
+  modal.id = 'final-check-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:300;display:flex;align-items:flex-start;justify-content:center;padding:20px 12px;overflow-y:auto';
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:12px;padding:16px;width:100%;max-width:720px;box-sizing:border-box">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px">
+        <div style="font-size:14px;font-weight:700">✅ ファイナルチェック</div>
+        <button class="btn" onclick="document.getElementById('final-check-modal').remove()">✕ 閉じる</button>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:10px">保存前の入力内容で確認しています。現在の項目: 観光施設の「ガイドへの注意事項」(支払方法)と取引先マスタとの紐付け。</div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:13px;font-weight:700;margin-bottom:10px">
+        <span style="color:var(--red)">❌ ${res.errors.length}</span>
+        <span style="color:var(--amber,#854F0B)">⚠ ${res.warns.length + res.unlinked.length}</span>
+        <span style="color:var(--green)">✓ ${res.oks.length}</span>
+      </div>
+      ${nothing ? '<div style="font-size:12px;color:var(--text3)">確認する項目はありませんでした。</div>' : ''}
+      ${section('エラー', res.errors, 'var(--red)', '❌', true)}
+      ${section('要確認', res.warns, 'var(--amber,#854F0B)', '⚠', true)}
+      ${section('取引先マスタと紐付いていない観光施設の行(施設名の候補から選ぶと紐付きます)', res.unlinked, 'var(--amber,#854F0B)', '⚠', false)}
+      ${section('OK', res.oks, 'var(--green)', '✓', false)}
+    </div>`;
+  document.body.appendChild(modal);
+}
+// 「移動」: チェック結果を閉じ、該当タブを開いて行を強調表示する。
+function finalCheckJump(tab, i){
+  document.getElementById('final-check-modal')?.remove();
+  switchArrangTab(tab);
+  const tr = tab==='fac' ? document.querySelector(`#bd-facilities-tbody tr[data-fac-idx="${i}"]`) : null;
+  if(!tr) return;
+  tr.scrollIntoView({ behavior:'smooth', block:'center' });
+  tr.style.outline = '2px solid var(--amber,#854F0B)';
+  setTimeout(()=>{ tr.style.outline = ''; }, 2500);
+}
+async function finalCheckUnifyFacility(i){
+  const it = bdFacilityItems[i];
+  if(!it) return;
+  if(await unifyFacilityNamesWithMaster([it])){
+    renderFacilityTable();
+    await runFinalCheck();
+  }
 }
 async function loadRestaurantPartnersCache(){
   if(restaurantPartnersCache.length>0 && cacheIsFresh(restaurantPartnersCacheAt)) return;
@@ -9335,7 +9584,7 @@ async function openBookingDetail(id, opts){
   // 発生していた(実機で確認された不具合)。テンプレート行はユーザーが実際に何か入力して
   // 初めて『変更』として保存対象になる。
   bdLoadSnapshot.restaurants = JSON.stringify(buildRestaurantRows(id));
-  bdFacilityItems = (facRows||[]).map(r=>({id:r.id,facility_name:r.facility_name||'',date:r.date||'',pax:r.pax||0,amount:r.amount||0,status:r.status||'問い合わせ中',confirmation_no:r.confirmation_no||'',deadline_date:r.deadline_date||'',payment_method:r.payment_method||'',memo:r.memo||'',deadline_completed:r.deadline_completed||false,deadline_completed_at:r.deadline_completed_at||null,cost_added:r.cost_added||false,_orig_status:r.status||'問い合わせ中'}));
+  bdFacilityItems = (facRows||[]).map(r=>({id:r.id,facility_name:r.facility_name||'',business_partner_id:r.business_partner_id||null,date:r.date||'',pax:r.pax||0,amount:r.amount||0,status:r.status||'問い合わせ中',confirmation_no:r.confirmation_no||'',deadline_date:r.deadline_date||'',payment_method:r.payment_method||'',memo:r.memo||'',deadline_completed:r.deadline_completed||false,deadline_completed_at:r.deadline_completed_at||null,cost_added:r.cost_added||false,_orig_status:r.status||'問い合わせ中'}));
   originalFacilityCount = bdFacilityItems.length;
   bdLoadSnapshot.facilities = JSON.stringify(buildFacilityRows(id));
   bdWaterItems = (waterRows||[]).map(r=>({id:r.id,item_name:r.item_name||'',date:r.date||'',qty:r.qty||0,unit_price:r.unit_price||0,amount:r.amount||0,status:r.status||'問い合わせ中',memo:r.memo||'',payment_method:r.payment_method||'',cost_added:r.cost_added||false}));
@@ -12768,7 +13017,7 @@ const ARR_COPY_CONFIG = {
   rest:   { table:'booking_restaurants',   keyField:'booking_id',
     map:r=>({restaurant_name:r.restaurant_name||'', meal_type:r.meal_type||'昼食', date:r.date||'', reservation_time:r.reservation_time||'', pax:r.pax||0, amount:r.amount||0, status:'問い合わせ中', payment_method:r.payment_method||'', memo:r.memo||''}) },
   fac:    { table:'booking_facilities',    keyField:'booking_id',
-    map:r=>({facility_name:r.facility_name||'', date:r.date||'', pax:r.pax||0, amount:r.amount||0, status:'問い合わせ中', confirmation_no:'', deadline_date:r.deadline_date||'', payment_method:r.payment_method||'', memo:r.memo||''}) },
+    map:r=>({facility_name:r.facility_name||'', business_partner_id:r.business_partner_id||null, date:r.date||'', pax:r.pax||0, amount:r.amount||0, status:'問い合わせ中', confirmation_no:'', deadline_date:r.deadline_date||'', payment_method:r.payment_method||'', memo:r.memo||''}) },
   water:  { table:'booking_water_items',   keyField:'booking_id',
     map:r=>({item_name:r.item_name||'', date:r.date||'', qty:r.qty||0, unit_price:r.unit_price||0, amount:r.amount||0, status:'問い合わせ中', payment_method:r.payment_method||'', memo:r.memo||''}) },
 };
@@ -12896,8 +13145,11 @@ async function confirmArrCopy(){
   if(!confirm(label+'をコピーします。よろしいですか？\n（確認番号・ステータスはコピーされません）')) return;
 
   const mapped = srcRows.map(cfg.map);
-  arrCopyAppendAndRender(arrCopyTab, mapped);
+  const copiedTab = arrCopyTab;
+  arrCopyAppendAndRender(copiedTab, mapped);
   closeArrCopyModal();
+  // 観光施設: 別名の表記のままコピーされた行は、取引先マスタの名前への置き換えを確認する(2026-09-28)
+  if(copiedTab==='fac' && await unifyFacilityNamesWithMaster(mapped)) renderFacilityTable();
 }
 
 function switchArrangTab(tab){
@@ -17026,9 +17278,9 @@ function renderFacilityTable(){
     const sorted = facilitySortState.field !== null;
     tbody.innerHTML = arrSortedOrder(facilityArrSortConfig).map(i=>{
       const it = bdFacilityItems[i];
-      return `<tr${sorted ? '' : arrRowDropHtml('bdFacilityItems',i,'renderFacilityTable')}>
+      return `<tr data-fac-idx="${i}"${sorted ? '' : arrRowDropHtml('bdFacilityItems',i,'renderFacilityTable')}>
       ${arrReorderHtml('bdFacilityItems', i, bdFacilityItems.length, 'renderFacilityTable', sorted)}
-      <td data-label="施設名" style="position:relative"><div style="display:flex;gap:3px;align-items:center"><input value="${escAttr(it.facility_name)}" oninput="bdFacilityItems[${i}].facility_name=this.value;showFacilitySuggest(this,${i})" onfocus="showFacilitySuggest(this,${i})" onblur="setTimeout(hideFacilitySuggest,150)" style="flex:1;min-width:0"><button class="btn" style="font-size:10px;padding:2px 5px;flex-shrink:0" title="営業日・営業時間を確認" onclick="openFacilityOperatingInfo(${i})">🕐</button></div>${facilityClosedDayWarnHtml(it)}</td>
+      <td data-label="施設名" style="position:relative"><div style="display:flex;gap:3px;align-items:center"><input value="${escAttr(it.facility_name)}" oninput="bdFacilityItems[${i}].facility_name=this.value;bdFacilityItems[${i}].business_partner_id=null;showFacilitySuggest(this,${i})" onchange="onFacilityNameChanged(${i})" onfocus="showFacilitySuggest(this,${i})" onblur="setTimeout(hideFacilitySuggest,150)" style="flex:1;min-width:0"><button class="btn" style="font-size:10px;padding:2px 5px;flex-shrink:0" title="営業日・営業時間を確認" onclick="openFacilityOperatingInfo(${i})">🕐</button></div>${facilityClosedDayWarnHtml(it)}</td>
       <td data-label="日付"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.date||''}" onchange="bdFacilityItems[${i}].date=this.value"></td>
       <td data-label="人数"><input type="number" value="${it.pax||0}" onchange="bdFacilityItems[${i}].pax=Number(this.value)" style="width:100%"></td>
       <td data-label="金額"><input type="text" inputmode="numeric" value="${fmtAmt(it.amount)}" onfocus="amtFocus(this)" onblur="amtBlur(this)" onchange="facilityAmountCalc(${i},this)" style="text-align:right"></td>
@@ -17285,7 +17537,7 @@ function sortBulletTrainTable(field){ arrSortCycle(bulletTrainArrSortConfig, fie
 function clearBulletTrainSort(){ arrSortClear(bulletTrainArrSortConfig); }
 function addFacilityRow(){
   const b = findBookingById(currentDetailId);
-  bdFacilityItems.push({facility_name:'',date:'',pax:getBillablePax(b),amount:0,status:'問い合わせ中',confirmation_no:'',deadline_date:'',payment_method:'',memo:''});
+  bdFacilityItems.push({facility_name:'',business_partner_id:null,date:'',pax:getBillablePax(b),amount:0,status:'問い合わせ中',confirmation_no:'',deadline_date:'',payment_method:'',memo:''});
   renderFacilityTable();
 }
 // ステータス連動の自動完了: 観光施設・バス駐車場等のステータスが「手配OK」「FNL済」
@@ -17331,6 +17583,7 @@ function buildFacilityRows(bookingId){
     return {
       booking_id: bookingId,
       facility_name: it.facility_name||'',
+      business_partner_id: it.business_partner_id||null,
       date: sanitizeDateField(it.date), pax: Number(it.pax)||0,
       amount: Number(it.amount)||0,
       status: it.status||'問い合わせ中',
@@ -17569,14 +17822,16 @@ function showFacilityConfirmDialog(facilities){
   document.body.appendChild(modal);
 }
 
-function saveFacilityConfirm(){
+async function saveFacilityConfirm(){
   const facilities=window._pendingFacilities;
   if(!facilities) return;
   let reuseTarget = window._pendingFacilityReuseTarget;
+  const added = [];
   facilities.forEach((f,i)=>{
     if(!document.getElementById(`fac-c-sel-${i}`)?.checked) return;
     const fields = {
       facility_name: document.getElementById(`fac-c-name-${i}`)?.value||'',
+      business_partner_id: null, // 名前はAI読み取り結果(または確認画面で直した値)のため、下で取引先マスタと照合し直す
       date: document.getElementById(`fac-c-date-${i}`)?.value||'',
       pax: Number(document.getElementById(`fac-c-pax-${i}`)?.value)||0,
       amount: Number(document.getElementById(`fac-c-amount-${i}`)?.value)||0,
@@ -17584,12 +17839,14 @@ function saveFacilityConfirm(){
       confirmation_no: document.getElementById(`fac-c-conf-${i}`)?.value||'',
       memo: document.getElementById(`fac-c-memo-${i}`)?.value||''
     };
-    if(reuseTarget){ Object.assign(reuseTarget, fields); reuseTarget = null; }
-    else bdFacilityItems.push(fields);
+    if(reuseTarget){ Object.assign(reuseTarget, fields); added.push(reuseTarget); reuseTarget = null; }
+    else { bdFacilityItems.push(fields); added.push(fields); }
   });
   window._pendingFacilityReuseTarget = null;
   renderFacilityTable();
   document.getElementById('fac-confirm-modal').remove();
+  // 別名の表記で読み取られた施設名は、取引先マスタの名前への置き換えを確認する(2026-09-28)
+  if(await unifyFacilityNamesWithMaster(added)) renderFacilityTable();
 }
 
 // ─── ミネラルウォータータブ AI読み取り(extractFacilityFromText/File・
@@ -17891,9 +18148,17 @@ async function processFmFacilityFile(file, mode){
 // (確認2の結論: ホテル管理ページのhmDup*系と同じ設計だが、一致キーは施設向けに変更)
 function fmDupNormStr(v){ return (v==null?'':String(v)).trim(); }
 function fmDupNormNum(v){ if(v===null||v===undefined||v==='') return 0; const n=Number(v); return Number.isNaN(n)?0:n; }
+// 施設名は取引先マスタと照合した結果で比べる(2026-09-28: 施設名を「広島平和記念資料館」等のマスタ名に統一した後も、
+// 元の表記のメールを取り込んだ時に同じ施設として重複を検知するため)。照合できない名前は正規化した名前で比べ、
+// 班の印(「(2班)」等)は別の行として区別する。
+function fmFacilityIdentityKey(row){
+  const { base, suffix } = splitFacilityBandLabel(row.facility_name);
+  const r = resolveFacilityPartner(row.facility_name, row.business_partner_id);
+  return (r && r.partnerId ? 'p:'+r.partnerId : 'n:'+normalizePartnerAliasKey(base)) + '|' + suffix;
+}
 function fmDupMatchKeyEqual(a,b){
   return fmDupNormStr(a.booking_id)===fmDupNormStr(b.booking_id) &&
-    fmDupNormStr(a.facility_name)===fmDupNormStr(b.facility_name) &&
+    fmFacilityIdentityKey(a)===fmFacilityIdentityKey(b) &&
     fmDupNormStr(a.date)===fmDupNormStr(b.date);
 }
 function fmDupContentEqual(a,b){
@@ -17906,6 +18171,9 @@ function fmDupContentEqual(a,b){
 async function fmFetchExistingForDupCheck(rows){
   const bookingIds = [...new Set(rows.map(r=>r.booking_id).filter(Boolean))];
   if(bookingIds.length===0) return [];
+  // 施設名の照合用(失敗しても重複チェック自体は名前の比較で続ける)
+  try{ await loadFacilityPartnersCache(); await ensurePartnerGuideDataLoaded(); }
+  catch(e){ logError('重複チェックの施設名照合(取引先マスタ・別名の読み込み)', e, {toast:false}); }
   const {data, error} = await sb.from('booking_facilities').select('*').in('booking_id', bookingIds);
   if(error) throw new Error('重複チェックに失敗しました: '+error.message);
   return data||[];
@@ -18196,7 +18464,10 @@ async function saveFmFacilityConfirm(){
   }
 
   statusEl.textContent = '重複チェック中...'; statusEl.style.color='var(--text3)';
-  const dbRows = validRows.map(({_rowLabel, _idx, ...rest})=>rest);
+  const dbRows = validRows.map(({_rowLabel, _idx, ...rest})=>({ ...rest, business_partner_id: null }));
+  // 別名の表記で読み取られた施設名は、取引先マスタの名前への置き換えを確認する(2026-09-28)。
+  // dbRowsとvalidRowsは同じ順序のまま(下のconflictsのidxで対応付けるため、並べ替え・除外はしない)。
+  await unifyFacilityNamesWithMaster(dbRows);
   let classified;
   try{
     classified = await fmClassifyForDuplicates(dbRows);
@@ -28268,6 +28539,7 @@ async function openPartnerEditor(id){
   // 新規登録時は値が無いため閉じたまま(データ隠蔽の心配が無く、スクロール量を減らせる)。
   const moreDetails = document.getElementById('pt-more-details');
   if(moreDetails) moreDetails.open = !!(p && (p.address||p.address_en||p.notes));
+  loadPartnerGuideSection(id||null);
   document.getElementById('pt-msg').style.display='none';
   document.getElementById('partner-modal').classList.add('open');
   enablePasteUpload(document.getElementById('pt-card-paste-zone'), file=>processCardFile(file));
@@ -28277,6 +28549,152 @@ async function openPartnerEditor(id){
   document.body.style.top = `-${sy}px`;
   document.body.style.width = '100%';
   document.body.dataset.scrollY = sy;
+}
+
+// ─── 取引先マスタ画面: ガイドへの注意事項・別名(2026-09-28) ─────────────────
+// 登録・編集は取引先マスタの画面からだけ(JUN決定)。取引先本体の保存ボタンとは別に、各行のボタンでその場で登録する。
+// ボタンには配列のindexだけを渡し、クリック時に入力欄とptGuideNotices/ptGuideAliasesから最新値を読み直す。
+let ptGuideNotices = [];
+let ptGuideAliases = [];
+let ptGuidePartnerId = null;
+let ptGuideLoadSeq = 0;
+async function loadPartnerGuideSection(partnerId){
+  const body = document.getElementById('pt-guide-body');
+  const details = document.getElementById('pt-guide-details');
+  if(!body) return;
+  ptGuidePartnerId = partnerId;
+  ptGuideNotices = []; ptGuideAliases = [];
+  if(!partnerId){
+    if(details) details.open = false;
+    body.innerHTML = '<div style="color:var(--text3);font-size:11px">取引先を保存した後に、編集画面から登録できます。</div>';
+    return;
+  }
+  const seq = ++ptGuideLoadSeq;
+  body.innerHTML = '<div style="color:var(--text3);font-size:11px">読み込み中...</div>';
+  try{
+    const [notices, aliases] = await Promise.all([
+      tableQueryAll('business_partner_guide_notices', { select:'id,notice_type,content,required_doc,sort_order,is_active', filters:[{col:'business_partner_id', op:'eq', value:partnerId}], order:[{col:'sort_order'},{col:'created_at'}] }),
+      tableQueryAll('business_partner_aliases', { select:'id,alias,alias_key,match_type', filters:[{col:'business_partner_id', op:'eq', value:partnerId}], order:[{col:'created_at'}] }),
+    ]);
+    if(seq !== ptGuideLoadSeq || ptGuidePartnerId !== partnerId) return; // 別の取引先を開き直した
+    ptGuideNotices = notices; ptGuideAliases = aliases;
+    if(details) details.open = notices.length>0 || aliases.length>0;
+    renderPartnerGuideSection();
+  }catch(e){
+    if(seq !== ptGuideLoadSeq) return;
+    body.innerHTML = `<div style="color:var(--red);font-size:11px">読み込みに失敗しました: ${escHtml(e.message)}（閉じて開き直してください）</div>`;
+  }
+}
+function ptGuideTypeSelectHtml(id, value){
+  return `<select id="${id}" style="font-size:11px;padding:3px 4px;border:1px solid var(--border);border-radius:5px">${Object.entries(GUIDE_NOTICE_TYPE_LABELS).map(([k,l])=>`<option value="${k}" ${value===k?'selected':''}>${l}</option>`).join('')}</select>`;
+}
+function renderPartnerGuideSection(){
+  const body = document.getElementById('pt-guide-body');
+  if(!body) return;
+  const inputCss = 'font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;box-sizing:border-box';
+  const noticeRows = ptGuideNotices.map((n,i)=>`
+    <div style="border:1px solid var(--border);border-radius:6px;padding:6px;margin-bottom:6px;${n.is_active===false?'opacity:.6':''}">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:4px">
+        ${ptGuideTypeSelectHtml('pt-gn-type-'+i, n.notice_type)}
+        <label style="font-size:11px;display:flex;align-items:center;gap:3px"><input type="checkbox" id="pt-gn-active-${i}" ${n.is_active!==false?'checked':''}>有効</label>
+        <span style="flex:1"></span>
+        <button class="btn" style="font-size:10px;padding:2px 8px" onclick="updatePartnerGuideNotice(${i})">保存</button>
+        <button class="btn" style="font-size:10px;padding:2px 8px;color:var(--red)" onclick="deletePartnerGuideNotice(${i})">削除</button>
+      </div>
+      <textarea id="pt-gn-content-${i}" rows="2" style="width:100%;${inputCss}">${escHtml(n.content||'')}</textarea>
+      <input id="pt-gn-doc-${i}" value="${escAttr(n.required_doc||'')}" placeholder="必ず渡す書類(例: 予約メール)。無ければ空欄" style="width:100%;margin-top:4px;${inputCss}">
+    </div>`).join('');
+  const aliasRows = ptGuideAliases.map((a,i)=>`
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:3px 0;border-bottom:1px dashed var(--border)">
+      <span style="flex:1;min-width:0;word-break:break-all">${escHtml(a.alias)}</span>
+      <span style="font-size:10px;color:var(--text3);white-space:nowrap">${a.match_type==='contains'?'含む':'完全一致'}</span>
+      <button class="btn" style="font-size:10px;padding:1px 6px;color:var(--red)" onclick="deletePartnerAlias(${i})">削除</button>
+    </div>`).join('');
+  body.innerHTML = `
+    <div style="font-weight:700;margin-bottom:4px">ガイドへの注意事項</div>
+    <div style="font-size:10px;color:var(--text3);margin-bottom:6px">「支払い」は仮払い一覧表の印刷とファイナルチェック(支払方法の確認)に使います。「持参書類」「その他」はガイド資料確認書類に載せます。</div>
+    ${noticeRows || '<div style="font-size:11px;color:var(--text3);margin-bottom:6px">登録なし</div>'}
+    <div style="border:1px dashed var(--border);border-radius:6px;padding:6px;margin-bottom:12px">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:4px">${ptGuideTypeSelectHtml('pt-gn-type-new', 'payment')}<span style="font-size:11px;color:var(--text3)">新しい注意事項</span></div>
+      <textarea id="pt-gn-content-new" rows="2" placeholder="例: クレジットカードで事前決済済み。窓口で支払わず、予約メールを提示してください" style="width:100%;${inputCss}"></textarea>
+      <input id="pt-gn-doc-new" placeholder="必ず渡す書類(例: 予約メール)。無ければ空欄" style="width:100%;margin-top:4px;${inputCss}">
+      <div style="margin-top:4px"><button class="btn btn-p" style="font-size:11px;padding:3px 10px" onclick="addPartnerGuideNotice()">＋ 注意事項を追加</button></div>
+    </div>
+    <div style="font-weight:700;margin-bottom:4px">別名（手配の施設名の表記揺れ）</div>
+    <div style="font-size:10px;color:var(--text3);margin-bottom:6px">手配の施設名がこの別名だと、この取引先として扱い、名前の統一を促します。「含む」は施設名にその語が含まれていれば一致します(4文字以上。短い語は他の施設を拾うため)。</div>
+    ${aliasRows || '<div style="font-size:11px;color:var(--text3);margin-bottom:6px">登録なし</div>'}
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px">
+      <input id="pt-alias-new" placeholder="例: 平和記念資料館、原爆ドーム、貞子碑" style="flex:1;min-width:160px;${inputCss}">
+      <select id="pt-alias-type-new" style="${inputCss}"><option value="exact">完全一致</option><option value="contains">含む</option></select>
+      <button class="btn btn-p" style="font-size:11px;padding:3px 10px" onclick="addPartnerAlias()">＋ 別名を追加</button>
+    </div>`;
+}
+async function addPartnerGuideNotice(){
+  const partnerId = ptGuidePartnerId;
+  if(!partnerId) return;
+  const content = (document.getElementById('pt-gn-content-new')?.value||'').trim();
+  if(!content){ alert('注意事項の文言を入力してください'); return; }
+  const row = {
+    business_partner_id: partnerId,
+    notice_type: document.getElementById('pt-gn-type-new')?.value || 'other',
+    content,
+    required_doc: (document.getElementById('pt-gn-doc-new')?.value||'').trim() || null,
+    sort_order: ptGuideNotices.reduce((m,n)=>Math.max(m, Number(n.sort_order)||0), 0) + 1,
+    is_active: true,
+  };
+  try{ await partnerGuideNoticesApiCall('insert', { rows:[row] }); }
+  catch(e){ alert('注意事項の追加に失敗しました: '+e.message); return; }
+  await loadPartnerGuideSection(partnerId);
+}
+async function updatePartnerGuideNotice(i){
+  const n = ptGuideNotices[i];
+  if(!n) return;
+  const content = (document.getElementById('pt-gn-content-'+i)?.value||'').trim();
+  if(!content){ alert('注意事項の文言を入力してください(不要な場合は「削除」してください)'); return; }
+  const fields = {
+    notice_type: document.getElementById('pt-gn-type-'+i)?.value || n.notice_type,
+    content,
+    required_doc: (document.getElementById('pt-gn-doc-'+i)?.value||'').trim() || null,
+    is_active: !!document.getElementById('pt-gn-active-'+i)?.checked,
+  };
+  try{ await partnerGuideNoticesApiCall('updateById', { id:n.id, fields }); }
+  catch(e){ alert('注意事項の保存に失敗しました: '+e.message); return; }
+  await loadPartnerGuideSection(ptGuidePartnerId);
+}
+async function deletePartnerGuideNotice(i){
+  const n = ptGuideNotices[i];
+  if(!n) return;
+  const company = document.getElementById('pt-company')?.value || '';
+  if(!confirm(`「${company}」のガイドへの注意事項を削除しますか？\n\n種類: ${GUIDE_NOTICE_TYPE_LABELS[n.notice_type]||n.notice_type}\n内容: ${n.content}${n.required_doc?'\n必ず渡す書類: '+n.required_doc:''}`)) return;
+  try{ await partnerGuideNoticesApiCall('deleteById', { id:n.id }); }
+  catch(e){ alert('注意事項の削除に失敗しました: '+e.message); return; }
+  await loadPartnerGuideSection(ptGuidePartnerId);
+}
+async function addPartnerAlias(){
+  const partnerId = ptGuidePartnerId;
+  if(!partnerId) return;
+  const alias = (document.getElementById('pt-alias-new')?.value||'').trim();
+  const matchType = document.getElementById('pt-alias-type-new')?.value==='contains' ? 'contains' : 'exact';
+  const key = normalizePartnerAliasKey(alias);
+  if(!key){ alert('別名を入力してください'); return; }
+  if(matchType==='contains' && key.length<4){ alert('「含む」の別名は4文字以上にしてください(短い語は他の施設の名前も拾ってしまうため)。'); return; }
+  const company = document.getElementById('pt-company')?.value || '';
+  if(key === normalizePartnerAliasKey(company)){ alert('取引先の名前と同じ表記は、別名に登録しなくても一致します。'); return; }
+  try{ await partnerAliasesApiCall('insert', { rows:[{ business_partner_id: partnerId, alias, match_type: matchType }] }); }
+  catch(e){
+    alert(e && /DUPLICATE_KEY|同じ値/.test(e.message||'') ? '同じ表記の別名が既に登録されています(この取引先、または別の取引先)。' : '別名の追加に失敗しました: '+e.message);
+    return;
+  }
+  await loadPartnerGuideSection(partnerId);
+}
+async function deletePartnerAlias(i){
+  const a = ptGuideAliases[i];
+  if(!a) return;
+  const company = document.getElementById('pt-company')?.value || '';
+  if(!confirm(`「${company}」の別名「${a.alias}」(${a.match_type==='contains'?'含む':'完全一致'})を削除しますか？\n削除すると、この表記の手配行は取引先に結び付かなくなります。`)) return;
+  try{ await partnerAliasesApiCall('deleteById', { id:a.id }); }
+  catch(e){ alert('別名の削除に失敗しました: '+e.message); return; }
+  await loadPartnerGuideSection(ptGuidePartnerId);
 }
 
 function closePartnerEditor(){
@@ -30817,6 +31235,11 @@ function setDateInputValue(el, d){
             <div class="form-field"><label>住所（英語）</label><input id="pt-address-en" placeholder="e.g. 1-1 Kobe-shi, Hyogo"></div>
             <div class="form-field" style="grid-column:1/-1"><label>備考・補足</label><textarea id="pt-notes" rows="3" placeholder="単価、特徴、注意事項など"></textarea></div>
           </div>
+        </details>
+        <!-- ガイドへの注意事項・別名(2026-09-28)。取引先の保存とは別に、各行の「追加」「保存」「削除」でその場で登録する -->
+        <details id="pt-guide-details" style="grid-column:1/-1;margin-top:4px;border-top:1px solid var(--border);padding-top:4px">
+          <summary style="cursor:pointer;font-size:12px;font-weight:600;color:var(--text2);padding:8px 4px;min-height:28px">ガイドへの注意事項・別名（タップで開閉）</summary>
+          <div id="pt-guide-body" style="margin-top:6px;font-size:12px"></div>
         </details>
       </div>
     </div>

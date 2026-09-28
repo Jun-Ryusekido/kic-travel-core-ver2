@@ -24,7 +24,9 @@
 // 2026092501: 画面の版による書き込みガードの導入(PR #212)。
 // 2026092502: ホテル明細の区分(booking_hotels.lodging_for)の追加。古い画面はこの列を送らないため、ドライバー宿泊の行を
 //             保存すると全削除→再挿入で既定値の「ゲスト」に戻ってしまう(2026-09-25)。
-export const MIN_WRITE_APP_VERSION = 2026092502;
+// 2026092801: 観光施設の行の取引先ID(booking_facilities.business_partner_id)の追加。古い画面はこの列を送らないため、
+//             観光施設タブを保存すると全削除→再挿入で紐付けが消えてしまう(2026-09-28)。
+export const MIN_WRITE_APP_VERSION = 2026092801;
 
 export const APP_VERSION_OUTDATED_CODE = 'APP_VERSION_OUTDATED';
 export const APP_VERSION_OUTDATED_MESSAGE =
