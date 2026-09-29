@@ -490,16 +490,76 @@ anon向けSELECTポリシー案は不採用(ログインはapp_users独自方式
   audit_logs でしか分からない。booking_costs と同じ既存の仕様)。
 - SQL要否: 不要(コードのみ)。確認用の読み取り専用SQL: scripts/investigate_arrangement_date_reversal.sql(JUN実行待ち)。
 
-## バッチ2 実装計画(2026-09-25報告、未着手)
-- 置き換え対象(index.html、関数名で探す): estimations 7箇所(exportBookingArchive / exportFiscalYearArchive / deleteBookingData /
-  loadEstimations / copyEstimation / openEstimationEditor / loadGuideAdvanceList)、estimation_days 4箇所(exportBookingArchive /
-  exportFiscalYearArchive / openEstimationEditor / loadGuideAdvanceList)、business_partner_contacts 4箇所
-  (loadRepresentativeContactsByPartnerIds / renderPartnerContactsList / loadBusinessPartnerContactsIndex / fetchRepresentativeContact)、
-  RPC search_business_partners 1箇所(fetchAndRenderPartners)。計16箇所。
-- 空データで進む既存の危険(必ず直す): openEstimationEditorで日程(estimation_days)の取得失敗が0件扱い→そのまま保存すると
-  replaceByKeyで日程が全削除される / fetchRepresentativeContactが取得失敗でnull→saveRepresentativeContactが代表担当者を
-  重複insert / deleteBookingDataで紐付く見積もりの取得失敗→converted_booking_idの解除をせずに削除へ進む。
+## バッチ2(2026-09-29 着手・実装済み、未push・JUNのdiff確認待ち)
+- 【緊急対応(2026-09-29、着手前に発覚)】estimation_fixed_rows に "Allow anon full access to estimation_fixed_rows"
+  (ALL, roles={anon}, qual=true, with_check=true)が付いており、RLS(rowsecurity=true)が実質無効だった。テーブル全体では
+  49件中34件がanonから読める状態(JUN確認)。GRANTの確認結果(JUN): anon/authenticatedともにREFERENCES, SELECT, TRIGGER,
+  TRUNCATE(INSERT/UPDATE/DELETEは無し)。TRUNCATEはRLSポリシーの内容に関わらずテーブル全体を消せるため、実質最大の
+  脅威はここだった。対応: scripts/emergency_fix_estimation_fixed_rows_anon_policy.sql(anonのINSERT/UPDATE/DELETE/
+  TRUNCATE/REFERENCES/TRIGGERをREVOKE+読み取り専用ポリシーへの差し替え。JUN実行済みまたは実行予定)、
+  scripts/investigate_dangerous_anon_policies.sql(同種のポリシーが他に無いかの監査、読み取り専用・未実行)。
+  ローカルの疑似DBで実行結果を確認済み(実行後 anon は SELECT のみ・その他の権限は無し)。
+  暫定の読み取り専用ポリシー(estimation_fixed_rows_temp_read_only)とそのSELECTのGRANTの削除(STEP 5)は、この
+  ファイル単体では実行しない。バッチ2のコードがデプロイ・確認された後、scripts/enable_rls_batch2.sql(バッチ2の
+  RLS有効化・REVOKE本体、これから作成)の中に含めて実行する(2026-09-29 JUN指示)。
+- 【実装(2026-09-29)】置き換え対象(index.html、関数名で探す): estimations 7箇所(exportBookingArchive /
+  exportFiscalYearArchive / deleteBookingData / loadEstimations / copyEstimation / openEstimationEditor /
+  loadGuideAdvanceList)、estimation_days 4箇所(exportBookingArchive / exportFiscalYearArchive / openEstimationEditor /
+  loadGuideAdvanceList)、estimation_fixed_rows 3箇所(exportBookingArchive / exportFiscalYearArchive /
+  openEstimationEditor。緊急対応で読み取り専用ポリシーに差し替えたため今回まとめて対応)、business_partner_contacts 4箇所
+  (loadRepresentativeContactsByPartnerIds / renderPartnerContactsList / loadBusinessPartnerContactsIndex /
+  fetchRepresentativeContact)、RPC search_business_partners 1箇所(fetchAndRenderPartners)。計19箇所、すべて
+  tableQueryAll/tableQueryAllIn/tableQueryMaybeSingle/rpcCallAll(既存の共通関数、新規実装なし)に置き換え。直接の
+  sb.from/sb.rpc呼び出しは0件になったことをgrepで確認済み。
+  - api/table-crud.js: estimations/estimation_days/estimation_fixed_rows/business_partner_contactsにreadable(query用の
+    列・演算子ホワイトリスト)を追加。RPC_WHITELISTをparams宣言方式に汎用化(型: date/string/enum、必須/任意)し、
+    search_business_partners(p_search任意・p_category任意でカテゴリ4種のみ)を追加。既存3本(入出金)の挙動は変更なし
+    (ハーネスで確認)。
+  - 空データで進む既存の危険(3件、修正済み): openEstimationEditorは見積もり・日程・固定費のいずれか1つでも取得に
+    失敗したら編集画面を開かず一覧へ戻す(保存時のreplaceByKeyによる全削除を防ぐ) / fetchRepresentativeContactは
+    取得失敗時にnullを返さず例外を投げる(saveRepresentativeContactが代表担当者を重複insertする不具合を防ぐ) /
+    deleteBookingDataは紐付く見積もりの取得に失敗したら例外で削除処理全体を中止する(converted_booking_idが
+    存在しない予約を指したまま残ることを防ぐ)。
+  - 追加で見つけた同種の危険(未報告分、あわせて修正): loadEstimations(一覧)・fetchAndRenderPartners(取引先一覧)は
+    取得失敗時に画面へエラー表示するのみに変更(以前は静かに0件のリストを表示していた)。loadGuideAdvanceListも
+    同様にエラー表示化。deleteBookingData以外は読み取り専用画面のため、いずれもデータ破壊のリスクは元々無い。
+  - 検証: scratchpadハーネスで実handler20件・index.htmlの実関数9件(fetchRepresentativeContact/saveRepresentativeContact
+    の重複insert防止、loadEstimations/copyEstimation/fetchAndRenderPartnersの失敗時の挙動)がすべて成功。
+    openEstimationEditor/deleteBookingData/loadGuideAdvanceListはDOM・副作用への依存が大きいため、コードレビューと
+    構文チェックで確認(harness化は見送り)。
+  - APP_VERSION / MIN_WRITE_APP_VERSION を 2026092901 に上げた(2026-09-29 JUN指摘への対応。バッチ2のRLS有効化後、
+    古い画面はestimations/estimation_days/estimation_fixed_rows等をanon直接SELECTで読むため0件になる。特に
+    見積もり編集画面(openEstimationEditor)は日程・固定費明細を0件のまま開いてしまい、保存するとreplaceByKeyで
+    既存データが全削除される。このPRのコードはservice_role経由(query action)で読むためRLSの影響を受けないが、
+    今回のデプロイより前に開かれたままの旧タブは影響を受け続ける。そうした旧タブからの保存を426で止めるための
+    版上げ)。デプロイ後、開いたままの旧画面(2026092801以前)からの保存はすべて426 → 全員に再読み込みを依頼する。
+  - 未実行: 緊急対応SQL2本(estimation_fixed_rowsは前述のとおりJUN実行済み/実行予定、投稿の監査SQLは未実行)。
+    デプロイ・確認・全員の再読み込みの後、業務時間外に scripts/enable_rls_batch2.sql(未作成)を実行する
+    (business_partner_contacts/estimations/estimation_days/estimation_fixed_rowsのRLS有効化+GRANT REVOKE、
+    search_business_partners RPCのEXECUTE REVOKE、estimation_fixed_rowsの暫定ポリシーの削除(STEP 5)を含む)。
+  - コミットは1本にまとめた(JUN報告の6分割案から簡略化。テーブルごとの依存が薄く、レビューは1回のPreviewで足りるため)。
+    【JUN確認済み(2026-09-29)】今後、指示した分割方針を変える場合は事前にJUNへ相談すること。
 - search_business_partnersはbusiness_partner_contactsをJOINするSECURITY INVOKERのRPCのため、contactsのREVOKE前にAPI経由化が必須。
+- 【Preview実機確認の手順(期待値つき、2026-09-29)】openEstimationEditor/deleteBookingData/loadGuideAdvanceListはハーネス化
+  していないため、以下をJUNに確認してもらう。テスト用予約は「TEST-BATCH2」を新規作成し、確認後に削除する
+  (deleteBookingDataの確認にそのまま使う)。
+  1. 見積もり一覧(見積もりページを開く) → 期待: 一覧が表示される(エラー表示にならない)
+  2. 見積もりを1件新規作成(日程2行・固定費/入場料2行程度を入力) → 保存 → 一覧に戻る → 再度その見積もりを開く
+     → 期待: 入力した日程・固定費がすべて表示される(消えていない)
+  3. その見積もりを「コピー」 → 期待: タイトル末尾に「(コピー)」・日程と固定費がコピー元と同じ内容で複製される
+  4. TEST-BATCH2の予約を作成し、その予約詳細から見積もりを新規作成して保存(予約に紐づく見積もりにする)
+  5. 予約詳細を開き直す → 期待: 紐づく見積もりが表示される(予約データのアーカイブ出力に含まれるか、下記7で確認)
+  6. ガイド仮払い一覧ページで、TEST-BATCH2を含む期間を指定 → 期待: 一覧が表示される(エラー表示にならない)。
+     見積もりにガイド代(guide_fee等)を入れた日程がある場合、仮払い額に反映されることも確認
+  7. 予約データのアーカイブ出力(deleteBookingData実行前のバックアップダウンロード)→ 期待: ダウンロードされたJSONに
+     estimations(日程・固定費含む)が含まれる
+  8. 取引先マスタ画面で、担当者が登録済みの取引先を開く → 期待: 担当者一覧が表示される
+  9. 検索欄・カテゴリで絞り込み → 期待: 該当する取引先だけが表示される(空欄に戻すと全件に戻る)
+  10. 取引先を1件編集し、担当者欄(担当者名・電話番号等)を変更して保存 → 期待: 保存が成功し、担当者一覧に反映される
+  11. TEST-BATCH2の予約データを削除(deleteBookingData) → 期待: 削除前にバックアップがダウンロードされ、削除後に
+     一覧からTEST-BATCH2が消える。手順4で作成した見積もり自体は削除されず、予約詳細画面の見積もり一覧には
+     残るが「変換元の予約」欄は空になる(converted_booking_idの解除を確認。見積もり管理ページで確認)
+  - 上記すべてで、ブラウザの開発者ツールのコンソールにエラーが出ていないことも確認する。
 - business_partners / bookings / agents 等は今回のバッチ1〜3の一覧に無く、ブラウザから読めるまま(別バッチで扱う)。
 
 ## Web公開情報のマスタ取り込み(2026-09-25 調査・設計のみ報告、未着手・JUN判断待ち)
