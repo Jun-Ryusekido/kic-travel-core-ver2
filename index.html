@@ -3287,7 +3287,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 // 形式はYYYYMMDDNN(整数)。通常のデプロイでは上げなくてよい(「新しい版があります」の表示はデプロイID
 // で判定するため)。古い画面のまま書き込まれると壊れる変更をデプロイする時だけ、この値を上げ、
 // api/lib/app-version.jsのMIN_WRITE_APP_VERSIONも同じ値に上げる。
-const APP_VERSION = 2026092801;
+const APP_VERSION = 2026092901;
 // 画面を開いた後に最初に受け取ったデプロイID(サーバーの応答ヘッダーX-App-Deployment)。以後これと
 // 異なるIDを受け取ったら、新しい版がデプロイされたと判断して再読み込みを促す(自動リロードはしない)。
 let _appLoadedDeployment = null;
@@ -5824,6 +5824,14 @@ async function rpcBatchAll(calls){
 // (supabase-jsの戻り値と同じ形に変換する。エラー時の扱いは各呼び出し箇所の既存の判定に任せる)。
 function asSbResult(promise){
   return promise.then(data => ({ data, error: null }), error => ({ data: null, error }));
+}
+// supabase-jsの{data,error}を返す呼び出し(sb.from(...).select(...)等)を、tableQueryAll系と同じ
+// 「成功時はdataをそのまま返す・失敗時は例外を投げる」形にそろえるアダプタ。Promise.allの中で
+// tableQueryAll/tableQueryAllInと混在させ、どれか1つでも失敗したら全体を失敗させたい箇所で使う。
+async function asSbData(promise){
+  const {data, error} = await promise;
+  if(error) throw error;
+  return data;
 }
 async function bookingSalesApiCall(action, payload){ return tableCrudApiCall('booking_sales', action, payload); }
 // 2026-09 egress緊急対応: ガイド仮払い一覧(loadGuideAdvanceList)のキャッシュも無効化する。
@@ -10138,18 +10146,18 @@ async function exportBookingArchive(){
 
   const [
     {data: sales, error: salesErr}, {data: costs, error: costsErr}, {data: invoices, error: invoicesErr},
-    {data: arrangements}, {data: estimations}, {data: settlements}
+    {data: arrangements}, {data: estimations, error: estimationsErr}, {data: settlements}
   ] = await Promise.all([
     asSbResult(tableQueryAll('booking_sales', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: b.id }] })),
     asSbResult(tableQueryAll('booking_costs', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: b.id }] })),
     asSbResult(tableQueryAll('invoices', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: b.id }] })),
     sb.from('tour_arrangements').select('*').eq('booking_ref', b.ref_no),
-    sb.from('estimations').select('*').eq('converted_booking_id', b.id),
+    asSbResult(tableQueryAll('estimations', { select: '*', filters: [{ col: 'converted_booking_id', op: 'eq', value: b.id }] })),
     sb.from('guide_settlements').select('*').eq('booking_ref', b.ref_no)
   ]);
-  // 売上明細・仕入明細・Invoiceの取得に失敗した場合は、欠けたアーカイブを「正常に」出力しないよう中止する。
-  const __archiveFetchErr = salesErr || costsErr || invoicesErr;
-  if(__archiveFetchErr){ alert('売上明細・仕入明細・Invoiceの取得に失敗したため、出力を中止しました: '+__archiveFetchErr.message); return; }
+  // 売上明細・仕入明細・Invoice・見積もりの取得に失敗した場合は、欠けたアーカイブを「正常に」出力しないよう中止する。
+  const __archiveFetchErr = salesErr || costsErr || invoicesErr || estimationsErr;
+  if(__archiveFetchErr){ alert('売上明細・仕入明細・Invoice・見積もりの取得に失敗したため、出力を中止しました: '+__archiveFetchErr.message); return; }
 
   let arrangementsWithDays = [];
   if(arrangements && arrangements.length>0){
@@ -10161,10 +10169,11 @@ async function exportBookingArchive(){
   let estimationsWithDetails = [];
   if(estimations && estimations.length>0){
     const ids = estimations.map(e=>e.id);
-    const [{data: edays}, {data: efrows}] = await Promise.all([
-      sb.from('estimation_days').select('*').in('estimation_id', ids).order('sort_order'),
-      sb.from('estimation_fixed_rows').select('*').in('estimation_id', ids).order('sort_order')
+    const [{data: edays, error: edaysErr}, {data: efrows, error: efrowsErr}] = await Promise.all([
+      asSbResult(tableQueryAllIn('estimation_days', { select: '*', order: [{ col: 'sort_order' }] }, 'estimation_id', ids)),
+      asSbResult(tableQueryAllIn('estimation_fixed_rows', { select: '*', order: [{ col: 'sort_order' }] }, 'estimation_id', ids)),
     ]);
+    if(edaysErr || efrowsErr){ alert('見積もりの日程・固定費明細の取得に失敗したため、出力を中止しました: '+(edaysErr||efrowsErr).message); return; }
     estimationsWithDetails = estimations.map(e=>({...e,
       days:(edays||[]).filter(d=>d.estimation_id===e.id),
       fixed_rows:(efrows||[]).filter(r=>r.estimation_id===e.id)
@@ -10271,17 +10280,17 @@ async function exportFiscalYearArchive(){
 
   // 売上明細・仕入明細・Invoiceは、年度の予約idを200件ずつに分けたin条件で取得する
   // (データ全体ではなく年度分のデータ量に比例した負荷に抑えるため。2026-09 JUN決定)。
-  const [{data: sales, error: salesErr}, {data: costs, error: costsErr}, {data: invoices, error: invoicesErr}, {data: arrangements}, {data: estimations}, {data: settlements}] = await Promise.all([
+  const [{data: sales, error: salesErr}, {data: costs, error: costsErr}, {data: invoices, error: invoicesErr}, {data: arrangements}, {data: estimations, error: estimationsErr}, {data: settlements}] = await Promise.all([
     asSbResult(tableQueryAllIn('booking_sales', { select: '*' }, 'booking_id', ids)),
     asSbResult(tableQueryAllIn('booking_costs', { select: '*' }, 'booking_id', ids)),
     asSbResult(tableQueryAllIn('invoices', { select: '*' }, 'booking_id', ids)),
     sb.from('tour_arrangements').select('*').in('booking_ref', refNos),
-    sb.from('estimations').select('*').in('converted_booking_id', ids),
+    asSbResult(tableQueryAllIn('estimations', { select: '*' }, 'converted_booking_id', ids)),
     sb.from('guide_settlements').select('*').in('booking_ref', refNos)
   ]);
-  // 売上明細・仕入明細・Invoiceの取得に失敗した場合は、欠けたアーカイブを「正常に」出力しないよう中止する。
-  const __archiveFetchErr = salesErr || costsErr || invoicesErr;
-  if(__archiveFetchErr){ alert('売上明細・仕入明細・Invoiceの取得に失敗したため、出力を中止しました: '+__archiveFetchErr.message); return; }
+  // 売上明細・仕入明細・Invoice・見積もりの取得に失敗した場合は、欠けたアーカイブを「正常に」出力しないよう中止する。
+  const __archiveFetchErr = salesErr || costsErr || invoicesErr || estimationsErr;
+  if(__archiveFetchErr){ alert('売上明細・仕入明細・Invoice・見積もりの取得に失敗したため、出力を中止しました: '+__archiveFetchErr.message); return; }
 
   let arrDays = [], estDaysAll = [], estFixedRowsAll = [], gItems = [];
   if(arrangements && arrangements.length>0){
@@ -10291,11 +10300,12 @@ async function exportFiscalYearArchive(){
   }
   if(estimations && estimations.length>0){
     const estIds = estimations.map(e=>e.id);
-    const [r1, r2] = await Promise.all([
-      sb.from('estimation_days').select('*').in('estimation_id', estIds).order('sort_order'),
-      sb.from('estimation_fixed_rows').select('*').in('estimation_id', estIds).order('sort_order')
+    const [{data: r1, error: r1Err}, {data: r2, error: r2Err}] = await Promise.all([
+      asSbResult(tableQueryAllIn('estimation_days', { select: '*', order: [{ col: 'sort_order' }] }, 'estimation_id', estIds)),
+      asSbResult(tableQueryAllIn('estimation_fixed_rows', { select: '*', order: [{ col: 'sort_order' }] }, 'estimation_id', estIds)),
     ]);
-    estDaysAll = r1.data||[]; estFixedRowsAll = r2.data||[];
+    if(r1Err || r2Err){ alert('見積もりの日程・固定費明細の取得に失敗したため、出力を中止しました: '+(r1Err||r2Err).message); return; }
+    estDaysAll = r1||[]; estFixedRowsAll = r2||[];
   }
   if(settlements && settlements.length>0){
     const setIds = settlements.map(s=>s.id);
@@ -10495,9 +10505,11 @@ async function deleteBookingData(){
     await vendorEmailLogsApiCall('deleteByBooking', { bookingId: b.id });
     await estimationBookingReflectionsApiCall('deleteByBooking', { bookingId: b.id });
 
-    // 見積もりの変換リンクのみ解除（見積もり自体は残す）。F1対応でupdateはAPI経由に
-    // なったため、対象idを読み取り(select、anon許可のまま)で特定してからupdateByIdsする。
-    const {data: linkedEstimations} = await sb.from('estimations').select('id').eq('converted_booking_id', b.id);
+    // 見積もりの変換リンクのみ解除（見積もり自体は残す）。F1対応でupdateはAPI経由になったため、
+    // 対象idをquery経由で特定してからupdateByIdsする。取得に失敗した場合は例外を投げて処理を止める
+    // (黙って0件扱いのまま削除へ進むと、見積もり側にconverted_booking_idが残り、存在しない予約への
+    // 参照が残ってしまうため。2026-09-29バッチ2で修正)。
+    const linkedEstimations = await tableQueryAll('estimations', { select: 'id', filters: [{ col: 'converted_booking_id', op: 'eq', value: b.id }] });
     if(linkedEstimations && linkedEstimations.length){
       await estimationsApiCall('updateByIds', { ids: linkedEstimations.map(e=>e.id), fields: {converted_booking_id:null} });
     }
@@ -11774,8 +11786,13 @@ async function loadEstimations(){
   if(estimationsCache.length>0 && cacheIsFresh(estimationsCacheAt)){ renderEstimationsList(); return; }
   const tbody = document.getElementById('est-tbody');
   tbody.innerHTML = '<tr><td colspan="6" class="empty">読み込み中...</td></tr>';
-  const {data} = await sb.from('estimations').select('*').order('created_at',{ascending:false});
-  estimationsCache = data||[];
+  try{
+    estimationsCache = await tableQueryAll('estimations', { select: '*', order: [{ col: 'created_at', ascending: false }] });
+  }catch(e){
+    logError('見積もり一覧の読み込み', e, {toast:false});
+    tbody.innerHTML = `<tr><td colspan="6" class="empty">読み込みエラー: ${escHtml(e.message)}</td></tr>`;
+    return;
+  }
   estimationsCacheAt = Date.now();
   renderEstimationsList();
 }
@@ -11875,8 +11892,10 @@ async function copyEstimation(id){
   const src = estimationsCache.find(e=>e.id===id);
   if(!confirm(`「${src ? (src.title||'(無題)') : ''}」をコピーして新しい見積もりを作成しますか?\n\n・タイトルの末尾に「(コピー)」が付きます\n・ステータスは下書きに戻ります\n・作成日は本日になります`)) return;
   try{
-    const {data: est, error: estErr} = await sb.from('estimations').select('*').eq('id', id).maybeSingle();
-    if(estErr || !est){ alert('コピー元の見積もりを読み込めませんでした:\n'+(estErr ? estErr.message : '見つかりません')); return; }
+    let est;
+    try{ est = await tableQueryMaybeSingle('estimations', { select: '*', filters: [{ col: 'id', op: 'eq', value: id }] }); }
+    catch(estErr){ alert('コピー元の見積もりを読み込めませんでした:\n'+estErr.message); return; }
+    if(!est){ alert('コピー元の見積もりを読み込めませんでした:\n見つかりません'); return; }
 
     const headerFields = {
       title: (est.title||'(無題)') + ' (コピー)',
@@ -11961,7 +11980,21 @@ async function openEstimationEditor(id){
   document.getElementById('est-pax-count').value='';
 
   if(id){
-    const {data: est} = await sb.from('estimations').select('*').eq('id', id).maybeSingle();
+    let est, days, frows;
+    try{
+      est = await tableQueryMaybeSingle('estimations', { select: '*', filters: [{ col: 'id', op: 'eq', value: id }] });
+      if(est){
+        days = await tableQueryAll('estimation_days', { select: '*', filters: [{ col: 'estimation_id', op: 'eq', value: id }], order: [{ col: 'sort_order' }] });
+        frows = await tableQueryAll('estimation_fixed_rows', { select: '*', filters: [{ col: 'estimation_id', op: 'eq', value: id }], order: [{ col: 'sort_order' }] });
+      }
+    }catch(e){
+      // 日程・固定費明細の取得に失敗した状態のまま編集画面を開くと、保存時に
+      // replaceByKey(全削除→再挿入)で既存データが消えてしまう(2026-09-29バッチ2で修正)。
+      // 編集画面を開かず、一覧へ戻す。
+      alert('見積もりの読み込みに失敗したため、編集画面を開けませんでした:\n'+e.message);
+      closeEstimationEditor();
+      return;
+    }
     if(est){
       document.getElementById('est-title').value = est.title||'';
       document.getElementById('est-tour-code').value = est.tour_code||'';
@@ -11976,10 +12009,8 @@ async function openEstimationEditor(id){
       if(est.pax_count != null) document.getElementById('est-pax-count').value = est.pax_count;
       if(est.pax_tiers && est.pax_tiers.length) estPaxTiers = JSON.parse(JSON.stringify(est.pax_tiers));
 
-      const {data: days} = await sb.from('estimation_days').select('*').eq('estimation_id', id).order('sort_order');
       estDays = (days||[]).map(d=>({...d}));
 
-      const {data: frows} = await sb.from('estimation_fixed_rows').select('*').eq('estimation_id', id).order('sort_order');
       const _admPrefix = '@admission:';
       estFixedRows = (frows||[]).filter(r=>!(r.label||'').startsWith(_admPrefix)).map(r=>({label:r.label||'', amounts:(r.amounts||[]).map(a=>Number(a)||0), section:r.section||'hotel'}));
       estAdmissionRows = (frows||[]).filter(r=>(r.label||'').startsWith(_admPrefix)).map(r=>{
@@ -21461,23 +21492,29 @@ async function loadGuideAdvanceList(){
   if(gaCached && cacheIsFresh(gaCached.at)){
     ({arrangements, estimations, settlements, localExpenses, estGuideSumByEstId} = gaCached);
   } else {
-    const [{data: arrangementsData}, {data: estimationsData}, {data: settlementsData}, {data: localExpensesData}] = await Promise.all([
-      sb.from('tour_arrangements').select('booking_ref, guide_name, guide_phone').in('booking_ref', refNos),
-      sb.from('estimations').select('id, converted_booking_id').in('converted_booking_id', ids),
-      sb.from('guide_settlements').select('booking_ref, guide_name, guide_phone, guide_names, advance_payment, additional_advance_payment, status').in('booking_ref', refNos),
-      sb.from('local_expenses').select('booking_id, expense_date, content, category, unit_price, qty, amount, payment_method').in('booking_id', ids).order('sort_order')
-    ]);
-    arrangements = arrangementsData; estimations = estimationsData; settlements = settlementsData; localExpenses = localExpensesData;
+    try{
+      const [arrangementsData, estimationsData, settlementsData, localExpensesData] = await Promise.all([
+        asSbData(sb.from('tour_arrangements').select('booking_ref, guide_name, guide_phone').in('booking_ref', refNos)),
+        tableQueryAllIn('estimations', { select: 'id, converted_booking_id' }, 'converted_booking_id', ids),
+        asSbData(sb.from('guide_settlements').select('booking_ref, guide_name, guide_phone, guide_names, advance_payment, additional_advance_payment, status').in('booking_ref', refNos)),
+        asSbData(sb.from('local_expenses').select('booking_id, expense_date, content, category, unit_price, qty, amount, payment_method').in('booking_id', ids).order('sort_order')),
+      ]);
+      arrangements = arrangementsData; estimations = estimationsData; settlements = settlementsData; localExpenses = localExpensesData;
 
-    estGuideSumByEstId = {};
-    if(estimations && estimations.length>0){
-      const estIds = estimations.map(e=>e.id);
-      const {data: edays} = await sb.from('estimation_days').select('estimation_id, guide_fee, guide_tip, guide_meal').in('estimation_id', estIds);
-      (edays||[]).forEach(d=>{
-        estGuideSumByEstId[d.estimation_id] = (estGuideSumByEstId[d.estimation_id]||0) + Number(d.guide_fee||0)+Number(d.guide_tip||0)+Number(d.guide_meal||0);
-      });
+      estGuideSumByEstId = {};
+      if(estimations && estimations.length>0){
+        const estIds = estimations.map(e=>e.id);
+        const edays = await tableQueryAllIn('estimation_days', { select: 'estimation_id, guide_fee, guide_tip, guide_meal' }, 'estimation_id', estIds);
+        (edays||[]).forEach(d=>{
+          estGuideSumByEstId[d.estimation_id] = (estGuideSumByEstId[d.estimation_id]||0) + Number(d.guide_fee||0)+Number(d.guide_tip||0)+Number(d.guide_meal||0);
+        });
+      }
+      guideAdvanceListCache[gaCacheKey] = { arrangements, estimations, settlements, localExpenses, estGuideSumByEstId, at: Date.now() };
+    }catch(e){
+      logError('ガイド仮払い一覧の読み込み', e, {toast:false});
+      tbody.innerHTML = `<tr><td colspan="9" class="empty">読み込みエラー: ${escHtml(e.message)}</td></tr>`;
+      return;
     }
-    guideAdvanceListCache[gaCacheKey] = { arrangements, estimations, settlements, localExpenses, estGuideSumByEstId, at: Date.now() };
   }
 
   // 予約IDごとの仮払い合計
@@ -25824,10 +25861,13 @@ async function loadRepresentativeContactsByPartnerIds(partnerRows){
   const map = new Map();
   const ids = [...new Set((partnerRows||[]).map(p=>p.id).filter(Boolean))];
   if(!ids.length) return map;
-  const {data, error} = await sb.from('business_partner_contacts')
-    .select('business_partner_id,contact_person,contact_person_en,position,position_en,branch_name,branch_name_en,phone,department_phone,show_contact_phone,show_department_phone,is_primary,created_at')
-    .in('business_partner_id', ids).eq('is_deleted', false).order('created_at', {ascending:true});
-  if(error){ logError('担当者情報の読み込み(business_partner_contacts)', error, {toast:false}); return map; }
+  let data;
+  try{
+    data = await tableQueryAllIn('business_partner_contacts',
+      { select: 'business_partner_id,contact_person,contact_person_en,position,position_en,branch_name,branch_name_en,phone,department_phone,show_contact_phone,show_department_phone,is_primary,created_at',
+        filters: [{ col: 'is_deleted', op: 'eq', value: false }], order: [{ col: 'created_at' }] },
+      'business_partner_id', ids);
+  }catch(error){ logError('担当者情報の読み込み(business_partner_contacts)', error, {toast:false}); return map; }
   (data||[]).forEach(c=>{
     const existing = map.get(c.business_partner_id);
     if(!existing || (c.is_primary && !existing.is_primary)){
@@ -27342,19 +27382,20 @@ async function fetchAndRenderPartners(){
   const q = toHalfWidth((document.getElementById('pt-search')?.value||'').trim());
   const cat = document.getElementById('pt-category-filter')?.value||'';
 
-  // GETリクエストのRPC呼び出しは、値がnullでもクエリ文字列に"null"という文字列として
-  // 載ってしまうため、キー自体を省略しないと正しくSQL側のdefault nullが使われない。
+  // 値がnullでもクエリ文字列に"null"という文字列として載ってしまう問題は、サーバー側
+  // (api/table-crud.jsのvalidateRpcCall)が指定されたキーだけを渡す設計のため、ここでは
+  // 空でない値だけをparamsに入れればよい(2026-09-29バッチ2: ログイン検証つきservice_role経由に変更)。
   const params = {};
   if(q) params.p_search = q;
   if(cat) params.p_category = cat;
 
-  let rows = []; let pFrom = 0; const pPageSize = 1000;
-  while(true){
-    const {data: page, error} = await sb.rpc('search_business_partners', params, {get:true}).range(pFrom, pFrom+pPageSize-1);
-    if(error){ logError('取引先一覧の読み込み(search_business_partners)', error); document.getElementById('pt-tbody').innerHTML = `<tr><td colspan="6" class="empty">読み込みエラー: ${error.message}</td></tr>`; return; }
-    rows = rows.concat(page||[]);
-    if((page||[]).length < pPageSize) break;
-    pFrom += pPageSize;
+  let rows;
+  try{
+    rows = await rpcCallAll('search_business_partners', params);
+  }catch(error){
+    logError('取引先一覧の読み込み(search_business_partners)', error);
+    document.getElementById('pt-tbody').innerHTML = `<tr><td colspan="6" class="empty">読み込みエラー: ${escHtml(error.message)}</td></tr>`;
+    return;
   }
   partnersFilteredRows = rows;
   renderPartnersRows();
@@ -27497,10 +27538,12 @@ let currentPartnerContactsCache = [];
 async function renderPartnerContactsList(partner){
   const el = document.getElementById('pt-detail-contacts');
   if(!el) return;
-  const {data, error} = await sb.from('business_partner_contacts').select('*')
-    .eq('business_partner_id', partner.id).eq('is_deleted', false)
-    .order('is_primary', {ascending:false}).order('created_at', {ascending:true});
-  if(error){ el.innerHTML = `<span style="color:var(--red)">読み込みエラー: ${escHtml(error.message)}</span>`; return; }
+  let data;
+  try{
+    data = await tableQueryAll('business_partner_contacts',
+      { select: '*', filters: [{ col: 'business_partner_id', op: 'eq', value: partner.id }, { col: 'is_deleted', op: 'eq', value: false }],
+        order: [{ col: 'is_primary', ascending: false }, { col: 'created_at' }] });
+  }catch(error){ el.innerHTML = `<span style="color:var(--red)">読み込みエラー: ${escHtml(error.message)}</span>`; return; }
   currentPartnerContactsCache = data || [];
 
   if(!currentPartnerContactsCache.length){ el.innerHTML = '<span style="color:var(--text3)">担当者はまだ登録されていません。</span>'; return; }
@@ -27654,11 +27697,13 @@ async function deleteContact(contactId, label){
 let businessPartnerContactsIndex = new Map();
 
 async function loadBusinessPartnerContactsIndex(){
-  const {data, error} = await sb.from('business_partner_contacts')
-    .select('business_partner_id,contact_person,contact_person_en,contact_person_kana,position,position_en,branch_name,branch_name_en,phone,department_phone,is_primary,created_at')
-    .eq('is_deleted', false).order('created_at', {ascending:true});
   businessPartnerContactsIndex = new Map();
-  if(error){ logError('取引先一覧・代表担当者表示用データの読み込み', error, {toast:false}); return; }
+  let data;
+  try{
+    data = await tableQueryAll('business_partner_contacts',
+      { select: 'business_partner_id,contact_person,contact_person_en,contact_person_kana,position,position_en,branch_name,branch_name_en,phone,department_phone,is_primary,created_at',
+        filters: [{ col: 'is_deleted', op: 'eq', value: false }], order: [{ col: 'created_at' }] });
+  }catch(error){ logError('取引先一覧・代表担当者表示用データの読み込み', error, {toast:false}); return; }
   (data||[]).forEach(c=>{
     const existing = businessPartnerContactsIndex.get(c.business_partner_id);
     if(!existing || (c.is_primary && !existing.is_primary)){
@@ -27718,10 +27763,13 @@ function partnerContactFieldsHaveContent(fields){
 // businessPartnerContactsIndexは更新タイミングによっては古い可能性があるため)。
 async function fetchRepresentativeContact(businessPartnerId){
   if(!businessPartnerId) return null;
-  const {data, error} = await sb.from('business_partner_contacts').select('*')
-    .eq('business_partner_id', businessPartnerId).eq('is_deleted', false)
-    .order('is_primary', {ascending:false}).order('created_at', {ascending:true}).limit(1);
-  if(error){ logError('代表担当者の取得', error, {toast:false}); return null; }
+  // 取得失敗をnull(=代表担当者が未登録)として扱うと、saveRepresentativeContactが
+  // 既存の代表担当者を見失い、新規にis_primary:trueの行を重複insertしてしまう
+  // (2026-09-29バッチ2で修正。以後は失敗時に例外を投げ、呼び出し元(savePartner等)の
+  // 既存のcatchで「保存に失敗しました」を表示させる)。
+  const data = await tableQueryAll('business_partner_contacts',
+    { select: '*', filters: [{ col: 'business_partner_id', op: 'eq', value: businessPartnerId }, { col: 'is_deleted', op: 'eq', value: false }],
+      order: [{ col: 'is_primary', ascending: false }, { col: 'created_at' }], limit: 1 });
   return (data && data[0]) || null;
 }
 
