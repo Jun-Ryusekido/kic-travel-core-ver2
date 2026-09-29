@@ -307,6 +307,28 @@
   ホテル・バス・レストラン・観光施設・ミネラルウォーター・ガイド・手配書のガイド・手配書の日毎明細(originalSalesCount / CostsCount /
   HotelCount / BusCount / RestaurantCount / FacilityCount / WaterCount / GuideCount / ArrGuideCount / ArrDayCount)。仮払い一覧表は
   PR #218 で修正済み(saveLocalExpenses の保存成功後に originalLocalExpenseCount を更新)。各タブの保存成功後に同様に更新する。
+- 【既存の問題(PR #220 Preview実機確認で発覚、2026-09-29)】loadGuideAdvanceList(ガイド仮払い一覧)を日付未指定のまま開くと、
+  全予約(数千件規模)が対象になり、tour_arrangements/guide_settlements/local_expensesへの.in()の値が数千件になって
+  Supabase側でURL長超過等により失敗しうる(mainのコードにも同じ形で存在する既存の問題。以前はエラーを無視していたため
+  気付かれていなかった)。今回はPR #220の範囲でこの3テーブルの失敗を「エラー表示せず空として続行」に留め、恒久対応は
+  見送った。恒久対応の案: (a) この3テーブルもAPI経由(200件チャンク)に移行する(バッチ2の対象を広げる形になるため着手前に
+  JUNへ確認) / (b) 日付未指定で開いた時は全件検索せず、既定の期間(「直近60日」相当)を自動で入れる、または期間指定を
+  必須にする(UI側の対策、着手が軽い)。
+
+### ガイド仮払い一覧(loadGuideAdvanceList)の表示見直し(2026-09-29 JUN依頼、バッチ2の別PR・マージ後に着手。設計のみをまず報告)
+- 背景: JUNの使い方は「状況確認」(どの予約が・いつ・いくら仮払いか)。現状は1予約で明細行が十数行並び、¥0の行
+  (請求書払い・全旅クーポン・無料等、支払い済み/不要)が大半を占め、必要な情報が埋もれる。
+- 【依頼内容(2026-09-29、当初案の訂正後の最終版)】
+  - 1予約につき1行(REF#・ツアー・IN/OUT・ガイド名・電話・想定ガイド費・仮払額の合計。現状の列を維持)。
+    あわせて「現地払い ○件 / 支払い済み ○件」の件数を表示する。
+  - 行のクリックで明細を開閉(初期は閉じる)。開いたら全部の明細を出す(¥0の行も含む。隠さない)。
+  - 明細は2グループに分ける: 上=現地で払う行(現地払いで金額あり。太字)、下=支払い済み・不要の行
+    (請求書払い・全旅クーポン・無料・事前決済・カード等。薄い色)。
+  - 印刷(A4横)は「現地で払う行だけ」と「全部」を選べるようにする(既定は現地で払う行だけ)。
+  - 数量未確定の行の表示(PR #217)は維持する。
+  - スマホ(375px)で横スクロールが出ないこと。
+  - 【JUN指示】案を報告してから実装する(先に設計案のみ)。バッチ2(PR #220)のマージ後、別PRで着手する。
+- 未着手(設計もまだ)。バッチ2マージ後に着手する。
 
 ### 仮払い一覧表の「数量未確定」表示(PR #217(ブランチ claude/compassionate-franklin-fks2nl)、未マージ。マージはJUNの確認後)
 - qty が空欄/NULLの行(「よく使う項目」で数量が決まらない行。PR #218 で金額0・数量NULLで保存するようになった)は:
@@ -521,8 +543,31 @@ anon向けSELECTポリシー案は不採用(ログインはapp_users独自方式
     deleteBookingDataは紐付く見積もりの取得に失敗したら例外で削除処理全体を中止する(converted_booking_idが
     存在しない予約を指したまま残ることを防ぐ)。
   - 追加で見つけた同種の危険(未報告分、あわせて修正): loadEstimations(一覧)・fetchAndRenderPartners(取引先一覧)は
-    取得失敗時に画面へエラー表示するのみに変更(以前は静かに0件のリストを表示していた)。loadGuideAdvanceListも
-    同様にエラー表示化。deleteBookingData以外は読み取り専用画面のため、いずれもデータ破壊のリスクは元々無い。
+    取得失敗時に画面へエラー表示するのみに変更(以前は静かに0件のリストを表示していた)。deleteBookingData以外は
+    読み取り専用画面のため、いずれもデータ破壊のリスクは元々無い。
+  - 【PR #220 Preview指摘・修正済み(2026-09-29)】loadGuideAdvanceListを日付未指定のまま開くと
+    「読み込みエラー: Bad Request」になる不具合。原因: 日付が空だと全予約(2000件規模)が対象になり、
+    バッチ2の対象外(anon直接SELECTのまま)のtour_arrangements/guide_settlements/local_expensesへの
+    .in()の値が数千件になって、Supabase側でURL長超過等により400になる。この巨大な絞り込み自体は
+    main(#219時点)にも存在する既存の問題(コードで確認: 同じ.in()呼び出しが同じ形で存在)だが、
+    main側はこの3テーブルの取得結果を一切エラーチェックせず(data:null→||[]で空扱い)そのまま
+    進んでいたため、失敗しても気付かれずに(仮払額等が欠けたまま)表示されていた。今回のPRで追加した
+    「取得失敗時に画面へエラー表示する」対応をこの3テーブルにもそのまま適用してしまったため、
+    元々起きていた失敗がエラー画面として初めて可視化された(=このPRで新しく発生した不具合ではないが、
+    見え方が変わったのはこのPRの変更が原因)。
+    修正: バッチ2の対象外である3テーブル(tour_arrangements/guide_settlements/local_expenses)は、
+    mainと同じ「取得失敗時は空として続行(エラーはlogErrorで記録するのみ、画面には出さない)」に戻した。
+    バッチ2の対象であるestimations/estimation_daysは、200件チャンクのAPI経由のため同じ理由では
+    失敗しにくく、従来どおり失敗時はエラー表示のままとした。
+    恒久対応(この3テーブルもAPI経由の200件チャンクに migrate すれば同じ理由の失敗は防げる)は
+    今回のPRの対象外とし、残課題に記録する(下記「残課題」参照。バッチ2の範囲を超える追加の
+    テーブル移行のため、着手前にJUNへ確認する)。
+    検証: scratchpadハーネスで、この3テーブルが失敗してもエラー非表示で続行すること、
+    estimations/estimation_daysの失敗時は従来どおりエラー表示すること、正常系(予約0件)の3パターンを
+    確認(6件成功)。asSbResultの誤用(supabase-jsのビルダーが解決する{data,error}をそのまま
+    dataとして二重にラップしてしまっていた)にも気付き、素のsb.from()の{data,error}を直接destructureする
+    形に直した(既存のasSbResultはtableQueryAll系専用のアダプタであり、生のsupabase-jsビルダーには
+    使わない、という既存コードの一貫した使い方どおりに揃えた)。
   - 検証: scratchpadハーネスで実handler20件・index.htmlの実関数9件(fetchRepresentativeContact/saveRepresentativeContact
     の重複insert防止、loadEstimations/copyEstimation/fetchAndRenderPartnersの失敗時の挙動)がすべて成功。
     openEstimationEditor/deleteBookingData/loadGuideAdvanceListはDOM・副作用への依存が大きいため、コードレビューと
