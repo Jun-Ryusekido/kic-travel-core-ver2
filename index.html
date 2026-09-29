@@ -5825,14 +5825,6 @@ async function rpcBatchAll(calls){
 function asSbResult(promise){
   return promise.then(data => ({ data, error: null }), error => ({ data: null, error }));
 }
-// supabase-jsの{data,error}を返す呼び出し(sb.from(...).select(...)等)を、tableQueryAll系と同じ
-// 「成功時はdataをそのまま返す・失敗時は例外を投げる」形にそろえるアダプタ。Promise.allの中で
-// tableQueryAll/tableQueryAllInと混在させ、どれか1つでも失敗したら全体を失敗させたい箇所で使う。
-async function asSbData(promise){
-  const {data, error} = await promise;
-  if(error) throw error;
-  return data;
-}
 async function bookingSalesApiCall(action, payload){ return tableCrudApiCall('booking_sales', action, payload); }
 // 2026-09 egress緊急対応: ガイド仮払い一覧(loadGuideAdvanceList)のキャッシュも無効化する。
 async function localExpensesApiCall(action, payload){
@@ -21493,13 +21485,24 @@ async function loadGuideAdvanceList(){
     ({arrangements, estimations, settlements, localExpenses, estGuideSumByEstId} = gaCached);
   } else {
     try{
-      const [arrangementsData, estimationsData, settlementsData, localExpensesData] = await Promise.all([
-        asSbData(sb.from('tour_arrangements').select('booking_ref, guide_name, guide_phone').in('booking_ref', refNos)),
+      // tour_arrangements/guide_settlements/local_expensesは今回のバッチ2の対象外(anon直接SELECTのまま)。
+      // 日付を指定せずに開くと全予約が対象になり、.in()のid/ref_no件数が数千件規模になって
+      // Supabase側でURL長超過等により400になることがある(2026-09-29 Preview実機確認で発覚。
+      // ダイアログを開いた直後(未入力)に必ず起きる)。以前はエラーを無視していた(data:null→
+      // ||[]で空扱い)ため気付かれていなかった既存の問題で、この3テーブルについては元の
+      // 「取れなければ空として続行」の挙動に揃える(asSbResultで例外化しない)。バッチ2の対象
+      // (estimations/estimation_days)はチャンク済み(1回200件)のため同じ理由では失敗しにくく、
+      // 従来どおり失敗時は例外を投げて画面にエラー表示する。
+      const [arrRes, estimationsData, setRes, localRes] = await Promise.all([
+        sb.from('tour_arrangements').select('booking_ref, guide_name, guide_phone').in('booking_ref', refNos),
         tableQueryAllIn('estimations', { select: 'id, converted_booking_id' }, 'converted_booking_id', ids),
-        asSbData(sb.from('guide_settlements').select('booking_ref, guide_name, guide_phone, guide_names, advance_payment, additional_advance_payment, status').in('booking_ref', refNos)),
-        asSbData(sb.from('local_expenses').select('booking_id, expense_date, content, category, unit_price, qty, amount, payment_method').in('booking_id', ids).order('sort_order')),
+        sb.from('guide_settlements').select('booking_ref, guide_name, guide_phone, guide_names, advance_payment, additional_advance_payment, status').in('booking_ref', refNos),
+        sb.from('local_expenses').select('booking_id, expense_date, content, category, unit_price, qty, amount, payment_method').in('booking_id', ids).order('sort_order'),
       ]);
-      arrangements = arrangementsData; estimations = estimationsData; settlements = settlementsData; localExpenses = localExpensesData;
+      if(arrRes.error) logError('ガイド仮払い一覧の読み込み(tour_arrangements)', arrRes.error, {toast:false});
+      if(setRes.error) logError('ガイド仮払い一覧の読み込み(guide_settlements)', setRes.error, {toast:false});
+      if(localRes.error) logError('ガイド仮払い一覧の読み込み(local_expenses)', localRes.error, {toast:false});
+      arrangements = arrRes.data||[]; estimations = estimationsData; settlements = setRes.data||[]; localExpenses = localRes.data||[];
 
       estGuideSumByEstId = {};
       if(estimations && estimations.length>0){
