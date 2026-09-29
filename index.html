@@ -21443,11 +21443,19 @@ async function loadGrossTopTours(){
 // ===================================================
 // ガイド仮払い一覧
 // ===================================================
-function setGuideAdvanceRangeDefault(){
+// today〜60日後の日付文字列(YYYY-MM-DD)のペア。「直近60日」ボタンと、日付未指定で開いた時の
+// 既定値の両方で使う(2026-09-29 JUN決定: 日付未指定のまま全予約を対象にすると、
+// tour_arrangements/guide_settlements/local_expensesへの.in()が数千件規模になり
+// Supabase側で失敗しうるため、既定でこの範囲に絞る)。
+function guideAdvanceDefaultRange(){
   const today = new Date();
   const future = new Date(today.getTime()+60*86400000);
-  document.getElementById('ga-from').value = today.toISOString().slice(0,10);
-  document.getElementById('ga-to').value = future.toISOString().slice(0,10);
+  return { from: today.toISOString().slice(0,10), to: future.toISOString().slice(0,10) };
+}
+function setGuideAdvanceRangeDefault(){
+  const {from, to} = guideAdvanceDefaultRange();
+  document.getElementById('ga-from').value = from;
+  document.getElementById('ga-to').value = to;
   loadGuideAdvanceList();
 }
 
@@ -21467,6 +21475,14 @@ function closeGuideAdvanceModal(){
 let guideAdvanceListCache = {}; // { "from|to": {arrangements, estimations, settlements, localExpenses, estGuideSumByEstId, at} }
 async function loadGuideAdvanceList(){
   const fromEl = document.getElementById('ga-from'), toEl = document.getElementById('ga-to');
+  document.getElementById('ga-partial-warn').style.display = 'none';
+  // 日付が両方とも未指定のまま開いた場合、全予約が対象になり.in()の値が数千件規模になって
+  // 失敗しうるため(2026-09-29対応)、既定で「直近60日」を入れる(入力欄にも反映し、
+  // 「今どの範囲を見ているか」が画面から分かるようにする)。
+  if(!fromEl.value && !toEl.value){
+    const def = guideAdvanceDefaultRange();
+    fromEl.value = def.from; toEl.value = def.to;
+  }
   const from = fromEl.value, to = toEl.value;
   const data = await fetchBookingsListLight();
   const filtered = data.filter(b=> b.in_date && (!from || b.in_date>=from) && (!to || b.in_date<=to))
@@ -21480,9 +21496,9 @@ async function loadGuideAdvanceList(){
 
   const gaCacheKey = `${from}|${to}`;
   const gaCached = guideAdvanceListCache[gaCacheKey];
-  let arrangements, estimations, settlements, localExpenses, estGuideSumByEstId;
+  let arrangements, estimations, settlements, localExpenses, estGuideSumByEstId, partialFail;
   if(gaCached && cacheIsFresh(gaCached.at)){
-    ({arrangements, estimations, settlements, localExpenses, estGuideSumByEstId} = gaCached);
+    ({arrangements, estimations, settlements, localExpenses, estGuideSumByEstId, partialFail} = gaCached);
   } else {
     try{
       // tour_arrangements/guide_settlements/local_expensesは今回のバッチ2の対象外(anon直接SELECTのまま)。
@@ -21502,6 +21518,9 @@ async function loadGuideAdvanceList(){
       if(arrRes.error) logError('ガイド仮払い一覧の読み込み(tour_arrangements)', arrRes.error, {toast:false});
       if(setRes.error) logError('ガイド仮払い一覧の読み込み(guide_settlements)', setRes.error, {toast:false});
       if(localRes.error) logError('ガイド仮払い一覧の読み込み(local_expenses)', localRes.error, {toast:false});
+      // 静かに空扱いにするだけでなく、画面上にも「一部の情報を取得できませんでした」と小さく示す
+      // (エラー画面にはしない。2026-09-29 JUN決定)。
+      partialFail = !!(arrRes.error || setRes.error || localRes.error);
       arrangements = arrRes.data||[]; estimations = estimationsData; settlements = setRes.data||[]; localExpenses = localRes.data||[];
 
       estGuideSumByEstId = {};
@@ -21512,13 +21531,15 @@ async function loadGuideAdvanceList(){
           estGuideSumByEstId[d.estimation_id] = (estGuideSumByEstId[d.estimation_id]||0) + Number(d.guide_fee||0)+Number(d.guide_tip||0)+Number(d.guide_meal||0);
         });
       }
-      guideAdvanceListCache[gaCacheKey] = { arrangements, estimations, settlements, localExpenses, estGuideSumByEstId, at: Date.now() };
+      guideAdvanceListCache[gaCacheKey] = { arrangements, estimations, settlements, localExpenses, estGuideSumByEstId, partialFail, at: Date.now() };
     }catch(e){
       logError('ガイド仮払い一覧の読み込み', e, {toast:false});
       tbody.innerHTML = `<tr><td colspan="9" class="empty">読み込みエラー: ${escHtml(e.message)}</td></tr>`;
       return;
     }
   }
+
+  document.getElementById('ga-partial-warn').style.display = partialFail ? '' : 'none';
 
   // 予約IDごとの仮払い合計
   const localExpenseTotalById = {};
@@ -30956,6 +30977,7 @@ function setDateInputValue(el, d){
       <div class="form-field" style="align-self:end"><button class="btn" onclick="setGuideAdvanceRangeDefault()">直近60日</button></div>
       <button class="btn" style="margin-left:auto" onclick="printGuideAdvanceList()">🖨 印刷（A4横）</button>
     </div>
+    <div id="ga-partial-warn" style="display:none;background:var(--amber-lt);border:1px solid var(--amber);border-radius:8px;padding:6px 10px;font-size:11px;color:var(--amber);margin-bottom:6px">⚠ 一部の情報を取得できませんでした(仮払額などが欠けている可能性があります)</div>
     <div style="font-size:11px;color:var(--text3);margin:4px 0 6px">※ ガイド名・電話番号は手配書、想定ガイド費は見積もり（成約済み）から自動取得します。仮払金は予約台帳のガイド精算で入力した内容が反映されます。締め済みの予約、仮払金が未入力・0円の予約は表示されません。到着日での絞り込みは任意です（未入力の場合、到着日に関わらず未締めの予約を全て表示します）。</div>
     <div style="margin-bottom:8px"><input id="ga-search" placeholder="REF# / Tour / ガイド名で検索" style="width:300px;padding:6px 10px;border-radius:8px;border:1px solid var(--border);font-size:12px" oninput="filterGuideAdvanceList()"></div>
     <div id="ga-print-card">
