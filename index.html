@@ -11906,14 +11906,24 @@ async function copyEstimation(id){
 
     // 明細行の取得。id・estimation_id・タイムスタンプは新規採番/サーバー側付与のため落とす。
     const stripKeys = ({id, estimation_id, created_at, updated_at, ...rest})=>rest;
+    // ブラウザからの直接SELECT(sb.from(table))はやめ、ログイン検証つきAPI(query)経由で読む
+    // (RLS対応 バッチ2。tableQueryAllは1回でも失敗したら例外を投げ、部分結果を返さない)。
+    // 取得に失敗したまま進むと、日程・固定費が空のコピーがエラー無しで作られてしまうため、
+    // 失敗時はコピー自体を作らずに中止する。0件は「元から明細が無い」場合の正常な結果。
     const fetchChildRows = async (table)=>{
-      const {data: rows} = await sb.from(table).select('*').eq('estimation_id', id);
-      return (rows||[]).map(stripKeys);
+      const rows = await tableQueryAll(table, { select: '*', filters: [{ col: 'estimation_id', op: 'eq', value: id }], order: [{ col: 'sort_order' }] });
+      return rows.map(stripKeys);
     };
-    const children = {
-      estimation_days: await fetchChildRows('estimation_days'),
-      estimation_fixed_rows: await fetchChildRows('estimation_fixed_rows'),
-    };
+    let children;
+    try{
+      children = {
+        estimation_days: await fetchChildRows('estimation_days'),
+        estimation_fixed_rows: await fetchChildRows('estimation_fixed_rows'),
+      };
+    }catch(childErr){
+      alert('コピー元の日程・固定費を読み込めなかったため、コピーを作成しませんでした:\n'+childErr.message);
+      return;
+    }
 
     try{
       await estimationsApiCall('copyWithChildren', { headerFields, children });
