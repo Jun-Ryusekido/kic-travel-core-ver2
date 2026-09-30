@@ -442,10 +442,72 @@ notify pgrst, 'reload schema';
 
 ### 9. 残タスク(この第3報分)
 1. **別セッションに連絡**(本セッションは別ブランチに触れない): copyEstimation(別ブランチ index.html:11909-11910)の直接SELECTをAPI化+エラー表示化。04e79da の「直接0件」の記述訂正。enable_rls_batch2.sql の作成は修正後。
+   → **2026-09-30 作業ブランチ claude/jolly-bohr-wsq2w8 で修正済み(コミット 465a1bd)。詳細は次の「RLS バッチ2 追加修正」参照。別セッションには 465a1bd の取り込みを連絡すること。**
 2. JUNが pg_policies / pg_tables を確認(estimation_fixed_rows の現ポリシー名、B群17の各SELECTポリシー名、gross系などRPCの prosecdef)。
 3. estimation_fit_items のロック(5.(a))を業務時間外に(JUN判断)。
 4. email_import_queue 移行の実装(コード)を再開する指示待ち。実装時は本7.の設計に従い、mainではなく別ブランチのマージ状況を見てから index.html の衝突を避ける(別セッションの index.html 変更とは別領域だが同一ファイル)。
 5. guide.html の読み取り(bookings/guide_settlements/guide_settlement_items/learned_mappings)を守る読み取り専用ゲストactionの設計。archive/generate-haichisho.js の退役。
+
+## RLS バッチ2 追加修正: copyEstimation の直接SELECT(2026-09-30。マージ・SQL実行なし。別ブランチ自体は無変更)
+
+### 経緯と状態
+- 不具合: 638ef49 の copyEstimation が、テーブル名を変数にした `sb.from(table)` で estimation_days / estimation_fixed_rows をブラウザ(anon)から直接SELECTし、
+  エラーも見ず `rows||[]` にしていた。04e79da の「直接呼び出し0件」は変数指定を検索から漏らしていた。RLSを有効化/暫定SELECTポリシーを削除すると、
+  日程・固定費が空の見積もりコピーが**エラー無しで成功**する。
+- 作業ブランチの構成: `fcb4535`(origin/claude/magical-ride-6phzj3 の8コミット=54a8f3a までを --no-ff でマージ。競合なし・SESSION_NOTES.md は自動で両方残った)
+  → `465a1bd`(修正。index.html のみ +16/-6)。別ブランチ claude/magical-ride-6phzj3 は 54a8f3a のまま変更していない。
+- 修正内容(index.html copyEstimation): fetchChildRows を `tableQueryAll(table, {select:'*', filters:[estimation_id eq], order:[sort_order]})` に変更(openEstimationEditor と同じ呼び方)。
+  取得に失敗したら alert『コピー元の日程・固定費を読み込めなかったため、コピーを作成しませんでした:…』を出して**コピー自体を作らず中止**(copyWithChildren を呼ばない)。
+  0件は「元から明細が無い」正常結果として扱う(tableQueryAll は1回でも失敗すれば例外で、部分結果や空配列を成功として返さない)。
+- **別セッション/別ブランチへの取り込み**: `git cherry-pick 465a1bd`(index.html の copyEstimation だけの変更)で足りる。
+  APP_VERSION: 638ef49 が 2026092901 に上げ済み。638ef49 と本修正を**同じデプロイで出す**限り追加の版上げは不要。
+  638ef49 だけを先にデプロイし、本修正を後から出す場合は、その間に開かれた旧タブ(版 2026092901・修正前の copyEstimation)が
+  RLS有効化後に空のコピーを作れてしまうため、本修正のデプロイ時に APP_VERSION / MIN_WRITE_APP_VERSION を再度引き上げること。
+
+### 変数指定の sb.from の再確認(マージ+修正後のコード。index.html 31,498行・guide.html 513行を行単位で機械抽出)
+- 修正前(main d326a3c と別ブランチ 638ef49 以降): 変数指定は4箇所(fetchAllRowsGeneric / copyEstimation / confirmArrCopy / checkNoSaveConflict)。
+- 修正後: **3箇所**(copyEstimation が消えた)。実際に指すテーブル(コードを開いて確認):
+  - `fetchAllRowsGeneric` index.html:6156 ← 呼び出し 6175 は 'business_partners'、6182 は VENDOR_EMAIL_SOURCES(全2件): booking_hotels, booking_buses
+  - `confirmArrCopy` index.html:13176 `sb.from(cfg.table)` ← ARR_COPY_CONFIG(全5件): booking_hotels, booking_buses, booking_restaurants, booking_facilities, booking_water_items
+  - `checkNoSaveConflict` index.html:13348 ← 呼び出し3件: booking_hotels(13371)、booking_buses(13453)、booking_guides(19028)
+  - guide.html: 変数指定 0件(全て文字列リテラル)
+- `sb.rpc(`: 6本すべて文字列リテラル(get_gross_summary / get_gross_trends / get_gross_top_tours / get_guide_settlements_summary / get_hotel_cancel_alert_counts / search_hotel_management)。
+  **search_business_partners の sb.rpc は0件**(index.html:27428 は rpcCallAll 経由=API)。`sb.storage` は deleteBookingData の guide-receipts 2箇所のみ(テーブルではない)。
+  `X.from(` は sb.from / sb.storage.from / Array.from のみ。`sb` の別名代入・`sb[...]` は0件。
+- **estimation_days / estimation_fixed_rows / estimations / business_partner_contacts / RPC search_business_partners へのブラウザ直接アクセスは、
+  文字列リテラルの sb.from も上の変数指定3箇所も含め、index.html・guide.html のどちらにも0件。** 上記4テーブルはこの2ファイル以外(archive/generate-haichisho.js・ps1)でも読んでいない
+  (前回調査済み: archive は bookings / tour_arrangements / tour_arrangement_days / booking_hotels のみ)。
+
+### 検証(Bash復旧後に実施。合成データ・疑似Supabase・実DBではない)
+- ハーネス(scratchpad/h。コミット対象外): 本物の index.html を headless Chromium(Playwright)で開き、/api/table-crud には**本物の api/table-crud.js**(疑似PostgREST付き)を接続、
+  ブラウザ側 supabase-js は「直接アクセスを記録し、RLS有効化後を模して空を返す」スタブに差し替え。画面関数を実際に呼んで(confirm/alert は自動応答)確認。
+- 修正後(465a1bd): **16/16 成功**: 見積もり一覧の表示 / 編集画面(日程2件を読み込み)/ コピー成功(新見積もり=下書き、日程2・固定費2が内容一致で複製、alertなし)/
+  コピー失敗(estimation_days 取得失敗・estimation_fixed_rows 取得失敗の各々で: alert表示、見積もりが増えない)/ 取引先(RPC search_business_partners 経由で一覧表示、連絡先=business_partner_contacts をAPI取得、
+  RPC失敗時は画面にエラー表示)/ ガイド仮払い一覧(完走、エラー・注意表示なし、estimations・estimation_days をAPI取得)/ 対象5項目の直接アクセス記録0件。
+- 修正前(別ブランチ 54a8f3a の index.html を同じ環境で実行): 9/16。**不具合を再現**: コピーは成功扱いで日程0・固定費0の見積もりが作られ、alertなし。直接アクセス検出 estimation_days, estimation_fixed_rows。
+- できていないこと: 実DB・実RLS・実ログイン・実データでの確認(このセッションには接続情報が無い)、ガイド仮払い一覧の**表の中身**(手配書・現地費用のデータをハーネスに入れていない)、
+  スマホ幅の表示(今回は表示の変更なし)。ブラウザ拡張(Claude in Chrome)は未接続。
+
+### JUNさんが確認する手順(実機。Preview URL について)
+- **Preview URL は PR を作らないと発行されない(Vercelのデプロイは PR/ブランチ push で作られるが、この環境からは vercel.app に到達できず、URLを確認できない)。**
+  このため今回はマージ前に Preview で確認することはできない。確認したい場合は、JUNさんが PR 作成を指示 → Vercel の Preview URL(GitHub PR のチェック欄の「Visit Preview」)で以下を実施する。
+  Preview のURLは PR ごとに `https://kic-travel-core-ver2-git-<ブランチ名>-<チーム名>.vercel.app` 形式になるが、完全なURLは発行後にしか分からない(ここでは記載しない)。
+  Preview は本番と同じSupabase(本番DB)に接続するため、テスト用データ(TEST-BATCH2)で確認し、確認後に削除する。
+1. 見積もり一覧: サイドバー「見積もり」→ 一覧が表示される(エラー表示にならない)。
+2. 見積もり編集: 見積もりを1件新規作成(日程2行・固定費2行)して保存 → 一覧へ戻る → 開き直す → 日程・固定費が全て表示される。
+3. **見積もりのコピー(今回の修正対象)**: 上の見積もりの「コピー」→ 確認ダイアログ OK → タイトルが「…(コピー)」の下書きが増え、開くと日程・固定費が元と同じ内容で入っている(空ではない)。
+4. **コピーの失敗時**: ブラウザ開発者ツール → Network → 「Request blocking」に `table-crud` を追加した状態で「コピー」→ alert「コピー元の日程・固定費を読み込めなかったため、コピーを作成しませんでした」が出て、一覧に「(コピー)」が増えない
+   (確認後は必ずブロックを解除)。
+5. 取引先マスタ: 担当者が登録済みの取引先を開く → 担当者一覧が表示される。検索欄・カテゴリで絞り込みが効く。担当者を編集して保存 → 反映される。
+6. ガイド仮払い一覧(予約台帳の「🧑‍✈️ ガイド仮払い一覧」): 日付未指定で開く → 直近60日が自動入力され一覧が表示される。見積もりにガイド代がある日程が仮払い額に反映される。「⚠ 一部の情報を取得できませんでした」が出ない。
+7. 上記すべてで、開発者ツールのコンソールにエラーが出ていない。
+
+### 実行順序(RLS/REVOKE。厳守)
+- **`scripts/enable_rls_batch2.sql`(未作成)の STEP 5 — `estimation_fixed_rows_temp_read_only` ポリシーの削除と `revoke select on estimation_fixed_rows from anon, authenticated`(e312a5a の STEP 5)— は、
+  次の全てが済むまで実行しない**: ①本修正(465a1bd 相当)を含むコードのマージ ②本番デプロイの完了確認 ③上記「JUNさんが確認する手順」の1〜7の実機確認 ④全員の再読み込み(APP_VERSION 2026092901 以降)。
+  estimation_days / estimations / business_partner_contacts のRLS有効化・REVOKE・RPC search_business_partners の EXECUTE REVOKE も同じ条件。
+  順序: コード修正 → マージ → 本番デプロイ確認 → 実機確認 → 全員再読み込み → 業務時間外にSQL(ロールバックSQL併記)→ 再検証(SELECTで件数確認+画面のハードリロード)。
+- 本セッションではSQLを一切実行していない。マージ(main)もしていない。PRも作っていない。
 
 ## 最新の決定事項と作業順(2026-09-25 JUN決定。新しいセッションはまずここを読む)
 
