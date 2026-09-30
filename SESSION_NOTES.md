@@ -639,6 +639,12 @@ notify pgrst, 'reload schema';
 - 3か所での使い方: (1) 仮払い一覧表の印刷 = 上記2。(2) ガイド資料確認書類 = 施設の行に注意文を添える(65歳以上の名簿は「持参書類」)。
   required_doc のある施設は書類一覧に必ず「施設名(予約メール)」の行を出す。(3) ファイナルチェック = 「支払い」の注意がある施設の行で、
   支払方法が現地払い(レストランは現金払い)なら❌、空欄なら⚠、それ以外(事前決済・請求書払い・カード・全旅クーポン・無料)は✓。
+- 【マージ済み】PR #219(コード)は main d326a3c にマージ済み(2026-09-28)。Preview(TEST-NOTICE)確認後にマージ。
+  マージ後の作業(この順で。SQL本文はscripts/add_guide_notices_and_partner_aliases.sqlのSTEP 3参照):
+  1. 全員への再読み込みの依頼(APP_VERSIONを2026092801に上げたため、古い画面からの観光施設タブの保存は426で止まる)
+  2. STEP 3a(対象の確認・バックアップ)→ 3b(紐付け・名前の統一、件数ガード付き)→ 3c(確認)を業務時間外に実行
+     (開いたままの画面で保存されると、その予約の行が元の名前・未紐付けに戻るため。観光施設タブには保存時の食い違い検知が無い)
+  3. 実行後、もう一度全員に再読み込みを依頼(SQL直接修正後の画面確認はハードリロードで、CLAUDE.mdの通り)
 - 読み取り専用SQL(JUN実行済み。結果は下記):
   select facility_name, count(*) as n, min(date) as first_date, max(date) as last_date from public.booking_facilities
   where facility_name ilike '%資料館%' or facility_name ilike '%平和%' group by facility_name order by n desc;
@@ -678,7 +684,7 @@ notify pgrst, 'reload schema';
     ガイド別手配書の日毎明細(arrangement_document_days、スナップショット)、手配書の日毎明細の行程・OTHERS欄(自由記述)。
   - 名前で引く営業時間情報(facility_operating_info)は、統一後は「広島平和記念資料館」の情報が出る(元の表記の情報があれば出なくなる)。
   - 手配タブの行のid付け替え(_arrangementSourceRemapConfig の facility_name+date 一致)は、保存の前後で同じ画面の名前を比べるため影響なし。
-- 【実装(2026-09-28、ブランチ claude/magical-ride-6phzj3、未push・JUNのdiff確認待ち)】最初の段階のうち印刷以外:
+- 【実装 PR #219 マージ済み(main d326a3c、2026-09-28)】最初の段階のうち印刷以外:
   - api/table-crud.js: business_partner_guide_notices(insert/updateById/deleteById/query)・business_partner_aliases(insert/deleteById/query)を
     追加(stampIdentity・stampUpdatedAt・auditLog、readable は business_partner_id 等のみ)。
   - APP_VERSION / MIN_WRITE_APP_VERSION を 2026092801 に上げた(古い画面は business_partner_id を送らず、観光施設タブの保存で紐付けが
@@ -693,12 +699,16 @@ notify pgrst, 'reload schema';
     取引先の保存ボタンとは別に、各行のボタンでその場で登録。削除の確認には内容を表示。新規登録中は「保存後に登録」と表示。
   - 予約詳細に「✅ ファイナルチェック」ボタン(第1段階): 「支払い」の注意事項がある施設の行の支払方法(現地払い/現金払い=❌、空欄=⚠、
     他=✓)、別名のまま名前が統一されていない行(⚠、「名前を統一」ボタン)、取引先マスタと紐付かない観光施設の行(⚠、折りたたみ)。
-    「移動」で観光施設タブの該当行へ移動・強調。キャンセルの行は対象外。
+    「移動」で観光施設タブの該当行へ移動・強調(セルの背景色+枠、3秒間)。キャンセルの行は対象外。各項目に「観光施設 N行目」を付け、
+    日付未入力でも見分けられるようにする(2026-09-28 JUNのPreview指摘、修正済み)。
   - バックアップ(scripts/backup_supabase.ps1・backup_supabase_daily.ps1)の対象に新テーブル2つを追加(service_roleで読むため読める)。
-  - 検証(scratchpadのハーネス、index.htmlの実関数をvmで実行): 54件成功(正規化がSQLの alias_key と一致、照合の順番・班の印・曖昧な
-    「含む」、名前の統一(確認・キャンセル・備考・二重付与なし)、重複チェック、ファイナルチェック、5分キャッシュ)。実handlerで14件成功
+  - 検証(scratchpadのハーネス、index.htmlの実関数をvmで実行): 57件成功(正規化がSQLの alias_key と一致、照合の順番・班の印・曖昧な
+    「含む」、名前の統一(確認・キャンセル・備考・二重付与なし)、重複チェック、ファイナルチェックの行番号表示、5分キャッシュ)。実handlerで14件成功
     (新テーブルの書き込み・スタンプ・監査ログ・query のホワイトリスト、古い版(2026092502)からの書き込みは426)。
-    Chromium で取引先マスタの欄・ファイナルチェックを 375px/1280px で表示し、横スクロールなし・ボタンの潰れなしを確認。
+    Chromium で取引先マスタの欄・ファイナルチェックを 375px/1280px で表示し、横スクロールなし・ボタンの潰れなしを確認。「移動」時の
+    強調(背景色+枠)が適用後に表示され3秒で消えることも確認。
+  - Preview確認(2026-09-28 JUN、TEST-NOTICE、確認後に削除済み): 注意事項・別名の登録、別名入力時の置き換え確認と備考への元の表記、
+    ファイナルチェックの❌(現地払い)/✓(事前決済)、「移動」でのスクロール、行番号の表示、「移動」での強調、すべてOK。
   - 未実装: 仮払い一覧表の印刷の表示(PR #217 のマージ後)、ファイナル済みにする時の自動実行・記録、他のタブの項目、ガイド資料確認書類。
 - ファイナルチェック本体の設計(報告済み・JUN判断待ちの点あり):
   - 予約詳細に「ファイナルチェック」ボタン。❌/⚠/✓ をタブごとに表示し、各項目から該当タブ・行へ移動(行は参照で渡す)。スマホは1項目1カード。
@@ -744,6 +754,37 @@ notify pgrst, 'reload schema';
   ホテル・バス・レストラン・観光施設・ミネラルウォーター・ガイド・手配書のガイド・手配書の日毎明細(originalSalesCount / CostsCount /
   HotelCount / BusCount / RestaurantCount / FacilityCount / WaterCount / GuideCount / ArrGuideCount / ArrDayCount)。仮払い一覧表は
   PR #218 で修正済み(saveLocalExpenses の保存成功後に originalLocalExpenseCount を更新)。各タブの保存成功後に同様に更新する。
+- 【既存の問題(PR #220 Preview実機確認で発覚、2026-09-29)】loadGuideAdvanceList(ガイド仮払い一覧)を日付未指定のまま開くと、
+  全予約(数千件規模)が対象になり、tour_arrangements/guide_settlements/local_expensesへの.in()の値が数千件になって
+  Supabase側でURL長超過等により失敗しうる(mainのコードにも同じ形で存在する既存の問題。以前はエラーを無視していたため
+  気付かれていなかった)。
+  - 【対応済み(b)、PR #220に含める、JUN決定】日付が両方とも未指定のまま開いた時は、既定で「直近60日」(今日〜60日後、
+    「直近60日」ボタンと同じ範囲)を自動で入力欄に反映して読み込む(全件検索にしない)。共通の日付計算は
+    guideAdvanceDefaultRange() に切り出し、setGuideAdvanceRangeDefault() と両方から使う。
+  - 【対応済み、PR #220に含める、JUN決定】バッチ2対象外の3テーブル(tour_arrangements/guide_settlements/local_expenses)の
+    取得が失敗した場合、静かに空扱いにするだけでなく、一覧の上に「⚠ 一部の情報を取得できませんでした(仮払額などが
+    欠けている可能性があります)」を小さく表示する(id="ga-partial-warn"。エラー画面にはしない。日付範囲ごとの
+    5分TTLキャッシュにも成否(partialFail)を含めて保存し、キャッシュから復元した時も正しく表示/非表示を切り替える)。
+  - 【恒久対応(a)は見送り、バッチ3・4の計画に含める(JUN決定)】この3テーブルもAPI経由(200件チャンク)に移行することを、
+    フェーズ2バッチ3・バッチ4の対象テーブルの検討に含める。
+  - 検証: scratchpadハーネスで11件成功(日付未指定→既定値の自動反映・入力欄への反映、明示指定時は上書きしない、
+    3テーブル失敗時の注意表示の表示/非表示、バッチ2対象の失敗時は従来どおりエラー表示、正常系)。Chromiumで
+    375px/1280px表示を確認(横スクロールなし)。
+
+### ガイド仮払い一覧(loadGuideAdvanceList)の表示見直し(2026-09-29 JUN依頼、バッチ2の別PR・マージ後に着手。設計のみをまず報告)
+- 背景: JUNの使い方は「状況確認」(どの予約が・いつ・いくら仮払いか)。現状は1予約で明細行が十数行並び、¥0の行
+  (請求書払い・全旅クーポン・無料等、支払い済み/不要)が大半を占め、必要な情報が埋もれる。
+- 【依頼内容(2026-09-29、当初案の訂正後の最終版)】
+  - 1予約につき1行(REF#・ツアー・IN/OUT・ガイド名・電話・想定ガイド費・仮払額の合計。現状の列を維持)。
+    あわせて「現地払い ○件 / 支払い済み ○件」の件数を表示する。
+  - 行のクリックで明細を開閉(初期は閉じる)。開いたら全部の明細を出す(¥0の行も含む。隠さない)。
+  - 明細は2グループに分ける: 上=現地で払う行(現地払いで金額あり。太字)、下=支払い済み・不要の行
+    (請求書払い・全旅クーポン・無料・事前決済・カード等。薄い色)。
+  - 印刷(A4横)は「現地で払う行だけ」と「全部」を選べるようにする(既定は現地で払う行だけ)。
+  - 数量未確定の行の表示(PR #217)は維持する。
+  - スマホ(375px)で横スクロールが出ないこと。
+  - 【JUN指示】案を報告してから実装する(先に設計案のみ)。バッチ2(PR #220)のマージ後、別PRで着手する。
+- 未着手(設計もまだ)。バッチ2マージ後に着手する。
 
 ### 仮払い一覧表の「数量未確定」表示(PR #217(ブランチ claude/compassionate-franklin-fks2nl)、未マージ。マージはJUNの確認後)
 - qty が空欄/NULLの行(「よく使う項目」で数量が決まらない行。PR #218 で金額0・数量NULLで保存するようになった)は:
@@ -927,16 +968,99 @@ anon向けSELECTポリシー案は不採用(ログインはapp_users独自方式
   audit_logs でしか分からない。booking_costs と同じ既存の仕様)。
 - SQL要否: 不要(コードのみ)。確認用の読み取り専用SQL: scripts/investigate_arrangement_date_reversal.sql(JUN実行待ち)。
 
-## バッチ2 実装計画(2026-09-25報告、未着手)
-- 置き換え対象(index.html、関数名で探す): estimations 7箇所(exportBookingArchive / exportFiscalYearArchive / deleteBookingData /
-  loadEstimations / copyEstimation / openEstimationEditor / loadGuideAdvanceList)、estimation_days 4箇所(exportBookingArchive /
-  exportFiscalYearArchive / openEstimationEditor / loadGuideAdvanceList)、business_partner_contacts 4箇所
-  (loadRepresentativeContactsByPartnerIds / renderPartnerContactsList / loadBusinessPartnerContactsIndex / fetchRepresentativeContact)、
-  RPC search_business_partners 1箇所(fetchAndRenderPartners)。計16箇所。
-- 空データで進む既存の危険(必ず直す): openEstimationEditorで日程(estimation_days)の取得失敗が0件扱い→そのまま保存すると
-  replaceByKeyで日程が全削除される / fetchRepresentativeContactが取得失敗でnull→saveRepresentativeContactが代表担当者を
-  重複insert / deleteBookingDataで紐付く見積もりの取得失敗→converted_booking_idの解除をせずに削除へ進む。
+## バッチ2(2026-09-29 着手・実装済み、未push・JUNのdiff確認待ち)
+- 【緊急対応(2026-09-29、着手前に発覚)】estimation_fixed_rows に "Allow anon full access to estimation_fixed_rows"
+  (ALL, roles={anon}, qual=true, with_check=true)が付いており、RLS(rowsecurity=true)が実質無効だった。テーブル全体では
+  49件中34件がanonから読める状態(JUN確認)。GRANTの確認結果(JUN): anon/authenticatedともにREFERENCES, SELECT, TRIGGER,
+  TRUNCATE(INSERT/UPDATE/DELETEは無し)。TRUNCATEはRLSポリシーの内容に関わらずテーブル全体を消せるため、実質最大の
+  脅威はここだった。対応: scripts/emergency_fix_estimation_fixed_rows_anon_policy.sql(anonのINSERT/UPDATE/DELETE/
+  TRUNCATE/REFERENCES/TRIGGERをREVOKE+読み取り専用ポリシーへの差し替え。JUN実行済みまたは実行予定)、
+  scripts/investigate_dangerous_anon_policies.sql(同種のポリシーが他に無いかの監査、読み取り専用・未実行)。
+  ローカルの疑似DBで実行結果を確認済み(実行後 anon は SELECT のみ・その他の権限は無し)。
+  暫定の読み取り専用ポリシー(estimation_fixed_rows_temp_read_only)とそのSELECTのGRANTの削除(STEP 5)は、この
+  ファイル単体では実行しない。バッチ2のコードがデプロイ・確認された後、scripts/enable_rls_batch2.sql(バッチ2の
+  RLS有効化・REVOKE本体、これから作成)の中に含めて実行する(2026-09-29 JUN指示)。
+- 【実装(2026-09-29)】置き換え対象(index.html、関数名で探す): estimations 7箇所(exportBookingArchive /
+  exportFiscalYearArchive / deleteBookingData / loadEstimations / copyEstimation / openEstimationEditor /
+  loadGuideAdvanceList)、estimation_days 4箇所(exportBookingArchive / exportFiscalYearArchive / openEstimationEditor /
+  loadGuideAdvanceList)、estimation_fixed_rows 3箇所(exportBookingArchive / exportFiscalYearArchive /
+  openEstimationEditor。緊急対応で読み取り専用ポリシーに差し替えたため今回まとめて対応)、business_partner_contacts 4箇所
+  (loadRepresentativeContactsByPartnerIds / renderPartnerContactsList / loadBusinessPartnerContactsIndex /
+  fetchRepresentativeContact)、RPC search_business_partners 1箇所(fetchAndRenderPartners)。計19箇所、すべて
+  tableQueryAll/tableQueryAllIn/tableQueryMaybeSingle/rpcCallAll(既存の共通関数、新規実装なし)に置き換え。直接の
+  sb.from/sb.rpc呼び出しは0件になったことをgrepで確認済み。
+  - api/table-crud.js: estimations/estimation_days/estimation_fixed_rows/business_partner_contactsにreadable(query用の
+    列・演算子ホワイトリスト)を追加。RPC_WHITELISTをparams宣言方式に汎用化(型: date/string/enum、必須/任意)し、
+    search_business_partners(p_search任意・p_category任意でカテゴリ4種のみ)を追加。既存3本(入出金)の挙動は変更なし
+    (ハーネスで確認)。
+  - 空データで進む既存の危険(3件、修正済み): openEstimationEditorは見積もり・日程・固定費のいずれか1つでも取得に
+    失敗したら編集画面を開かず一覧へ戻す(保存時のreplaceByKeyによる全削除を防ぐ) / fetchRepresentativeContactは
+    取得失敗時にnullを返さず例外を投げる(saveRepresentativeContactが代表担当者を重複insertする不具合を防ぐ) /
+    deleteBookingDataは紐付く見積もりの取得に失敗したら例外で削除処理全体を中止する(converted_booking_idが
+    存在しない予約を指したまま残ることを防ぐ)。
+  - 追加で見つけた同種の危険(未報告分、あわせて修正): loadEstimations(一覧)・fetchAndRenderPartners(取引先一覧)は
+    取得失敗時に画面へエラー表示するのみに変更(以前は静かに0件のリストを表示していた)。deleteBookingData以外は
+    読み取り専用画面のため、いずれもデータ破壊のリスクは元々無い。
+  - 【PR #220 Preview指摘・修正済み(2026-09-29)】loadGuideAdvanceListを日付未指定のまま開くと
+    「読み込みエラー: Bad Request」になる不具合。原因: 日付が空だと全予約(2000件規模)が対象になり、
+    バッチ2の対象外(anon直接SELECTのまま)のtour_arrangements/guide_settlements/local_expensesへの
+    .in()の値が数千件になって、Supabase側でURL長超過等により400になる。この巨大な絞り込み自体は
+    main(#219時点)にも存在する既存の問題(コードで確認: 同じ.in()呼び出しが同じ形で存在)だが、
+    main側はこの3テーブルの取得結果を一切エラーチェックせず(data:null→||[]で空扱い)そのまま
+    進んでいたため、失敗しても気付かれずに(仮払額等が欠けたまま)表示されていた。今回のPRで追加した
+    「取得失敗時に画面へエラー表示する」対応をこの3テーブルにもそのまま適用してしまったため、
+    元々起きていた失敗がエラー画面として初めて可視化された(=このPRで新しく発生した不具合ではないが、
+    見え方が変わったのはこのPRの変更が原因)。
+    修正: バッチ2の対象外である3テーブル(tour_arrangements/guide_settlements/local_expenses)は、
+    mainと同じ「取得失敗時は空として続行(エラーはlogErrorで記録するのみ、画面には出さない)」に戻した。
+    バッチ2の対象であるestimations/estimation_daysは、200件チャンクのAPI経由のため同じ理由では
+    失敗しにくく、従来どおり失敗時はエラー表示のままとした。
+    恒久対応(この3テーブルもAPI経由の200件チャンクに migrate すれば同じ理由の失敗は防げる)は
+    今回のPRの対象外とし、残課題に記録する(下記「残課題」参照。バッチ2の範囲を超える追加の
+    テーブル移行のため、着手前にJUNへ確認する)。
+    検証: scratchpadハーネスで、この3テーブルが失敗してもエラー非表示で続行すること、
+    estimations/estimation_daysの失敗時は従来どおりエラー表示すること、正常系(予約0件)の3パターンを
+    確認(6件成功)。asSbResultの誤用(supabase-jsのビルダーが解決する{data,error}をそのまま
+    dataとして二重にラップしてしまっていた)にも気付き、素のsb.from()の{data,error}を直接destructureする
+    形に直した(既存のasSbResultはtableQueryAll系専用のアダプタであり、生のsupabase-jsビルダーには
+    使わない、という既存コードの一貫した使い方どおりに揃えた)。
+  - 検証: scratchpadハーネスで実handler20件・index.htmlの実関数9件(fetchRepresentativeContact/saveRepresentativeContact
+    の重複insert防止、loadEstimations/copyEstimation/fetchAndRenderPartnersの失敗時の挙動)がすべて成功。
+    openEstimationEditor/deleteBookingData/loadGuideAdvanceListはDOM・副作用への依存が大きいため、コードレビューと
+    構文チェックで確認(harness化は見送り)。
+  - APP_VERSION / MIN_WRITE_APP_VERSION を 2026092901 に上げた(2026-09-29 JUN指摘への対応。バッチ2のRLS有効化後、
+    古い画面はestimations/estimation_days/estimation_fixed_rows等をanon直接SELECTで読むため0件になる。特に
+    見積もり編集画面(openEstimationEditor)は日程・固定費明細を0件のまま開いてしまい、保存するとreplaceByKeyで
+    既存データが全削除される。このPRのコードはservice_role経由(query action)で読むためRLSの影響を受けないが、
+    今回のデプロイより前に開かれたままの旧タブは影響を受け続ける。そうした旧タブからの保存を426で止めるための
+    版上げ)。デプロイ後、開いたままの旧画面(2026092801以前)からの保存はすべて426 → 全員に再読み込みを依頼する。
+  - 未実行: 緊急対応SQL2本(estimation_fixed_rowsは前述のとおりJUN実行済み/実行予定、投稿の監査SQLは未実行)。
+    デプロイ・確認・全員の再読み込みの後、業務時間外に scripts/enable_rls_batch2.sql(未作成)を実行する
+    (business_partner_contacts/estimations/estimation_days/estimation_fixed_rowsのRLS有効化+GRANT REVOKE、
+    search_business_partners RPCのEXECUTE REVOKE、estimation_fixed_rowsの暫定ポリシーの削除(STEP 5)を含む)。
+  - コミットは1本にまとめた(JUN報告の6分割案から簡略化。テーブルごとの依存が薄く、レビューは1回のPreviewで足りるため)。
+    【JUN確認済み(2026-09-29)】今後、指示した分割方針を変える場合は事前にJUNへ相談すること。
 - search_business_partnersはbusiness_partner_contactsをJOINするSECURITY INVOKERのRPCのため、contactsのREVOKE前にAPI経由化が必須。
+- 【Preview実機確認の手順(期待値つき、2026-09-29)】openEstimationEditor/deleteBookingData/loadGuideAdvanceListはハーネス化
+  していないため、以下をJUNに確認してもらう。テスト用予約は「TEST-BATCH2」を新規作成し、確認後に削除する
+  (deleteBookingDataの確認にそのまま使う)。
+  1. 見積もり一覧(見積もりページを開く) → 期待: 一覧が表示される(エラー表示にならない)
+  2. 見積もりを1件新規作成(日程2行・固定費/入場料2行程度を入力) → 保存 → 一覧に戻る → 再度その見積もりを開く
+     → 期待: 入力した日程・固定費がすべて表示される(消えていない)
+  3. その見積もりを「コピー」 → 期待: タイトル末尾に「(コピー)」・日程と固定費がコピー元と同じ内容で複製される
+  4. TEST-BATCH2の予約を作成し、その予約詳細から見積もりを新規作成して保存(予約に紐づく見積もりにする)
+  5. 予約詳細を開き直す → 期待: 紐づく見積もりが表示される(予約データのアーカイブ出力に含まれるか、下記7で確認)
+  6. ガイド仮払い一覧ページで、TEST-BATCH2を含む期間を指定 → 期待: 一覧が表示される(エラー表示にならない)。
+     見積もりにガイド代(guide_fee等)を入れた日程がある場合、仮払い額に反映されることも確認
+  7. 予約データのアーカイブ出力(deleteBookingData実行前のバックアップダウンロード)→ 期待: ダウンロードされたJSONに
+     estimations(日程・固定費含む)が含まれる
+  8. 取引先マスタ画面で、担当者が登録済みの取引先を開く → 期待: 担当者一覧が表示される
+  9. 検索欄・カテゴリで絞り込み → 期待: 該当する取引先だけが表示される(空欄に戻すと全件に戻る)
+  10. 取引先を1件編集し、担当者欄(担当者名・電話番号等)を変更して保存 → 期待: 保存が成功し、担当者一覧に反映される
+  11. TEST-BATCH2の予約データを削除(deleteBookingData) → 期待: 削除前にバックアップがダウンロードされ、削除後に
+     一覧からTEST-BATCH2が消える。手順4で作成した見積もり自体は削除されず、予約詳細画面の見積もり一覧には
+     残るが「変換元の予約」欄は空になる(converted_booking_idの解除を確認。見積もり管理ページで確認)
+  - 上記すべてで、ブラウザの開発者ツールのコンソールにエラーが出ていないことも確認する。
 - business_partners / bookings / agents 等は今回のバッチ1〜3の一覧に無く、ブラウザから読めるまま(別バッチで扱う)。
 
 ## Web公開情報のマスタ取り込み(2026-09-25 調査・設計のみ報告、未着手・JUN判断待ち)
