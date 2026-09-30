@@ -180,6 +180,31 @@ index.htmlはNUL文字を含むためgrepは`-a`必須(-Iだと取りこぼす)�
    received_atのgte・複数キーワードのOR ilike・selectの列制限が未対応 → readableに追加が必要。失敗を握りつぶしている箇所
    (:13842, :15011, :15160)は明示エラーに直す。コード変更はまだ何も入っていない。
 
+### 7. parking_reservations(追加調査、2026-09-30。調査のみ・変更なし)
+- 使っているのは3経路だけで、**anonキーを使う処理はコード上に1つも無い**:
+  1. ブラウザ「駐車場 今すぐ予約」モーダル(index.html:13471-13700)→ /api/table-crud(Vercel関数・service_role): 一覧 index.html:13551(list, limit10)、
+     削除 :13581(delete)、登録/更新 :13697(save)。ラッパー :13541-13542(parkingReservationsApiCall)。サーバー側は api/table-crud.js:82
+     (actions: list/save/delete)、実装 :1020-1062(doParkingList/Save/Delete)、キー使用 sbFetch :620-630(apikey/Authorization とも service key)。
+     旧URL /api/parking-reservations は vercel.json:24 が table-crud に転送。ログイン検証つきセッショントークン+書き込みは画面の版ガード(426)対象。
+  2. parking-automation/book-parking-now.js(JUNさんのPCで手動実行するPlaywright自動化): `createClient(URL, SUPABASE_SERVICE_ROLE_KEY)` :237。
+     未設定なら :229-234 でエラー終了(anonフォールバック無し)。読み取り :240-244(status='即時実行待ち')、更新 :60/:63/:68(実行中/完了/失敗を書き戻し)。
+  3. scripts/backup_supabase_daily.ps1:155(日次バックアップ。読み取りのみ、SUPABASE_SERVICE_ROLE_KEY 必須 :55)。
+- 使われなくなった経路: parking-automation/parking-kyoto-terrsa.js:63-68 と parking-kyoto-terrsa-midnight.js:115-120 は、以前anonキーでINSERTしていたが
+  2026-09にanonキーとDB記録を削除済み(使用禁止スクリプト。コンソール出力のみ)。parking-automation/ の他ファイル・lib にSupabase参照は無い
+  (package.json:14 に @supabase/supabase-js があるのは book-parking-now.js 用)。guide.html・api/その他・email-automation・vercel cron・.github は参照なし。
+- リポジトリ内のSQL: scripts/lock_down_parking_reservations.sql:17 `revoke all ... from anon, authenticated`、:20 `grant select,insert,update,delete ... to service_role`。
+  作成SQLは parking-automation/README.md:317-333(`alter table ... disable row level security`)にあるのみ。
+  **parking_reservations に対する `create policy` は、リポジトリのどのSQL/README にも無い**。よって「anon向けCRUDポリシー(USING true)」は
+  リポジトリ外(ダッシュボード等)で作られたもので、コードでは追跡できない(RLSを後から有効化した際に作られた可能性)。
+- 実測(anon公開キーでGET limit=0): 42501 permission denied → **現状はGRANTが無いので読み書きできない**(lock_down SQLが効いている)。
+- リスク: ポリシー(USING true)はGRANTが無い間は無害だが、誰かが `grant ... to anon` や既定権限の再適用をした瞬間に、
+  支払方法・車両ナンバー・運転手氏名・電話番号が全件読み書き可能になる(GRANTとRLSポリシーの二重の安全弁のうち、ポリシー側が無効)。
+- REVOKE/ポリシー削除で止まる処理: **無し**(上記3経路は全てservice_role。service_roleはRLSをバイパスするのでポリシー削除でも動く)。
+  提案(未実行): `drop policy "<名前>" on public.parking_reservations;` を、事前に pg_policies で名前を確認し、RLS有効状態(relrowsecurity)を確認してから実行。
+  RLSを有効のまま残し、ポリシー0件=service_roleのみ、が最終形。戻しは `create policy ... for all to anon using (true) with check (true);`(元の定義を pg_policies で控えておくこと)。
+- 残タスク: JUNが `select policyname, roles, cmd, qual, with_check from pg_policies where tablename='parking_reservations';` と
+  `select relrowsecurity from pg_class where oid='public.parking_reservations'::regclass;` を確認 → ポリシー削除を業務時間外に(バックアップ→確認→実行→再確認の4ステップ)。
+
 ## 最新の決定事項と作業順(2026-09-25 JUN決定。新しいセッションはまずここを読む)
 
 ### 作業の順番
