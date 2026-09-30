@@ -35,7 +35,9 @@
   RPC 7本 — get_gross_summary/top_tours/trends, get_guide_settlements_summary, get_hotel_cancel_alert_counts, search_hotel_management,
   search_business_partners、Storage — guide-receipts の list/remove(deleteBookingData)。guide.html — bookings, guide_settlements,
   guide_settlement_items, learned_mappings のSELECT(書き込みは table-crud の guest* action)。
-- 書き込みは全テーブルAPI経由済み(anonの書き込み権限はerror_logs/access_logsのINSERTのみのはず)。
+- ブラウザ(コード)からの直接書き込みは全テーブルAPI経由済み。例外は access_logs/error_logs のINSERT 3箇所のみ(下の追加調査で再確認)。
+  【訂正】この行は初版で「anonの書き込み権限は…INSERTのみ**のはず**」と書いたが、DB権限の実測はしておらず推測だった。
+  実際の権限一覧はそれと食い違う(下記「anon書き込み権限の追加調査」)。
 
 ### 画面別の依存(RLS無効の30テーブル、主なもの)
 - 予約一覧/詳細/ダッシュボード: bookings, booking_hotels/buses/restaurants/facilities/guides/water_items, tour_arrangement_headers/notes,
@@ -73,6 +75,110 @@
 2. 本ファイル上部「作業の順番」のバッチ2→3→4を再開(バッチ2の計画は承認済み)。0件表示のtour_arrangements等の実態確認。
 3. guide.html の直接SELECT4テーブルとaccess_logs/error_logsのブラウザ直接アクセス、Storage(guide-receipts)のAPI化。
 4. 実行順序の厳守: コードをデプロイ→実機確認→RLS/REVOKE。RLSを先行させない。
+
+## anon書き込み権限の追加調査(2026-09-30、調査のみ・コード/DB変更なし。DB権限そのものは未取得)
+
+【背景】JUNがSupabaseの権限一覧で確認した anon の書き込み権限: card_holders(INSERT/UPDATE/DELETE)、estimation_day_fixed_items(同)、
+learned_mappings(同)、email_import_queue(INSERT)、access_logs/error_logs(INSERT)。前回の「書き込みはINSERT2テーブルだけ」は
+コード上の話としては正しいが、DB権限とは別物だった(権限は「できる」設定で、コードが使うかは別問題)。
+調査範囲: index.html・guide.html・api/・api/lib/・scripts/(SQL/JS/PS1)・email-automation(VBA/BAS/PS1/XML)・parking-automation・
+archive/・claude/・public/・templates/・vercel.json・package.json。`.github/`と`*.gs`(Apps Script)はリポジトリに存在しない。
+index.htmlはNUL文字を含むためgrepは`-a`必須(-Iだと取りこぼす)。
+
+### 1〜2. 6テーブルへの書き込み経路(キー種別・実行場所・ファイル:行)
+- ブラウザの直接書き込み(anonキー=sb_publishable_…)は index.html の3箇所のみ(sb.from全190箇所を複数行チェーン含め機械確認。
+  guide.htmlは書き込みなし):
+  - access_logs INSERT: index.html:3792(logAction。全操作の監査ログ)、index.html:3911(ログイン失敗の記録)
+  - error_logs INSERT: index.html:3866(logError。エラーの自動記録)
+  - 上記以外の`.insert/.update/.upsert/.delete`は0件。sb.rpc 7本は定義SQLにINSERT/UPDATE/DELETE無し(読み取り専用)。sb.storage は
+    guide-receiptsの list/remove のみ(index.html:10455,10457。テーブルではない)。
+- email_import_queue への書き込み(**anonキーを使うものは無い**):
+  - api/email-import.js:112 POST(on_conflict=subject,sender,received_at)= Vercel関数、service_role(:116)、x-import-key認証。
+    呼び出し元は Outlook VBA(email-automation/exports/2026-08-14/Module1_updated.bas:110-111)と
+    catchup-missed-mail.ps1:216-217(Windowsタスクスケジューラ)。どちらも x-import-key のみでanonキーは送らない。
+  - api/table-crud.js:302(updateById/updateByIds。5列ホワイトリスト)= Vercel関数、service_role。呼び出し元は index.html の
+    emailImportQueueApiCall(index.html:5972)。
+  - scripts(手元PCで手動/タスク実行、すべて SUPABASE_SERVICE_ROLE_KEY 必須・anonフォールバック無し): dedupe_email_import_queue.js:98-100(DELETE)、
+    bulk_apply_email_classification.js:44-46(PATCH)、clear_old_email_import_html_body.js:103-105(PATCH)、restore_email_snapshot.js:74-76(PATCH)。
+    restore_hayabusa_missing8.js:44-48 は汎用sbInsertだが呼び出しは booking_buses(:83)のみ。
+  - 【要注意】読み取りだがanonキー: email-automation/catchup-missed-mail.ps1:171-172 が sender,received_at を anon の
+    GET(/rest/v1/email_import_queue)で直接読む(重複排除用。失敗しても警告のみで続行=REVOKE後は重複防止が黙って効かなくなる。
+    重複は unique制約+ignore-duplicates で最終的に防がれる)。バッチ2でAPI化が必要(下の残タスク)。
+  - ps1 :23 に anonキー(JWT)がハードコードされている(:171-172でのみ使用)。
+- learned_mappings: 書き込みは全て API(service_role)= api/table-crud.js:290(upsertConfirm/deleteById/guestUpsertConfirm)、
+  :595-606(実体のGET/PATCH/POST)。呼び出し元 index.html:5981(learnedMappingsApiCall)、guide.html:325(guestUpsertConfirm)。
+  ブラウザの直接アクセスはSELECTのみ: index.html:6091, 29701、guide.html:299。
+- card_holders: 書き込みは API のみ = api/table-crud.js:551(insert/updateById。admin@kictravel.jp限定チェック :1827,:1893)、
+  index.html:4044,4055(cardHoldersApiCall :5878)。ブラウザの直接アクセスはSELECTのみ: index.html:4005(loadCardHolders)、:6060(fetchCcCardHolderStaff)。
+- estimation_day_fixed_items: **コード内の参照が0件**(index.html・api・scripts・email-automation・parking-automationとも。
+  文字列としては scripts/investigate_batch4_readable_tables.sql:36 と本メモのみ)。テーブルの作成SQLもリポジトリに無い
+  (ダッシュボード等で作られた孤児テーブルの可能性)。実測: anonから読めて0件(*/0)。
+- access_logs/error_logs の**読み取り**: access_logs は index.html:29869(loadLogs)がanon SELECT。error_logsの閲覧は
+  api/table-crud.js:89(list。閲覧者制限 :1875)経由。
+- archive/generate-haichisho.js:15-22 はanonキーで/rest/v1をGETのみ(bookings・tour_arrangement*・booking_hotels等。6テーブルへの書き込み無し。
+  アーカイブ済みで現行の経路ではないが、bookings系のSELECT REVOKE時に動かなくなる)。
+- PowerShellバックアップ(scripts/backup_supabase.ps1:41, backup_supabase_daily.ps1:55)は service_role 必須。読み取りのみ。
+- api/table-crud.js は access_logs をTABLE_CONFIGに持たない(サーバー経由の書き込み経路は無い)。error_logsは list のみ。
+
+### 権限が食い違う理由(推測。DBで要確認)
+- リポジトリのSQLは意図としては安全側: create_card_holders_table.sql:35-44 と create_learned_mappings.sql:20-29 は RLS有効+
+  読み取りポリシーのみ+`grant select to anon, authenticated`。lock_down_email_import_queue_writes.sql:20-21 は
+  `revoke insert,update,delete ... from anon`。しかし**GRANT SELECT は既定権限を消さない**。Supabaseでpublicに作った表は
+  既定で anon/authenticated に全権限が付く(2026/10/30より前)ため、明示的なREVOKEをしない限り INSERT/UPDATE/DELETE が残る。
+  card_holders/learned_mappings は REVOKE 文がSQLに無い → 権限が残っていて不思議ではない(RLSが有効で書き込みポリシーが無ければ
+  実害は出ないが、RLSの実状態は未確認)。
+- email_import_queue の anon INSERT が残っているのは、lock_down_email_import_queue_writes.sql が**未実行、または後から再GRANT**された可能性。
+  RLSが無効のままなら、公開キーを知る誰でも受信箱に偽メールを投入できる(要確認・優先)。
+- ※以上はコードとSQLファイルからの推測。実際の権限・RLS・既定権限(pg_default_acl)はDBを見ないと確定できない。
+
+### 3. card_holders
+- 前回の48テーブルに**含まれていた**(実測: anonから読めて4行)。使われ方は上記(画面: アカウント管理内「カード名義人マスタ」= index.html:4253 の
+  go('card-holders')→loadCardHolders、カード払いの名義人プルダウン = fetchCcCardHolderStaff)。バックアップ対象にも入っている。
+
+### 4. publicスキーマのテーブル名の突き合わせ(前回48との差分)
+- scripts/*.sql に`create table`があるのは18テーブルのみ(残り約30テーブルはリポジトリに作成SQLが無い=ダッシュボード等で作成)。
+  SQLに出るテーブル名で前回48に無いものは0件(SQL上の差分に見えた get_payment_monthly_summary/search_payment_income/search_payment_outflow は関数)。
+- 前回48に無く、メモ・SQL・DBプローブで見つかった名前:
+  - estimation_day_fixed_items: DBに存在(anon読み取り可・0件)、コード参照0件(上記)。
+  - audit_logs: DBに存在(anon読み取り不可=REVOKE済み)。コードはサーバー側(table-crud)からのみ。
+  - 存在しない(anonのプローブで PGRST205): booking_final_checks(ファイナルチェックの記録テーブル案。未作成)、
+    business_partner_facts / business_partner_web_candidates(Web取り込み機能の予定テーブル。未作成)、
+    suppliers / partner_merge_pending(DROP済み: scripts/drop_partner_merge_pending.sql ほか)。
+- 限界: publicスキーマの全テーブルはpg_tables/information_schemaを見ないと確定しない。コードにもメモにも出ない孤児テーブル
+  (estimation_day_fixed_items のような)が他にあり得る。anonキーではOpenAPI一覧(/rest/v1/)がsecret key専用で取得できない。
+
+### 5. 「anonの書き込み権限をREVOKEしたら止まる処理」
+- card_holders(INSERT/UPDATE/DELETE): **止まる処理なし**(書き込みは全てAPI)。SELECTは index.html:4005,6060 が使うため、SELECTのREVOKEはまだ不可。
+- learned_mappings(INSERT/UPDATE/DELETE): **止まる処理なし**(書き込みは全てAPI、guide.htmlもguestUpsertConfirm)。SELECT(index.html:6091,29701、guide.html:299)は不可。
+- estimation_day_fixed_items(INSERT/UPDATE/DELETE): **止まる処理なし**(コード参照0件)。ただし未把握の外部利用(手動SQL・別ツール)は
+  コードからは検出不能。SELECTを含む全REVOKEでも、コード上は止まらない。
+- email_import_queue(INSERT): **止まる処理なし(リポジトリ上のコードでは)**。Outlook VBA・catchup PS1・全スクリプトがAPI/service_role経由。
+  唯一のリスクは**JUNのPCのOutlookに入っているマクロが古い版(anon直POST)のままの場合**。リポジトリ上のVBAは2026/08/14・08/21に
+  x-import-key方式へ更新済みだが、実機のマクロがそれかは確認できない → REVOKE前にOutlookのVBAエディタで確認すること。
+  (SELECTのREVOKEはindex.htmlの9箇所+catchup-missed-mail.ps1:171 が止まる。バッチ2のAPI化が先。)
+- access_logs(INSERT): **止まる処理あり**: index.html:3792(logAction)と:3911(ログイン失敗)。どちらも失敗を握りつぶす(console.errorのみ)ため、
+  画面は普通に動くが**監査ログが黙って記録されなくなる**。先にAPI経由の記録に切り替える必要がある。
+- error_logs(INSERT): **止まる処理あり**: index.html:3866(logError)。失敗はconsole.errorのみで黙って記録されなくなる(エラー通知トーストは出る)。
+  同様に先にAPI化が必要(ログイン前のエラーも記録するなら、ログイン検証なしの専用actionが要る点に注意=スパム対策の設計が要る)。
+
+### 残タスク(この追加調査分)
+1. JUNがSQL Editorで実状態を確定(読み取り専用): 
+   - `select grantee, table_name, privilege_type from information_schema.role_table_grants where table_schema='public' and grantee in ('anon','authenticated') and privilege_type<>'SELECT' order by 2,1,3;`
+   - `select c.relname, c.relrowsecurity, c.relforcerowsecurity from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind='r' order by 2,1;`
+   - `select tablename, policyname, roles, cmd, qual, with_check from pg_policies where schemaname='public' order by 1,2;`
+   - `select defaclrole::regrole, defaclobjtype, defaclacl from pg_default_acl;`(既定権限が原因か確認)
+   - `select tablename from pg_tables where schemaname='public' order by 1;`(全テーブル名。estimation_day_fixed_itemsのような孤児の洗い出し)
+2. email_import_queue の anon INSERT: 上記1でRLS/ポリシーを見て、実害(偽メール投入)があるか判断 → 業務時間外に
+   lock_down_email_import_queue_writes.sql 相当のREVOKEを実行(戻しSQL付き)。前にOutlookマクロが最新版か確認。
+3. catchup-missed-mail.ps1:171 のanon GETを x-import-key 経由に変更(api/email-import.js に読み取りaction追加。ps1は手元PC反映が必要)。
+4. access_logs/error_logs のINSERTをAPI経由に移し、anon INSERTをREVOKE(設計: 未ログイン時のログイン失敗記録・スパム対策)。
+5. estimation_day_fixed_items: 用途を確認し、不要ならバックアップ→DROPを検討(金銭データでは無いが「削除」なので4ステップ手順に従う)。
+6. card_holders/learned_mappings/estimation_day_fixed_items の anon INSERT/UPDATE/DELETE(+TRUNCATE等)をREVOKE(止まる処理なし。SELECTは残す)。
+7. **バッチ2(email_import_queue)は着手済みだが未実装で中断**: 調査で分かった実装上の要点 — 直接アクセス9箇所(index.html:13838 fetchPromoBodyMatchIds、
+   :14537 fetchEmailInboxPendingRows、:14723 computeEmailExclusionPlan、:14904 applyEmailInboxSearch、:15009 renderEmailInboxPage、
+   :15159 prefetch、:15239 sendEmailToBooking、:15345 sendEmailToPartnerMaster)+ ps1:171。既存のquery基盤(table-crud.js buildQueryParams)は
+   received_atのgte・複数キーワードのOR ilike・selectの列制限が未対応 → readableに追加が必要。失敗を握りつぶしている箇所
+   (:13842, :15011, :15160)は明示エラーに直す。コード変更はまだ何も入っていない。
 
 ## 最新の決定事項と作業順(2026-09-25 JUN決定。新しいセッションはまずここを読む)
 
