@@ -205,6 +205,248 @@ index.htmlはNUL文字を含むためgrepは`-a`必須(-Iだと取りこぼす)�
 - 残タスク: JUNが `select policyname, roles, cmd, qual, with_check from pg_policies where tablename='parking_reservations';` と
   `select relrowsecurity from pg_class where oid='public.parking_reservations'::regclass;` を確認 → ポリシー削除を業務時間外に(バックアップ→確認→実行→再確認の4ステップ)。
 
+## RLS全体整理(2026-09-30 第3報。調査と設計のみ・コード/DB/別ブランチの変更なし。SQLは案で未実行)
+
+【前提】JUNがSQL Editorで確認した実DB: A群=RLS無効+anon SELECT(17)、B群=RLS有効だがanon向けSELECTポリシーが USING(true) で実質公開(17)。
+email_import_queue は anon の INSERT と SELECT が実際に通る。別ブランチ claude/magical-ride-6phzj3 は別セッションが作業中のため読むだけ(変更していない)。
+なお「バッチ2」の呼び名は**別ブランチ側では estimations 系**(下記638ef49)。email_import_queue の移行は、番号を付けず「email_import_queue移行(最優先)」と呼ぶ。
+
+### 1. コミット状態(git fetch後、2026-09-30)
+- origin/main = d326a3c(PR #219 マージ)。本作業ブランチ claude/jolly-bohr-wsq2w8 はその上に SESSION_NOTES.md の追記3コミットのみ(コード差分なし)。
+- claude/magical-ride-6phzj3 は main に対し 8コミット先行(0後行)。すべて別セッション(session_01PNZtD1…)、PR #220 相当・未マージ:
+  1. 2b2ebda(09-28) SESSION_NOTES.md のみ: PR #219 マージ後の作業手順を記録
+  2. e312a5a(09-29) `scripts/emergency_fix_estimation_fixed_rows_anon_policy.sql`(新規115行)、`scripts/investigate_dangerous_anon_policies.sql`(新規51行): SQLのみ・コード変更なし
+  3. 638ef49(09-29) `api/lib/app-version.js`(+6/-1。APP_VERSION/MIN_WRITE を 2026092901 へ)、`api/table-crud.js`(+100/-20)、`index.html`(+117/-69): estimations/estimation_days/estimation_fixed_rows/business_partner_contacts・RPC search_business_partners を query/rpc 経由に置換、空データで進む危険3件を修正
+  4. 04e79da(09-29) SESSION_NOTES.md のみ: 緊急対応・APP_VERSION・Preview実機確認手順(11項目)
+  5. 2de97b6(09-29) `index.html`: loadGuideAdvanceList を日付未指定で開くと Bad Request になる不具合の修正
+  6. a650421(09-29) SESSION_NOTES.md のみ: 上記の原因調査・残課題・仮払い一覧の表示見直し依頼
+  7. 1adaf90(09-29) `index.html`: 仮払い一覧は日付未指定時に既定で直近60日、バッチ対象外3テーブルの失敗は小さい注意表示
+  8. 54a8f3a(09-29) SESSION_NOTES.md のみ: 上記の記録(恒久対応=3テーブルのAPI経由化はバッチ3・4に含める)
+  - `scripts/enable_rls_batch2.sql` は**まだ存在しない**(e312a5a のSTEP 5と04e79da が「これから作成」と記載)。
+
+### 2. e312a5a のSQL全文(実行はしていない。STEP 0/1/2/4 と investigate は読み取り専用SELECT。書き込みは STEP 3 と STEP 5 予定分のみ)
+STEP 3 の本体:
+```sql
+revoke insert, update, delete, truncate, references, trigger on public.estimation_fixed_rows from anon, authenticated;
+drop policy if exists "Allow anon full access to estimation_fixed_rows" on public.estimation_fixed_rows;
+drop policy if exists estimation_fixed_rows_temp_read_only on public.estimation_fixed_rows;
+create policy estimation_fixed_rows_temp_read_only on public.estimation_fixed_rows for select to anon, authenticated using (true);
+comment on policy estimation_fixed_rows_temp_read_only on public.estimation_fixed_rows is '2026-09-29緊急対応の暫定措置。バッチ2(API経由化)デプロイ・確認後に削除すること。';
+notify pgrst, 'reload schema';
+```
+STEP 5(バッチ2のRLS有効化SQL `enable_rls_batch2.sql` に含める予定、ファイル単体では実行しない):
+```sql
+drop policy if exists estimation_fixed_rows_temp_read_only on public.estimation_fixed_rows;
+revoke select on public.estimation_fixed_rows from anon, authenticated;
+```
+STEP 0(rowsecurity / pg_policies / role_table_grants の確認)、STEP 2(削除後のanon許可ポリシー数)、STEP 4(pg_policies / grants / has_table_privilege 6種の確認)はすべてSELECT。
+investigate_dangerous_anon_policies.sql は SELECT 3本(anon/publicの無条件書き込み系ポリシー、anon/publicのSELECTポリシー一覧、RLS有効でポリシー0件のテーブル)。
+
+### 3. 別ブランチ(638ef49)の所見 — **未解消の直接SELECTが残っている**
+- `index.html`(別ブランチ)11909-11910 の copyEstimation 内 `fetchChildRows = async (table)=>{ const {data: rows} = await sb.from(table).select('*').eq('estimation_id', id); ... }` が
+  estimation_days / estimation_fixed_rows(:11914-11915)を**まだブラウザから直接**読む。しかも error を見ず `rows||[]` で空配列にする。
+  04e79da の「直接のsb.from/sb.rpc呼び出しは0件になったことをgrepで確認済み」は、テーブル名が変数の `sb.from(table)` を見落としている。
+- 影響: e312a5a のSTEP 5(SELECTポリシー削除+REVOKE)や estimation_days のRLS有効化を先に実行すると、見積もりの「コピー」が
+  日程・固定費が空のまま**エラー無しで成功**する(コピー元は無事だが、コピー先が空)。実機確認手順(04e79da の手順3)でも、
+  ポリシー削除前なら見落とす。→ 別セッションに伝えて修正してもらうこと(本セッションは別ブランチに触れない)。
+- 同種の動的指定は main にも残る(下の一覧の[動的]): fetchAllRowsGeneric(:6156)、confirmArrCopy(:13143)、checkNoSaveConflict(:13315)。
+
+### 4. 33テーブルの anon キー使用箇所(git show で main と別ブランチの index.html を機械抽出。行番号は main の d326a3c。別ブランチでは +20〜60行ずれる)
+【使用先の全範囲】anon(公開)キーを持つファイルはこの4つだけ: `index.html`、`guide.html`、`archive/generate-haichisho.js`(:15 `process.env.SUPABASE_KEY || 'sb_publishable_…'`)、
+`email-automation/catchup-missed-mail.ps1`(:23 anon JWT。:171-172 で使用)。scripts/・parking-automation・api/・*.bas・*.vba は service_role 必須または API 経由
+(`.gs` は存在しない)。sb.from は index.html 全190箇所(コメント内0)を同一行パターンで機械抽出済み。
+`archive/generate-haichisho.js` は vercel.json にも api/ にも無い未配線の旧コードで、bookings(:195)・tour_arrangements(:199)・tour_arrangement_days(:207)・booking_hotels(:209)を anon GET する。
+RPC は全て SECURITY INVOKER(リポジトリのSQL定義。本番で prosecdef=false を確認済みなのは入出金3本と search_business_partners の4本のみ。gross系・仮払い集計・ホテル系は本番未確認=要確認)で、内部で読むテーブルは anon 権限で読む:
+get_gross_summary/get_gross_top_tours/get_gross_trends → bookings、get_guide_settlements_summary → guide_settlements+guide_settlement_items、
+get_hotel_cancel_alert_counts → booking_hotels、search_hotel_management → booking_hotels+bookings、search_business_partners → business_partners+business_partner_contacts。
+
+**A群(RLS無効+anon SELECT) 17テーブル**
+
+- `arrangement_document_days`: main= index.html backupBookingDataBeforeDelete:10387, openGuideDocEditor:20152, buildGuideDocExportPayload:20340, runSkippableIsolated:20991 / 別ブランチ= 未対応(別ブランチでも変化なし)
+- `arrangement_document_notes`: main= index.html backupBookingDataBeforeDelete:10388, openGuideDocEditor:20153, buildGuideDocExportPayload:20341, runSkippableIsolated:20992 / 別ブランチ= 未対応(別ブランチでも変化なし)
+- `arrangement_documents`: main= index.html backupBookingDataBeforeDelete:10361, loadGuideDocsList:19959, syncArrangementDocumentsFromDraft:20021, openGuideDocEditor:20151, buildGuideDocExportPayload:20339, runSkippableIsolated:20985 / 別ブランチ= 未対応(別ブランチでも変化なし)
+- `booking_guides`: main= index.html openBookingDetail:9549, backupBookingDataBeforeDelete:10356, checkGuideDoubleBookings:19036, remapGuideArrangementDocuments:19664, syncArrangementDocumentsFromDraft:20019, runSkippableIsolated:20984, renderTourCalendar:27129, checkNoSaveConflict[動的]:13315 / 別ブランチ= 未対応(別ブランチでも変化なし)
+- `booking_water_items`: main= index.html generateLocalExpensesFromArrangements:9130, openBookingDetail:9574, backupBookingDataBeforeDelete:10367, _fetchFreshArrangementSourceTables:19462, confirmArrCopy[動的]:13143 / 別ブランチ= 未対応(別ブランチでも変化なし)
+- `bullet_train_arrangements`: main= index.html generateLocalExpensesFromArrangements:9133, openBookingDetail:9575, backupBookingDataBeforeDelete:10355, loadBulletTrains:25320, onBtCsvFileSelected:25652 / 別ブランチ= 未対応(別ブランチでも変化なし)
+- `business_partner_contacts`: main= index.html loadRepresentativeContactsByPartnerIds:25827, renderPartnerContactsList:27500, loadBusinessPartnerContactsIndex:27657, fetchRepresentativeContact:27721; RPC経由: search_business_partners(index.html:27353) / 別ブランチ= 別ブランチで解消(直接4→0、RPCもAPI化)
+- `estimation_days`: main= index.html exportBookingArchive:10165, exportFiscalYearArchive:10295, openEstimationEditor:11979, loadGuideAdvanceList:21475, copyEstimation[動的]:11899 / 別ブランチ= 別ブランチで**未解消**(copyEstimation の動的SELECT copyEstimation[動的]:11910 が残る。他は解消)
+- `estimations`: main= index.html exportBookingArchive:10147, exportFiscalYearArchive:10279, deleteBookingData:10500, loadEstimations:11777, copyEstimation:11878, openEstimationEditor:11964, loadGuideAdvanceList:21466 / 別ブランチ= 別ブランチで解消(7→0)
+- `facility_operating_info`: main= index.html loadFacilityOperatingInfoCache:17060 / 別ブランチ= 未対応(別ブランチでも変化なし)
+- `tour_arrangement_days`: main= index.html openArrangementEditor:9906, exportBookingArchive:10157, exportFiscalYearArchive:10289; archive/generate-haichisho.js:207 / 別ブランチ= 未対応(別ブランチでも変化なし)
+- `tour_arrangement_headers`: main= index.html openBookingDetail:9610, backupBookingDataBeforeDelete:10357, renderTourCalendar:27130 / 別ブランチ= 未対応(別ブランチでも変化なし)
+- `tour_arrangement_notes`: main= index.html openBookingDetail:9613, backupBookingDataBeforeDelete:10360 / 別ブランチ= 未対応(別ブランチでも変化なし)
+- `tour_arrangements`: main= index.html loadArrangementsList:9849, openArrangementEditor:9901, exportBookingArchive:10146, exportFullBackup:10226, exportFiscalYearArchive:10278, backupBookingDataBeforeDelete:10363, deleteBookingData:10478, loadGuideAdvanceList:21465; archive/generate-haichisho.js:199 / 別ブランチ= 未対応(別ブランチでも変化なし)
+- `tour_day_itinerary`: main= index.html generateLocalExpensesFromArrangements:9131, openBookingDetail:9612, backupBookingDataBeforeDelete:10359 / 別ブランチ= 未対応(別ブランチでも変化なし)
+- `tour_guides`: main= index.html openBookingDetail:9611, backupBookingDataBeforeDelete:10358 / 別ブランチ= 未対応(別ブランチでも変化なし)
+- `vendor_email_logs`: main= index.html fetchVendorEmailSentMap:6223, backupBookingDataBeforeDelete:10369, remapVendorEmailLogSourceIds:19529 / 別ブランチ= 未対応(別ブランチでも変化なし)
+
+**B群(RLS有効だが anon SELECT ポリシー USING(true)) 17テーブル**
+
+- `agents`: main= index.html loadAgents:28948, _ensureAgentsCacheLoaded:28964, processAgentCardFile:29324, loadDeletedAgents:29641, showInvoicePreview:30633/30636 / 別ブランチ= 未対応(別ブランチでも変化なし)
+- `bookings`: main= index.html fetchAllBookings:4276, fetchBookingsListLight:4297, refreshAgentUnlinkedBanner:5041, openBookingDetail:9406, backupBookingDataBeforeDelete:10347, showArrCopyRefSuggest:13066, confirmArrCopy:13127/13132, submitEmailSplit:16068/16074, warnRestaurantConflicts:16736, renderRestaurantConflicts:16833, saveBooking:21188, loadGross:21232/21233/21263, findCcMatchCandidates:23623/23646, loadCreditCardStatements:23739, openCcMatchModal:23947, searchCcManualMatch:24121, onBtCsvFileSelected:25632, tcBuildAgentColorMap:26890, renderTourCalendar:27110; guide.html:150; archive/generate-haichisho.js:195; RPC経由: get_gross_summary(:21256), get_gross_trends(:21350), get_gross_top_tours(:21403), search_hotel_management(:25232) / 別ブランチ= 未対応(別ブランチでも変化なし)
+- `booking_buses`: main= index.html generateLocalExpensesFromArrangements:9127, openBookingDetail:9571, backupBookingDataBeforeDelete:10352, remapArrDayForeignKeys:19423, _fetchFreshArrangementSourceTables:19459, renderTourCalendar:27128, fetchAllRowsGeneric[動的]:6156, confirmArrCopy[動的]:13143, checkNoSaveConflict[動的]:13315 / 別ブランチ= 未対応(別ブランチでも変化なし)
+- `booking_facilities`: main= index.html fetchAllBookingFacilities:4319, fetchAllFacilityDeadlineItems:4765, generateLocalExpensesFromArrangements:9129, openBookingDetail:9573, backupBookingDataBeforeDelete:10354, fmFetchExistingForDupCheck:18184, _fetchFreshArrangementSourceTables:19461, confirmArrCopy[動的]:13143 / 別ブランチ= 未対応(別ブランチでも変化なし)
+- `booking_hotels`: main= index.html generateLocalExpensesFromArrangements:9132, openBookingDetail:9562, backupBookingDataBeforeDelete:10351, ensureEmailInboxSuggestIndex:14133, remapArrDayForeignKeys:19422, _fetchFreshArrangementSourceTables:19458, hmFetchExistingForDupCheck:22882, loadHotelManagement:25129, renderTourCalendar:27122, fetchAllRowsGeneric[動的]:6156, confirmArrCopy[動的]:13143, checkNoSaveConflict[動的]:13315; archive/generate-haichisho.js:209; RPC経由: get_hotel_cancel_alert_counts(:25161), search_hotel_management(:25232) / 別ブランチ= 未対応(別ブランチでも変化なし)
+- `booking_restaurants`: main= index.html generateLocalExpensesFromArrangements:9128, openBookingDetail:9572, backupBookingDataBeforeDelete:10353, fetchOtherRestaurantRowsByDates:16703, renderRestaurantConflicts:16791, remapArrDayForeignKeys:19424, _fetchFreshArrangementSourceTables:19460, confirmArrCopy[動的]:13143 / 別ブランチ= 未対応(別ブランチでも変化なし)
+- `business_partners`: main= index.html loadSuppliersCache:7772, loadBusCompaniesCache:7890, loadHotelPartnersCache:7951, loadFacilityPartnersCache:7994, loadRestaurantPartnersCache:8288, loadAllPartnersCache:8326, ensureEmailInboxSuggestIndex:14145, printArrangementSummaryList:26208, loadPartners:27283, processCardFile:28008, handleMultiLocBatchUpload:28311, batchSaveAndNext:28458, loadDeletedPartners:28889, fetchAllRowsGeneric[動的]:6156; RPC経由: search_business_partners(index.html:27353) / 別ブランチ= 未対応(別ブランチでも変化なし)
+- `guides`: main= index.html _resolveGuideIdByName:11146, askVoucherPaymentInfo:11185, populateGuideRegistrySelects:21605, loadGuideRegistry:21631, loadDeletedGuides:21886 / 別ブランチ= 未対応(別ブランチでも変化なし)
+- `guide_settlements`: main= index.html generateLocalExpensesFromArrangements:9164, exportBookingArchive:10148, exportFullBackup:10227, exportFiscalYearArchive:10280, backupBookingDataBeforeDelete:10362, deleteBookingData:10452, loadGuideSettlements:10561, syncAdvancePaymentsFromCosts:10910, loadGuideAdvanceList:21467, printGuideSettlementFromList:21995; guide.html:133,143; RPC経由: get_guide_settlements_summary(:21935) / 別ブランチ= 未対応(別ブランチでも変化なし)
+- `guide_settlement_items`: main= index.html exportBookingArchive:10177, exportFiscalYearArchive:10302, backupBookingDataBeforeDelete:10400, loadGuideSettlements:10564, printGuideSettlementFromList:21999; guide.html:156; RPC経由: get_guide_settlements_summary(:21935) / 別ブランチ= 未対応(別ブランチでも変化なし)
+- `local_expenses`: main= index.html openBookingDetail:9688, backupBookingDataBeforeDelete:10368, loadGuideAdvanceList:21468 / 別ブランチ= 未対応(別ブランチでも変化なし)
+- `estimation_booking_reflections`: main= index.html openBookingDetail:9703, backupBookingDataBeforeDelete:10370 / 別ブランチ= 未対応(別ブランチでも変化なし)
+- `estimation_fit_items`: main= **なし** / 別ブランチ= 使用0件
+- `estimation_fixed_rows`: main= index.html exportBookingArchive:10166, exportFiscalYearArchive:10296, openEstimationEditor:11982, copyEstimation[動的]:11899 / 別ブランチ= 別ブランチで**未解消**(copyEstimation の動的SELECT copyEstimation[動的]:11910 が残る。他は解消)
+- `card_holders`: main= index.html loadCardHolders:4005, fetchCcCardHolderStaff:6060 / 別ブランチ= 未対応(別ブランチでも変化なし)
+- `learned_mappings`: main= index.html fetchLearnedMappings:6091, loadLearnedMappingsAdmin:29701; guide.html:299 / 別ブランチ= 未対応(別ブランチでも変化なし)
+- `email_import_queue`: main= index.html fetchPromoBodyMatchIds:13838, fetchEmailInboxPendingRows:14537, computeEmailExclusionPlan:14723, applyEmailInboxSearch:14904, renderEmailInboxPage:15009, prefetchEmailInboxNextPageBodies:15159, sendEmailToBooking:15239, sendEmailToPartnerMaster:15345; email-automation/catchup-missed-mail.ps1:171 / 別ブランチ= 未対応(別ブランチでも変化なし)
+
+### 5. 使用0件のテーブルのロックSQL/ロールバックSQL(案・未実行)
+共通の実行前確認(読み取り専用。CLAUDE.md「RLSポリシー削除・REVOKE作業の手順」): 
+`select tablename, rowsecurity from pg_tables where schemaname='public' and tablename in (…);` と
+`select tablename, policyname, roles, cmd, qual from pg_policies where schemaname='public' and tablename in (…);` を実行し、ポリシー名を控える。
+ロックSQLは service_role への GRANT を必ず含める(過去に GRANT漏れで permission denied が起きた: scripts/fix_group1_service_role_grants.sql)。
+REVOKE の前提は、APIサーバー側(service_role)がRLSをバイパスすることと、下の「使用0件」が anon 経路(ブラウザ/guide.html/archive/ps1/RPC)で0件であること。
+
+**(a) 今すぐ可: estimation_fit_items**(anon経路の使用0件。サーバー側は table-crud.js の deleteByField のみ=service_role、scripts/check_estimation_fit_items_count.js も service_role 必須)
+```sql
+-- ロック
+revoke all on table public.estimation_fit_items from anon, authenticated;
+alter table public.estimation_fit_items enable row level security;
+grant select, insert, update, delete on table public.estimation_fit_items to service_role;
+notify pgrst, 'reload schema';
+-- ロールバック(元はRLS有効+anon SELECTポリシー USING(true) のため、SELECTを戻せば元どおり読める)
+grant select on table public.estimation_fit_items to anon, authenticated;
+--   指示どおり「RLS無効に戻す」場合のみ追加: alter table public.estimation_fit_items disable row level security;
+--   (元がRLS有効なので、厳密な原状回復ならdisableしない)
+notify pgrst, 'reload schema';
+```
+**(b) 別ブランチ(claude/magical-ride-6phzj3)のマージ+本番デプロイ+全員再読み込み後に0件になる: estimations、business_partner_contacts**(A群=RLS無効)
+- business_partner_contacts は RPC search_business_partners も同ブランチでAPI化されるため、RPCのEXECUTE REVOKEも同時に行う。
+```sql
+-- ロック
+revoke all on table public.estimations from anon, authenticated;
+alter table public.estimations enable row level security;
+grant select, insert, update, delete on table public.estimations to service_role;
+revoke all on table public.business_partner_contacts from anon, authenticated;
+alter table public.business_partner_contacts enable row level security;
+grant select, insert, update, delete on table public.business_partner_contacts to service_role;
+revoke execute on function public.search_business_partners(text, text) from anon, authenticated, public;
+notify pgrst, 'reload schema';
+-- ロールバック(SELECTのみ・RLS無効に戻す)
+alter table public.estimations disable row level security;
+grant select on table public.estimations to anon, authenticated;
+alter table public.business_partner_contacts disable row level security;
+grant select on table public.business_partner_contacts to anon, authenticated;
+grant execute on function public.search_business_partners(text, text) to anon, authenticated, public;
+notify pgrst, 'reload schema';
+```
+**(c) 条件付き(copyEstimation の動的SELECT修正後に0件): estimation_days、estimation_fixed_rows**
+- 修正前に実行すると、見積もりのコピーが空の日程・固定費でエラー無しに成功する(上の3.参照)。
+```sql
+-- ロック
+revoke all on table public.estimation_days from anon, authenticated;
+alter table public.estimation_days enable row level security;
+grant select, insert, update, delete on table public.estimation_days to service_role;
+drop policy if exists estimation_fixed_rows_temp_read_only on public.estimation_fixed_rows;   -- e312a5a STEP 5
+revoke all on table public.estimation_fixed_rows from anon, authenticated;
+alter table public.estimation_fixed_rows enable row level security;
+grant select, insert, update, delete on table public.estimation_fixed_rows to service_role;
+notify pgrst, 'reload schema';
+-- ロールバック
+alter table public.estimation_days disable row level security;
+grant select on table public.estimation_days to anon, authenticated;
+create policy estimation_fixed_rows_temp_read_only on public.estimation_fixed_rows for select to anon, authenticated using (true);
+grant select on table public.estimation_fixed_rows to anon, authenticated;
+notify pgrst, 'reload schema';
+```
+- 上記以外の31テーブルは anon 経路の使用があり、現時点で使用0件のテーブルは estimation_fit_items のみ(他ブランチのマージ後は+estimations、business_partner_contacts)。
+
+### 6. 使用箇所のあるテーブル: 置き換え先・優先順位(露出の大きさ順のバッチ案)
+【置き換え先の既存パターン(api/table-crud.js)】TABLE_CONFIG[table].readable(filters/order のホワイトリスト)+ index.html の tableQueryAll / tableQueryAllIn(200件分割)/ tableQueryBatch(5クエリ/回)/
+tableQueryMaybeSingle / tableQueryCount / rpcCallAll(RPC_WHITELIST。別ブランチで params 宣言方式へ汎用化)。読み取りは ログイン検証必須(verifySessionToken)・失敗は例外(部分結果を返さない)。
+現状 readable を持つのは booking_sales / booking_costs / invoices / credit_card_statements / business_partner_guide_notices / business_partner_aliases(main)。
+guide.html はログイン無し(精算リンクの access_token)なので、table-crud の guest 系と同様の**読み取り専用ゲストaction**(トークン照合つき)が別途必要。
+`.or()` / `gte` / 複数キーワード ilike / 列の絞り込み(selectable)は現行 readable が未対応 → 着手前に各呼び出しの絞り込みを洗い出し、演算子を最小限で追加する。
+新規に取得処理を作る箇所は CLAUDE.md の「5分TTLキャッシュ・必要列のみ」を最初から適用する。
+
+【露出の大きさ(公開キーで誰でも読める量・機微度)による優先順位案】行数は 2026-09-30 の anon 実測。
+1. **email_import_queue**(8,124行、メール本文・送信者。anon INSERT も通る=偽メール投入可)— 最優先。設計は次の7.
+2. **ガイド精算系**: guide_settlements(63行。**access_token を含み、anonが全トークンを読める=他人のガイド精算リンクで書き込み操作(guestInsert等)が可能**)、
+   guide_settlement_items(2,647行)、guides(135行)。guide.html の読み取り(:133,143,150,156)と get_guide_settlements_summary の対応が必要。
+3. **取引先・Agent**: business_partners(1,172行)、agents(156)、learned_mappings(822。送信元学習)、card_holders(4)。business_partner_contacts(365)は別ブランチ側で完了予定。
+4. **予約系**: bookings(1,363。24箇所+guide.html+archive+RPC4本)、booking_hotels/buses/restaurants/facilities、local_expenses(780。金額)、estimation_booking_reflections。
+   最も箇所が多く、backupBookingDataBeforeDelete / exportFullBackup / exportFiscalYearArchive など全テーブル読みの機能を含むため最後寄りだが、bookings 自体の露出は大きい(顧客・日程)。分割して段階的に。
+5. **手配書・ツアー系**: tour_arrangements 系、arrangement_document 系、bullet_train_arrangements、tour_guides、tour_day_itinerary、booking_guides、booking_water_items、vendor_email_logs、facility_operating_info(1行)。
+   行数は少なく(0〜1,268)、`archive/generate-haichisho.js` は退役(削除)が最短。
+6. **使用0件(先行)**: estimation_fit_items → 上の5.(a)。estimations / business_partner_contacts → 別ブランチのマージ後に5.(b)。
+- 各バッチの共通手順: コード→デプロイ→実機確認→全員再読み込み(APP_VERSION引き上げ)→業務時間外にRLS有効化+REVOKE(ロールバックSQL併記)。RLS有効化を先行させない。
+
+### 7. email_import_queue 移行設計(実装はしない。コード変更ゼロのまま保留)
+【ブラウザの直接アクセス8箇所(main d326a3c の index.html。すべて anon SELECT。書き込みは既に emailImportQueueApiCall=table-crud 経由)】
+| 関数 | 行 | 内容 | 置き換え案 |
+|---|---|---|---|
+| fetchPromoBodyMatchIds | 13838 | id IN(500件) + body に広告キーワードのOR ilike。失敗は握りつぶし(continue) | readable に `ilikeContainsAny`(本文のキーワード配列、最大20件)を追加。id は200件ずつ tableQueryBatch。失敗は画面に警告表示(補助判定でも黙らない) |
+| fetchEmailInboxPendingRows | 14537 | imported=false, ignored=false, (is_excluded=false), received_at>=since, order received_at desc, 列は id/subject/sender/received_at/postponed/is_excluded/excluded_reason | filters に imported/ignored/is_excluded の eq、received_at の `gte`(新規)を追加。tableQueryAll。失敗は例外→既存の画面エラー |
+| computeEmailExclusionPlan | 14723 | 未処理全件を body 込みで取得(数千行×本文) | tableQueryAll(サーバーが約3MB/5秒で分割)。件数が多いので進捗表示を検討。失敗は例外(既存どおり) |
+| applyEmailInboxSearch | 14904 | imported=false, ignored=false, id IN(500), body ilike %term% | ilikeContains(既存)。id は200件分割+tableQueryBatch。`*` を含む検索語はサーバーが拒否するのでメッセージ表示。既存のエラー表示div(:14913)を維持 |
+| renderEmailInboxPage | 15009 | 表示ページ(50件)の body を id IN で取得。失敗は無視して本文が空に見える | tableQueryAllIn。**失敗時は一覧の上に赤字の警告を表示**(空の本文を成功扱いにしない) |
+| prefetchEmailInboxNextPageBodies | 15159 | 次ページの先読み。失敗は無視 | 同上の取得。失敗は先読みなので静かに諦めてよいが、本表示時(上行)に必ず再取得されエラーが出る |
+| sendEmailToBooking | 15239 | id=eq の1行を subject,body,html_body,sender で取得(.single()) | tableQueryMaybeSingle。0件・失敗は alert(既存 :15240) |
+| sendEmailToPartnerMaster | 15345 | id=eq の1行を subject,body,sender で取得 | 同上(既存 :15346 の alert を維持) |
+- ほか(anon SELECT): `email-automation/catchup-missed-mail.ps1:171-172`(下記の専用アクション)。書き込み(INSERT)は Outlook VBA/ps1 とも x-import-key の `api/email-import.js` 経由でanonキー不使用(前回調査)。
+
+【api/table-crud.js への追加(案)】TABLE_CONFIG.email_import_queue に readable:
+- filters: id[eq,in]、imported[eq]、ignored[eq]、is_excluded[eq]、received_at[gte(新規。ISO日時文字列のみ)]、body[ilikeContains, ilikeContainsAny(新規)]
+- 新規: `selectable`(読める列のホワイトリスト: id, subject, sender, received_at, postponed, is_excluded, excluded_reason, imported, ignored, body, html_body。`*` は不可。attachments 等は出さない)
+- order: received_at, id。既存の updatableFields(5列)・restrictedFieldValues は変更しない。
+- 認証: 既存の query と同じ verifySessionToken(ログイン必須。ゲストには開放しない)。
+
+【catchup-missed-mail.ps1:171 を置き換える x-import-key 認証つき読み取りアクション(案)】
+- 入口: 既存の `api/email-import.js`(POST `/api/email-import-insert`、vercel.json の legacyMode=insert)。ハンドラ冒頭の `x-import-key` 検証(timingSafeEqual、EMAIL_IMPORT_API_KEY)を通過した後に、`body.action === 'listKeysSince'` を追加(既存 `checkDuplicate` と同じ形)。
+- リクエスト: `{ "action": "listKeysSince", "since": "2026-09-29T12:34:56+09:00" }`(ps1 の `Get-JstString $lastCheck` と同じ形式)。`since` は ISO8601 を正規表現で検証し、過去60日より古い/未来は 400。
+- 処理: service_role で `email_import_queue?select=sender,received_at&received_at=gte.<since>&order=received_at.asc,id.asc` を 1,000件ずつ取得(offset ループ、最大20ページ・約5秒で打ち切り)。読み出す列は sender と received_at のみ(本文は返さない)。
+- レスポンス: `{ ok:true, rows:[{sender, received_at}], truncated:false }`。打ち切った場合は truncated:true。エラーは 502 と `{error}`。received_at は今と同じ +00:00 形式のまま返す(ps1 の +09:00 への正規化コードは無変更で動く)。
+- ps1 側の変更: :168-182 の Invoke-RestMethod(anon GET)を `Invoke-RestMethod -Uri $IMPORT_API_URL -Method Post -Headers @{'x-import-key'=$IMPORT_API_KEY}`(既存 :216-217 と同形)に変え、:23 の anon JWT 定数を削除。失敗時は現状の WARNING 継続でよいが、`truncated:true` の場合は WARNING を出す(重複は unique制約+ignore-duplicates が最終防御)。
+- **順序(JUNの手順)**: ①api/email-import.js の新アクションを含むPRをマージ → ②本番デプロイ完了を確認(Vercelの Deployments。新アクションを curl か PowerShell で1回叩き、`ok:true` を確認) → ③JUNのPC上の ps1 を差し替え(旧ps1は anon SELECT が生きている間は動き続けるので、差し替えを急ぐ必要はないが、RLS/REVOKE より前に必須) → ④catchup-log.txt の `Existing queue keys since LastCheck: N` が0でないことを確認 → ⑤その後に email_import_queue の SELECT REVOKE。先に③を行うと新アクションが無く重複防止が止まる。
+
+【email_import_queue のRLS/REVOKE SQL(案・未実行。デプロイ+実機確認+ps1差し替え後にJUNが業務時間外に実行。anon の INSERT の REVOKE は含めない=Outlookマクロ確認待ち)】
+```sql
+-- 事前確認(読み取り専用)。ポリシー名を控える
+select tablename, rowsecurity from pg_tables where schemaname='public' and tablename='email_import_queue';
+select policyname, roles, cmd, qual, with_check from pg_policies where schemaname='public' and tablename='email_import_queue';
+-- 本体(<SELECTポリシー名> は上の結果から。cmd が SELECT または ALL で roles に anon/public を含むものが対象。INSERT用ポリシーは残す)
+drop policy if exists "<SELECTポリシー名>" on public.email_import_queue;
+revoke select, update, delete, truncate, references, trigger on public.email_import_queue from anon, authenticated;
+alter table public.email_import_queue enable row level security;
+grant select, insert, update, delete on public.email_import_queue to service_role;
+notify pgrst, 'reload schema';
+-- ロールバック(SELECTのみを戻す。INSERTは元々変更しない)
+grant select on public.email_import_queue to anon, authenticated;
+create policy email_import_queue_anon_select on public.email_import_queue for select to anon, authenticated using (true);
+notify pgrst, 'reload schema';
+```
+- 注意: INSERT を残す間は、公開キーを知る誰でも受信箱へ偽メールを投入できる状態が続く(Outlookマクロが x-import-key 版と確認できたら別SQLで INSERT を REVOKE)。
+  `on conflict (subject,sender,received_at)` の unique制約は既存。
+
+### 8. e312a5a と、今日JUNがSQL Editorで実行したSQLとの重複・競合(実行はしていない)
+| 今日実行したSQL | e312a5a との関係 |
+|---|---|
+| TRUNCATE/REFERENCES/TRIGGER の剥奪、default privileges の REVOKE | **重複(害なし)**: STEP 3(a) は estimation_fixed_rows だけに `revoke insert, update, delete, truncate, references, trigger` を実行。REVOKEは無い権限に対してもエラーにならず冪等。今日のREVOKEが先に効いていれば no-op。default privileges(将来作るテーブルの既定権限)には e312a5a は触れない |
+| card_holders / learned_mappings / estimation_day_fixed_items の書き込み権限剥奪 | 重複なし(e312a5a は estimation_fixed_rows のみ)。estimation_day_fixed_items と estimation_fixed_rows は名前が似ているが**別テーブル** |
+| error_logs の RLS 有効化 + INSERT専用ポリシー | 重複なし。ただし investigate_dangerous_anon_policies.sql の1本目(anon/publicの無条件 INSERT/ALL ポリシー)には、この error_logs の INSERT ポリシーが**「危険」として出てくる**(qual が null のため)。意図した許可なので出力を読む時に区別すること |
+| parking_reservations の anon ポリシー4本の削除 | 重複なし。investigate の1本目は実行前なら parking_reservations の4本を拾えたはずで、実行後は出なくなる(削除の確認に使える) |
+- **競合はなし**。留意点: (1) JUNのB群一覧に estimation_fixed_rows が「RLS有効+SELECT USING(true)」で入っているのは、e312a5a の STEP 3 が実行済みの状態と整合する(`select policyname from pg_policies where tablename='estimation_fixed_rows';` が `estimation_fixed_rows_temp_read_only` のみなら確定)。
+  (2) e312a5a は別ブランチにしか無く main には入っていない(記録としては別ブランチのマージ待ち)。
+  (3) 上記3.のとおり、STEP 5 を予定どおり enable_rls_batch2.sql に入れる前に copyEstimation の直接SELECTを直す必要がある(コードとSQLの実行順の競合)。
+  (4) 同じ estimation_fixed_rows に対する e312a5a の STEP 3(b)(`create policy ... to anon, authenticated using (true)`)は、公開SELECTを意図して残す暫定措置であり、今日の「危険なポリシー削除」方針とは逆向き。STEP 5 まで公開が続く点を認識しておくこと。
+
+### 9. 残タスク(この第3報分)
+1. **別セッションに連絡**(本セッションは別ブランチに触れない): copyEstimation(別ブランチ index.html:11909-11910)の直接SELECTをAPI化+エラー表示化。04e79da の「直接0件」の記述訂正。enable_rls_batch2.sql の作成は修正後。
+2. JUNが pg_policies / pg_tables を確認(estimation_fixed_rows の現ポリシー名、B群17の各SELECTポリシー名、gross系などRPCの prosecdef)。
+3. estimation_fit_items のロック(5.(a))を業務時間外に(JUN判断)。
+4. email_import_queue 移行の実装(コード)を再開する指示待ち。実装時は本7.の設計に従い、mainではなく別ブランチのマージ状況を見てから index.html の衝突を避ける(別セッションの index.html 変更とは別領域だが同一ファイル)。
+5. guide.html の読み取り(bookings/guide_settlements/guide_settlement_items/learned_mappings)を守る読み取り専用ゲストactionの設計。archive/generate-haichisho.js の退役。
+
 ## 最新の決定事項と作業順(2026-09-25 JUN決定。新しいセッションはまずここを読む)
 
 ### 作業の順番
