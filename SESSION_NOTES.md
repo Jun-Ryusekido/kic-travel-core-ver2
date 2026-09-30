@@ -1,5 +1,79 @@
 # SESSION_NOTES
 
+## RLS再調査(2026-09-30、調査のみ・変更なし。Supabase警告 rls_disabled_in_public 再通知を受けて)
+
+【制約】このセッションにはDB接続情報(DATABASE_URL / service_role key)が無く、pg_tables.rowsecurity・pg_policies は
+**取得できていない**(SQL未実行・DB変更なし)。代わりにフロントに公開されているpublishable(anon)キーで、GET(limit=0+件数)のみ・
+行データは取得せず、コード上の48テーブル名を1つずつ確認した(=「anonから実効で読めるか」。RLSフラグそのものではない)。
+コードに現れないテーブルはこの方法では列挙できない。
+
+### anonからの実効の可読性(2026-09-30 実測)
+- 読める・行あり(30テーブル。RLS無効か、anonに読めるポリシーがある): agents(156) arrangement_document_days(10)
+  arrangement_document_notes(104) arrangement_documents(26) booking_buses(154) booking_facilities(1406) booking_guides(27)
+  booking_hotels(319) booking_restaurants(5535) booking_water_items(4) bookings(1363) bullet_train_arrangements(70)
+  business_partner_contacts(365) business_partners(1172) card_holders(4) email_import_queue(8124) estimation_booking_reflections(3)
+  estimation_days(169) estimation_fixed_rows(156) estimations(22) facility_operating_info(1) guide_settlement_items(2647)
+  guide_settlements(63) guides(135) learned_mappings(822) local_expenses(780) tour_arrangement_headers(317)
+  tour_arrangement_notes(1268) tour_day_itinerary(5) tour_guides(3) vendor_email_logs(2)
+  → これが警告の実体。**公開キーを知る誰でも全件読める**(email_import_queue=メール本文、guide_settlements=ガイド精算 等)。
+- 読めるが0件(GRANTは残るがRLS有効でポリシー無し、または本当に空。**DBで要確認**): access_logs, estimation_fit_items,
+  tour_arrangements, tour_arrangement_days, estimation_day_fixed_items(これはメモ上RLS有効済み=同じ見え方)。
+  tour_arrangements は loadArrangementsList 等が直接読むため、RLS有効ならその画面は既に空表示のはず(空が正常か要確認)。
+- 読めない(permission denied=対応済み): app_users audit_logs booking_costs booking_sales booking_edit_presence
+  business_partner_aliases business_partner_guide_notices credit_card_statements email_import_queue_archive error_logs
+  guide_bank_accounts invoices parking_reservations
+- partner_merge_pending: TABLE_CONFIGにあるがpublicスキーマに存在しない(PGRST205)。
+
+### Supabaseクライアントの使われ方
+- ブラウザ(index.html・guide.html): publishableキー(sb_publishable_…、anon相当)で createClient。**Supabase Auth使用0件**
+  (ログインは app_users 独自方式+署名トークン)。よってブラウザは常に anon ロールで、`authenticated` ポリシーは誰にも当たらない。
+- サーバー(api/*.js。Vercel Node/Edge): SUPABASE_SERVICE_ROLE_KEY で PostgREST を fetch(RLSバイパス)。table-crud / email-import /
+  login / add-user / change-password / list-users / extract-card。Edge Function(Supabase側)は無し。
+- scripts/・parking-automation・email-automation: service_role必須化済み(anonフォールバックはPR済みで除去)。
+- ブラウザの直接アクセス(残り): SELECT — 上記30テーブル+dynamic(fetchAllRowsGeneric/copyEstimation/confirmArrCopy/checkNoSaveConflict)、
+  INSERT — access_logs(logAction/doLogin)・error_logs(logError)、SELECT — access_logs(loadLogs)、
+  RPC 7本 — get_gross_summary/top_tours/trends, get_guide_settlements_summary, get_hotel_cancel_alert_counts, search_hotel_management,
+  search_business_partners、Storage — guide-receipts の list/remove(deleteBookingData)。guide.html — bookings, guide_settlements,
+  guide_settlement_items, learned_mappings のSELECT(書き込みは table-crud の guest* action)。
+- 書き込みは全テーブルAPI経由済み(anonの書き込み権限はerror_logs/access_logsのINSERTのみのはず)。
+
+### 画面別の依存(RLS無効の30テーブル、主なもの)
+- 予約一覧/詳細/ダッシュボード: bookings, booking_hotels/buses/restaurants/facilities/guides/water_items, tour_arrangement_headers/notes,
+  tour_guides, tour_day_itinerary, local_expenses, bullet_train_arrangements, estimation_booking_reflections(openBookingDetail 他)
+- 手配書/ガイド資料: arrangement_documents/_days/_notes, tour_* (openGuideDocEditor, buildGuideDocExportPayload)
+- 見積: estimations, estimation_days, estimation_fixed_rows(loadEstimations, openEstimationEditor, copyEstimation)
+- ガイド精算/仮払い: guide_settlements, guide_settlement_items, guides, local_expenses(loadGuideSettlements, loadGuideAdvanceList) + guide.html
+- 取引先/Agent: business_partners, business_partner_contacts, agents, learned_mappings, card_holders
+- メール受信箱: email_import_queue(8124行。fetchEmailInboxPendingRows, renderEmailInboxPage 他)
+- 観光地/ホテル管理・運行カレンダー: booking_facilities/hotels, facility_operating_info, vendor_email_logs, renderTourCalendar
+- バックアップ/アーカイブ/予約削除: 上記ほぼ全テーブル(backupBookingDataBeforeDelete, exportFullBackup, exportFiscalYearArchive)
+
+### 結論(提案。SQLは未実行)
+- **今すぐ「ポリシー無しでRLS有効化」すると、上記30テーブルを直接読む画面がほぼ全部空表示になりアプリが実質止まる**(書き込みは
+  APIなので無事だが、読み取りが空になり、旧メモにある「空データのまま保存」の事故リスクも再燃)。RPC7本もSECURITY INVOKERなら空を返す
+  (SECURITY DEFINERの関数が無いかは要確認: 下記SQL)。
+- ユーザーの当初案(認証済みユーザーのみのポリシー)は、Supabase Auth未使用のため **`TO authenticated` は誰にも当たらず全面遮断**、
+  `TO anon USING (true)` にすると警告は消えるが実質全公開のまま(過去にJUNが不採用と決定済み)。
+- 方針は従来どおり: 直接SELECTをtable-crudのquery/rpc(ログイン検証つき)へ移行 → バッチ2〜4順にRLS有効化+anon/authenticated REVOKE。
+  移行が済むまでの暫定策としては、(a)公開キーのローテーション(古い画面の全員再読み込みが必要)や(b)新規読み取り経路の禁止は効果が限定的で、
+  実効的な閉鎖は移行完了のみ。優先度は露出の大きい順: email_import_queue → guide_settlements/items/guides → business_partners/contacts/agents
+  → bookings系 → 見積系 → 手配書系 → 残り。
+- ポリシー案(移行完了後の最終形、テーブル共通): `alter table public.<t> enable row level security;`+
+  `revoke all on public.<t> from anon, authenticated;`+`grant select,insert,update,delete on public.<t> to service_role;`(ポリシーは作らない)。
+  access_logs/error_logs のみ、ブラウザ直INSERTを残すなら `create policy ... for insert to anon with check (true)`(SELECT不可)、
+  もしくはINSERTもAPI化して同じ最終形にする(推奨)。guide.html用の4テーブルSELECTも guest* action 相当のAPI化が必要。
+
+### 残タスク
+1. JUNがSQL Editorで読み取り専用SQLを実行して実フラグを確定(このセッションでは未取得):
+   - `select tablename, rowsecurity from pg_tables where schemaname='public' order by rowsecurity, tablename;`
+   - `select tablename, policyname, roles, cmd, qual from pg_policies where schemaname='public' order by 1,2;`
+   - `select p.proname, p.prosecdef from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.prosecdef;`
+     (SECURITY DEFINER関数=RLSを迂回。anonにEXECUTEが残っていないかも確認)
+   - 既存の scripts/investigate_batch4_readable_tables.sql も実行(ビュー・未把握テーブルの洗い出し)
+2. 本ファイル上部「作業の順番」のバッチ2→3→4を再開(バッチ2の計画は承認済み)。0件表示のtour_arrangements等の実態確認。
+3. guide.html の直接SELECT4テーブルとaccess_logs/error_logsのブラウザ直接アクセス、Storage(guide-receipts)のAPI化。
+4. 実行順序の厳守: コードをデプロイ→実機確認→RLS/REVOKE。RLSを先行させない。
+
 ## 最新の決定事項と作業順(2026-09-25 JUN決定。新しいセッションはまずここを読む)
 
 ### 作業の順番
