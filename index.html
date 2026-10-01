@@ -18779,7 +18779,7 @@ async function onBdBulletCsvFileSelected(e){
       discount_rate: Number(get(iDiscount))||0,
       amount: Number(String(get(iAmount)).replace(/[,¥]/g,''))||0,
       payment_method: ARRANGEMENT_PAYMENT_METHODS.includes(paymentRaw) ? paymentRaw : '',
-      status: get(iStatus) || '回答待ち',
+      status: btCsvStatusToDb(get(iStatus)),
       memo: get(iMemo)
     });
   }
@@ -25637,12 +25637,17 @@ function btExtractRef(groupName){
   return `#${parseInt(m[1],10)}`;
 }
 
+// CSVのステータス列 → 画面で使う6種類(未予約/問い合わせ中/手配OK/FNL済/NG回答/キャンセル)への変換。
+// 大文字小文字・前後空白・全角半角(NFKC)を吸収する。空欄・未知の値は「手配OK」にせず
+// 未予約へ倒す(以前はデフォルトが手配OKで、CSVの「NO」が手配OKとして取り込まれる不具合があった)。
 function btCsvStatusToDb(s){
-  if(!s) return '手配OK';
-  const u = s.trim().toUpperCase();
+  const u = String(s||'').normalize('NFKC').trim().toUpperCase();
   if(u==='OK'||u==='手配OK') return '手配OK';
-  if(u==='NG'||u==='キャンセル') return 'キャンセル';
-  return '手配OK';
+  if(u==='NO'||u==='NG'||u==='NG回答') return 'NG回答';
+  if(u==='キャンセル') return 'キャンセル';
+  if(u==='FNL'||u==='FNL済') return 'FNL済';
+  if(u==='回答待ち'||u==='問い合わせ中') return '問い合わせ中';
+  return '未予約';
 }
 
 async function onBtCsvFileSelected(e){

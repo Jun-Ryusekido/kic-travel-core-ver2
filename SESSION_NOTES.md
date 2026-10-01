@@ -870,3 +870,107 @@ RPC3本(get_payment_monthly_summary / search_payment_income / search_payment_out
   確認: grep -n "from('invoices')\|from('booking_costs')\|from('booking_sales')\|from('credit_card_statements')" index.html
 - 既存の1,000件切り捨て不具合(API化で解消予定): loadSalesItemNameFreqCache / loadInvoicePage /
   loadCreditCardStatements / renderUnreimbursedPersonalAdvanceBanner / exportFullBackup / exportFiscalYearArchive。
+
+---
+
+## 調査: 新幹線CSV取込で「NO」が「手配OK」になる不具合（調査のみ・未修正）
+
+### 結論
+原因は `btCsvStatusToDb`（index.html:25640-25646）の**デフォルト戻り値が「手配OK」**であること。
+`OK`/`手配OK`→手配OK、`NG`/`キャンセル`→キャンセル 以外は何でも（`NO`・空欄・`回答待ち`・`未予約`・`Reply`等も）「手配OK」になる。
+CSVの「ステータス」列の読み違い（ヘッダ側/明細側の取り違え）ではない。
+
+### 1. 取込関数と列マッピング
+- 予約詳細タブ: `onBdBulletCsvFileSelected` :18664（VIEW形式。`parseViewCsv` :25566 → `bdBulletTrainItems` に追加。DB保存はモーダルの保存時）。status は :18713 で `btCsvStatusToDb(d['ステータス']||'')`。
+- サイドバー: `triggerBtCsvImport` :1984 → `onBtCsvFileSelected` :25648 → プレビュー :25749 → `importBtCsv` :25784（:25813で `btCsvStatusToDb`）→ `bulletTrainArrangementsApiCall('insert')`。
+- 旧フラット形式フォールバック :18733-18795: `status: get(iStatus) || '回答待ち'` と**生の文字列を無検証で保存**（別系統の問題）。
+- 列対応: 列車乗車日→ride_date / 列車名→train_name / 列車番号→train_number / 出発駅・出発時間・到着駅・到着時間→departure_*/arrival_*（0847→08:47）/ 乗車人数大人・小人→pax_adult/child / 無賃→pax_free / 列車割引率→discount_rate / **ステータス→status（btCsvStatusToDb経由）** / memo=''。
+
+### 2. 「ステータス」列の扱い
+`parseViewCsv` はグループヘッダ行の「ステータス」(`(V) Reply / 回答`)を `block.header`、明細行の「ステータス」を `detail` に別オブジェクトで格納。取り違えなし。明細側のみを使用。デフォルト値の問題。
+
+### 3. 変換表（現状）
+| CSV値 | 現状のUI表示 | 備考 |
+|---|---|---|
+| OK / 手配OK | 手配OK | 正 |
+| NG / キャンセル | キャンセル | NGは「NG回答」の方が自然な可能性 |
+| **NO** | **手配OK** | **マッピング無し→デフォルトへ（不具合）** |
+| 空欄 | 手配OK | 本来は未予約が安全 |
+| 回答待ち/未予約/Reply/Pending/FNL等 | 手配OK | すべて手配OKに化ける |
+UI側選択肢: 未予約/回答待ち/手配OK/FNL済/NG回答/キャンセル（:18593。「問い合わせ中」は新幹線タブには無い）。
+
+### 4. 再現結果（実index.html + Chromium、Shift-JIS 2行CSV）
+`onBdBulletCsvFileSelected` に のぞみ5号(京都0847→広島1027, NO)・のぞみ52号(広島1803→新大阪1928, OK)・グループヘッダ「(V) Reply / 回答」のCSVを投入 → 両行とも「手配OK」。サイドバー側（parseViewCsv+btCsvStatusToDb）も NO=>手配OK。**再現した**。時刻・駅名等は正しく取り込まれる。
+
+### 5. 修正案（JUN確認後に実施。未実装）
+- A（推奨）: `btCsvStatusToDb` を厳格化: OK/手配OK→手配OK、NO/NG→NG回答（要確認: NGは現状キャンセル。NO・NGの扱い）、キャンセル→キャンセル、FNL→FNL済、回答待ち/未予約はそのまま、**空欄・未知の値→未予約（手配OKにしない）**。
+- B: 未知の値の行は取込プレビュー(確認ダイアログ/モーダル)で警告表示。
+- C: 旧フラットCSV経路も許可リスト(未予約/回答待ち/手配OK/FNL済/NG回答/キャンセル)で検証、外れは未予約。
+- 確認事項: 「NO」「NG」を「NG回答」にするか「キャンセル」にするか（JUNさん判断）。
+- 既に誤って「手配OK」で保存済みのデータ（#1149等）は本調査では未変更。修正後に画面上で手動修正、またはSELECTで対象特定→承認→更新（CLAUDE.mdの4ステップ）が必要。
+
+### 6. 他の手配タブ
+ホテル/バス/レストラン/観光施設/水/ガイド タブにCSV取込は無い（AI「読み取り」＝Excel/PDF/画像のみ）。同種のデフォルト「手配OK」変換は無し。各タブのロード時デフォルト（`status||'回答待ち'`/`'問い合わせ中'`）は空値のみ対象で、問題なし。同様のCSV取込は新幹線のみ。
+
+### 手動確認手順（JUN）
+修正後: https://kic-travel-core-ver2.vercel.app（Previewを使う場合はPR URL）→ 予約台帳 #1149 → 新幹線タブ → 「CSV取込」で GroupTour 3.csv を選択 → のぞみ5号がNG回答(or合意した値)・52号が手配OK になること。
+
+---
+
+## 修正: 新幹線CSV取込のステータス変換（JUNさん確定仕様で実装済み・ブランチ claude/investigate-bt-csv-status）
+
+### 変更（index.html のみ・2箇所）
+1. `btCsvStatusToDb`（:25640付近）: NFKC正規化+trim+大文字化で判定。OK/手配OK→手配OK、NO/NG/NG回答→NG回答、キャンセル→キャンセル、FNL/FNL済→FNL済、回答待ち/問い合わせ中→問い合わせ中、未予約→未予約、**空欄・未知→未予約**（旧: 手配OK）。呼び出し元3箇所(:18713/:25749/:25813)は無変更。
+2. 旧フラット形式(:18782)の `status: get(iStatus) || '回答待ち'` → `btCsvStatusToDb(get(iStatus))`（従来は生文字列を無検証保存。空欄は従来「回答待ち」→今回仕様で「未予約」）。
+
+### 検証（実index.html + Chromium、Shift-JIS CSV。修正前=main、修正後を同一テストで比較）
+- 今回CSV: 修正前 NO→手配OK/OK→手配OK（再現）。修正後 5号=NG回答、52号=手配OK（予約詳細タブ・サイドバー importBtCsv の送信payload の両方）。
+- 値マトリクス(空,XYZ,NG,FNL,回答待ち,キャンセル,no, " Ｎｏ ",ＯＫ,問い合わせ中,未予約,NG回答,FNL済) → 未予約,未予約,NG回答,FNL済,問い合わせ中,キャンセル,NG回答,NG回答,手配OK,問い合わせ中,未予約,NG回答,FNL済。予約詳細・サイドバーとも同一。
+- 旧フラット形式(NO,OK,空,XYZ,回答待ち,FNL,NG,キャンセル) → NG回答,手配OK,未予約,未予約,問い合わせ中,FNL済,NG回答,キャンセル（修正前は生文字列'NO'/'XYZ'等がそのまま入っていた）。
+- 時刻(0847→08:47)・駅名・人数(大人/小人/無賃)・日付・金額・備考は修正前後で同一。
+
+### btCsvStatusToDb の呼び出し元（grep全件）
+:18713(予約詳細VIEW形式)、:25749(サイドバー確認プレビュー)、:25813(サイドバー importBtCsv)、+今回追加 :18782(旧フラット)。:18649はコメントのみ。他に取込経路なし。
+
+### 「NG回答」行の扱い（コード確認。修正はしていない）
+- **手配確定状況(`VENDOR_EMAIL_SOURCES` :6135)**: ホテル・バスのみ。新幹線は対象外→影響なし。
+- **手配一覧PDF(`printArrangementSummaryList` :26366)**: 新幹線は全行を出力、ステータスは文字列で出すだけ。NG回答/キャンセル行も手配OK行と同様に載る（ステータス欄の文字が違うだけ。他セクションも同様）。
+- **仮払い概算行生成(:9248)**: 新幹線は status を見ず全行を `mk()` に渡す→NG回答/キャンセル行も概算行になる（今までもキャンセルは同様。他の手配タブも status で除外していない）。
+- 新幹線の一覧/モーダルの色分けは共通 `statusBg/Fg` で、NG回答=オレンジ、手配OK=緑で区別される。
+- **気づき**: 新幹線タブのドロップダウン(:18593 と モーダル :2036)の選択肢は「回答待ち」で「問い合わせ中」が無い（他タブは問い合わせ中）。確定仕様で CSV の回答待ち→問い合わせ中 になるため、取込行は「問い合わせ中」(琥珀色表示は同じ)になるが、ドロップダウンに該当項目が無く、手動追加行(既定「回答待ち」)と表記が混在する。
+- **案（未実装・要確認）**: (a) 新幹線タブの選択肢/既定を「問い合わせ中」に揃える（既存DBの「回答待ち」行の表記が混在するため、データ移行が要るならSQL別途）、(b) 手配一覧PDFと仮払い概算行生成で NG回答/キャンセル行を除外または注記、(c) 現状維持。
+
+### 手動確認手順（JUN）
+Preview/本番にデプロイ後 https://kic-travel-core-ver2.vercel.app → ハードリロード → 予約台帳 #1149 → 新幹線タブ → CSV取込で GroupTour 3.csv → のぞみ5号=NG回答（オレンジ）、のぞみ52号=手配OK（緑）→ 内容確認後に保存。保存済みの #1149 のデータは本作業では未変更。SQL要否: なし。
+
+---
+
+## PR #223（新幹線CSV取込ステータス修正）とPreview・過去データ調査
+
+- PR: https://github.com/Jun-Ryusekido/kic-travel-core-ver2/pull/223 （claude/investigate-bt-csv-status → main。未マージ。作成前にopen PR一覧を確認: head同一のPRは無し。#222/#220/#144 はopenのまま）
+- 差分: index.html(+10/-5)とSESSION_NOTES.mdのみ。SQL文なし。
+
+### 【手動確認手順の冒頭】まずこの Preview で（マージ前）
+**https://kic-travel-core-ver2-git-claude-695dfa-jun-ryusekido-s-projects.vercel.app**
+（Vercel 状態 Ready、2026-10-01 11:21 UTC 発行、コミット 2d86521。Claudeの実行環境からはプロキシ403で到達できず、画面は未確認。URLはVercelボットのPRコメントから取得）
+手順: Previewを開く(ログイン)→ハードリロード→予約台帳 #1149 → 新幹線タブ → CSV取込で GroupTour 3.csv → のぞみ5号=NG回答(オレンジ)、52号=手配OK(緑)→ 保存はテスト用の予約で（#1149の既存データを変えたくない場合は取込後に保存せず閉じる）。
+
+### 過去に誤って「手配OK」になった行の調査（コード側のみ。DBは未接触）
+※ この依頼(git log -S / テーブル定義 / audit_logs / 読み取りSQL)はPR依頼メッセージで初めて確認でき、それ以前の会話には見当たらない。以下は今回実施分。
+1. git log -S: `function btCsvStatusToDb` と `return '手配OK'` は、このリポジトリで追える最古のコミット b0e19fa(2026-09-08、#169)に既に存在。履歴がそこから始まっておりいつ入ったかは不明。つまり少なくとも2026-09-08以降、CSV取込でNO・空欄・未知値・回答待ち等は「手配OK」になっていた。NGは「キャンセル」。旧フラット形式は別で、生文字列がそのまま入っていた(NO等)。
+2. テーブル/設定: `bullet_train_arrangements`(api/table-crud.js:469)。actions=replaceByKey/updateById/insertReturning/deleteById/insert/deleteByField、`auditLog:true`。CSV由来を示す列(取込元フラグ)は無く、CSV取込行を列だけで特定することはできない。CREATE TABLE文はリポジトリに無し(statusは自由文字列)。
+3. audit_logs: 書き込みはAPI経由でベストエフォート(:739)。取込(insert)・予約詳細の一括保存(replaceByKey)・手動編集は履歴に残る可能性があるが、**実際に残っているかはDBを見ないと不明**。replaceByKeyは「内容が完全一致する行は消し込み」(:782)のため、CSV取込直後の保存で履歴が出ないケースもある。
+4. 読み取り専用SQL案（**Claudeは未実行。JUNさんがSupabase SQL Editorで実行。SELECTのみ**）:
+```sql
+-- (a) 手配OKの新幹線行の件数と予約別内訳(取込時期の目安: created_atを確認)
+select booking_ref, count(*) as n, min(created_at) as first_at, max(created_at) as last_at
+from public.bullet_train_arrangements where status = '手配OK'
+group by booking_ref order by max(created_at) desc limit 100;
+-- (b) #1149の新幹線行(CSVの正しい値と見比べる)
+select id, ride_date, train_name, train_number, departure_station, departure_time,
+       arrival_station, arrival_time, status, amount, memo, created_at, updated_at
+from public.bullet_train_arrangements where booking_ref = '#1149' order by ride_date, departure_time;
+-- (c) 該当テーブルの変更履歴(列名はaudit_logsの実定義に合わせて要調整。まず select * ... limit 5 で列を確認)
+select * from public.audit_logs where table_name = 'bullet_train_arrangements' order by created_at desc limit 50;
+```
+5. 注意: 誤って手配OKになったかどうかは、元のCSVのステータス(NO)と照合しないと判別できない(DB側にはCSVの元値が残らない)。(a)の行は「CSV取込行+手動で手配OKにした行」の混在で、全部が誤りとは限らない。修正(UPDATE)する場合はCLAUDE.mdの4ステップ(バックアップ→件数確認→承認→再SELECT検証)で、対象idは直前のSELECT結果から引用すること。
