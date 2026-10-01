@@ -2863,7 +2863,7 @@ input[type=number]{-moz-appearance:textfield}
       </table></div>
       <button class="btn" style="font-size:10px;margin-top:4px" onclick="addFacilityRow()">＋ 行追加</button>
       <button class="btn" style="font-size:10px;margin-top:4px" onclick="openArrCopyModal('fac')">📋 REF#からコピー</button>
-      <div class="li-total">観光施設合計: <span id="bd-facilities-total">¥0</span></div>
+      <div class="li-total">観光施設合計(金額×人数): <span id="bd-facilities-total">¥0</span></div>
     </div>
 
     <div id="arrtab-water" style="display:none">
@@ -13357,9 +13357,22 @@ function restaurantAmountCalc(i, el){
   bdRestaurantItems[i].amount = parseAmt(el.value);
   document.getElementById('bd-restaurants-total').textContent = yen(bdRestaurantItems.reduce((s,h)=>s+Number(h.amount||0),0));
 }
+// 観光施設タブの合計。観光施設の「金額」は1人あたりの単価(2026-10-01 JUN確定)のため、
+// 合計は 金額×人数 の合計とする。仮払い一覧表の観光施設の行(generateLocalExpensesFromArrangements)と同じ規則:
+// 人数が空・0の行は人数1として計算し、1行ごとに四捨五入(Math.round)してから合計する。
+function calcFacilitiesTotal(items){
+  return (items||[]).reduce((s,it)=>{
+    const pax = Number(it.pax) > 0 ? Number(it.pax) : 1;
+    return s + Math.round((Number(it.amount)||0) * pax);
+  }, 0);
+}
+// 合計表示だけを更新する(人数・金額の入力中に表全体を再描画して入力欄のフォーカスを失わないため)。
+function updateFacilitiesTotal(){
+  document.getElementById('bd-facilities-total').textContent = yen(calcFacilitiesTotal(bdFacilityItems));
+}
 function facilityAmountCalc(i, el){
   bdFacilityItems[i].amount = parseAmt(el.value);
-  document.getElementById('bd-facilities-total').textContent = yen(bdFacilityItems.reduce((s,h)=>s+Number(h.amount||0),0));
+  updateFacilitiesTotal();
 }
 
 // ─── バス ───────────────────────────────────────────────────────────────────
@@ -17286,7 +17299,7 @@ const FAC_SORT_REAL_COMPARATORS = {
 function renderFacilityTable(){
   const tbody = document.getElementById('bd-facilities-tbody');
   if(!tbody) return;
-  const total = bdFacilityItems.reduce((s,it)=>s+Number(it.amount||0),0);
+  const total = calcFacilitiesTotal(bdFacilityItems);
   if(bdFacilityItems.length===0){
     tbody.innerHTML='<tr><td colspan="12" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
   }else{
@@ -17297,7 +17310,7 @@ function renderFacilityTable(){
       ${arrReorderHtml('bdFacilityItems', i, bdFacilityItems.length, 'renderFacilityTable', sorted)}
       <td data-label="施設名" style="position:relative"><div style="display:flex;gap:3px;align-items:center"><input value="${escAttr(it.facility_name)}" oninput="bdFacilityItems[${i}].facility_name=this.value;bdFacilityItems[${i}].business_partner_id=null;showFacilitySuggest(this,${i})" onchange="onFacilityNameChanged(${i})" onfocus="showFacilitySuggest(this,${i})" onblur="setTimeout(hideFacilitySuggest,150)" style="flex:1;min-width:0"><button class="btn" style="font-size:10px;padding:2px 5px;flex-shrink:0" title="営業日・営業時間を確認" onclick="openFacilityOperatingInfo(${i})">🕐</button></div>${facilityClosedDayWarnHtml(it)}</td>
       <td data-label="日付"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.date||''}" onchange="bdFacilityItems[${i}].date=this.value"></td>
-      <td data-label="人数"><input type="number" value="${it.pax||0}" onchange="bdFacilityItems[${i}].pax=Number(this.value)" style="width:100%"></td>
+      <td data-label="人数"><input type="number" value="${it.pax||0}" onchange="bdFacilityItems[${i}].pax=Number(this.value);updateFacilitiesTotal()" style="width:100%"></td>
       <td data-label="金額"><input type="text" inputmode="numeric" value="${fmtAmt(it.amount)}" onfocus="amtFocus(this)" onblur="amtBlur(this)" onchange="facilityAmountCalc(${i},this)" style="text-align:right"></td>
       <td data-label="ステータス">${statusDropdownHtml(o=>`bdFacilityItems[${i}].status='${o}';renderFacilityTable()`, it.status, ['未予約','問い合わせ中','手配OK','FNL済','NG回答','予約不要','キャンセル'], '問い合わせ中')}</td>
       <td data-label="確認番号"><input value="${escAttr(it.confirmation_no)}" oninput="bdFacilityItems[${i}].confirmation_no=this.value" style="width:100%"></td>
