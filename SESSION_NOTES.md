@@ -1,5 +1,22 @@
 # SESSION_NOTES
 
+## PR #220 に 465a1bd(copyEstimation のAPI化)を取り込み(2026-10-01 JUN指示。マージ・SQL実行なし)
+- 取り込み: 465a1bd を cherry-pick(競合なし)→ このブランチ上のコミット b125428(index.html のみ +16/-6)。claude/magical-ride-6phzj3 の先頭は 54a8f3a → 本追記コミット。
+  内容: copyEstimation の estimation_days / estimation_fixed_rows の読み取りを、変数指定の直接SELECT(sb.from(table))から tableQueryAll(API経由)に変更し、取得失敗時は alert してコピーを作らずに中止
+  (RLS有効化後に、日程・固定費が空のコピーがエラー無しで作られる不具合の修正。04e79da の「直接呼び出し0件」は変数指定を見落としていた)。
+- **APP_VERSION の再引き上げは不要**(確認結果): main は APP_VERSION / MIN_WRITE_APP_VERSION とも 2026092801、このPRは 2026092901(638ef49 で引き上げ済み)。
+  再引き上げが要るのは「638ef49 だけを先に本番へ出し、修正を後から出す」場合のみ(その間に旧コードのまま 2026092901 を名乗る画面が本番に存在してしまうため)。
+  今回は 465a1bd を #220 に含めて**同じデプロイで出す**ので、本番に「2026092901 を名乗る、修正前の copyEstimation」は存在しない。
+  マージ前の旧タブ(≤2026092801)は、デプロイ後に書き込み(copyWithChildren を含む)が 426 で止まる(従来設計どおり)。465a1bd は読み取り側のみの変更で、書き込みAPIの形は変えていない。
+  留意: #220 の 54a8f3a 時点の Preview(2026092901・修正前)は本番DBに接続する。その Preview のタブを開いたまま RLS のSQLを実行しないこと(465a1bd 以降の Preview を使うか、閉じてから)。
+- 取り込み後の index.html(31,498行)・guide.html(513行)の再確認: `sb.from(` の引数が文字列リテラルでないものは **3箇所**(fetchAllRowsGeneric:6156 → business_partners / booking_hotels / booking_buses、
+  confirmArrCopy:13176 → booking_hotels / booking_buses / booking_restaurants / booking_facilities / booking_water_items、checkNoSaveConflict:13348 → booking_hotels / booking_buses / booking_guides)。guide.html は0件。
+  `sb.rpc` は6本すべて文字列リテラルで search_business_partners は無い(取引先一覧は rpcCallAll 経由=API)。`.from(` は sb.from(176)・sb.storage.from(2)・Array.from(17)のみ。
+  **estimation_days / estimation_fixed_rows / estimations / business_partner_contacts / RPC search_business_partners へのブラウザ直接アクセスは0件**(文字列リテラル・変数指定の両方)。
+- 検証(合成データ・疑似Supabase・本物の index.html と api/table-crud.js を Chromium で実行): 16/16 成功(見積もり一覧・編集・コピー成功/失敗・取引先の連絡先とRPC失敗時のエラー表示・ガイド仮払い一覧・直接アクセス0件)。
+  できていないこと: 実DB・実ログイン・実データでの確認(Preview での実機確認は、上の「JUNさんが確認する手順」を #220 の Preview で)。
+- 実行順序は変更なし: enable_rls_batch2.sql の STEP 5 等のRLS/REVOKEは、コードのマージ → 本番デプロイ確認 → 実機確認 → 全員再読み込みの後。
+
 ## 最新の決定事項と作業順(2026-09-25 JUN決定。新しいセッションはまずここを読む)
 
 ### 作業の順番
