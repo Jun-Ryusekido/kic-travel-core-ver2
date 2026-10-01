@@ -26,7 +26,12 @@
 //             保存すると全削除→再挿入で既定値の「ゲスト」に戻ってしまう(2026-09-25)。
 // 2026092801: 観光施設の行の取引先ID(booking_facilities.business_partner_id)の追加。古い画面はこの列を送らないため、
 //             観光施設タブを保存すると全削除→再挿入で紐付けが消えてしまう(2026-09-28)。
-export const MIN_WRITE_APP_VERSION = 2026092801;
+// 2026092901: RLS対応バッチ2(estimations/estimation_days/estimation_fixed_rows/business_partner_contacts・
+//             search_business_partners RPCのAPI経由化)。古い画面はこれらをanon直接SELECTで読むため、
+//             バッチ2のRLS有効化後は0件として読み込む。特に見積もり編集画面(openEstimationEditor)は
+//             日程・固定費明細を0件のまま開いてしまい、保存するとreplaceByKeyで既存データが全削除される
+//             (2026-09-29)。
+export const MIN_WRITE_APP_VERSION = 2026092901;
 
 export const APP_VERSION_OUTDATED_CODE = 'APP_VERSION_OUTDATED';
 export const APP_VERSION_OUTDATED_MESSAGE =

@@ -368,11 +368,21 @@ const TABLE_CONFIG = {
   // create_business_partner_contacts_table.sql参照)。deleteByIdは一覧画面からの
   // 担当者削除(論理削除はupdateById、完全削除まではフェーズ1のスコープ外)用に含めるが、
   // 今回のフェーズ1では未使用。
+  // readable(RLS対応フェーズ2 バッチ2、2026-09-29): loadRepresentativeContactsByPartnerIds /
+  // renderPartnerContactsList / loadBusinessPartnerContactsIndex / fetchRepresentativeContact の
+  // 直接SELECTをquery経由に置き換えるための列・演算子のホワイトリスト。
   business_partner_contacts: {
     actions: ['insert', 'insertReturning', 'updateById', 'deleteById'],
     label: '取引先マスタ担当者',
     stampIdentity: true,
     auditLog: true,
+    readable: {
+      filters: {
+        business_partner_id: ['eq', 'in'],
+        is_deleted: ['eq'],
+      },
+      order: ['created_at', 'is_primary'],
+    },
   },
   // credit_card_statements(クレジットカード明細): 経理・原価計算に関わるデータのため
   // 監査ログを有効化する(再設計時にscripts/redesign_credit_card_statements.sqlで
@@ -497,12 +507,24 @@ const TABLE_CONFIG = {
   // copyChildTablesに列挙した子テーブルへのinsertを行い、途中で失敗した場合は
   // それまでにinsertした子テーブル行・ヘッダを削除してロールバックする
   // (doCopyWithChildren参照)。
+  // readable(RLS対応フェーズ2 バッチ2、2026-09-29): exportBookingArchive / exportFiscalYearArchive /
+  // deleteBookingData / loadEstimations / copyEstimation / openEstimationEditor /
+  // loadGuideAdvanceList の直接SELECTをquery経由に置き換える。loadEstimations(一覧)は
+  // 絞り込み無し(created_at降順の全件)で呼ぶため、filtersを指定しない呼び出しも許可する
+  // (buildQueryParamsはfilters未指定なら絞り込み無しでそのまま許可する)。
   estimations: {
     actions: ['insert', 'updateById', 'updateByIds', 'deleteById', 'copyWithChildren'],
     label: '見積もり',
     stampIdentity: true,
     auditLog: true,
     copyChildTables: ['estimation_days', 'estimation_fixed_rows'],
+    readable: {
+      filters: {
+        converted_booking_id: ['eq', 'in'],
+        id: ['eq'],
+      },
+      order: ['created_at'],
+    },
   },
   // estimation_id列をキーにした「全削除→全insert」の置き換え(doReplaceByKey)。
   // 既存のarrangement_document_days等と同じ方式。
@@ -510,11 +532,22 @@ const TABLE_CONFIG = {
     actions: ['replaceByKey'],
     label: '見積もり日程明細',
     allowedReplaceKeyFields: ['estimation_id'],
+    readable: {
+      filters: { estimation_id: ['eq', 'in'] },
+      order: ['sort_order'],
+    },
   },
+  // estimation_fixed_rows: 2026-09-29緊急対応で "Allow anon full access..." ポリシーを
+  // 読み取り専用ポリシーに差し替え済み(scripts/emergency_fix_estimation_fixed_rows_anon_policy.sql)。
+  // このAPI経由化(バッチ2)がデプロイ・確認され次第、そのSELECTポリシー・GRANTも削除する。
   estimation_fixed_rows: {
     actions: ['replaceByKey'],
     label: '見積もり固定費・入場料明細',
     allowedReplaceKeyFields: ['estimation_id'],
+    readable: {
+      filters: { estimation_id: ['eq', 'in'] },
+      order: ['sort_order'],
+    },
   },
   // 見積もり削除時(deleteEstimation)のestimation_id一括削除専用(セキュリティ移行、
   // 2026-09点検で対応。F1事前調査時点では実データ0件・anon直接deleteのみだったため
@@ -1456,31 +1489,78 @@ async function doQueryBatch(queries) {
   return { status: 200, body: { ok: true, results, __sb: budget.sb } };
 }
 
-// RPC(入出金画面)。ホワイトリストの3本だけをservice_roleで呼ぶ。関数はSECURITY INVOKERのまま
+// RPC。ホワイトリストの関数だけをservice_roleで呼ぶ。関数はSECURITY INVOKERのまま
 // (DEFINER化しない)。移行後にanon/authenticated/publicからEXECUTEをREVOKEする
-// (scripts/enable_rls_batch1.sql参照)。
+// (入出金の3本はscripts/enable_rls_batch1.sql参照。search_business_partnersはバッチ2)。
+//
+// paramsの検証は関数ごとに宣言する(params)。型:
+//   'date'   : YYYY-MM-DD(必須/任意はrequired)
+//   'string' : 文字列(maxLenで長さ上限。requiredでなければ省略可・空文字は指定なし扱い)
+//   'enum'   : valuesのいずれか
+// 検証済みの値だけをRPCへ渡す(宣言に無いキーは400で拒否)。
 const RPC_WHITELIST = {
-  get_payment_monthly_summary: { paged: false },
-  search_payment_income: { paged: true },
-  search_payment_outflow: { paged: true },
+  get_payment_monthly_summary: {
+    paged: false,
+    params: { p_from: { type: 'date', required: true }, p_to: { type: 'date', required: true } },
+  },
+  search_payment_income: {
+    paged: true,
+    params: {
+      p_from: { type: 'date', required: true },
+      p_to: { type: 'date', required: true },
+      p_search: { type: 'string', required: false, maxLen: 200 },
+    },
+  },
+  search_payment_outflow: {
+    paged: true,
+    params: {
+      p_from: { type: 'date', required: true },
+      p_to: { type: 'date', required: true },
+      p_search: { type: 'string', required: false, maxLen: 200 },
+    },
+  },
+  // search_business_partners(取引先マスタ一覧、バッチ2): p_search/p_categoryともに任意。
+  // p_categoryはbusiness_partners.categoryの実際の選択肢(#pt-category)のみ許可する。
+  search_business_partners: {
+    paged: true,
+    params: {
+      p_search: { type: 'string', required: false, maxLen: 200 },
+      p_category: { type: 'enum', required: false, values: ['バス・ハイヤー等', 'レストラン', 'ホテル', 'その他'] },
+    },
+  },
 };
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-// 引数を検証する。不正なら { error } を返す。
+// 引数を検証する。不正なら { error } を返す。戻り値のpには、宣言されたキーのうち
+// 実際に指定された値だけが入る(省略された任意項目のキー自体を含めない。GETのRPC呼び出しで
+// 値がnullでも文字列"null"として渡ってしまう問題を避けるため、呼び出し元はキーの有無で
+// 「指定なし」を判断する)。
 function validateRpcCall(fn, params) {
   const spec = RPC_WHITELIST[fn];
   if (!spec) return { error: `許可されていないRPCです: ${fn}` };
-  const p = params || {};
-  const unknown = Object.keys(p).filter((k) => !['p_from', 'p_to', 'p_search'].includes(k));
+  const raw = params || {};
+  const declared = Object.keys(spec.params);
+  const unknown = Object.keys(raw).filter((k) => !declared.includes(k));
   if (unknown.length) return { error: `不明な引数です: ${unknown.join(', ')}` };
-  if (!DATE_RE.test(String(p.p_from || '')) || !DATE_RE.test(String(p.p_to || ''))) {
-    return { error: '日付(p_from/p_to)はYYYY-MM-DD形式で指定してください' };
-  }
-  if (p.p_search !== undefined) {
-    if (!spec.paged) return { error: `${fn}はp_searchを受け付けません` };
-    if (typeof p.p_search !== 'string' || !p.p_search || p.p_search.length > 200) {
-      return { error: '検索語(p_search)は1〜200文字の文字列で指定してください' };
+  const p = {};
+  for (const key of declared) {
+    const rule = spec.params[key];
+    const has = raw[key] !== undefined && raw[key] !== null && raw[key] !== '';
+    if (!has) {
+      if (rule.required) return { error: `${fn}の${key}が指定されていません` };
+      continue;
     }
+    const v = raw[key];
+    if (rule.type === 'date') {
+      if (!DATE_RE.test(String(v))) return { error: `${key}はYYYY-MM-DD形式で指定してください` };
+    } else if (rule.type === 'string') {
+      if (typeof v !== 'string' || v.length > (rule.maxLen || 200)) {
+        return { error: `${key}は1〜${rule.maxLen || 200}文字の文字列で指定してください` };
+      }
+    } else if (rule.type === 'enum') {
+      if (!rule.values.includes(v)) return { error: `${key}の値が不正です` };
+    }
+    p[key] = v;
   }
   return { spec, p };
 }
@@ -1504,15 +1584,15 @@ async function runRpc(fn, params, offsetIn, budget) {
   };
   if (!spec.paged) {
     const { r, text } = await timedFetchText(budget, () => fetch(`${SB_URL}/rest/v1/rpc/${fn}`, {
-      method: 'POST', headers, body: JSON.stringify({ p_from: p.p_from, p_to: p.p_to }),
+      method: 'POST', headers, body: JSON.stringify(p),
     }));
     if (!r.ok) throw new Error(failMsg(r, text));
     return { rows: JSON.parse(text), nextOffset: null };
   }
-  // GETでは値がnullでも文字列"null"として渡ってしまうため、p_searchは指定時のみ付ける。
-  const qs = [`p_from=${encodeURIComponent(p.p_from)}`, `p_to=${encodeURIComponent(p.p_to)}`];
-  if (p.p_search !== undefined) qs.push(`p_search=${encodeURIComponent(p.p_search)}`);
-  const url = `${SB_URL}/rest/v1/rpc/${fn}?${qs.join('&')}`;
+  // GETでは値がnullでも文字列"null"として渡ってしまうため、pに実際に入っているキーだけを付ける
+  // (validateRpcCallが省略された任意項目のキー自体を含めない設計のため、ここでは単純にp全体を使う)。
+  const qs = Object.keys(p).map((k) => `${k}=${encodeURIComponent(p[k])}`);
+  const url = `${SB_URL}/rest/v1/rpc/${fn}${qs.length ? '?' + qs.join('&') : ''}`;
   const getPage = async (from, size, withCount) => {
     const h = { ...headers, 'Range-Unit': 'items', Range: `${from}-${from + size - 1}` };
     if (withCount) h.Prefer = 'count=exact';
