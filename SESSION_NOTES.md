@@ -488,6 +488,18 @@ notify pgrst, 'reload schema';
 - できていないこと: 実DB・実RLS・実ログイン・実データでの確認(このセッションには接続情報が無い)、ガイド仮払い一覧の**表の中身**(手配書・現地費用のデータをハーネスに入れていない)、
   スマホ幅の表示(今回は表示の変更なし)。ブラウザ拡張(Claude in Chrome)は未接続。
 
+### 【2026-10-01 追記】既存PR #220 と Preview URL(PRは作成していない)
+- 作成前の確認で、claude/magical-ride-6phzj3 を head とする open なPRが既にあった: **PR #220**「RLS対応バッチ2: estimations/business_partner_contacts等のAPI経由化、estimation_fixed_rowsの緊急ポリシー是正」
+  (https://github.com/Jun-Ryusekido/kic-travel-core-ver2/pull/220 、base=main d326a3c、head=54a8f3a、8コミット、6ファイル +557/-109、mergeable_state=clean、draft=false、2026-09-29作成)。
+  他に open なPRは #144(Agent照合をagent_id基準に統一、claude/agent-id-canonical-lookup、2026-09-03〜)のみ。ご指示どおり、claude/jolly-bohr-wsq2w8 のPRは**作成していない**。
+- #220 の Vercel Preview(vercel[bot] のコメントより。状態 Ready): **https://kic-travel-core-ver2-git-claude-6aca2a-jun-ryusekido-s-projects.vercel.app**
+  この環境からは vercel.app へ到達できない(プロキシが 403 を返す)ため、私は開けていない。Previewのデプロイ自体の成否は上記コメントの Ready 表示のみが根拠。
+- **注意: #220 の head は 54a8f3a で、修正 465a1bd(copyEstimation のAPI化)を含まない。** この Preview で下の手順3・4(見積もりのコピー)を行うと、修正前の挙動
+  (現在は直接SELECTがまだ動くためコピー自体は成功するが、RLS有効化後は空コピーになるコード)を見ることになり、修正の確認にならない。
+  465a1bd を確認するには、465a1bd を含むコミットが PR の head になる必要がある。選択肢: (a) JUNまたは別セッションが claude/magical-ride-6phzj3 に 465a1bd を cherry-pick して push(#220 の Preview が更新される。
+  このセッションは別ブランチに触れない決まりのため実施しない)、(b) claude/jolly-bohr-wsq2w8 → main の別PRを作る(#220 と8コミットが重複するため、先にマージした方の後、もう一方が競合/重複になる点に注意。今回は見送り)。
+  どちらにするかのご指示待ち。マージは一切していない。
+
 ### JUNさんが確認する手順(実機。Preview URL について)
 - **Preview URL は PR を作らないと発行されない(Vercelのデプロイは PR/ブランチ push で作られるが、この環境からは vercel.app に到達できず、URLを確認できない)。**
   このため今回はマージ前に Preview で確認することはできない。確認したい場合は、JUNさんが PR 作成を指示 → Vercel の Preview URL(GitHub PR のチェック欄の「Visit Preview」)で以下を実施する。
