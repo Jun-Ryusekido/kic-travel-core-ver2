@@ -942,3 +942,35 @@ UI側選択肢: 未予約/回答待ち/手配OK/FNL済/NG回答/キャンセル�
 
 ### 手動確認手順（JUN）
 Preview/本番にデプロイ後 https://kic-travel-core-ver2.vercel.app → ハードリロード → 予約台帳 #1149 → 新幹線タブ → CSV取込で GroupTour 3.csv → のぞみ5号=NG回答（オレンジ）、のぞみ52号=手配OK（緑）→ 内容確認後に保存。保存済みの #1149 のデータは本作業では未変更。SQL要否: なし。
+
+---
+
+## PR #223（新幹線CSV取込ステータス修正）とPreview・過去データ調査
+
+- PR: https://github.com/Jun-Ryusekido/kic-travel-core-ver2/pull/223 （claude/investigate-bt-csv-status → main。未マージ。作成前にopen PR一覧を確認: head同一のPRは無し。#222/#220/#144 はopenのまま）
+- 差分: index.html(+10/-5)とSESSION_NOTES.mdのみ。SQL文なし。
+
+### 【手動確認手順の冒頭】まずこの Preview で（マージ前）
+**https://kic-travel-core-ver2-git-claude-695dfa-jun-ryusekido-s-projects.vercel.app**
+（Vercel 状態 Ready、2026-10-01 11:21 UTC 発行、コミット 2d86521。Claudeの実行環境からはプロキシ403で到達できず、画面は未確認。URLはVercelボットのPRコメントから取得）
+手順: Previewを開く(ログイン)→ハードリロード→予約台帳 #1149 → 新幹線タブ → CSV取込で GroupTour 3.csv → のぞみ5号=NG回答(オレンジ)、52号=手配OK(緑)→ 保存はテスト用の予約で（#1149の既存データを変えたくない場合は取込後に保存せず閉じる）。
+
+### 過去に誤って「手配OK」になった行の調査（コード側のみ。DBは未接触）
+※ この依頼(git log -S / テーブル定義 / audit_logs / 読み取りSQL)はPR依頼メッセージで初めて確認でき、それ以前の会話には見当たらない。以下は今回実施分。
+1. git log -S: `function btCsvStatusToDb` と `return '手配OK'` は、このリポジトリで追える最古のコミット b0e19fa(2026-09-08、#169)に既に存在。履歴がそこから始まっておりいつ入ったかは不明。つまり少なくとも2026-09-08以降、CSV取込でNO・空欄・未知値・回答待ち等は「手配OK」になっていた。NGは「キャンセル」。旧フラット形式は別で、生文字列がそのまま入っていた(NO等)。
+2. テーブル/設定: `bullet_train_arrangements`(api/table-crud.js:469)。actions=replaceByKey/updateById/insertReturning/deleteById/insert/deleteByField、`auditLog:true`。CSV由来を示す列(取込元フラグ)は無く、CSV取込行を列だけで特定することはできない。CREATE TABLE文はリポジトリに無し(statusは自由文字列)。
+3. audit_logs: 書き込みはAPI経由でベストエフォート(:739)。取込(insert)・予約詳細の一括保存(replaceByKey)・手動編集は履歴に残る可能性があるが、**実際に残っているかはDBを見ないと不明**。replaceByKeyは「内容が完全一致する行は消し込み」(:782)のため、CSV取込直後の保存で履歴が出ないケースもある。
+4. 読み取り専用SQL案（**Claudeは未実行。JUNさんがSupabase SQL Editorで実行。SELECTのみ**）:
+```sql
+-- (a) 手配OKの新幹線行の件数と予約別内訳(取込時期の目安: created_atを確認)
+select booking_ref, count(*) as n, min(created_at) as first_at, max(created_at) as last_at
+from public.bullet_train_arrangements where status = '手配OK'
+group by booking_ref order by max(created_at) desc limit 100;
+-- (b) #1149の新幹線行(CSVの正しい値と見比べる)
+select id, ride_date, train_name, train_number, departure_station, departure_time,
+       arrival_station, arrival_time, status, amount, memo, created_at, updated_at
+from public.bullet_train_arrangements where booking_ref = '#1149' order by ride_date, departure_time;
+-- (c) 該当テーブルの変更履歴(列名はaudit_logsの実定義に合わせて要調整。まず select * ... limit 5 で列を確認)
+select * from public.audit_logs where table_name = 'bullet_train_arrangements' order by created_at desc limit 50;
+```
+5. 注意: 誤って手配OKになったかどうかは、元のCSVのステータス(NO)と照合しないと判別できない(DB側にはCSVの元値が残らない)。(a)の行は「CSV取込行+手動で手配OKにした行」の混在で、全部が誤りとは限らない。修正(UPDATE)する場合はCLAUDE.mdの4ステップ(バックアップ→件数確認→承認→再SELECT検証)で、対象idは直前のSELECT結果から引用すること。
