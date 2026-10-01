@@ -25897,18 +25897,14 @@ function openVoucherModal(){
 }
 
 // 中間モーダルを介さず、ボタン押下で直接PDFを新タブ生成する。
-// ただし、いずれかの行で該当日に複数ガイドが重複している場合は自動選択できないため、
-// その場合のみモーダルを開いて手動選択を求める(該当なしなら従来通り直接生成する)。
+// 同じ日に複数ガイドが重複している行があっても、モーダルを開いて選択を求めることはしない
+// (2026-10-01 JUN決定: ガイド選択方式は不要)。その行のガイド欄は空欄のまま発行する
+// (generateMealVoucher側で、選択欄が「未選択」のままなら空欄になる)。
 async function generateMealVoucherDirect(){
   if(!currentDetailId){ alert('予約詳細を開いてください'); return; }
   document.getElementById('vc-guide-name').value = document.getElementById('arr-guide-name')?.value || '';
   document.getElementById('vc-guide-phone').value = document.getElementById('arr-guide-phone')?.value || '';
   _renderVoucherEntries();
-  const hasAmbiguousGuide = (bdRestaurantItems||[]).some(r=>matchGuidesForDate(r.date).length>1);
-  if(hasAmbiguousGuide){
-    document.getElementById('voucher-modal').style.display = 'flex';
-    return;
-  }
   await generateMealVoucher();
 }
 
