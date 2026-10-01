@@ -6665,6 +6665,10 @@ function arrPaymentMethodSelectHtml(arrName, i, value){
 function isFreePaymentMethod(pm){
   return String(pm||'').includes('無料');
 }
+// 支払方法が「現地払い」(LOCAL_EXPENSE_PAYMENT_METHODSの選択肢と完全一致)。
+function isLocalPayPaymentMethod(pm){
+  return String(pm||'') === '現地払い';
+}
 // apiCall: cost_added更新(markCostAdded)に使う各テーブルのApiCall。tableCrudApiCallを直接
 // 呼ばず各ラッパー経由にするのは、書き込み成功時のキャッシュ無効化を他の保存経路と揃えるため。
 // snapKey/buildRows: markCostAdded成功時に、そのタブのbdLoadSnapshotの該当行だけを
@@ -6766,6 +6770,12 @@ function arrCostCheckboxHtml(arrName, i, it, kind){
   }
   if(isFreePaymentMethod(it.payment_method)){
     return `<td data-label="仕入明細へ" style="text-align:center"><button class="btn" disabled style="${btnStyleBase}" title="支払方法が無料(FREE)のため仕入対象外です">追加</button></td>`;
+  }
+  // 現地払いの行は、現地で現金払い(ガイド・ドライバーの仮払い。仮払い一覧側で扱う)のため、基本は
+  // 仕入明細へ追加しない(2026-10-01 JUN指示「現地払いは基本、追加不要」)。ただし例外的に追加する
+  // 場合があるためdisabledにはせず、青い強調をやめた目立たないボタンにする(押せば従来どおり追加できる)。
+  if(isLocalPayPaymentMethod(it.payment_method)){
+    return `<td data-label="仕入明細へ" style="text-align:center"><button class="btn" style="${btnStyleBase};color:var(--text3)" title="現地払いは基本、仕入明細へ追加不要です(仮払い一覧で管理)。必要な場合のみ追加してください" onclick="addArrRowToCostNow('${arrName}', ${i}, '${kind}', this)">追加</button></td>`;
   }
   // ホテルのドライバー宿泊の行は、費用をガイド・ドライバーの仮払いの精算で計上するため、仕入明細へは追加しない(二重計上防止)
   if(kind === 'hotel' && isDriverLodging(it)){
