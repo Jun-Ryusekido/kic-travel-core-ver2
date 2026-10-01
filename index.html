@@ -6775,7 +6775,8 @@ function arrCostCheckboxHtml(arrName, i, it, kind){
   // 仕入明細へ追加しない(2026-10-01 JUN指示「現地払いは基本、追加不要」)。ただし例外的に追加する
   // 場合があるためdisabledにはせず、青い強調をやめた目立たないボタンにする(押せば従来どおり追加できる)。
   if(isLocalPayPaymentMethod(it.payment_method)){
-    return `<td data-label="仕入明細へ" style="text-align:center"><button class="btn" style="${btnStyleBase};color:var(--text3)" title="現地払いは基本、仕入明細へ追加不要です(仮払い一覧で管理)。必要な場合のみ追加してください" onclick="addArrRowToCostNow('${arrName}', ${i}, '${kind}', this)">追加</button></td>`;
+    // 見た目は無料(FREE)のdisabledボタンと同じグレー(2026-10-01 JUN「現地払いもグレーでいい」)。
+    return `<td data-label="仕入明細へ" style="text-align:center"><button class="btn" style="${btnStyleBase};opacity:.5;cursor:pointer" title="現地払いは基本、仕入明細へ追加不要です(仮払い一覧で管理)。必要な場合のみ追加してください" onclick="addArrRowToCostNow('${arrName}', ${i}, '${kind}', this)">追加</button></td>`;
   }
   // ホテルのドライバー宿泊の行は、費用をガイド・ドライバーの仮払いの精算で計上するため、仕入明細へは追加しない(二重計上防止)
   if(kind === 'hotel' && isDriverLodging(it)){
