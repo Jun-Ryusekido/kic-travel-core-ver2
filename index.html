@@ -9173,17 +9173,22 @@ async function generateLocalExpensesFromArrangements(){
   // 元の仕入明細(booking_costs)側の金額データ自体は一切変更しない(表示側のみの処理)。
   // guide_settlementsの仮払金・追加仮払金はこの絞り込みの対象外(ガイドへの現金仮払い
   // そのものであり、支払方法という概念を持たないため、skipPaymentFilter=trueで常に計上する)。
-  const mk = (expense_date, expense_type, content, category, amount, payment_method, needsCheck, skipPaymentFilter) => {
+  // qtyOverride(任意): 金額が「1人あたりの単価」の行(観光施設。2026-10-01 JUN確定)だけ、数量に人数を渡す。
+  // 渡された場合は 金額 = 単価 × 数量(仮払い一覧表の手入力時と同じ round(単価×数量))。
+  // 金額を計上する行(現地払い等)にだけ適用し、現地払い以外(金額0)は従来どおり数量1のまま。他のタブは渡さない(従来どおり数量1)。
+  const mk = (expense_date, expense_type, content, category, amount, payment_method, needsCheck, skipPaymentFilter, qtyOverride) => {
     const rawAmount = Number(amount)||0;
-    const displayAmount = (skipPaymentFilter || payment_method==='現地払い') ? rawAmount : 0;
+    const counted = skipPaymentFilter || payment_method==='現地払い';
+    const displayAmount = counted ? rawAmount : 0;
+    const qtyUsed = (counted && Number(qtyOverride) > 0) ? Number(qtyOverride) : 1;
     rows.push({
       expense_date: expense_date||'',
       expense_type,
       content: needsCheck ? `${content}（要確認）` : content,
       category,
       unit_price: displayAmount,
-      qty: 1,
-      amount: displayAmount,
+      qty: qtyUsed,
+      amount: Math.round(displayAmount * qtyUsed),
       payment_method: payment_method||'',
     });
   };
@@ -9225,7 +9230,10 @@ async function generateLocalExpensesFromArrangements(){
   // 観光施設・バス駐車場等
   (facRows||[]).forEach(f=>{
     const expenseType = isParkingFacility(f.facility_name) ? '駐車場代' : '入場料';
-    mk(f.date||fallbackDate, expenseType, f.facility_name||'観光施設', 'ゲスト', f.amount, f.payment_method||'', false);
+    // 観光施設タブの「金額」は1人あたりの単価(2026-10-01 JUN確定)。数量=人数、単価=金額、金額=単価×数量。
+    // 人数が空・0の行は従来どおり数量1。
+    const facPax = Number(f.pax) || 0;
+    mk(f.date||fallbackDate, expenseType, f.facility_name||'観光施設', 'ゲスト', f.amount, f.payment_method||'', false, false, facPax > 0 ? facPax : 1);
   });
 
   // ミネラルウォーター
