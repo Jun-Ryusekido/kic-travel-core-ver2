@@ -974,3 +974,26 @@ from public.bullet_train_arrangements where booking_ref = '#1149' order by ride_
 select * from public.audit_logs where table_name = 'bullet_train_arrangements' order by created_at desc limit 50;
 ```
 5. 注意: 誤って手配OKになったかどうかは、元のCSVのステータス(NO)と照合しないと判別できない(DB側にはCSVの元値が残らない)。(a)の行は「CSV取込行+手動で手配OKにした行」の混在で、全部が誤りとは限らない。修正(UPDATE)する場合はCLAUDE.mdの4ステップ(バックアップ→件数確認→承認→再SELECT検証)で、対象idは直前のSELECT結果から引用すること。
+
+---
+
+## PR #223 マージ記録（新幹線CSV取込ステータス修正）
+
+- マージ: 2026-10-01 11:24:44 UTC（JUNさんの指示）。マージコミット **3c4585a81ddc57e2de7b33aab8dc0b131b5704c7**（通常のマージコミット。head SHA 7dca665 を固定してマージ）。PR: https://github.com/Jun-Ryusekido/kic-travel-core-ver2/pull/223
+- マージ前確認: mergeable_state=clean、Vercelチェック success（head 7dca665）。#222/#220 との index.html の競合なし（試算）。#220 は SESSION_NOTES.md のみ競合（従来どおり。#220側セッションで解消）。
+- 本番Vercelデプロイ: Claudeの環境からはGitHub上でmainのデプロイ状況を取得できず（Actionsなし、プロキシで本番URLに到達不可）→ **JUNさんがVercelダッシュボードで 3c4585a の Production が Ready か確認する**。
+- SQL実行なし・データ書き換えなし。保存済みの誤データ(#1149等)は未変更。
+- 戻す場合: GitHubのPR #223ページで「Revert」→ 生成されたRevert PRをマージ。
+
+### 本番確認手順（JUN）
+1. 本番 https://kic-travel-core-ver2.vercel.app をハードリロード（Ctrl+Shift+R）。Vercelで 3c4585a が Production Ready であることを先に確認。
+2. 予約台帳 → #1149 を開く → 「新幹線」タブ。
+3. 既に誤って「手配OK」で保存された のぞみ5号・52号の行があるはず。**CSVを再取込すると重複行になる**ので、次のどちらかにする:
+   - 簡単: 取込せず、5号の行のステータスを手動で「NG回答」に変更 → 保存。
+   - 取込の動作確認もする場合: 既存の2行を削除（削除確認ダイアログの内容を確認）→ 「CSV取込」で GroupTour 3.csv を選択 → 確認ダイアログで「OK」→ 5号=NG回答(オレンジ)・52号=手配OK(緑)を確認 → 内容確認後、モーダル下部の「保存」。
+4. 保存後、再度開いて反映を確認（5分TTLキャッシュがある場合はハードリロード）。
+
+### 取込は「追加」か「置き換え」か（コード確認）
+- 予約詳細タブ(`onBdBulletCsvFileSelected`): `bdBulletTrainItems.push(...rows)` で**追加**（既存行の重複チェックなし）。DBへは「保存」時に `replaceByKey`（booking_ref単位で全削除→全挿入、:18641）されるので、画面上の配列がそのまま正になる。同じ乗車日・号数・区間の行が2つあると、保存時に重複警告(:20762)→DBのunique制約でエラーになりうる。
+- サイドバー(`importBtCsv`): `insert` で**追加**。既存行と同じキー(booking_ref|乗車日|号数|出発駅|到着駅)の行は重複フラグ付きで既定スキップ（:25687付近）。置き換え・ステータス更新はしない。
+- つまり、取込では既存行のステータスは**書き換わらない**。既にある誤データは手動修正（または削除→再取込）が必要。
