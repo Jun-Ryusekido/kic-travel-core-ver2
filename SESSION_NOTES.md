@@ -974,3 +974,21 @@ from public.bullet_train_arrangements where booking_ref = '#1149' order by ride_
 select * from public.audit_logs where table_name = 'bullet_train_arrangements' order by created_at desc limit 50;
 ```
 5. 注意: 誤って手配OKになったかどうかは、元のCSVのステータス(NO)と照合しないと判別できない(DB側にはCSVの元値が残らない)。(a)の行は「CSV取込行+手動で手配OKにした行」の混在で、全部が誤りとは限らない。修正(UPDATE)する場合はCLAUDE.mdの4ステップ(バックアップ→件数確認→承認→再SELECT検証)で、対象idは直前のSELECT結果から引用すること。
+
+---
+
+## 取引先マスタ「照会」モーダルにコピーボタンを追加（ブランチ claude/partner-inquiry-copy-buttons・index.htmlのみ・SQLなし）
+
+### 実装箇所（origin/main 3c4585a 時点）
+- 照会モーダル組み立て: `showPartnerDetail` index.html:27474（項目行 :27502付近）、担当者一覧は `renderPartnerContactsList` :27532（担当者行 :27543付近）。モーダルHTML :31068（`pt-detail-modal`）。
+- 一覧の📋: `filterPartners`内の `copyBtn`（:27417、PCテーブル+スマホカード）と Agent一覧 :29164。コピー本体は `copyPartnerField` :28270（`.copy-icon-btn` CSS :269-271）。通知は「ボタンが✓に1.5秒変わる」方式（既存）。トースト関数は赤いエラートースト（:3819）のみで成功通知用の仕組みは無いため、この既存の✓表示を踏襲。
+### 変更
+- 共通化: `partnerCopyBtnHtml(val)` を新設し、一覧2か所の `copyBtn` もこれを参照（挙動同一）。
+- `copyPartnerField`: `navigator.clipboard`が無い/失敗時は `copyTextFallback`（textarea+execCommand('copy')）へ。両方失敗時のみ従来のalert。※一覧・Agent一覧の📋にも効く。
+- 照会モーダル: 会社名/会社名（英語）/携帯/住所の値の横に📋。担当者一覧は氏名（contact_personのみ。役職は含めない）・電話（携帯、無ければ部署直通）・メール。空の値、氏名が空（「（名前未登録）」表示）の担当者には氏名ボタンなし。
+### 検証（実index.html+Chromium+合成データ）
+各ボタンで正しい文字列がクリップボードに入る（改行入り住所・`<b>`・`+`含む）、✓表示→1.5秒後に📋へ復帰、空社(p2)は会社名のみ、名前未登録の担当者に氏名ボタンなし、複数担当者OK、clipboard未提供/reject時もフォールバックでコピー成功、375px幅で横スクロールなし、編集モーダル・追加・閉じる・削除のonclick不変、pageerror 0。
+### 競合試算（読み取り）
+#222・#144とはindex.htmlで競合なし。#220はindex.htmlは自動マージ可（renderPartnerContactsList内の取得部分をAPI化、こちらは行描画部分のみ）。競合はSESSION_NOTES.mdのみ（#220は既存の競合）。
+### JUNさん確認手順
+PRのPreview（PR作成後に追記）→ログイン→ https://kic-travel-core-ver2.vercel.app 相当のPreviewで 取引先マスタ → サナム山中湖の「照会」→ 各📋を押して✓になり、メモ帳等に貼り付けて内容を確認（会社名・英語名・携帯・住所・担当者の氏名/電話/メール）。担当者の「編集」「削除」「＋担当者を追加」が従来どおり動くこと、スマホ幅（375px）で横スクロールしないこと。実データでの確認は未実施。
