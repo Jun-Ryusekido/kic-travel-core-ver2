@@ -991,4 +991,4 @@ select * from public.audit_logs where table_name = 'bullet_train_arrangements' o
 ### 競合試算（読み取り）
 #222・#144とはindex.htmlで競合なし。#220はindex.htmlは自動マージ可（renderPartnerContactsList内の取得部分をAPI化、こちらは行描画部分のみ）。競合はSESSION_NOTES.mdのみ（#220は既存の競合）。
 ### JUNさん確認手順
-PRのPreview（PR作成後に追記）→ログイン→ https://kic-travel-core-ver2.vercel.app 相当のPreviewで 取引先マスタ → サナム山中湖の「照会」→ 各📋を押して✓になり、メモ帳等に貼り付けて内容を確認（会社名・英語名・携帯・住所・担当者の氏名/電話/メール）。担当者の「編集」「削除」「＋担当者を追加」が従来どおり動くこと、スマホ幅（375px）で横スクロールしないこと。実データでの確認は未実施。
+PR: https://github.com/Jun-Ryusekido/kic-travel-core-ver2/pull/224 （未マージ）。**Preview: https://kic-travel-core-ver2-git-claude-303839-jun-ryusekido-s-projects.vercel.app** （Vercel Ready、2026-10-03 06:44 UTC、コミット 28f4cbc。Claude環境からは到達不可で画面は未確認）→ログイン→ 取引先マスタ → サナム山中湖の「照会」→ 各📋を押して✓になり、メモ帳等に貼り付けて内容を確認（会社名・英語名・携帯・住所・担当者の氏名/電話/メール）。担当者の「編集」「削除」「＋担当者を追加」が従来どおり動くこと、スマホ幅（375px）で横スクロールしないこと。実データでの確認は未実施。
