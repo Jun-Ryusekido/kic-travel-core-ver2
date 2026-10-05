@@ -1023,3 +1023,48 @@ PR: https://github.com/Jun-Ryusekido/kic-travel-core-ver2/pull/224 （未マー�
 #222: index.html競合なし。#220: index.htmlは自動マージ可、SESSION_NOTES.mdのみ競合（従来どおり）。#144: 履歴が無関係（unrelated histories）で、コミット4f77353のindex.html差分は今のmainにも当たらない（従来から。この変更とは無関係）。
 ### JUNさん確認手順
 PR: https://github.com/Jun-Ryusekido/kic-travel-core-ver2/pull/225 （未マージ）。**Preview: https://kic-travel-core-ver2-git-claude-b33b5d-jun-ryusekido-s-projects.vercel.app** （Vercel Ready、2026-10-05 10:13 UTC、コミット 7d0ff8b。Claude環境からは到達不可で画面は未確認）にログイン → サイドバー「ツアー運行カレンダー」 → 月が「2026年10月」になっていること。月を別の月に変えて表示が切り替わること。別画面へ移動して戻ると今月に戻ること。本番(https://kic-travel-core-ver2.vercel.app)での確認は未実施（マージ後に同じ手順で）。
+
+---
+
+## 日付の初期値・作成日を日本時間にそろえる（ブランチ claude/youthful-volta-lv6xsp・index.htmlのみ・SQLなし・Invoice発行日は未修正）
+
+### 洗い出し（grep -a。修正前の行番号 → 評価）
+| 箇所 | 種別 | 保存される? | 対応 |
+|---|---|---|---|
+| レストラン重複確認 `initRestaurantConflicts` :16786（月セレクト rc-ym） | **固定値** `'2026-09'` + 初回のみ生成 | 保存なし（表示月の初期値） | **修正**: JST今月、開くたび再生成（initTourCalendarと同方式） |
+| ガイド仮払い一覧 `setGuideAdvanceRangeDefault` :21453（ga-from/ga-to） | UTC由来 | 保存なし（検索範囲の初期値） | **修正** |
+| 見積もり新規 `openEstimationEditor` :11967（est-date） | UTC由来 | 入力欄の初期値（ユーザーが保存時にestimations.created_dateへ） | **修正** |
+| 見積もりコピー `copyEstimation` :11895（created_date） | UTC由来 | **保存される**（新規行のcreated_date。既存行は触らない） | 指示の「コピー時の作成日」に従い**修正**。保存値なので要確認項目として明記 |
+| Invoice発行日 `generateInvoice` :30367 / `upsertConsolidatedInvoice` :30494 | UTC由来 | **保存・印字される**（invoices.issue_date、:30428/:30522でINSERT/UPDATE。プレビューは `_fmtSlashDate(inv.issue_date)` :30625） | **修正せず停止。下記に影響と案** |
+| 他の `toISOString().slice(0,10)` | — | — | 対象外（変更なし）: :9109/:12293 はUTC暦日での日付列加算（入力が日付のみでTZずれ無し）、:10215/:10263/:10342 はバックアップZIPのファイル名のみ |
+| 他の `new Date().toISOString()` 40件前後 | タイムスタンプ(timestamptz)用途 | DBへUTCで保存が正（CLAUDE.md参照） | 対象外 |
+
+### 修正内容（index.htmlのみ）
+- 共通関数 `jstTodayStr(offsetDays)` を `localDateStr` の直後に追加（`toLocaleDateString('sv-SE',{timeZone:'Asia/Tokyo'})`、offsetは日本時間の暦日で加減算）。状態管理は追加なし。
+- 上記4箇所（rc-ym / ga-from,to / est-date / copyEstimationのcreated_date）を `jstTodayStr` に置換。
+
+### Invoice発行日（未修正・判断待ち）
+- `issue_date` は `generateInvoice`（:30428）/`upsertConsolidatedInvoice`（:30522）で `invoices` に保存され、請求書プレビュー（:30625）・Invoice一覧（:30078/:30195）に印字・表示される。**再発行（UPDATE）でも `corePayload` に含まれるため上書きされる**。
+- 採番への影響なし: invoice_no は `INV-<REF数字>[-ALL][-USD]`（:30375付近）で日付に依存しない。
+- 現状の影響: JSTの0〜9時台に発行/再発行すると、発行日が前日で保存・印字される。
+- 案: 2箇所の `today.toISOString().slice(0,10)` を `jstTodayStr()` に置換するだけ（保存済みの既存Invoiceは変更しない。今後の発行・再発行のみ正しくなる）。別途、再発行で発行日を上書きするのが妥当かは別論点（今回は触れない）。
+
+### 検証（実index.html + Chromium、Playwrightでシステム時刻とTZを固定、修正前=origin/main(8aea1c3)と比較）
+TZ=UTC / Asia/Tokyo の両方で同結果。rc-ym | ga-from→ga-to | est-date:
+| 固定時刻(JST) | 修正前 | 修正後 |
+|---|---|---|
+| 2026-10-01 00:30 | 2026-09 \| 09-30→11-29 \| 09-30 | 2026-10 \| 10-01→11-30 \| 10-01 |
+| 2026-10-05 12:00 | 2026-09 \| 10-05→12-04 \| 10-05 | 2026-10 \| 10-05→12-04 \| 10-05 |
+| 2026-09-30 23:30 | 2026-09 \| 09-30→11-29 \| 09-30 | 2026-09 \| 09-30→11-29 \| 09-30 |
+| 2027-01-01 00:30 | (UTC)2026-12 /(JST)2027-01 \| 12-31→03-01 \| 12-31 | 2027-01 \| 01-01→03-02 \| 01-01 |
+- できていないこと: 実DB・実ログイン・実画面操作での確認（supabase-jsはスタブ）、copyEstimation実行（DB依存のため未実行。差分は1行の置換のみ）。
+
+### 競合試算（git merge-tree、読み取り）
+- #222: 競合なし。
+- #220: index.htmlで**1箇所競合**（`setGuideAdvanceRangeDefault`。#220が `guideAdvanceDefaultRange()` を新設し、その中が `today.toISOString()` のUTC由来のまま）。SESSION_NOTES.mdは従来どおり競合。後からマージする側で `guideAdvanceDefaultRange` 内を `jstTodayStr()`/`jstTodayStr(60)` にして解消する（#220のコードは一覧画面の既定範囲にも使うため、そちらもJST化される）。
+- #144: mainと既にindex.html 2箇所競合（Invoice周辺）。今回の変更を足しても競合箇所は増えない（2箇所のまま）。
+
+### JUNさん確認手順（Preview）
+1. レストラン重複確認を開く → 月が今月（JST）になっている。他画面へ移動して戻ると今月に戻る。
+2. ガイド仮払い一覧の「直近60日」→ 開始が日本時間の今日。
+3. 見積もり新規 → 作成日が日本時間の今日。見積もりをコピー → コピー先の作成日が日本時間の今日。

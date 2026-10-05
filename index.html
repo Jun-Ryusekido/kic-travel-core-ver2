@@ -5270,6 +5270,14 @@ function localDateStr(d){
   d = d || new Date();
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
+// 日本時間(Asia/Tokyo)の今日 'YYYY-MM-DD' を返す。new Date().toISOString().slice(0,10)はUTC日付のため、
+// 日本時間の0〜9時台は前日になる。offsetDaysで日本時間の暦日ベースの加減算ができる。
+function jstTodayStr(offsetDays){
+  const s = new Date().toLocaleDateString('sv-SE', {timeZone:'Asia/Tokyo'});
+  if(!offsetDays) return s;
+  const [y,m,d] = s.split('-').map(Number);
+  return new Date(Date.UTC(y, m-1, d+offsetDays)).toISOString().slice(0,10);
+}
 // 対応期限日が「明日」に入った予約がある場合、ブラウザ通知(Web Notification API)で知らせる。
 // ・ユーザーが通知を許可している場合のみ動作（未許可ならリクエストするのみで通知は出さない）
 // ・同じ明細への通知は1日1回まで（localStorageで当日分の通知済みIDを記録）
@@ -11892,7 +11900,7 @@ async function copyEstimation(id){
     const headerFields = {
       title: (est.title||'(無題)') + ' (コピー)',
       tour_code: est.tour_code||null,   // ツアーコードは引き継ぐ(編集画面で書き換える運用)
-      created_date: new Date().toISOString().slice(0,10),
+      created_date: jstTodayStr(),
       status: 'draft',                  // 元がapproved等でも必ず下書きに戻す
       handling_fee_pct: est.handling_fee_pct,
       insurance_per_pax: est.insurance_per_pax,
@@ -11964,7 +11972,7 @@ async function openEstimationEditor(id){
   document.getElementById('est-tour-code').value='';
   document.getElementById('est-notes').value='';
   document.getElementById('est-customer-name').value='';
-  setDateInputValue('est-date', new Date().toISOString().slice(0,10));
+  setDateInputValue('est-date', jstTodayStr());
   document.getElementById('est-status').value='draft';
   updateEstStatusColor(document.getElementById('est-status'));
   document.getElementById('est-handling').value=0;
@@ -16785,15 +16793,16 @@ async function warnRestaurantConflicts(bookingId, rows){
 // reservation_timeの差が30分未満のペア(強)、片方以上時刻未入力のペア(弱)を検出する。
 function initRestaurantConflicts(){
   const sel = document.getElementById('rc-ym');
-  if(!sel.options.length){
-    const now = new Date();
+  {
+    // 初期表示月は常に「日本時間(Asia/Tokyo)の今月」(以前は'2026-09'固定だった)。
+    // 画面を開くたびに選択肢と既定月を作り直す(ツアー運行カレンダーinitTourCalendarと同じ方式)。
+    const [nowY, nowM] = jstTodayStr().split('-').map(Number);
     const months = [];
     for(let i=-2;i<=12;i++){
-      const d = new Date(now.getFullYear(), now.getMonth()+i, 1);
+      const d = new Date(nowY, nowM-1+i, 1);
       months.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);
     }
-    const preferredDefault = '2026-09';
-    const defaultYm = months.includes(preferredDefault) ? preferredDefault : `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+    const defaultYm = `${nowY}-${String(nowM).padStart(2,'0')}`;
     sel.innerHTML = months.map(ym=>`<option value="${ym}" ${ym===defaultYm?'selected':''}>${ym.replace('-','年')}月</option>`).join('');
   }
   renderRestaurantConflicts();
@@ -21451,10 +21460,8 @@ async function loadGrossTopTours(){
 // ガイド仮払い一覧
 // ===================================================
 function setGuideAdvanceRangeDefault(){
-  const today = new Date();
-  const future = new Date(today.getTime()+60*86400000);
-  document.getElementById('ga-from').value = today.toISOString().slice(0,10);
-  document.getElementById('ga-to').value = future.toISOString().slice(0,10);
+  document.getElementById('ga-from').value = jstTodayStr();
+  document.getElementById('ga-to').value = jstTodayStr(60);
   loadGuideAdvanceList();
 }
 
