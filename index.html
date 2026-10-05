@@ -30370,8 +30370,7 @@ async function generateInvoice(bookingId, currency, agentFilter){
   const booking = bookings.find(b=>b.id===bookingId);
   if(!booking){ alert('予約データが見つかりません'); return; }
 
-  const today = new Date();
-  const issue = today.toISOString().slice(0,10);
+  const issue = jstTodayStr();  // 発行日は日本時間の今日(UTCだとJST 0〜9時台に前日になる)
 
   // Invoice No. は REF# をベースにした形式（例: INV-967）。請求先が複数ある予約は、
   // 請求先ごとに固定の識別子を付けて区別する（例: INV-967-TC）。この識別子付きの番号は
@@ -30497,8 +30496,7 @@ async function generateInvoice(bookingId, currency, agentFilter){
 // 何も書き込まず { skipped: true, agentCount } を返す。判定は直前に取得した売上明細で行い、
 // 取得に失敗した場合は例外(空データで判断しない)。1社の予約に既にある合算は削除しない(人が判断する)。
 async function upsertConsolidatedInvoice(bookingId, currency, booking){
-  const today = new Date();
-  const issue = today.toISOString().slice(0,10);
+  const issue = jstTodayStr();  // 発行日は日本時間の今日(UTCだとJST 0〜9時台に前日になる)
   const refNum = (booking.ref_no||'').replace(/[^0-9]/g,'') || (booking.ref_no||'').replace(/[^A-Za-z0-9]/g,'');
   // 合算Invoiceの番号は末尾に -ALL(USDは -ALL-USD)を付ける(2026-09決定)。以前は個別Invoiceと
   // 同じ INV-<REF> だったため、請求先が1つの予約では個別Invoiceと番号が衝突し、invoice_noの
