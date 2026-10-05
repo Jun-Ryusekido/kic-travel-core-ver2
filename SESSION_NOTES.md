@@ -992,3 +992,34 @@ select * from public.audit_logs where table_name = 'bullet_train_arrangements' o
 #222・#144とはindex.htmlで競合なし。#220はindex.htmlは自動マージ可（renderPartnerContactsList内の取得部分をAPI化、こちらは行描画部分のみ）。競合はSESSION_NOTES.mdのみ（#220は既存の競合）。
 ### JUNさん確認手順
 PR: https://github.com/Jun-Ryusekido/kic-travel-core-ver2/pull/224 （未マージ）。**Preview: https://kic-travel-core-ver2-git-claude-303839-jun-ryusekido-s-projects.vercel.app** （Vercel Ready、2026-10-03 06:44 UTC、コミット 28f4cbc。Claude環境からは到達不可で画面は未確認）→ログイン→ 取引先マスタ → サナム山中湖の「照会」→ 各📋を押して✓になり、メモ帳等に貼り付けて内容を確認（会社名・英語名・携帯・住所・担当者の氏名/電話/メール）。担当者の「編集」「削除」「＋担当者を追加」が従来どおり動くこと、スマホ幅（375px）で横スクロールしないこと。実データでの確認は未実施。
+
+---
+
+## ツアー運行カレンダーの初期表示月が9月のままになる不具合の修正（ブランチ claude/tour-calendar-initial-month・index.htmlのみ・SQLなし）
+
+### 原因（コードで確認）
+`initTourCalendar`（index.html:26848、月セレクト #tc-ym は :1461）に、既定月を**固定値 `preferredDefault = '2026-09'`** にする処理があった（旧:26860付近）。選択肢（今月-2〜+12ヶ月）に2026-09が含まれる間はずっと9月が選ばれ、含まれなくなって初めて今月になる設計だった。加えて `if(!sel.options.length)` で**選択肢の生成が初回の1回だけ**だったため、画面を開いたままの古い状態（選んだ月・選択肢の範囲）が開き直しても残った。localStorage等の保存は無い（呼び出しは go('tour-calendar') :4235 のみ）。年月は `new Date()` のローカル時刻で、日本時間(JST)とは限らない問題もあった。
+### 修正
+`initTourCalendar` が呼ばれるたびに、日本時間の今月（既存と同じ `toLocaleDateString('sv-SE',{timeZone:'Asia/Tokyo'})`）を基準に選択肢（-2〜+12ヶ月）を作り直し、今月を選択状態にする。画面を開いている間の月選択は維持、開き直すと今月に戻る。他の関数・UIは無変更。
+### 検証（実index.html+Chromium、システム時刻・TZを固定。修正前=origin/main と同条件で比較）
+- JST 2026-10-05: 修正前=2026-09 / 修正後=2026-10（ブラウザTZがAsia/Tokyo・America/Los_Angelesの両方で）。
+- JST 2026-10-01 00:30（UTC 9/30 15:30）: 修正後=2026-10（TZ=UTC・Los_Angeles・Tokyoのすべて）。修正前=2026-09。
+- JST 2026-09-30 23:30: 修正後=2026-09（TZ=Tokyo、Auckland（ローカルは10/1 03:30）とも）。
+- JST 2027-01-02（年またぎ）: 2027-01。
+- 月を手動で2026-12に変更→描画され、他画面へ移動して戻ると今月(2026-10)に戻る。修正前は2026-12のまま残った。
+- 10月のカレンダーは32列(レーン列+31日)で、合成のホテル手配が描画される。JSエラー0。
+### 同種の問題の洗い出し（grep。今回は修正せず、報告のみ）
+| 画面/処理 | 場所 | 初期値 | 評価 |
+|---|---|---|---|
+| **レストラン重複確認**（rc-ym） | `initRestaurantConflicts` :16786 | 固定 `'2026-09'` + 初回のみ生成 | **同一バグ。要修正** |
+| ホテル手配マトリクス（hm-matrix-ym） | `initHmMatrix` :26743 | 今月、開くたび再生成 | 今月になる。ブラウザのローカル時刻でJST固定ではない（日本国内では問題なし） |
+| ガイド仮払い一覧（ga-from/ga-to） | `setGuideAdvanceRangeDefault` :21453 | `toISOString()`(UTC)の今日〜+60日 | JSTの0〜9時台は**前日**が入る（UTCずれ） |
+| 見積もり 新規の日付 / コピー時の作成日 | :11967 / :11895 | `toISOString()` | 同上（JST 0〜9時台は前日） |
+| Invoice 発行日 | :30367 / :30494（`generateInvoice`/`upsertConsolidatedInvoice`） | `toISOString()` の日付 | 同上。**請求書の発行日が前日になりうる（要確認・優先度高め）** |
+| 会計年度（currentFiscalYear）/ 支払画面の年度 | :3773 / :22076 | ローカル日付。年度セレクトは初回のみ生成 | 日本国内では問題なし（3月境界でも開き直しで古い選択肢が残りうるが軽微） |
+| 手配確定状況・観光地予約管理・ガイド精算一覧・ダッシュボード | — | 月/日付の固定初期値は無し（grepで固定値・UTC由来の初期値は見つからず） | 該当なし |
+※ 上記の「要修正」「UTCずれ」はJUNさんの指示後に別PRで対応（今回の修正には含めていない）。
+### 競合試算（読み取り）
+#222: index.html競合なし。#220: index.htmlは自動マージ可、SESSION_NOTES.mdのみ競合（従来どおり）。#144: 履歴が無関係（unrelated histories）で、コミット4f77353のindex.html差分は今のmainにも当たらない（従来から。この変更とは無関係）。
+### JUNさん確認手順
+PR: https://github.com/Jun-Ryusekido/kic-travel-core-ver2/pull/225 （未マージ）。**Preview: https://kic-travel-core-ver2-git-claude-b33b5d-jun-ryusekido-s-projects.vercel.app** （Vercel Ready、2026-10-05 10:13 UTC、コミット 7d0ff8b。Claude環境からは到達不可で画面は未確認）にログイン → サイドバー「ツアー運行カレンダー」 → 月が「2026年10月」になっていること。月を別の月に変えて表示が切り替わること。別画面へ移動して戻ると今月に戻ること。本番(https://kic-travel-core-ver2.vercel.app)での確認は未実施（マージ後に同じ手順で）。
