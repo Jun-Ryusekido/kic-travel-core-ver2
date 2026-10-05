@@ -26847,20 +26847,21 @@ let tcCalendarDataCache = {};
 
 function initTourCalendar(){
   const sel = document.getElementById('tc-ym');
-  if(!sel.options.length){
-    // hm-matrixと同じ「今月を基準に-2ヶ月〜+12ヶ月」の範囲を生成しつつ、
-    // このカレンダーの既定表示月(2026年9月)がその範囲に含まれていればそれを選択状態にする
-    // (含まれない場合は今月をフォールバックの既定値にする)。
-    const now = new Date();
-    const months = [];
-    for(let i=-2;i<=12;i++){
-      const d = new Date(now.getFullYear(), now.getMonth()+i, 1);
-      months.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);
-    }
-    const preferredDefault = '2026-09';
-    const defaultYm = months.includes(preferredDefault) ? preferredDefault : `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-    sel.innerHTML = months.map(ym=>`<option value="${ym}" ${ym===defaultYm?'selected':''}>${ym.replace('-','年')}月</option>`).join('');
+  // 初期表示月は常に「日本時間(Asia/Tokyo)の今月」。以前は既定月を'2026-09'に固定していたため
+  // 月が変わっても9月のままになっていた。また、new Date().getFullYear()/getMonth()は
+  // ブラウザのローカル時刻のため、日本時間と月が違う時間帯・環境で前月になりうるので、
+  // 他の画面と同じ toLocaleDateString('sv-SE',{timeZone:'Asia/Tokyo'}) で年月を取る。
+  // 画面を開く(initTourCalendar呼び出し)たびに選択肢と既定月を作り直す。月選択の操作は
+  // 画面を開いている間だけ維持され、開き直すと今月に戻る(保存して使い回す仕組みは無い)。
+  const [nowY, nowM] = new Date().toLocaleDateString('sv-SE', {timeZone:'Asia/Tokyo'}).split('-').map(Number);
+  // hm-matrixと同じ「今月を基準に-2ヶ月〜+12ヶ月」の範囲を生成する。
+  const months = [];
+  for(let i=-2;i<=12;i++){
+    const d = new Date(nowY, nowM-1+i, 1);
+    months.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);
   }
+  const defaultYm = `${nowY}-${String(nowM).padStart(2,'0')}`;
+  sel.innerHTML = months.map(ym=>`<option value="${ym}" ${ym===defaultYm?'selected':''}>${ym.replace('-','年')}月</option>`).join('');
   renderTourCalendar();
 }
 
