@@ -992,3 +992,27 @@ select * from public.audit_logs where table_name = 'bullet_train_arrangements' o
 #222・#144とはindex.htmlで競合なし。#220はindex.htmlは自動マージ可（renderPartnerContactsList内の取得部分をAPI化、こちらは行描画部分のみ）。競合はSESSION_NOTES.mdのみ（#220は既存の競合）。
 ### JUNさん確認手順
 PR: https://github.com/Jun-Ryusekido/kic-travel-core-ver2/pull/224 （未マージ）。**Preview: https://kic-travel-core-ver2-git-claude-303839-jun-ryusekido-s-projects.vercel.app** （Vercel Ready、2026-10-03 06:44 UTC、コミット 28f4cbc。Claude環境からは到達不可で画面は未確認）→ログイン→ 取引先マスタ → サナム山中湖の「照会」→ 各📋を押して✓になり、メモ帳等に貼り付けて内容を確認（会社名・英語名・携帯・住所・担当者の氏名/電話/メール）。担当者の「編集」「削除」「＋担当者を追加」が従来どおり動くこと、スマホ幅（375px）で横スクロールしないこと。実データでの確認は未実施。
+
+---
+
+## PR #224（取引先照会モーダルのコピーボタン）マージ記録
+
+- マージ: 2026-10-05 11:33:35 +09:00（02:33 UTC。JUNさんの指示）。マージコミット **66bc7e45a065c1d8de1fbdb43398cb5bbd6346ee**（通常のマージコミット。head SHA 4307190 を固定）。PR: https://github.com/Jun-Ryusekido/kic-travel-core-ver2/pull/224
+- マージ前: mergeable_state=clean、Vercel success。SQLなし・データ書き換えなし。
+- 本番Vercelデプロイ: Claude環境からGitHub経由で本番の完了確認不可（Actionsなし・本番URLに到達不可）→ JUNさんがVercelで 66bc7e4 の Production が Ready か確認する。
+- 戻す場合: GitHubのPR #224ページで「Revert」→ Revert PRをマージ。
+
+### 本番確認手順（JUN）
+1. Vercelで 66bc7e4 が Production Ready であることを確認。
+2. https://kic-travel-core-ver2.vercel.app をハードリロード(Ctrl+Shift+R)してログイン。
+3. 取引先マスタ → 「サナム山中湖」の「照会」。
+4. 会社名・会社名（英語）・携帯・住所、担当者の氏名・電話・メールの横の📋を順に押す → ✓に変わる。
+5. メモ帳に貼り付けて内容を確認。
+6. 「（名前未登録）」の担当者に氏名の📋が無いこと、編集/削除/＋担当者を追加が従来どおり動くことを確認。
+
+### openなPRの状態（読み取りで確認、2026-10-05時点のmain=66bc7e4）
+- **#223（新幹線CSV）: マージ済み**（2026-10-01 11:24 UTC、マージコミット 3c4585a）。
+- #222（ミールバウチャー）: open。mergeable=clean（GitHub判定）。試算でもindex.html競合なし。
+- #220（RLSバッチ2）: open。index.htmlは自動マージ可。**SESSION_NOTES.md のみ競合**（従来どおり）。
+- #144（Agent照合）: open。**要注意**: mainと履歴が無関係(unrelated histories。base d00177c がこのリポジトリの履歴に存在しない)。コミット4f77353のindex.html差分は、今回のマージ前(3c4585a/7c60475)の時点でも `git apply` できず、--3way では**index.htmlが競合**。つまり#144は以前から古く、マージするなら最新mainへの作り直し（再実装/cherry-pick）が必要。
+- 訂正: 前回(#224作成時)の報告「#144とindex.htmlで競合なし」は誤り。試算コマンドが「unrelated histories」で失敗したのを見落としていた。
