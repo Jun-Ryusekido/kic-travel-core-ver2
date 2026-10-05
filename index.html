@@ -27414,7 +27414,7 @@ function renderPartnersRows(){
   // 復元できる)にコピー対象のテキストを保持し、クリック時にthis.dataset.copyを
   // 読んで渡す(onclick文字列に直接値を埋め込むと、値に含まれる引用符・改行で
   // JS構文が壊れるため避けている)。値が空の項目にはボタン自体を出さない。
-  const copyBtn = (val) => val ? `<button type="button" class="copy-icon-btn" data-copy="${escAttr(val)}" onclick="copyPartnerField(this,this.dataset.copy,event)" title="コピー">📋</button>` : '';
+  const copyBtn = partnerCopyBtnHtml;
 
   // PC テーブル。「担当者」列は代表担当者(is_primary)があればその人、無ければ
   // 従来通り登録順1人目(business_partner_contacts0件の会社はbusiness_partners自身の
@@ -27498,11 +27498,13 @@ async function showPartnerDetail(id){
     ['住所（英語）',  p.address_en],
     ['備考',         p.notes],
   ].filter(([,v])=>v);
+  // コピーボタンを付ける項目(値が空の項目はrowsから除外済みのため付かない)
+  const copyKeys = ['会社名','会社名（英語）','携帯','住所'];
   document.getElementById('pt-detail-title').textContent = p.company_name || '取引先詳細';
   document.getElementById('pt-detail-body').innerHTML = rows.map(([k,v])=>
     `<div style="display:flex;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);font-size:12px">
       <span style="color:var(--text3);min-width:90px;flex-shrink:0">${escHtml(k)}</span>
-      <span style="word-break:break-all">${escHtml(String(v))}</span>
+      <span style="word-break:break-all">${escHtml(String(v))}${copyKeys.includes(k)?partnerCopyBtnHtml(String(v)):''}</span>
     </div>`
   ).join('') + `
     <div style="margin-top:14px;padding-top:10px;border-top:2px solid var(--border)">
@@ -27549,11 +27551,11 @@ async function renderPartnerContactsList(partner){
     const primaryBtn = c.is_primary ? '' : `<button class="btn" style="font-size:10px" onclick="setPrimaryContact('${c.id}')">★ 代表にする</button>`;
     return `<div style="padding:7px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:8px;align-items:flex-start">
       <div>
-        <div style="font-weight:600">${escHtml(nameLine || '（名前未登録）')}${kanaSuffix}${primaryBadge}</div>
+        <div style="font-weight:600">${escHtml(nameLine || '（名前未登録）')}${partnerCopyBtnHtml(c.contact_person)}${kanaSuffix}${primaryBadge}</div>
         ${c.contact_person_en ? `<div style="color:var(--text3)">${escHtml(c.contact_person_en)}</div>` : ''}
         ${c.branch_name ? `<div style="color:var(--text3)">${escHtml(c.branch_name)}</div>` : ''}
-        ${phone ? `<div>📞 ${escHtml(phone)}</div>` : ''}
-        ${c.email ? `<div>✉️ ${escHtml(c.email)}</div>` : ''}
+        ${phone ? `<div>📞 ${escHtml(phone)}${partnerCopyBtnHtml(phone)}</div>` : ''}
+        ${c.email ? `<div>✉️ ${escHtml(c.email)}${partnerCopyBtnHtml(c.email)}</div>` : ''}
       </div>
       <div style="white-space:nowrap;display:flex;flex-direction:column;gap:4px;flex-shrink:0">
         ${primaryBtn}
@@ -28267,14 +28269,41 @@ function copyMultiLocationResult(btn){
 // Agentマスタ一覧のメールアドレスのコピーアイコン(filterAgents)からも共用する。
 // クリック直後にアイコンをチェックマークへ一瞬切り替えてコピー完了を示す
 // (copyMultiLocationResult()と同じ「ボタン自身の表示を一時的に変える」パターンを踏襲)。
+// コピーアイコンのHTML。取引先マスタ一覧・Agentマスタ一覧・取引先照会モーダルで共用する。
+// 値が空の場合はボタン自体を出さない。
+function partnerCopyBtnHtml(val){
+  return val ? `<button type="button" class="copy-icon-btn" data-copy="${escAttr(val)}" onclick="copyPartnerField(this,this.dataset.copy,event)" title="コピー">📋</button>` : '';
+}
+
+// navigator.clipboardが使えない環境(HTTP接続・古いブラウザ・権限拒否)向けのフォールバック。
+function copyTextFallback(text){
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+  document.body.appendChild(ta);
+  ta.select();
+  let ok = false;
+  try{ ok = document.execCommand('copy'); }catch(_){ ok = false; }
+  ta.remove();
+  return ok;
+}
+
 function copyPartnerField(btn, text, ev){
   if(ev) ev.stopPropagation();
-  navigator.clipboard.writeText(text).then(() => {
+  const done = () => {
     const orig = btn.innerHTML;
     btn.innerHTML = '✓';
     btn.classList.add('copied');
     setTimeout(() => { btn.innerHTML = orig; btn.classList.remove('copied'); }, 1500);
-  }).catch(() => { alert('コピーに失敗しました。テキストを手動で選択してください。'); });
+  };
+  const fail = () => { alert('コピーに失敗しました。テキストを手動で選択してください。'); };
+  const fallback = () => { copyTextFallback(text) ? done() : fail(); };
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(done).catch(fallback);
+  }else{
+    fallback();
+  }
 }
 
 // ===================================================
@@ -29161,7 +29190,7 @@ function filterAgents(){
   }
 
   // 取引先マスタのpt-card(renderPartnersRows)と同じコピーアイコン(copyPartnerField再利用)
-  const copyBtn = (val) => val ? `<button type="button" class="copy-icon-btn" data-copy="${escAttr(val)}" onclick="copyPartnerField(this,this.dataset.copy,event)" title="コピー">📋</button>` : '';
+  const copyBtn = partnerCopyBtnHtml;
 
   tbody.innerHTML = filtered.map(a=>`
     <tr>
