@@ -1023,3 +1023,20 @@ PR: https://github.com/Jun-Ryusekido/kic-travel-core-ver2/pull/224 （未マー�
 #222: index.html競合なし。#220: index.htmlは自動マージ可、SESSION_NOTES.mdのみ競合（従来どおり）。#144: 履歴が無関係（unrelated histories）で、コミット4f77353のindex.html差分は今のmainにも当たらない（従来から。この変更とは無関係）。
 ### JUNさん確認手順
 PR: https://github.com/Jun-Ryusekido/kic-travel-core-ver2/pull/225 （未マージ）。**Preview: https://kic-travel-core-ver2-git-claude-b33b5d-jun-ryusekido-s-projects.vercel.app** （Vercel Ready、2026-10-05 10:13 UTC、コミット 7d0ff8b。Claude環境からは到達不可で画面は未確認）にログイン → サイドバー「ツアー運行カレンダー」 → 月が「2026年10月」になっていること。月を別の月に変えて表示が切り替わること。別画面へ移動して戻ると今月に戻ること。本番(https://kic-travel-core-ver2.vercel.app)での確認は未実施（マージ後に同じ手順で）。
+
+---
+
+## PR #225（ツアー運行カレンダー初期表示月の修正）マージ記録
+
+- マージ: 2026-10-05（JUNさんの指示）。マージコミット **8aea1c36e20adc30083225335ac0fe11af4b8332**（通常のマージコミット。head SHA 9778325 を固定）。PR: https://github.com/Jun-Ryusekido/kic-travel-core-ver2/pull/225 （日時は下の git 記録 / GitHub のPRページ参照）
+- マージ前: mergeable_state=clean、Vercel success。SQLなし・データ書き換えなし。
+- 本番Vercelデプロイ: Claude環境からGitHub経由でmainの本番デプロイ完了を確認できず（Actionsなし・本番URLに到達不可）→ JUNさんがVercelで 8aea1c3 の Production が Ready か確認する。
+- 戻す場合: GitHubのPR #225ページで「Revert」→ Revert PRをマージ。
+### 本番確認手順（JUN）
+1. Vercelで 8aea1c3 が Production Ready か確認。
+2. https://kic-travel-core-ver2.vercel.app をハードリロード(Ctrl+Shift+R)してログイン。
+3. サイドバー「ツアー運行カレンダー」を開く → 月が「2026年10月」。
+4. 月セレクトで別の月（例: 2026年11月）を選ぶ → 表示が切り替わる。
+5. ダッシュボードなど別画面へ移動してから「ツアー運行カレンダー」へ戻る → 「2026年10月」に戻る。
+### 未対応（別PR候補・JUNさんの指示待ち）
+レストラン重複確認の固定'2026-09'（`initRestaurantConflicts` :16786）、UTC由来の日付（ガイド仮払い一覧 :21453、見積もり :11967/:11895、Invoice発行日 :30367/:30494）。
