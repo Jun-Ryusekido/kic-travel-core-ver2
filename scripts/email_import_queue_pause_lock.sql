@@ -1,48 +1,103 @@
 -- ============================================================
--- email_import_queue(メール受信箱)停止中のDB側ロック【設計のみ・未実行(2026-10-06)】
+-- email_import_queue(メール受信箱)停止中のDB側ロック【未実行(2026-10-06)】
 --
 -- 前提・実行条件は SESSION_NOTES.md「メール受信箱の停止中ロック設計」のチェックリストをすべて満たしてから。
--- 実行前に scripts/email_import_queue_pause_lock_precheck.sql の1〜9の結果を保存すること。
+-- 実行前に scripts/email_import_queue_pause_lock_precheck.sql の1〜9(8a/8b/8cを含む)の結果を保存すること。
 --
 -- このSQLで変わること:
 --  ・email_import_queue / email_import_queue_archive: anon・authenticatedの全権限をREVOKE
---  ・email_import_queue: anon向けRLSポリシー(INSERT/SELECT/UPDATEの3本)をDROP(RLSは有効のまま)
+--  ・email_import_queue: anon向けRLSポリシー3本("anon insert" / "anon select" / "anon update")をDROP(RLSは有効のまま)
 --  ・service_roleにはGRANTを明示(過去にGRANT漏れで止まった経緯があるため。service_roleでの
 --    api/email-import.js・api/table-crud.js・バックアップ・scripts/*.jsの経路は維持される)
+--  ・email_import_queue_archiveは、実測(RLS有効・anon権限なし・ポリシー0本)のとおりなら、
+--    下の処理はすべて何も変えない(冪等な再確認のみ)
 --
--- ポリシー名はリポジトリ内のSQLファイルでは確認できなかったため、名前を直書きせず、
--- 「anon/publicが対象のポリシーがちょうど3本(INSERT/SELECT/UPDATE)であること」を確認してから
--- 該当ポリシーを落とす。想定と違えば例外で全体がロールバックされる(何も変わらない)。
+-- 実行前ガード(実DBの実測と一致しなければ例外で止まり、何も変わらない):
+--  ・email_import_queueのRLSが有効
+--  ・ポリシーがテーブル全体でちょうど3本で、名前・操作・ロール・条件が次と完全に一致
+--      "anon insert": FOR INSERT TO anon / with_check = true
+--      "anon select": FOR SELECT TO anon / qual = true
+--      "anon update": FOR UPDATE TO anon / qual = true / with_check = null
+--  ・権限が anon={INSERT,SELECT}、authenticated={SELECT}、PUBLIC宛てなし、列単位の権限なし
+--    (ロールバックSQLがこの状態へ過不足なく戻せることを保証するため)
+-- 実行後ガード: コミット前に最終状態を検証し、違えば例外で全体をロールバックする。
 -- ============================================================
 begin;
 
 do $$
 declare
   rls_on boolean;
-  n int;
-  cmds text[];
-  p record;
+  pol_total int;
+  pol_match int;
+  anon_priv text;
+  auth_priv text;
+  public_acl int;
+  col_acl int;
 begin
   select relrowsecurity into rls_on from pg_class where oid = 'public.email_import_queue'::regclass;
   if rls_on is not true then
     raise exception 'email_import_queueのRLSが無効です。想定外のため中止します';
   end if;
 
-  select count(*), array_agg(cmd order by cmd) into n, cmds
+  -- ポリシーはロール問わずテーブル全体でちょうど3本
+  select count(*) into pol_total
   from pg_policies
-  where schemaname = 'public' and tablename = 'email_import_queue'
-    and roles && array['anon', 'public']::name[];
-  if n <> 3 or cmds <> array['INSERT', 'SELECT', 'UPDATE'] then
-    raise exception 'anon/public向けポリシーが想定(INSERT/SELECT/UPDATEの3本)と違います: n=%, cmds=%', n, cmds;
+  where schemaname = 'public' and tablename = 'email_import_queue';
+  if pol_total <> 3 then
+    raise exception 'email_import_queueのポリシーが3本ではありません(n=%)。想定外のため中止します', pol_total;
   end if;
 
-  for p in
-    select policyname from pg_policies
-    where schemaname = 'public' and tablename = 'email_import_queue'
-      and roles && array['anon', 'public']::name[]
-  loop
-    execute format('drop policy %I on public.email_import_queue', p.policyname);
-  end loop;
+  -- その3本が、名前・操作・ロール・条件まで実測と完全一致
+  select count(*) into pol_match
+  from pg_policies
+  where schemaname = 'public' and tablename = 'email_import_queue'
+    and permissive = 'PERMISSIVE'
+    and roles = array['anon']::name[]
+    and (   (policyname = 'anon insert' and cmd = 'INSERT' and qual is null  and with_check = 'true')
+         or (policyname = 'anon select' and cmd = 'SELECT' and qual = 'true' and with_check is null)
+         or (policyname = 'anon update' and cmd = 'UPDATE' and qual = 'true' and with_check is null));
+  if pol_match <> 3 then
+    raise exception 'ポリシーの名前・操作・ロール・条件が想定("anon insert"/"anon select"/"anon update"の3本)と一致しません(一致=%/3)。想定外のため中止します', pol_match;
+  end if;
+
+  -- テーブル権限(ロールバックSQLの復元内容と一致していること)
+  select string_agg(distinct a.privilege_type, ',' order by a.privilege_type) into anon_priv
+  from pg_class c
+  cross join lateral aclexplode(c.relacl) a
+  join pg_roles r on r.oid = a.grantee
+  where c.oid = 'public.email_import_queue'::regclass and r.rolname = 'anon';
+  if anon_priv is distinct from 'INSERT,SELECT' then
+    raise exception 'anonの権限が想定(INSERT,SELECT)と違います: %。想定外のため中止します', coalesce(anon_priv, '(なし)');
+  end if;
+
+  select string_agg(distinct a.privilege_type, ',' order by a.privilege_type) into auth_priv
+  from pg_class c
+  cross join lateral aclexplode(c.relacl) a
+  join pg_roles r on r.oid = a.grantee
+  where c.oid = 'public.email_import_queue'::regclass and r.rolname = 'authenticated';
+  if auth_priv is distinct from 'SELECT' then
+    raise exception 'authenticatedの権限が想定(SELECT)と違います: %。想定外のため中止します', coalesce(auth_priv, '(なし)');
+  end if;
+
+  select count(*) into public_acl
+  from pg_class c
+  cross join lateral aclexplode(c.relacl) a
+  where c.oid = 'public.email_import_queue'::regclass and a.grantee = 0;
+  if public_acl <> 0 then
+    raise exception 'PUBLIC宛ての権限が付いています(%件)。想定外のため中止します', public_acl;
+  end if;
+
+  select count(*) into col_acl
+  from pg_attribute
+  where attrelid = 'public.email_import_queue'::regclass and attnum > 0 and not attisdropped and attacl is not null;
+  if col_acl <> 0 then
+    raise exception '列単位の権限が付いています(%列)。想定外のため中止します', col_acl;
+  end if;
+
+  -- ガードを通過した場合のみ、実測した3本を名前で落とす
+  drop policy "anon insert" on public.email_import_queue;
+  drop policy "anon select" on public.email_import_queue;
+  drop policy "anon update" on public.email_import_queue;
 end $$;
 
 -- email_import_queue
@@ -51,12 +106,59 @@ revoke all on public.email_import_queue from authenticated;
 grant select, insert, update, delete on public.email_import_queue to service_role;
 alter table public.email_import_queue enable row level security;
 
--- email_import_queue_archive(作成時にanon/authenticatedはREVOKE済みのはずだが、冪等に再確認。
--- like ... including allはRLSを複製しないため、RLSも明示的に有効化する。ポリシーは作らない)
+-- email_import_queue_archive(実測: RLS有効・anon権限なし・ポリシー0本のため、以下は何も変えない。
+-- 状態が想定と違っていた場合に備えた冪等な再確認。ポリシーは作らない)
 revoke all on public.email_import_queue_archive from anon;
 revoke all on public.email_import_queue_archive from authenticated;
 grant select, insert, update, delete on public.email_import_queue_archive to service_role;
 alter table public.email_import_queue_archive enable row level security;
+
+-- 実行後ガード: 最終状態が期待どおりでなければ例外 → 全体がロールバックされる(何も変わらない)
+do $$
+declare
+  leftover text;
+  missing text;
+  pol_left int;
+  rls_off text;
+begin
+  -- anon/authenticatedには、どの権限も(列単位も含め)残っていないこと
+  select string_agg(t.tbl || ':' || r.role_name || ':' || p.priv, ', ') into leftover
+  from (values ('public.email_import_queue'), ('public.email_import_queue_archive')) as t(tbl)
+  cross join (values ('anon'), ('authenticated')) as r(role_name)
+  cross join (values ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE'), ('TRUNCATE'), ('REFERENCES'), ('TRIGGER')) as p(priv)
+  where has_table_privilege(r.role_name, t.tbl, p.priv)
+     or (p.priv in ('SELECT', 'INSERT', 'UPDATE', 'REFERENCES') and has_any_column_privilege(r.role_name, t.tbl, p.priv));
+  if leftover is not null then
+    raise exception 'ロック後もanon/authenticatedの権限が残っています: %', leftover;
+  end if;
+
+  -- service_roleは4操作とも通ること
+  select string_agg(t.tbl || ':' || p.priv, ', ') into missing
+  from (values ('public.email_import_queue'), ('public.email_import_queue_archive')) as t(tbl)
+  cross join (values ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE')) as p(priv)
+  where not has_table_privilege('service_role', t.tbl, p.priv);
+  if missing is not null then
+    raise exception 'service_roleの権限が不足しています: %', missing;
+  end if;
+
+  -- anon/authenticated/PUBLIC宛てのポリシーが両テーブルに無いこと
+  select count(*) into pol_left
+  from pg_policies
+  where schemaname = 'public' and tablename in ('email_import_queue', 'email_import_queue_archive')
+    and roles && array['anon', 'authenticated', 'public']::name[];
+  if pol_left <> 0 then
+    raise exception 'anon/authenticated/public向けのポリシーが残っています(%本)', pol_left;
+  end if;
+
+  -- RLSが両テーブルとも有効であること
+  select string_agg(c.relname, ', ') into rls_off
+  from pg_class c
+  where c.oid in ('public.email_import_queue'::regclass, 'public.email_import_queue_archive'::regclass)
+    and c.relrowsecurity is not true;
+  if rls_off is not null then
+    raise exception 'RLSが無効のテーブルがあります: %', rls_off;
+  end if;
+end $$;
 
 notify pgrst, 'reload schema';
 

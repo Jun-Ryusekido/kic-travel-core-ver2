@@ -48,20 +48,73 @@ where conrelid = 'public.email_import_queue'::regclass;
 --    id, subject, body, sender, received_at, imported, created_at, ignored, postponed,
 --    attachments, is_excluded, excluded_reason, html_body, archived_at(archiveのみ)。
 --    updated_atはtable-crud.jsのコメントで言及があるが、SQLファイルでは確認できていない)
-select table_name, column_name, data_type
+--    column_defaultも見る: 取り込みAPI(api/email-import.js)はcreated_atをINSERTに含めないため、
+--    created_atはDB側のデフォルト値で入る。5の「最終取り込み日時」が信頼できるのは、created_atの
+--    column_defaultが now() 等のとき(CREATE TABLEはリポジトリに無く、未確認)。
+select table_name, column_name, data_type, is_nullable, column_default
 from information_schema.columns
 where table_schema = 'public' and table_name in ('email_import_queue', 'email_import_queue_archive')
 order by table_name, ordinal_position;
 
--- 8. 迂回路: このテーブルを参照するビュー・関数・Realtime公開
-select 'view' as kind, view_name as name from information_schema.view_table_usage
-  where table_schema = 'public' and table_name in ('email_import_queue', 'email_import_queue_archive')
-union all
-select 'function', p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-  where n.nspname = 'public' and p.prosrc ilike '%email_import_queue%'
-union all
-select 'realtime_publication', pubname || '.' || tablename from pg_publication_tables
-  where schemaname = 'public' and tablename in ('email_import_queue', 'email_import_queue_archive');
+-- 8. 迂回路(RLSとREVOKEをすり抜けてこのテーブルを読み書きできる経路)。8a・8b・8cをすべて実行する。
+--    まだ一度も結果を確認できていない。ロックを実行する前に、結果を必ず確認すること。
+
+-- 8a. publicの全ビュー・マテリアライズドビュー(推移的な依存も含む。ビュー→ビュー→テーブルも拾う)。
+--     ビューは既定で「ビューの所有者の権限」で実行されるため、security_invoker=false のビューは、
+--     テーブルのRLSもREVOKEも通らずに中身が読める。
+--     【読み方】depends_on_queue=true かつ anon_can_select(またはauthenticated_can_select)=true かつ
+--     security_invoker=false の行が1件でもあれば、迂回路あり。ロック前に別途対応する(ロックは実行しない)。
+--     depends_on_queue=false の行は、このテーブルとは無関係(参考表示)。
+with recursive v(view_oid) as (
+  select rw.ev_class
+  from pg_depend d
+  join pg_rewrite rw on rw.oid = d.objid
+  where d.classid = 'pg_rewrite'::regclass
+    and d.refobjid in ('public.email_import_queue'::regclass, 'public.email_import_queue_archive'::regclass)
+    and rw.ev_class <> d.refobjid
+  union
+  select rw.ev_class
+  from v
+  join pg_depend d on d.refobjid = v.view_oid and d.classid = 'pg_rewrite'::regclass
+  join pg_rewrite rw on rw.oid = d.objid
+  where rw.ev_class <> v.view_oid
+)
+select c.oid::regclass as view_name,
+       case c.relkind when 'v' then 'view' when 'm' then 'matview' end as kind,
+       pg_get_userbyid(c.relowner) as owner,
+       exists (select 1 from unnest(coalesce(c.reloptions, '{}'::text[])) o
+               where o in ('security_invoker=true', 'security_invoker=on')) as security_invoker,
+       c.oid in (select view_oid from v) as depends_on_queue,
+       has_table_privilege('anon', c.oid, 'SELECT') as anon_can_select,
+       has_table_privilege('authenticated', c.oid, 'SELECT') as authenticated_can_select
+from pg_class c
+join pg_namespace n on n.oid = c.relnamespace
+where n.nspname = 'public' and c.relkind in ('v', 'm')
+order by depends_on_queue desc, c.relname;
+
+-- 8b. publicの全 SECURITY DEFINER 関数(関数の所有者の権限で実行され、RLSを迂回し得る)。
+--     関数の中身がこのテーブルを名指ししていなくても(動的SQL等)、定義者権限の関数はすべて列挙する。
+--     【読み方】anon_can_execute(またはauthenticated_can_execute)=true の関数が、
+--     mentions_queue=true なら迂回路あり(/rpc/<関数名> でanonから呼べる)。
+--     mentions_queue=false でも、中身(select pg_get_functiondef('<function_signature>'::regprocedure);)を
+--     確認し、テーブル名を文字列で組み立てて実行していないかを見る。
+--     config に search_path が無い定義者関数は、それ自体が別のリスクなので別途報告する。
+select p.oid::regprocedure as function_signature,
+       pg_get_userbyid(p.proowner) as owner,
+       p.proconfig as config,
+       p.prosrc ilike '%email_import_queue%' as mentions_queue,
+       has_function_privilege('anon', p.oid, 'EXECUTE') as anon_can_execute,
+       has_function_privilege('authenticated', p.oid, 'EXECUTE') as authenticated_can_execute
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public' and p.prosecdef
+order by anon_can_execute desc, mentions_queue desc, p.proname, p.oid;
+
+-- 8c. Realtime公開(publicationにテーブルが入っていると、変更内容が配信され得る)
+--     【読み方】0件ならOK。1件以上あれば、anonが購読できるかを別途確認する。
+select pubname, schemaname, tablename
+from pg_publication_tables
+where schemaname = 'public' and tablename in ('email_import_queue', 'email_import_queue_archive');
 
 -- 9. 添付ファイルのStorage(api/email-import.jsのSTORAGE_BUCKET='email-attachments')。
 --    このロックの対象外だが、バケットが公開か・anon向けポリシーがあるかを確認しておく
