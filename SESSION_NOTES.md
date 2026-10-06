@@ -1088,3 +1088,44 @@ PR: https://github.com/Jun-Ryusekido/kic-travel-core-ver2/pull/225 （未マー�
 - DBへ接続していないため、現在の権限・ポリシー・件数・RLS状態は未確認（SQLはすべて未実行）。
 - Outlook実機のマクロ、タスクスケジューラの有効/無効は未確認。
 - ps1内のanonキー（JWT）はリポジトリにコミットされている。キーの値はこの記録に書いていない（anon公開キーだが、ロック後はテーブルへは使えなくなる）。
+
+---
+
+## メール受信箱の停止中ロック: JUNさん確認結果の反映（2026-10-06追記・調査/設計のみ・SQL未実行・PRなし）
+
+### 確認済みの事実（JUNさん）
+1. **Outlookのマクロ**: Alt+F11で全プロジェクトを対象に `rest/v1` と `email_import_queue` を検索 → どちらも見つからない。マクロはDBに直接アクセスしていない（リポジトリのコピーで確認したとおり、送信先は `/api/email-import-insert` のみ）。
+2. **catchup-missed-mail.ps1**: タスク `KIC_EmailCatchUp` は **State=Disabled**、最後の実行は **2026/09/15 15:00**。現在は停止中。したがって `:171-172` の anon SELECT は今は動かない。
+
+### 停止中に email_import_queue へアクセスする経路の結論: **ロックして問題なし**
+| 経路 | 判定 | 根拠 |
+|---|---|---|
+| ブラウザ（受信箱の直接SELECT 8か所） | 問題なし | 停止中は到達不能（EMAIL_INBOX_SUSPENDED、go() :4255-4268）。ロック後に古いタブから叩かれても permission denied になるだけで、データ損失・誤動作はない |
+| ダッシュボード・アラート・タイマー・バックアップZIP出力 | 問題なし | index.html/guide.htmlに参照なし（grep -a） |
+| バックアップ（backup_supabase.ps1 :41、backup_supabase_daily.ps1 :55） | 問題なし | service_role。ロック後も読める。**anonへのフォールバックは無い** |
+| api/（email-import.js、table-crud.js） | 問題なし | service_role |
+| scripts/（restore_email_snapshot / dedupe / bulk_apply / clear_old_html_body / restore_hayabusa） | 問題なし | すべてservice_role必須（anonでは元々動かない） |
+| Outlookマクロ | 問題なし | DB直アクセスなし。API（service_role）経由のみ（JUNさん確認済み） |
+| catchup-missed-mail.ps1 :171 | 問題なし（現在） | タスクがDisabled。ただし**Enabledに戻すとここだけ失敗する**ため、再開手順で先にAPI化する（下記） |
+- 残る注意（問題ではない）: ① ps1が停止した9/15以降も、Outlookマクロ（新着メールのイベント起動）が動いていれば取り込みは続いている。precheck 5 の `max(created_at)` で確認できる。② ロックは「anonでの読み書きを閉じる」だけで、service_role経由の取り込み・バックアップ・保守は変わらない。
+
+### ロックを実行してよい条件（更新後）
+- [x] **Outlookのマクロが api/email-import-insert 経由のみ** — 確認済み（全プロジェクトで rest/v1・email_import_queue が0件）
+- [x] **catchup-missed-mail.ps1 が停止中** — 確認済み（KIC_EmailCatchUp = Disabled、最終実行 2026/09/15 15:00）
+- [ ] precheck 1〜9 の結果を保存した（特に2/3/4。ロールバックの元）
+- [ ] precheck 4 のポリシーが「anon/publicのINSERT/SELECT/UPDATE 3本のみ」である
+- [ ] precheck 8（ビュー・関数・Realtime）に、anonから迂回して読める経路が無い
+- [ ] 本番ブラウザに古いJSのタブを開きっぱなしにしていない（開いていても拒否されるだけ。強制リロードで確認）
+- [ ] 業務時間外に実行し、ロック後に「anonで permission denied / service_roleで通る」を確認した
+- [ ] ロック後、テストメール1通がOutlook→API→DBに入る（マクロが生きている場合）。入らなければ即ロールバック
+- [ ] rollback.sql を手元に置いた
+
+### 受信箱の停止を解除する前の作業（順序つきチェックリスト）
+**前提: ロック中でも、以下はロックを外さずに進められる（API化はservice_role経由のため）。ロックを外す必要が出るのは、API化が済んでいない場合だけ。**
+1. [ ] **ブラウザの直接アクセスのAPI化**: 受信箱の8か所の `sb.from('email_import_queue')`（:13869/:14568/:14754/:14935/:15040/:15190/:15270/:15376）を `/api/table-crud` の読み取りアクション（query）へ。`email_import_queue` のreadable設定（列のホワイトリスト、`in`/`eq`/`ilike`/`or`/range）を追加。PR #220 の基盤（main未マージ）に乗せる。egress対策（5分TTLキャッシュ、必要列のみ）を最初から入れる。
+2. [ ] **catchup-missed-mail.ps1 の重複チェックのAPI化**: `:171-172` のanon直接SELECTを、`/api/email-import-insert` の読み取り専用アクション（例 `action:'listExistingKeys'`、`since`・件数上限・ページング、x-import-key認証、service_role）に置き換える。ps1側は `$IMPORT_API_KEY` を使い、`$API_KEY`（anon）の参照を削除。VBAは既に `checkDuplicate` でAPI化済み。
+3. [ ] 上記1・2をPreviewで確認（テストメールで一覧・検索・送る・無視、ps1を手動で1回実行し、重複を送らないこと）。
+4. [ ] 本番デプロイ後、画面で `EMAIL_INBOX_SUSPENDED` を false に戻す（案内文の文言も整理）。
+5. [ ] **最後に** タスク `KIC_EmailCatchUp` を Disabled から Enabled に戻す（ps1のAPI化が本番で動くことを確認した後。先に戻すと:171がpermission deniedでWARNING・全件再送になる）。戻す前に、停止中（9/15 15:00以降）に溜まった未処理メールの扱い（LastCheckの値、一度に再送される件数とバッチ50件×約2.5MBの上限）を確認する。
+6. [ ] （ロックを外す必要がある場合のみ）rollback.sql。1・2が済んでいれば不要。
+- ロックしても再開時に困らない理由: 再開に必要な読み書きはすべてservice_role経由（API）に寄せるため、anonの権限・ポリシーを戻す必要がない。万一戻す場合も rollback.sql（precheck結果から復元）で1トランザクションで戻せる。
