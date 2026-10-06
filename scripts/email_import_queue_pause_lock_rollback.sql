@@ -8,7 +8,9 @@
 --      "anon insert": FOR INSERT / with_check = true
 --      "anon select": FOR SELECT / qual = true
 --      "anon update": FOR UPDATE / qual = true / with_check = null
---  ・権限: anon = INSERT, SELECT / authenticated = SELECT
+--  ・権限(aclexplodeによる実測。DBはPostgreSQL 17.6): anon = INSERT, MAINTAIN, SELECT / authenticated = MAINTAIN, SELECT
+--      (MAINTAINはPG17で追加された権限。information_schema.role_table_grantsには出ない。
+--       ロック前の状態に過不足なく戻すため復元する)
 --      (UPDATEの権限は無い。TRUNCATE・REFERENCES・TRIGGERは先に剥奪済みのため復元しない。
 --       anonのUPDATEポリシーは、権限が無いため実質効かない状態が「ロック前の姿」)
 --  ・RLS: 有効のまま(ロックでも変えていない)
@@ -26,8 +28,8 @@ begin;
 -- 権限: 一度anon/authenticatedの権限を空にしてから、実測どおりに付け直す(過不足を残さない)
 revoke all on public.email_import_queue from anon;
 revoke all on public.email_import_queue from authenticated;
-grant select, insert on public.email_import_queue to anon;
-grant select on public.email_import_queue to authenticated;
+grant select, insert, maintain on public.email_import_queue to anon;
+grant select, maintain on public.email_import_queue to authenticated;
 
 -- RLSは有効のまま(念のための冪等な再確認。ポリシーが全て無い状態でRLSを有効にすると全拒否になる点に注意:
 -- 下でポリシーを作り直すまでは、このトランザクション内でも整合は取れていない。最後のガードで検証する)
@@ -88,8 +90,8 @@ begin
   cross join lateral aclexplode(c.relacl) a
   join pg_roles r on r.oid = a.grantee
   where c.oid = 'public.email_import_queue'::regclass and r.rolname = 'anon';
-  if anon_priv is distinct from 'INSERT,SELECT' then
-    raise exception 'ロールバック後のanon権限が実測(INSERT,SELECT)と違います: %', coalesce(anon_priv, '(なし)');
+  if anon_priv is distinct from 'INSERT,MAINTAIN,SELECT' then
+    raise exception 'ロールバック後のanon権限が実測(INSERT,MAINTAIN,SELECT)と違います: %', coalesce(anon_priv, '(なし)');
   end if;
 
   select string_agg(distinct a.privilege_type, ',' order by a.privilege_type) into auth_priv
@@ -97,8 +99,8 @@ begin
   cross join lateral aclexplode(c.relacl) a
   join pg_roles r on r.oid = a.grantee
   where c.oid = 'public.email_import_queue'::regclass and r.rolname = 'authenticated';
-  if auth_priv is distinct from 'SELECT' then
-    raise exception 'ロールバック後のauthenticated権限が実測(SELECT)と違います: %', coalesce(auth_priv, '(なし)');
+  if auth_priv is distinct from 'MAINTAIN,SELECT' then
+    raise exception 'ロールバック後のauthenticated権限が実測(MAINTAIN,SELECT)と違います: %', coalesce(auth_priv, '(なし)');
   end if;
 
   select count(*) into public_acl

@@ -1176,3 +1176,31 @@ PR: https://github.com/Jun-Ryusekido/kic-travel-core-ver2/pull/225 （未マー�
 - [ ] precheck 5・7 を読み、取り込みが続いているかを確認した
 - [ ] 業務時間外に実行 → ロック後に「anonで permission denied／service_roleで通る」と、取り込みが続いている場合はテストメール1通の取り込みを確認
 - [ ] rollback.sql を手元に置いた（実測で埋め済み。precheck待ち不要）
+
+---
+
+## メール受信箱の停止中ロック: precheck結果の反映と、1回目のロック実行がガードで停止した件（2026-10-06 12:2x追記）
+
+### precheck の実測結果（JUNさん実行）
+- B-1 RLS: 両テーブル有効（forced=false）。B-4 ポリシー: roles={anon} の3本のみ（"anon insert"/"anon select"/"anon update"）、条件は設計どおり
+- **B-5 取り込み状況**: queue 8124件、archive 4010件、最終取り込み `2026-09-15 06:00:09 UTC`（日本時間 9/15 15:00＝ps1の最終実行と同時刻）、直近7日 0件 → **ps1停止後、Outlookマクロ経由の取り込みも入っていない（取り込みは停止中）**
+- B-7: `created_at` のデフォルトは `now()`（B-5を信頼してよい）。`id` は uuid（gen_random_uuid()）。**`updated_at` 列は無い**
+- 8a（public内のビュー）・8b（SECURITY DEFINER関数）・8c（Realtime公開）: **すべて0件** → RLS/REVOKEを迂回する経路なし（ビュー・定義者関数はpublicに存在しない）
+- DB: PostgreSQL 17.6
+
+### ロック1回目の実行: ガードで停止（**何も変わっていない**）
+- エラー: `anonの権限が想定(INSERT,SELECT)と違います: INSERT,MAINTAIN,SELECT`。ガードがトランザクション全体を戻した
+- 原因: PG17で追加された **MAINTAIN権限**（VACUUM/ANALYZE/REINDEX等）が anon・authenticated に付いていた。`information_schema.role_table_grants` はMAINTAINを表示しないため、最初の実測（B-3）から漏れていた
+- aclexplode による実測（C-1）: anon=`INSERT,MAINTAIN,SELECT` ／ authenticated=`MAINTAIN,SELECT` ／ PUBLIC宛てなし ／ archiveはanon/authenticatedの権限なし
+
+### SQLの修正（scripts/）
+- **lock**: ガードを anon=`INSERT,MAINTAIN,SELECT`、authenticated=`MAINTAIN,SELECT` に変更。archiveも「anon/authenticated/PUBLIC宛ての権限・ポリシーが無い」ことをガードに追加。実行後ガードは権限の種類を決め打ちせず、aclexplodeで「anon/authenticated/PUBLIC宛ての権限が1つも残っていない（列単位も）」ことを確認する形に変更
+- **rollback**: `grant select, insert, maintain ... to anon` / `grant select, maintain ... to authenticated`（MAINTAINも含めてロック前に戻す）。実行後ガードも同じ値
+- **precheck 3**: `information_schema` をやめ、aclexplode版（C-1）に置き換え
+
+### 検証（ローカルの使い捨てPostgres **17.10**。本番ではない）
+- 本番の実測（MAINTAIN含む権限、ポリシー3本、service_roleはBYPASSRLS）を再現し、**旧ロックSQLでJUNさんと同じエラーが再現**することを確認
+- 新ロック: 否定テスト7件（ポリシー名違い／anonにUPDATE／anonのMAINTAIN欠け／authenticatedにINSERT／4本目のポリシー／archiveにanon権限／PUBLIC宛て権限）はいずれも例外で止まり、状態は不変
+- ロック後: anon・authenticatedの select/insert（両テーブル）が permission denied、service_roleは select/insert/update が通る。ロック2回目はガードで止まる
+- ロールバック: ロック前（MAINTAIN含む）と完全一致、2回連続でも一致、ロック→ロールバック→ロックの往復後も一致
+- 未確認: Supabase固有の挙動（PostgRESTのスキーマ再読込）。本番でのロック実行はまだ（修正版を実行予定）

@@ -18,8 +18,11 @@
 --      "anon insert": FOR INSERT TO anon / with_check = true
 --      "anon select": FOR SELECT TO anon / qual = true
 --      "anon update": FOR UPDATE TO anon / qual = true / with_check = null
---  ・権限が anon={INSERT,SELECT}、authenticated={SELECT}、PUBLIC宛てなし、列単位の権限なし
---    (ロールバックSQLがこの状態へ過不足なく戻せることを保証するため)
+--  ・権限が anon={INSERT,MAINTAIN,SELECT}、authenticated={MAINTAIN,SELECT}、PUBLIC宛てなし、列単位の権限なし
+--    (ロールバックSQLがこの状態へ過不足なく戻せることを保証するため。
+--     MAINTAINはPostgreSQL 17で追加された権限(VACUUM/ANALYZE/REINDEX等)。information_schema.role_table_grantsには
+--     出ないため、2026-10-06の1回目の実行はこのガードで止まった(何も変わっていない)。実測はprecheckのC-1(aclexplode)による。
+--     DBはPostgreSQL 17.6)
 -- 実行後ガード: コミット前に最終状態を検証し、違えば例外で全体をロールバックする。
 -- ============================================================
 begin;
@@ -66,8 +69,8 @@ begin
   cross join lateral aclexplode(c.relacl) a
   join pg_roles r on r.oid = a.grantee
   where c.oid = 'public.email_import_queue'::regclass and r.rolname = 'anon';
-  if anon_priv is distinct from 'INSERT,SELECT' then
-    raise exception 'anonの権限が想定(INSERT,SELECT)と違います: %。想定外のため中止します', coalesce(anon_priv, '(なし)');
+  if anon_priv is distinct from 'INSERT,MAINTAIN,SELECT' then
+    raise exception 'anonの権限が想定(INSERT,MAINTAIN,SELECT)と違います: %。想定外のため中止します', coalesce(anon_priv, '(なし)');
   end if;
 
   select string_agg(distinct a.privilege_type, ',' order by a.privilege_type) into auth_priv
@@ -75,8 +78,8 @@ begin
   cross join lateral aclexplode(c.relacl) a
   join pg_roles r on r.oid = a.grantee
   where c.oid = 'public.email_import_queue'::regclass and r.rolname = 'authenticated';
-  if auth_priv is distinct from 'SELECT' then
-    raise exception 'authenticatedの権限が想定(SELECT)と違います: %。想定外のため中止します', coalesce(auth_priv, '(なし)');
+  if auth_priv is distinct from 'MAINTAIN,SELECT' then
+    raise exception 'authenticatedの権限が想定(MAINTAIN,SELECT)と違います: %。想定外のため中止します', coalesce(auth_priv, '(なし)');
   end if;
 
   select count(*) into public_acl
@@ -92,6 +95,15 @@ begin
   where attrelid = 'public.email_import_queue'::regclass and attnum > 0 and not attisdropped and attacl is not null;
   if col_acl <> 0 then
     raise exception '列単位の権限が付いています(%列)。想定外のため中止します', col_acl;
+  end if;
+
+  -- archiveも実測どおり(anon/authenticated/PUBLIC宛ての権限が無く、ポリシーも0本)であること
+  if exists (select 1 from pg_class c cross join lateral aclexplode(c.relacl) a
+             left join pg_roles r on r.oid = a.grantee
+             where c.oid = 'public.email_import_queue_archive'::regclass
+               and (a.grantee = 0 or r.rolname in ('anon', 'authenticated')))
+     or exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'email_import_queue_archive') then
+    raise exception 'email_import_queue_archiveに、anon/authenticated/PUBLIC宛ての権限またはポリシーがあります。想定外のため中止します';
   end if;
 
   -- ガードを通過した場合のみ、実測した3本を名前で落とす
@@ -121,15 +133,23 @@ declare
   pol_left int;
   rls_off text;
 begin
-  -- anon/authenticatedには、どの権限も(列単位も含め)残っていないこと
-  select string_agg(t.tbl || ':' || r.role_name || ':' || p.priv, ', ') into leftover
-  from (values ('public.email_import_queue'), ('public.email_import_queue_archive')) as t(tbl)
-  cross join (values ('anon'), ('authenticated')) as r(role_name)
-  cross join (values ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE'), ('TRUNCATE'), ('REFERENCES'), ('TRIGGER')) as p(priv)
-  where has_table_privilege(r.role_name, t.tbl, p.priv)
-     or (p.priv in ('SELECT', 'INSERT', 'UPDATE', 'REFERENCES') and has_any_column_privilege(r.role_name, t.tbl, p.priv));
+  -- anon/authenticated/PUBLIC宛ての権限が、権限の種類を問わず1つも残っていないこと(MAINTAIN等も含む。列単位も含む)
+  select string_agg(distinct c.relname || ':' || coalesce(r.rolname, 'PUBLIC') || ':' || a.privilege_type, ', ') into leftover
+  from pg_class c
+  cross join lateral aclexplode(c.relacl) a
+  left join pg_roles r on r.oid = a.grantee
+  where c.oid in ('public.email_import_queue'::regclass, 'public.email_import_queue_archive'::regclass)
+    and (a.grantee = 0 or r.rolname in ('anon', 'authenticated'));
   if leftover is not null then
-    raise exception 'ロック後もanon/authenticatedの権限が残っています: %', leftover;
+    raise exception 'ロック後もanon/authenticated/PUBLICの権限が残っています: %', leftover;
+  end if;
+
+  select string_agg(distinct c.relname || '.' || att.attname, ', ') into leftover
+  from pg_class c
+  join pg_attribute att on att.attrelid = c.oid and att.attnum > 0 and not att.attisdropped and att.attacl is not null
+  where c.oid in ('public.email_import_queue'::regclass, 'public.email_import_queue_archive'::regclass);
+  if leftover is not null then
+    raise exception 'ロック後も列単位の権限が残っています: %', leftover;
   end if;
 
   -- service_roleは4操作とも通ること

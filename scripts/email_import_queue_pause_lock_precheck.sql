@@ -21,11 +21,17 @@ from (values ('public.email_import_queue'), ('public.email_import_queue_archive'
 cross join (values ('anon'), ('authenticated'), ('service_role')) as r(role_name)
 order by t.tbl, r.role_name;
 
--- 3. 付与されている権限の実体(PUBLIC宛ての付与が無いかも見る)
-select table_name, grantee, privilege_type
-from information_schema.role_table_grants
-where table_schema = 'public' and table_name in ('email_import_queue', 'email_import_queue_archive')
-order by table_name, grantee, privilege_type;
+-- 3. 付与されている権限の実体(PUBLIC宛ての付与が無いかも見る)。
+--    information_schema.role_table_grants はPostgreSQL 17のMAINTAIN権限を表示しないため使わない
+--    (2026-10-06、これで見落としてロックSQLのガードに止められた)。aclexplodeで全権限を出す。
+select c.relname, coalesce(r.rolname, 'PUBLIC') as grantee,
+       string_agg(distinct a.privilege_type, ',' order by a.privilege_type) as privileges
+from pg_class c
+cross join lateral aclexplode(c.relacl) a
+left join pg_roles r on r.oid = a.grantee
+where c.oid in ('public.email_import_queue'::regclass, 'public.email_import_queue_archive'::regclass)
+group by c.relname, coalesce(r.rolname, 'PUBLIC')
+order by c.relname, grantee;
 
 -- 4. RLSポリシー一覧(policyname/cmd/roles/qual/with_checkをロールバック用に保存する)
 select tablename, policyname, permissive, roles, cmd, qual, with_check
