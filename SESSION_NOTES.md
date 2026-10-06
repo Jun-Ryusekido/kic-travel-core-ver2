@@ -1204,3 +1204,18 @@ PR: https://github.com/Jun-Ryusekido/kic-travel-core-ver2/pull/225 （未マー�
 - ロック後: anon・authenticatedの select/insert（両テーブル）が permission denied、service_roleは select/insert/update が通る。ロック2回目はガードで止まる
 - ロールバック: ロック前（MAINTAIN含む）と完全一致、2回連続でも一致、ロック→ロールバック→ロックの往復後も一致
 - 未確認: Supabase固有の挙動（PostgRESTのスキーマ再読込）。本番でのロック実行はまだ（修正版を実行予定）
+
+---
+
+## メール受信箱の停止中ロック: 本番で実行・確認済み（2026-10-06 12:28、JUNさんが実行）
+
+- 修正版 `scripts/email_import_queue_pause_lock.sql`（コミット 8be7542）を本番のSQL Editorで実行 → **Success（ガードを通過し、実行後ガードも通過）**
+- ロック後の確認（JUNさんの実行結果）:
+  - V-1 anonでemail_import_queueをselect → `42501 permission denied` ／ V-2 anonでinsert → `42501 permission denied` ／ V-3 anonでarchiveをselect → `42501 permission denied`
+  - V-4 service_roleでselect count → **8124**（実行前と同じ。service_roleの経路は維持）
+  - C-1: 両テーブルとも postgres と service_role の権限のみ（anon・authenticatedの行なし）
+  - B-4: ポリシー0件
+- 状態: **anon・authenticatedは email_import_queue / archive に一切アクセスできない。RLSは有効のまま。service_roleは全操作可**
+- 未実施: 本番画面のハードリロードでの動作確認（メール受信箱以外の画面が通常どおり開くこと）
+- 戻す場合: `scripts/email_import_queue_pause_lock_rollback.sql`（MAINTAINを含めてロック前に戻る。PG17.10でロック→ロールバックの完全一致を確認済み）。**ただし、受信箱の再開前に anon へ戻す必要は無い**（上の「受信箱の停止を解除する前の作業」1・2のとおり、ブラウザ・ps1の直接アクセスをAPI化してから再開する）
+- 注意: ロック後は anon キーで email_import_queue を読む処理がすべて失敗する。**KIC_EmailCatchUp（catchup-missed-mail.ps1）を Enabled に戻す前に、:171 のAPI化が必要**（戻すと毎回WARNING・全件再送になる）
