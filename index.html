@@ -2342,7 +2342,7 @@ input[type=number]{-moz-appearance:textfield}
           <div style="text-align:center;padding:24px 12px;color:var(--text2)">
             <div style="font-size:28px;margin-bottom:8px">⏸</div>
             <div style="font-size:14px;font-weight:600;margin-bottom:6px">メール受信箱は一時停止中です</div>
-            <div style="font-size:12px;color:var(--text3)">9/16〜9/22の間、Supabase Egress節約のため一時的に停止しています。<br>この期間はメールの取り込み・表示は行われません。9/22以降に再開予定です。</div>
+            <div style="font-size:12px;color:var(--text3)">メール受信箱は当面の間、一時停止しています（再開時期は未定）。<br>この間は、画面でのメール表示・操作はできません。</div>
           </div>
         </div>
         <div id="email-inbox-normal-content">
@@ -4182,10 +4182,10 @@ const pageNames={
 // トップバーの「+ New Booking」ボタンを表示する画面(予約管理の主要4画面のみ)。
 // go(id)内でNEW_BOOKING_BTN_VISIBLE_PAGES.has(id)により表示/非表示を切り替える。
 const NEW_BOOKING_BTN_VISIBLE_PAGES = new Set(['dashboard','new-booking','booking-list','tour-calendar']);
-// ===== 2026-09 egress緊急対応: メール受信箱機能の一時停止(9/16〜9/22) =====
-// Supabase無料枠のegress枯渇のため、この期間はメール受信箱画面を開いても
+// ===== 2026-09 egress緊急対応: メール受信箱機能の一時停止(9/16〜。当面停止中・再開時期は未定) =====
+// Supabase無料枠のegress枯渇のため、停止中はメール受信箱画面を開いても
 // email_import_queue等への読み込みを一切発生させず、案内メッセージのみ表示する。
-// 【解除方法】9/22を過ぎたら、このtrueをfalseに戻すだけでよい(自動解除にはしていない)。
+// 【解除方法】再開するときに、このtrueをfalseに戻すだけでよい(自動解除にはしていない)。
 // 対応箇所は他に無い(email_import_queueはこの画面からのみ参照されており、
 // ダッシュボード等の他画面はこのテーブルに依存していないことを調査済み)。
 const EMAIL_INBOX_SUSPENDED = true;
