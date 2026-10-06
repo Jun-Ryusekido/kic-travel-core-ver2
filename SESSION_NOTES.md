@@ -1129,3 +1129,50 @@ PR: https://github.com/Jun-Ryusekido/kic-travel-core-ver2/pull/225 （未マー�
 5. [ ] **最後に** タスク `KIC_EmailCatchUp` を Disabled から Enabled に戻す（ps1のAPI化が本番で動くことを確認した後。先に戻すと:171がpermission deniedでWARNING・全件再送になる）。戻す前に、停止中（9/15 15:00以降）に溜まった未処理メールの扱い（LastCheckの値、一度に再送される件数とバッチ50件×約2.5MBの上限）を確認する。
 6. [ ] （ロックを外す必要がある場合のみ）rollback.sql。1・2が済んでいれば不要。
 - ロックしても再開時に困らない理由: 再開に必要な読み書きはすべてservice_role経由（API）に寄せるため、anonの権限・ポリシーを戻す必要がない。万一戻す場合も rollback.sql（precheck結果から復元）で1トランザクションで戻せる。
+
+---
+
+## メール受信箱の停止中ロック: 実DBの実測を反映してSQLを確定（2026-10-06追記・SQL未実行・マージなし）
+
+ブランチ: claude/email-queue-lock-design（SQLもこのブランチ）。**本番DBには接続していない。SQLは本番で実行していない。データは書き換えていない。**
+
+### JUNさんが確認した実DBの事実（SQLの前提）
+1. `email_import_queue` のポリシー（pg_policies）は roles={anon} の3本のみ: `"anon insert"`（INSERT、with_check=true）／`"anon select"`（SELECT、qual=true）／`"anon update"`（UPDATE、qual=true、with_check=null）
+2. 権限（role_table_grants。TRUNCATE/REFERENCES/TRIGGERは先に剥奪済み）: anon=INSERT,SELECT ／ authenticated=SELECT。UPDATE権限は無い
+3. RLS有効。4. `email_import_queue_archive`: RLS有効・anon権限なし・ポリシー0本
+5. Outlookマクロに `rest/v1`・`email_import_queue` は無い ／ 6. KIC_EmailCatchUp は Disabled（最終実行 2026/09/15 15:00）
+
+### SQLの変更（scripts/、コミット bd85e75）
+- **rollback**: 上の実測で空欄なく記述（ポリシー3本の再作成、anon=INSERT,SELECT / authenticated=SELECT）。precheckの出力を待たずに実行できる。冪等（権限を一度空にしてから付け直し、ポリシーは drop if exists → create）。実行後ガードで実測と過不足なく一致しなければ例外（ロック状態のまま変わらない）。archiveとservice_roleには触れない
+- **lock**: ガードを「ポリシーがテーブル全体でちょうど3本」＋「名前・操作・ロール・条件（permissive含む）が上の3本と完全一致」＋「権限が実測と一致（anon=INSERT,SELECT / authenticated=SELECT、PUBLIC宛てなし、列単位の権限なし）」に強化。違えば例外で全体が戻る。ポリシーは名前を指定してdrop。コミット前に最終状態（anon/authenticated権限ゼロ、service_roleは4操作可、anon/authenticated/public向けポリシーなし、RLS有効）を検証し、違えば例外
+- **precheck**: 7に `column_default` を追加（5の最終取り込み日時の前提確認）。8を **8a（publicの全ビュー・マテビュー。ビュー→ビュー→テーブルの推移的な依存も含む）／8b（publicの全 SECURITY DEFINER 関数）／8c（Realtime公開）** に拡張。従来の8は `information_schema.view_table_usage`（テーブル所有者でないと見えない）に頼っていたため、`pg_depend` ベースに置き換えた。**8a・8bはまだ一度も本番で結果を確認できていない。ロック前に必ず実行して確認する**
+
+### 検証（ローカルの使い捨てPostgres 16。本番ではない）
+- 本番の実測と同じ状態（anonの3ポリシー、anon=INSERT,SELECT、authenticated=SELECT、RLS有効、archive）を作り、precheck全文・lock・rollbackを実行
+- precheck: 全文がエラーなく通る。8aは推移的な依存（view→view）を検出、8bはSECURITY DEFINER関数（anon実行可）を検出（実行して初めて、8aのORDER BYの構文エラーに気づき修正）
+- lock: ロック後に anon/authenticated が select・insert とも permission denied、権限・ポリシーが空になることを確認。**ガードの否定テスト4件**（ポリシー名違い／anonにUPDATE権限あり／authenticated向けの4本目のポリシーあり／update policyの条件がtrueでない）は、いずれも例外で止まり何も変わらない。ロックの2回目実行はガードで止まる
+- rollback: ロール後の状態が実行前（ポリシー・権限・RLS）と**完全一致**。2回連続実行しても一致（冪等）。ロールバック後に anon の select・insert が通り、update は権限なしで拒否される（ロック前と同じ）
+- **ローカルで確認できていないこと**: Supabase固有の挙動（service_role の BYPASSRLS、シーケンス権限、PostgRESTのスキーマ再読込）。ローカルのservice_roleは通常のロールのため、service_roleの動作は本番で確認が必要
+
+### precheck 5 の結果の読み方（1行ずつ）
+- `queue_rows`: queueの現在の総件数。ロック前後で変わらないこと（ロックは件数を変えない）の基準値として保存する
+- `archive_rows`: archiveの件数。0ならアーカイブ退避が未実行か空。ロック前後で変わらない
+- `queue_last_created_at`: 最後に取り込まれた行の日時。**2026/09/15 15:00（ps1の最終実行）より後なら、ps1以外の経路（Outlookマクロ）で取り込みが続いている**。それ以前で止まっていれば取り込みも止まっている
+- `queue_created_last_7d`: 直近7日（今日10/6なら9/29以降）の取り込み件数。ps1は9/15から停止中のため、**1件以上ならOutlookマクロ（または /api/email-import-insert を呼ぶ別の経路）経由で取り込みが続いている**。0ならマクロも動いていない（または別の理由で止まっている）
+- 前提: 取り込みAPIはINSERTに `created_at` を含めない（api/email-import.js:95-102）ので、`created_at` はDBのデフォルト値。**precheck 7 の `column_default` が `now()` 等であることを確認してから読む**（CREATE TABLEはリポジトリに無く、未確認）
+- 取り込みが続いていると分かった場合は、ロック後の「テストメール1通がOutlook→API→DBに入る」確認が必須（入らなければ即ロールバック）
+
+### 案内文の修正（別ブランチ・PR #227、マージしていない）
+- ブランチ: claude/email-inbox-suspended-notice（最新の origin/main `8aea1c3` から作成）。PR: https://github.com/Jun-Ryusekido/kic-travel-core-ver2/pull/227 （open、未マージ）。index.htmlの4行のみ・SQLなし
+- 案内文 :2345 を「メール受信箱は当面の間、一時停止しています（再開時期は未定）。／この間は、画面でのメール表示・操作はできません。」に変更。コメントの「9/22」も修正。`EMAIL_INBOX_SUSPENDED` は true のまま
+- 検証: 本物のindex.htmlをChromiumで実行（CDN・Supabaseはスタブ、ログイン処理は通さず画面切替のみ）。変更前は旧文言、変更後は新文言。通常画面は非表示、`email_import_queue` への通信0件
+- Preview: https://kic-travel-core-ver2-git-claude-ebf229-jun-ryusekido-s-projects.vercel.app （Vercel Ready、2026-10-06 02:19 UTC、コミット a90570c。**Claude環境からは到達できず（プロキシ403）、Previewでの画面は未確認**）
+- openなPR（作成前に確認）: #226・#222・#220・#144。同じブランチをheadにするPRは無し
+
+### ロックを実行してよい条件（2026-10-06 更新）
+- [x] Outlookマクロが api/email-import-insert 経由のみ ／ [x] catchup-missed-mail.ps1 が停止中
+- [x] ポリシー3本・権限・RLS・archiveの実測を取得済み（上記）。SQLはこの実測に合わせて確定済み
+- [ ] precheck 1〜9（8a/8b/8cを含む）を実行し、結果を保存した。**特に8a・8b（RLSを迂回する経路）は未確認**。8aで「depends_on_queue=true かつ anon/authenticatedが読める かつ security_invoker=false」、8bで「anon/authenticatedが実行でき、テーブルを読む」ものがあれば、ロックの前に別途対応する
+- [ ] precheck 5・7 を読み、取り込みが続いているかを確認した
+- [ ] 業務時間外に実行 → ロック後に「anonで permission denied／service_roleで通る」と、取り込みが続いている場合はテストメール1通の取り込みを確認
+- [ ] rollback.sql を手元に置いた（実測で埋め済み。precheck待ち不要）
