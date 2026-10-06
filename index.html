@@ -27500,7 +27500,7 @@ async function showPartnerDetail(id){
     ['備考',         p.notes],
   ].filter(([,v])=>v);
   // コピーボタンを付ける項目(値が空の項目はrowsから除外済みのため付かない)
-  const copyKeys = ['会社名','会社名（英語）','携帯','住所'];
+  const copyKeys = ['会社名','会社名（英語）','担当者','担当者（英語）','携帯','部署直通','会社電話','FAX','メール','住所','住所（英語）','備考'];
   document.getElementById('pt-detail-title').textContent = p.company_name || '取引先詳細';
   document.getElementById('pt-detail-body').innerHTML = rows.map(([k,v])=>
     `<div style="display:flex;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);font-size:12px">
