@@ -1023,3 +1023,68 @@ PR: https://github.com/Jun-Ryusekido/kic-travel-core-ver2/pull/224 （未マー�
 #222: index.html競合なし。#220: index.htmlは自動マージ可、SESSION_NOTES.mdのみ競合（従来どおり）。#144: 履歴が無関係（unrelated histories）で、コミット4f77353のindex.html差分は今のmainにも当たらない（従来から。この変更とは無関係）。
 ### JUNさん確認手順
 PR: https://github.com/Jun-Ryusekido/kic-travel-core-ver2/pull/225 （未マージ）。**Preview: https://kic-travel-core-ver2-git-claude-b33b5d-jun-ryusekido-s-projects.vercel.app** （Vercel Ready、2026-10-05 10:13 UTC、コミット 7d0ff8b。Claude環境からは到達不可で画面は未確認）にログイン → サイドバー「ツアー運行カレンダー」 → 月が「2026年10月」になっていること。月を別の月に変えて表示が切り替わること。別画面へ移動して戻ると今月に戻ること。本番(https://kic-travel-core-ver2.vercel.app)での確認は未実施（マージ後に同じ手順で）。
+
+---
+
+## メール受信箱の停止中ロック設計（ブランチ claude/email-queue-lock-design・調査と設計のみ・コード変更なし・SQL未実行・PRなし）
+
+### 1. 停止の実装（index.html）
+- 判定: `const EMAIL_INBOX_SUSPENDED = true;`（:4191）。`go('email-inbox')`（:4255-4268）が true なら案内（`#email-inbox-suspended-notice`、:2341-2346）を出し、通常画面（`#email-inbox-normal-content`、:2348-2384）は `display:none` のまま `renderEmailInboxList()` を呼ばない。
+- 案内文は :2345「9/16〜9/22の間、…この期間はメールの取り込み・表示は行われません。9/22以降に再開予定です。」。コメント :2336-2340 と :4185-4190 も「9/22を過ぎたら解除」のまま。
+- **ブラウザからの直接アクセス（anonの `sb.from('email_import_queue')`、全8か所）はすべて受信箱の画面内の関数**: `fetchPromoBodyMatchIds` :13869 / `fetchEmailInboxPendingRows` :14568 / `computeEmailExclusionPlan` :14754 / `applyEmailInboxSearch` :14935 / `renderEmailInboxPage` :15040 / `prefetchEmailInboxNextPageBodies` :15190 / `sendEmailToBooking` :15270 / `sendEmailToPartnerMaster` :15376。入口は隠れた通常画面内のボタン・入力欄と `go()` の1か所のみ（`renderEmailInboxList` の呼び出しは :4266 だけ）。URLパラメータ/ハッシュでの直接遷移なし。
+- 書き込み（`emailImportQueueApiCall`、:5972 → `/api/table-crud`、service_role）も同じ画面内（:14701/:14733/:14804/:14894/:16187/:16213/:16225/:16237）。
+- **画面以外からの参照はなし**: ダッシュボード件数・アラート・タイマー・バックアップのZIP出力のいずれも `email_import_queue` を参照していない（index.html全体を grep -a。guide.html・public/・archive/・claude/も0件）。`email_import_queue_archive` はコードから一切参照されない（backupスクリプトがコメントで言及のみ）。
+- 結論: 停止中にブラウザから `email_import_queue` へ直接アクセスする経路は残っていない。ただし**停止はクライアント側のフラグのみ**で、古いJS（キャッシュされた旧バージョンのタブ）やDevToolsからは anon キーで直接読める。DB側ロックが必要な理由はここにある。
+
+### 2. ブラウザ以外の経路（キー種別・停止中も動くか）
+| 経路 | 場所 | キー | ロック後 |
+|---|---|---|---|
+| 取り込みAPI（INSERT・重複チェック） | api/email-import.js :56-77（checkDuplicate SELECT）、:111（upsert INSERT）、認証 :183-193（x-import-key）、service key は :185 `getServiceKey()` | **service_role** | 影響なし（GRANT維持） |
+| 受信箱の更新API | api/table-crud.js :302（`email_import_queue` は updateById/updateByIds のみ、更新可能5列） | **service_role** | 影響なし |
+| Outlook VBA | email-automation/exports/2026-08-14/Module1_updated.bas: :110（本文POST）、:143（checkDuplicate POST）、:317（添付POST）。すべて `https://kic-travel-core-ver2.vercel.app/api/email-import-insert` へ x-import-key。リポジトリ内の該当ファイルに supabase.co のURLもJWTも無い | キー無し（共有シークレットのみ） | 影響なし（**リポジトリのコピーは2026-08-14時点。実機のマクロが同じかはJUNさん確認中**） |
+| catchup-missed-mail.ps1 | :28/:216（新規メールのPOST、x-import-key） | 共有シークレット | 影響なし |
+| 同ps1 **:171-172** | `$SUPABASE_URL/rest/v1/email_import_queue?select=sender,received_at&received_at=gte...` を **anonキー**（:22で定義、JWTのroleはanon）で直接SELECT | **anon** | ロック後はここだけ失敗する。try/catch（:169-182）で WARNING ログを出して続行し、重複は `on_conflict` + `ignore-duplicates`（api/email-import.js）のDB一意制約が弾く。取り込み自体は止まらないが、毎回LastCheck以降の全メールを再送する |
+| バックアップ | scripts/backup_supabase.ps1 :41、backup_supabase_daily.ps1 :55（`SUPABASE_SERVICE_ROLE_KEY`、anonフォールバック禁止） | **service_role** | 影響なし |
+| 保守スクリプト | scripts/restore_email_snapshot.js :22、dedupe_email_import_queue.js :34、bulk_apply_email_classification.js :16、clear_old_email_import_html_body.js :51、restore_hayabusa_missing8.js :31、register_clear_email_html_body_task.ps1（service_role環境変数） | **service_role** | 影響なし |
+| .github/ | **存在しない**（CIワークフロー無し） | — | — |
+- 注意: ps1 は KIC_EmailCatchUp_task.xml で毎日9:00/12:00/15:00起動（リポジトリ上は無効化されていない）。**画面を停止しても取り込みは続いている可能性**がある（案内文の「取り込みは行われません」と食い違う）。SQL（precheck 5: `max(created_at)` と直近7日の件数）で今も増えているか確認できる。
+
+### 3. ロックSQL（実行はしない）
+ファイル（すべて scripts/、未実行）:
+- `email_import_queue_pause_lock_precheck.sql`: 実行前後の読み取り専用SQL（RLS・権限マトリクス・付与実体・ポリシー・件数と最終取り込み・一意制約・列名・ビュー/関数/Realtime・Storageバケット）＋ロック後の anon 拒否の確認手順。
+- `email_import_queue_pause_lock.sql`: anon/authenticated を `revoke all`、anon/public向けポリシーを drop（RLSは有効のまま）、service_role に GRANT を明示。archive も同様（RLSも有効化）。
+- `email_import_queue_pause_lock_rollback.sql`: 復元（SELECT再付与、必要ならINSERT等とポリシー再作成。ロック前の precheck の結果を正として埋める）。
+- **確認が必要なこと（SQLの前に）**:
+  1. **ポリシー名はリポジトリ内のSQLで確認できなかった**。そのため名前を直書きせず、「anon/public宛てがちょうど3本（INSERT/SELECT/UPDATE）」を確認してから落とす方式にした。違えば例外で全体が戻る。ロールバックのポリシー再作成は precheck 4 の出力（policyname/qual/with_check）で埋める必要がある。
+  2. **リポジトリの記録と、JUNさんの報告が食い違う**: `lock_down_email_import_queue_writes.sql` は anon/authenticated の INSERT/UPDATE/DELETE を剥奪済み・SELECTのみ残すとある。一方「anonのINSERTが通る」との報告。precheck 2/3 で実際の権限を確認してからロックする（GRANTが無ければanon INSERTポリシーは実質無効）。
+  3. `email_import_queue_archive` のRLS有効/無効は不明（`create table ... like ... including all` はRLSを複製しない）。precheck 1 で確認。
+  4. `updated_at` 列の存在はコメントでのみ言及（SQLファイルでは未確認）。ロックSQLは列名を使わないので影響なし。
+- 注意: ロック後は anon キーで email_import_queue を読む処理がすべて失敗する（ブラウザ受信箱の通常画面、ps1:171）。上記2のとおり前者は停止中で到達不能、後者は継続動作する。
+
+### 4. 再開時に先にやる作業（ロックしても困らない理由を含む）
+ロックは `rollback.sql` で一括で戻せる（precheck結果の保存が前提）。ただし**再開のためにロックを外すのは最後の手段**にして、先に以下を済ませるのが望ましい（anon直接アクセスをやめる＝今の直接SELECT/ポリシーを戻さずに再開できる）。
+1. 受信箱の8か所の直接SELECTを `/api/table-crud` の読み取りアクション（query）に置き換える（`email_import_queue` に readable 設定: 列のホワイトリスト、`in`/`eq`/`ilike`/`or`/range のフィルタ対応）。PR #220 が同様の readable/query 基盤を入れているため、その上に乗せる（main には未マージ）。
+2. egress対策を最初から入れる（CLAUDE.mdの規則: 5分TTLキャッシュ、`select('*')`禁止、画面遷移ごとの全件再取得なし）。停止の原因がegressのため、再開で再発させない。
+3. ps1 の重複チェック（:171）を、`/api/email-import-insert` の読み取り専用アクション（例: `action:'listExistingKeys'`、`since` と件数上限・ページング付き、x-import-key認証、service_role）に置き換える。VBAは既に `checkDuplicate` でAPI化済み。ps1のためにanonのSELECTを戻さない。
+4. 再開前に `EMAIL_INBOX_SUSPENDED` を false に戻す前提として、上記1が本番で動くことをPreviewで確認（テストメールで一覧・検索・送る・無視）。
+5. （ロックを外す必要がある場合のみ）rollback.sql。ただし anon に戻すのは 1・3 が済んでいない場合だけにする。
+6. 停止中に溜まった・溜まらなかったメールの扱い（ps1 の LastCheck、VBAのOutlookルール）を決める。
+
+### 5. ロックを実行してよい条件（チェックリスト）
+- [ ] precheck 1〜9 の結果を保存した（特に2/3/4。ロールバックの元になる）
+- [ ] precheck 4 のポリシーが「anon/publicのINSERT/SELECT/UPDATE 3本のみ」である
+- [ ] precheck 8（ビュー・関数・Realtime）に、anonから迂回して読める経路が無い（あれば別途対応）
+- [ ] Outlook のマクロが **api/email-import-insert 経由のみ**（anonキー・supabase.coへの直接POST/GETが無い）ことを、JUNさんが実機で確認（リポジトリのコピーは2026-08-14時点）
+- [ ] catchup-missed-mail.ps1 が **停止中**（タスクスケジューラ無効）、または :171 のAPI化が本番で動いている。そうでなければ、ps1が毎回 WARNING を出して全件再送になることを承知の上で実行する
+- [ ] 本番のブラウザに古いJS（EMAIL_INBOX_SUSPENDED導入前）を開きっぱなしのタブが無い（強制リロード）。受信箱の通常画面は到達不能であることを実機で確認
+- [ ] 実行は業務時間外、ロック後に precheck の「ロック後」の確認（anonで permission denied、service_roleで通る）と、**取り込みAPIの動作確認**（テストメール1通がOutlook→Vercel API→DBに入る）まで行う
+- [ ] 戻す手順（rollback.sql）が手元にある
+
+### 6. 画面メッセージが「9/22以降に再開予定」のまま
+- 今日（10/6）時点で9/22を過ぎており、案内文が実態と食い違う。また「メールの取り込み…は行われません」も、ps1/VBAが動いていれば事実と違う可能性がある。
+- 最小の変更案（修正はしていない）: :2345 を「メール受信箱は当面の間、一時停止しています（再開時期は未定）。<br>この間、画面でのメール表示・操作はできません。」にする（取り込みの有無には触れない）。コメント :2336-2340・:4185-4190 の「9/22」は「当面停止中（再開時期未定）」に直す。`EMAIL_INBOX_SUSPENDED` の値は変えない。
+
+### 実施していないこと
+- DBへ接続していないため、現在の権限・ポリシー・件数・RLS状態は未確認（SQLはすべて未実行）。
+- Outlook実機のマクロ、タスクスケジューラの有効/無効は未確認。
+- ps1内のanonキー（JWT）はリポジトリにコミットされている。キーの値はこの記録に書いていない（anon公開キーだが、ロック後はテーブルへは使えなくなる）。
