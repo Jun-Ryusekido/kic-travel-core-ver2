@@ -592,7 +592,19 @@ anon向けSELECTポリシー案は不採用(ログインはapp_users独自方式
   audit_logs でしか分からない。booking_costs と同じ既存の仕様)。
 - SQL要否: 不要(コードのみ)。確認用の読み取り専用SQL: scripts/investigate_arrangement_date_reversal.sql(JUN実行待ち)。
 
-## バッチ2 実装計画(2026-09-25報告、未着手)
+## バッチ2 実装状況(2026-10-07): コード置き換え済み(PR作成)・REVOKE用SQLは作成のみで未実行
+- 16箇所(estimations 7 / estimation_days 4 / business_partner_contacts 4 / RPC search_business_partners 1)をAPI経由化。
+  加えて copyEstimation の子行取得(estimation_days)も置き換え(計画に無かった1箇所)。
+- 取得失敗を空データ扱いにしていた箇所を例外・中止に変更: openEstimationEditor(編集画面を開かない) / fetchRepresentativeContact
+  (nullを返さず例外=代表担当者の重複insert防止、openPartnerEditorで警告して中止) / deleteBookingData(取得失敗は削除失敗として中断) /
+  loadEstimations(0件表示・キャッシュしない) / アーカイブ出力2種(見積もり・日程の取得失敗は出力中止) / loadGuideAdvanceList(失敗結果はキャッシュしない) /
+  copyEstimation(子行取得失敗でコピー中止)。
+- API: estimations / estimation_days / business_partner_contacts に readable を追加、RPC_WHITELISTに search_business_partners(kind:'partners')。
+- REVOKE用SQL: scripts/enable_rls_batch2.sql(未実行)。順序: PRマージ → 本番デプロイ → JUNが実機確認 → SQL実行 → 再確認。
+- 実機確認チェックリスト: 取引先マスタ一覧(検索・カテゴリ絞り込み)/ 取引先の詳細(担当者一覧)・編集(担当者の保存で重複しない)/
+  見積もり一覧・開く・コピー / ガイド仮払い一覧 / 予約アーカイブ出力 / 帳票(担当者名の表示)。
+
+## (旧)バッチ2 実装計画(2026-09-25報告)
 - 置き換え対象(index.html、関数名で探す): estimations 7箇所(exportBookingArchive / exportFiscalYearArchive / deleteBookingData /
   loadEstimations / copyEstimation / openEstimationEditor / loadGuideAdvanceList)、estimation_days 4箇所(exportBookingArchive /
   exportFiscalYearArchive / openEstimationEditor / loadGuideAdvanceList)、business_partner_contacts 4箇所
