@@ -5730,6 +5730,7 @@ async function tableCrudApiCall(table, action, payload){
     // business_partners insert時の会社名完全一致エラー(DUPLICATE_COMPANY_NAME)等、
     // 呼び出し元がメッセージ文字列以外の情報を必要とするケースのため、サーバーが返した
     // 構造化フィールドをそのままErrorオブジェクトに載せて渡す。
+    err.status = resp.status;
     if(data.code) err.code = data.code;
     if(data.existingPartnerId) err.existingPartnerId = data.existingPartnerId;
     if(data.existingCompanyName) err.existingCompanyName = data.existingCompanyName;
@@ -6895,7 +6896,9 @@ async function addArrRowToCostNow(arrName, i, kind, btnEl){
         if(currentDetailId === bookingId) _markSnapshotCostAdded(sec, it, bookingId);
       }catch(err){
         logError(`${payload.label}明細のcost_added更新`, err, {toast:false});
-        costAddedWarn = err.message;
+        // 404=対象行が作り直されていてidが古い場合。仕入明細への追加は成功済みで、メモリ上の
+        // cost_added=trueは次回の「保存」で永続化されるため、利用者への警告は出さない(ログのみ)。
+        if(err.status !== 404) costAddedWarn = err.message;
       }
     }
     // DBへの追加が成功したら、画面下部の「仕入明細」セクションにもリロード不要でその場で
