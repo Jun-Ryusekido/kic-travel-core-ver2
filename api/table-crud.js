@@ -373,6 +373,11 @@ const TABLE_CONFIG = {
     label: '取引先マスタ担当者',
     stampIdentity: true,
     auditLog: true,
+    // RLS対応フェーズ2 バッチ2: ブラウザからの直接SELECT(anonキー)をやめ、query/queryBatch経由で読む。
+    readable: {
+      filters: { business_partner_id: ['eq', 'in'], is_deleted: ['eq'] },
+      order: ['is_primary', 'created_at', 'id'],
+    },
   },
   // credit_card_statements(クレジットカード明細): 経理・原価計算に関わるデータのため
   // 監査ログを有効化する(再設計時にscripts/redesign_credit_card_statements.sqlで
@@ -503,6 +508,11 @@ const TABLE_CONFIG = {
     stampIdentity: true,
     auditLog: true,
     copyChildTables: ['estimation_days', 'estimation_fixed_rows'],
+    // RLS対応フェーズ2 バッチ2: query/queryBatch経由の読み取り(ブラウザからの直接SELECTは廃止)。
+    readable: {
+      filters: { id: ['eq', 'in'], converted_booking_id: ['eq', 'in'] },
+      order: ['created_at', 'id'],
+    },
   },
   // estimation_id列をキーにした「全削除→全insert」の置き換え(doReplaceByKey)。
   // 既存のarrangement_document_days等と同じ方式。
@@ -510,6 +520,10 @@ const TABLE_CONFIG = {
     actions: ['replaceByKey'],
     label: '見積もり日程明細',
     allowedReplaceKeyFields: ['estimation_id'],
+    readable: {
+      filters: { estimation_id: ['eq', 'in'] },
+      order: ['sort_order', 'id'],
+    },
   },
   estimation_fixed_rows: {
     actions: ['replaceByKey'],
@@ -1463,6 +1477,8 @@ const RPC_WHITELIST = {
   get_payment_monthly_summary: { paged: false },
   search_payment_income: { paged: true },
   search_payment_outflow: { paged: true },
+  // 取引先マスタ一覧の検索(RLS対応フェーズ2 バッチ2)。日付ではなくp_search/p_categoryを取る。
+  search_business_partners: { paged: true, kind: 'partners' },
 };
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -1471,6 +1487,16 @@ function validateRpcCall(fn, params) {
   const spec = RPC_WHITELIST[fn];
   if (!spec) return { error: `許可されていないRPCです: ${fn}` };
   const p = params || {};
+  if (spec.kind === 'partners') {
+    const unknownP = Object.keys(p).filter((k) => !['p_search', 'p_category'].includes(k));
+    if (unknownP.length) return { error: `不明な引数です: ${unknownP.join(', ')}` };
+    for (const k of ['p_search', 'p_category']) {
+      if (p[k] !== undefined && (typeof p[k] !== 'string' || !p[k] || p[k].length > 200)) {
+        return { error: `${k}は1〜200文字の文字列で指定してください` };
+      }
+    }
+    return { spec, p };
+  }
   const unknown = Object.keys(p).filter((k) => !['p_from', 'p_to', 'p_search'].includes(k));
   if (unknown.length) return { error: `不明な引数です: ${unknown.join(', ')}` };
   if (!DATE_RE.test(String(p.p_from || '')) || !DATE_RE.test(String(p.p_to || ''))) {
@@ -1510,7 +1536,12 @@ async function runRpc(fn, params, offsetIn, budget) {
     return { rows: JSON.parse(text), nextOffset: null };
   }
   // GETでは値がnullでも文字列"null"として渡ってしまうため、p_searchは指定時のみ付ける。
-  const qs = [`p_from=${encodeURIComponent(p.p_from)}`, `p_to=${encodeURIComponent(p.p_to)}`];
+  const qs = [];
+  if (spec.kind === 'partners') {
+    if (p.p_category !== undefined) qs.push(`p_category=${encodeURIComponent(p.p_category)}`);
+  } else {
+    qs.push(`p_from=${encodeURIComponent(p.p_from)}`, `p_to=${encodeURIComponent(p.p_to)}`);
+  }
   if (p.p_search !== undefined) qs.push(`p_search=${encodeURIComponent(p.p_search)}`);
   const url = `${SB_URL}/rest/v1/rpc/${fn}?${qs.join('&')}`;
   const getPage = async (from, size, withCount) => {
