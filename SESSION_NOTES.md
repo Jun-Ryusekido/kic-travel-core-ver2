@@ -1035,3 +1035,81 @@ PR: https://github.com/Jun-Ryusekido/kic-travel-core-ver2/pull/224 （未マー�
 #222: index.html競合なし。#220: index.htmlは自動マージ可、SESSION_NOTES.mdのみ競合（従来どおり）。#144: 履歴が無関係（unrelated histories）で、コミット4f77353のindex.html差分は今のmainにも当たらない（従来から。この変更とは無関係）。
 ### JUNさん確認手順
 PR: https://github.com/Jun-Ryusekido/kic-travel-core-ver2/pull/225 （未マージ）。**Preview: https://kic-travel-core-ver2-git-claude-b33b5d-jun-ryusekido-s-projects.vercel.app** （Vercel Ready、2026-10-05 10:13 UTC、コミット 7d0ff8b。Claude環境からは到達不可で画面は未確認）にログイン → サイドバー「ツアー運行カレンダー」 → 月が「2026年10月」になっていること。月を別の月に変えて表示が切り替わること。別画面へ移動して戻ると今月に戻ること。本番(https://kic-travel-core-ver2.vercel.app)での確認は未実施（マージ後に同じ手順で）。
+
+---
+
+## 日付の初期値・作成日を日本時間にそろえる（ブランチ claude/youthful-volta-lv6xsp・index.htmlのみ・SQLなし・Invoice発行日は未修正）
+
+### 洗い出し（grep -a。修正前の行番号 → 評価）
+| 箇所 | 種別 | 保存される? | 対応 |
+|---|---|---|---|
+| レストラン重複確認 `initRestaurantConflicts` :16786（月セレクト rc-ym） | **固定値** `'2026-09'` + 初回のみ生成 | 保存なし（表示月の初期値） | **修正**: JST今月、開くたび再生成（initTourCalendarと同方式） |
+| ガイド仮払い一覧 `setGuideAdvanceRangeDefault` :21453（ga-from/ga-to） | UTC由来 | 保存なし（検索範囲の初期値） | **修正** |
+| 見積もり新規 `openEstimationEditor` :11967（est-date） | UTC由来 | 入力欄の初期値（ユーザーが保存時にestimations.created_dateへ） | **修正** |
+| 見積もりコピー `copyEstimation` :11895（created_date） | UTC由来 | **保存される**（新規行のcreated_date。既存行は触らない） | 指示の「コピー時の作成日」に従い**修正**。保存値なので要確認項目として明記 |
+| Invoice発行日 `generateInvoice` :30367 / `upsertConsolidatedInvoice` :30494 | UTC由来 | **保存・印字される**（invoices.issue_date、:30428/:30522でINSERT/UPDATE。プレビューは `_fmtSlashDate(inv.issue_date)` :30625） | **修正せず停止。下記に影響と案** |
+| 他の `toISOString().slice(0,10)` | — | — | 対象外（変更なし）: :9109/:12293 はUTC暦日での日付列加算（入力が日付のみでTZずれ無し）、:10215/:10263/:10342 はバックアップZIPのファイル名のみ |
+| 他の `new Date().toISOString()` 40件前後 | タイムスタンプ(timestamptz)用途 | DBへUTCで保存が正（CLAUDE.md参照） | 対象外 |
+
+### 修正内容（index.htmlのみ）
+- 共通関数 `jstTodayStr(offsetDays)` を `localDateStr` の直後に追加（`toLocaleDateString('sv-SE',{timeZone:'Asia/Tokyo'})`、offsetは日本時間の暦日で加減算）。状態管理は追加なし。
+- 上記4箇所（rc-ym / ga-from,to / est-date / copyEstimationのcreated_date）を `jstTodayStr` に置換。
+
+### Invoice発行日（未修正・判断待ち）
+- `issue_date` は `generateInvoice`（:30428）/`upsertConsolidatedInvoice`（:30522）で `invoices` に保存され、請求書プレビュー（:30625）・Invoice一覧（:30078/:30195）に印字・表示される。**再発行（UPDATE）でも `corePayload` に含まれるため上書きされる**。
+- 採番への影響なし: invoice_no は `INV-<REF数字>[-ALL][-USD]`（:30375付近）で日付に依存しない。
+- 現状の影響: JSTの0〜9時台に発行/再発行すると、発行日が前日で保存・印字される。
+- 案: 2箇所の `today.toISOString().slice(0,10)` を `jstTodayStr()` に置換するだけ（保存済みの既存Invoiceは変更しない。今後の発行・再発行のみ正しくなる）。別途、再発行で発行日を上書きするのが妥当かは別論点（今回は触れない）。
+
+### 検証（実index.html + Chromium、Playwrightでシステム時刻とTZを固定、修正前=origin/main(8aea1c3)と比較）
+TZ=UTC / Asia/Tokyo の両方で同結果。rc-ym | ga-from→ga-to | est-date:
+| 固定時刻(JST) | 修正前 | 修正後 |
+|---|---|---|
+| 2026-10-01 00:30 | 2026-09 \| 09-30→11-29 \| 09-30 | 2026-10 \| 10-01→11-30 \| 10-01 |
+| 2026-10-05 12:00 | 2026-09 \| 10-05→12-04 \| 10-05 | 2026-10 \| 10-05→12-04 \| 10-05 |
+| 2026-09-30 23:30 | 2026-09 \| 09-30→11-29 \| 09-30 | 2026-09 \| 09-30→11-29 \| 09-30 |
+| 2027-01-01 00:30 | (UTC)2026-12 /(JST)2027-01 \| 12-31→03-01 \| 12-31 | 2027-01 \| 01-01→03-02 \| 01-01 |
+- できていないこと: 実DB・実ログイン・実画面操作での確認（supabase-jsはスタブ）、copyEstimation実行（DB依存のため未実行。差分は1行の置換のみ）。
+
+### 競合試算（git merge-tree、読み取り）
+- #222: 競合なし。
+- #220: index.htmlで**1箇所競合**（`setGuideAdvanceRangeDefault`。#220が `guideAdvanceDefaultRange()` を新設し、その中が `today.toISOString()` のUTC由来のまま）。SESSION_NOTES.mdは従来どおり競合。後からマージする側で `guideAdvanceDefaultRange` 内を `jstTodayStr()`/`jstTodayStr(60)` にして解消する（#220のコードは一覧画面の既定範囲にも使うため、そちらもJST化される）。
+- #144: mainと既にindex.html 2箇所競合（Invoice周辺）。今回の変更を足しても競合箇所は増えない（2箇所のまま）。
+
+### JUNさん確認手順（Preview）
+1. レストラン重複確認を開く → 月が今月（JST）になっている。他画面へ移動して戻ると今月に戻る。
+2. ガイド仮払い一覧の「直近60日」→ 開始が日本時間の今日。
+3. 見積もり新規 → 作成日が日本時間の今日。見積もりをコピー → コピー先の作成日が日本時間の今日。
+
+---
+
+## Invoice発行日を日本時間にそろえる（PR #226に追加・index.htmlのみ・SQLなし）／ガイド仮払い一覧の1年範囲は未実装（取得上限の懸念で停止）
+
+### Invoice発行日（実装・検証済み）
+- 変更: `generateInvoice`（index.html:30373付近）と `upsertConsolidatedInvoice`（:30500付近）の `const today=new Date(); const issue=today.toISOString().slice(0,10);` を `const issue = jstTodayStr();` に置換（`today` は他で未使用）。`issue_date` を作る箇所はこの2か所のみ（grep -a: 他は一覧・プレビューでの読み取り :30085/:30144/:30202/:30632 と、保存先 :30435/:30529）。
+- 変えていないもの: 既存Invoice（更新しない）、再発行で発行日を上書きする仕様、請求書番号（`INV-<REF>[-ALL][-USD]`、検証で修正前後とも同一）、プレビューの表示形式（`_fmtSlashDate`）。
+- 検証（実index.html+Chromium、時刻・TZ固定、`invoicesApiCall`等をスタブで捕捉。個別Invoiceと合算Invoiceの両方、発行=insert/再発行=updateById、TZ=UTC・Asia/Tokyo）:
+| 固定時刻(JST) | 修正前 issue_date / プレビュー | 修正後 issue_date / プレビュー |
+|---|---|---|
+| 2026-10-01 00:30 | 2026-09-30 / 2026/09/30 | 2026-10-01 / 2026/10/01 |
+| 2026-10-05 12:00 | 2026-10-05 / 2026/10/05 | 2026-10-05 / 2026/10/05 |
+| 2027-01-01 00:30 | 2026-12-31 / 2026/12/31 | 2027-01-01 / 2027/01/01 |
+  発行(insert)・再発行(updateById)の4呼び出し（個別・合算）すべてで同じ。再発行のpayloadにinvoice_noは含まれず（番号維持）、これも修正前後で同じ。
+- できていないこと: 実DB・実ログイン・実PDF/印刷での確認（DB関数・supabase-jsはスタブ）。
+
+### ガイド仮払い一覧の既定範囲を1年（365日）にする件 — **未実装・停止**
+- 該当箇所: `setGuideAdvanceRangeDefault`（index.html:21463-21464 `jstTodayStr()`/`jstTodayStr(60)`）。同じ範囲のラベル: ボタン「直近60日」（:30975）。変更するなら60→365とラベル更新が必要。
+- 日付計算自体は問題なし（`jstTodayStr(365)`）: JST 2026-10-05 12:00→2027-10-05、2027-01-01 00:30→2028-01-01、2027-02-28→2028-02-28、2027-03-01→2028-02-29。
+- **停止理由（取得が黙って欠ける可能性）**: `loadGuideAdvanceList`（:21482）は、bookingsは `fetchBookingsListLight`（1000件ずつ全ページ取得）で全件取って画面側で絞るが、絞った予約に紐づく4つの取得（tour_arrangements/estimations/guide_settlements/local_expenses、:21499-21502）は **ブラウザからの直接 `sb.from().select().in(...)`** で、`.range()` もチャンク分割も無い。
+  1. PostgRESTの1リクエスト既定上限（通常1000行）で**黙って切れうる**。特にlocal_expensesは1予約に複数行（明細）あるため、1年分の予約×明細で1000行を超えうる。切れても `{data}` だけ分割代入していてエラー（error）を見ないため、画面は欠けたまま表示される（仮払い額が少なく見える/行が出ない）。
+  2. `.in()` に渡すREF#/IDが多いとURLが長くなりリクエスト自体が失敗しうる。この場合もerrorを見ていないため、空配列扱いで0円・未表示になる。
+  3. #220の1adaf90のコメントも同じ懸念（日付未指定で全予約を対象にすると.in()が数千件規模になり失敗しうる）で、既定を60日に絞っている。1年にするとこの懸念が再び当てはまる。
+  実際の件数（1年分の予約数・明細行数）はDBに接続できないため未確認。
+- 案: (a) 1年にする場合は、4つの取得を200件前後のチャンクに分割し、各チャンクを `.range()` で全ページ取得、かつ `error` を検知して画面に「一部取得できませんでした」と出す。(b) 60日（または短い範囲）を維持し、範囲は手動指定。(a)の場合は本番の件数をSELECTで確認してから。
+- PR #220 との関係: 同じ画面の `setGuideAdvanceRangeDefault`（index.html競合1か所）。#220は `guideAdvanceDefaultRange()` を新設し、既定を today〜+60日（未来側。コミット1adaf90）、日付未指定で開いた時も同範囲を自動設定。今回のJST化と競合。解消案: #220の `guideAdvanceDefaultRange` を残し、中身を `jstTodayStr()`/`jstTodayStr(N)`（Nは上記の決定次第）にして、`setGuideAdvanceRangeDefault` はそれを使う形に統一する。
+
+### 競合試算（git merge-tree、読み取り）
+- #222: 競合なし。#144: mainと既に2か所競合（Invoice周辺）。今回のInvoice修正を足しても競合は2か所のまま（merge-treeで修正前後とも2、増えない）。#220: 1か所（上記）。
+
+### マージ
+- **マージしていない**（条件「取得が上限で切れる可能性が見つかっていない」を満たさないため）。
