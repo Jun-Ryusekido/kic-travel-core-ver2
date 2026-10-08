@@ -29971,17 +29971,14 @@ async function deleteUserAccount(userId, email){
 }
 
 async function resetUserPassword(userId, email){
-  if(!confirm(`「${email}」のパスワードを再設定します。\n新しい仮パスワードを自動生成して、次の画面に1度だけ表示します。\n(現在のパスワードは使えなくなります)\n\nよろしいですか?`)) return;
-  // 紛らわしい文字(0/O、1/l/I)を除いた16文字のランダム文字列
-  const chars = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  const buf = new Uint32Array(16); crypto.getRandomValues(buf);
-  const pw = Array.from(buf, v=>chars[v % chars.length]).join('');
+  const pw = prompt(`「${email}」の新しいパスワードを入力してください(8文字以上)。\n設定後、本人に新パスワードを伝えてください。`);
+  if(pw===null) return; // キャンセル
+  if(!pw || pw.length<8){ alert('パスワードは8文字以上で入力してください'); return; }
   try{
     await accountAdminApiCall({ mode:'resetPassword', userId, newPassword:pw });
   }catch(e){ alert('パスワードの再設定に失敗しました: '+e.message); return; }
   await logAction('パスワード再設定', email);
-  // prompt の入力欄に表示し、コピーできるようにする(閉じると二度と表示されない)
-  prompt(`「${email}」の仮パスワードです。コピーして本人に渡してください。\nこの画面を閉じると二度と表示できません(忘れた場合は再設定してください)。\n本人は初回ログイン後、🔑 パスワード変更 で自分用に変更してください。`, pw);
+  alert(`「${email}」のパスワードを再設定しました。`);
 }
 
 async function changeUserRole(userId, email, selectEl){

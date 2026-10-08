@@ -1,7 +1,6 @@
 import bcrypt from 'bcryptjs';
 import { appUsersFetch, getServiceKey, looksLikeBcryptHash } from './lib/app-users-db.js';
 import { issueSessionToken } from './lib/session-token.js';
-import { throttleKey, lockedSeconds, recordFailure, clearFailures, lockedMessage } from './lib/login-throttle.js';
 
 // ログイン専用API。anonキーからapp_usersへの直接select/update権限を廃止したため、
 // ログイン時の照合とlast_login更新はすべてこのサーバー側関数(service_role key)で行う。
@@ -16,16 +15,12 @@ export default async function handler(req, res) {
   const { email, password } = req.body || {};
   if (!email || !password) return res.status(400).json({ error: 'メールアドレスとパスワードを入力してください' });
 
-  const tkey = throttleKey(req, email);
-  const locked = lockedSeconds(tkey);
-  if (locked) return res.status(429).json({ error: lockedMessage(locked) });
-
   try {
     const r = await appUsersFetch(`?email=eq.${encodeURIComponent(email)}&select=*`);
     if (!r.ok) return res.status(500).json({ error: 'ユーザー情報の取得に失敗しました' });
     const rows = await r.json();
     const user = rows[0];
-    if (!user) { recordFailure(tkey); return res.status(401).json({ error: 'メールアドレスまたはパスワードが違います' }); }
+    if (!user) return res.status(401).json({ error: 'メールアドレスまたはパスワードが違います' });
 
     const stored = user.password || '';
     let ok;
@@ -44,8 +39,7 @@ export default async function handler(req, res) {
         });
       }
     }
-    if (!ok) { recordFailure(tkey); return res.status(401).json({ error: 'メールアドレスまたはパスワードが違います' }); }
-    clearFailures(tkey);
+    if (!ok) return res.status(401).json({ error: 'メールアドレスまたはパスワードが違います' });
 
     const nowIso = new Date().toISOString();
     await appUsersFetch(`?id=eq.${user.id}`, {
