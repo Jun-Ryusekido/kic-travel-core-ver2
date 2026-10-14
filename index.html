@@ -9139,9 +9139,9 @@ async function generateLocalExpensesFromArrangements(){
     sb.from('booking_restaurants').select('*').eq('booking_id', bookingId),
     sb.from('booking_facilities').select('*').eq('booking_id', bookingId),
     sb.from('booking_water_items').select('*').eq('booking_id', bookingId),
-    sb.from('tour_day_itinerary').select('date,bus_booking_id,bus_company_text,bus_booking_id_2,bus_company_text_2').eq('booking_id', bookingId),
+    asSbResult(tableQueryAll('tour_day_itinerary', { select: 'date,bus_booking_id,bus_company_text,bus_booking_id_2,bus_company_text_2', filters: [{ col: 'booking_id', op: 'eq', value: bookingId }] })),
     sb.from('booking_hotels').select('*').eq('booking_id', bookingId),
-    (b && b.ref_no) ? sb.from('bullet_train_arrangements').select('*').eq('booking_ref', b.ref_no) : Promise.resolve({data:[], error:null}),
+    (b && b.ref_no) ? asSbResult(tableQueryAll('bullet_train_arrangements', { select: '*', filters: [{ col: 'booking_ref', op: 'eq', value: b.ref_no }] })) : Promise.resolve({data:[], error:null}),
   ]);
   if(busErr||restErr||facErr||waterErr||dayErr||hotelErr||bulletErr){
     logError('仮払い概算行の生成(手配データ取得)', busErr||restErr||facErr||waterErr||dayErr||hotelErr||bulletErr);
@@ -9591,7 +9591,7 @@ async function openBookingDetail(id, opts){
     sb.from('booking_restaurants').select('*').eq('booking_id', id).order('sort_order').order('created_at'),
     sb.from('booking_facilities').select('*').eq('booking_id', id).order('sort_order').order('created_at'),
     sb.from('booking_water_items').select('*').eq('booking_id', id).order('sort_order').order('created_at'),
-    sb.from('bullet_train_arrangements').select('*').eq('booking_ref', b.ref_no).order('sort_order').order('created_at'),
+    asSbResult(tableQueryAll('bullet_train_arrangements', { select: '*', filters: [{ col: 'booking_ref', op: 'eq', value: b.ref_no }], order: [{ col: 'sort_order', ascending: true }, { col: 'created_at', ascending: true }] })),
   ]);
   if(_stale()) return;
   if(busFetchErr||restFetchErr||facFetchErr||waterFetchErr){ alert('手配明細の読み込みに一部失敗しました。このまま保存すると既存データが消える危険があるため、画面を再読み込みしてください。\n'+(busFetchErr||restFetchErr||facFetchErr||waterFetchErr).message); }
@@ -9626,10 +9626,10 @@ async function openBookingDetail(id, opts){
   // 手配書(新テーブル群)を読み込み。bdHotelItems/bdRestaurantItemsが読み込み済みであることに依存する
   // （日毎明細のホテル/レストランのプルダウンをそこから組み立てるため、この位置で読み込む）。
   const [{data: arrHeaderRow, error: arrHeaderErr}, {data: arrGuideRows, error: arrGuideErr}, {data: arrDayRows, error: arrDayErr}, {data: arrNoteRows, error: arrNoteErr}] = await Promise.all([
-    sb.from('tour_arrangement_headers').select('*').eq('booking_id', id).maybeSingle(),
-    sb.from('tour_guides').select('*').eq('booking_id', id).order('display_order'),
-    sb.from('tour_day_itinerary').select('*').eq('booking_id', id).order('day_no'),
-    sb.from('tour_arrangement_notes').select('*').eq('booking_id', id),
+    asSbResult(tableQueryMaybeSingle('tour_arrangement_headers', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: id }] })),
+    asSbResult(tableQueryAll('tour_guides', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: id }], order: [{ col: 'display_order', ascending: true }] })),
+    asSbResult(tableQueryAll('tour_day_itinerary', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: id }], order: [{ col: 'day_no', ascending: true }] })),
+    asSbResult(tableQueryAll('tour_arrangement_notes', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: id }] })),
   ]);
   if(_stale()) return;
   // これら4テーブルはDDL未実行の環境では存在せずエラーになりうる。新設テーブルで既存データ
@@ -9865,7 +9865,7 @@ const ARR_DAY_BLANK = {day_date:'', day_of_week:'', bus_company:'', itinerary:''
 async function loadArrangementsList(){
   const b = findBookingById(currentDetailId);
   if(!b) return;
-  const {data} = await sb.from('tour_arrangements').select('*').eq('booking_ref', b.ref_no).order('created_at');
+  const {data} = await asSbResult(tableQueryAll('tour_arrangements', { select: '*', filters: [{ col: 'booking_ref', op: 'eq', value: b.ref_no }], order: [{ col: 'created_at', ascending: true }] }));
   arrangementsCache = data||[];
   renderArrangementsList();
 }
@@ -9917,12 +9917,12 @@ async function openArrangementEditor(arrId){
   arrDays = [];
 
   if(arrId){
-    const {data: arr} = await sb.from('tour_arrangements').select('*').eq('id', arrId).maybeSingle();
+    const {data: arr} = await asSbResult(tableQueryMaybeSingle('tour_arrangements', { select: '*', filters: [{ col: 'id', op: 'eq', value: arrId }] }));
     if(arr){
       ARR_HEADER_FIELDS.forEach(([elId, col])=>{ const el=document.getElementById(elId); if(!el) return; if(el.type==='date') setDateInputValue(el, arr[col]); else el.value=arr[col]||''; });
       document.getElementById('arr-footer-notes').value = arr.footer_notes||'';
 
-      const {data: days} = await sb.from('tour_arrangement_days').select('*').eq('arrangement_id', arrId).order('sort_order');
+      const {data: days} = await asSbResult(tableQueryAll('tour_arrangement_days', { select: '*', filters: [{ col: 'arrangement_id', op: 'eq', value: arrId }], order: [{ col: 'sort_order', ascending: true }] }));
       arrDays = (days||[]).map(d=>({...ARR_DAY_BLANK, ...d}));
     }
   } else {
@@ -10162,7 +10162,7 @@ async function exportBookingArchive(){
     asSbResult(tableQueryAll('booking_sales', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: b.id }] })),
     asSbResult(tableQueryAll('booking_costs', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: b.id }] })),
     asSbResult(tableQueryAll('invoices', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: b.id }] })),
-    sb.from('tour_arrangements').select('*').eq('booking_ref', b.ref_no),
+    asSbResult(tableQueryAll('tour_arrangements', { select: '*', filters: [{ col: 'booking_ref', op: 'eq', value: b.ref_no }] })),
     asSbResult(tableQueryAll('estimations', { select: '*', filters: [{ col: 'converted_booking_id', op: 'eq', value: b.id }] })),
     sb.from('guide_settlements').select('*').eq('booking_ref', b.ref_no)
   ]);
@@ -10173,7 +10173,7 @@ async function exportBookingArchive(){
   let arrangementsWithDays = [];
   if(arrangements && arrangements.length>0){
     const ids = arrangements.map(a=>a.id);
-    const {data: days} = await sb.from('tour_arrangement_days').select('*').in('arrangement_id', ids).order('sort_order');
+    const {data: days} = await asSbResult(tableQueryAllIn('tour_arrangement_days', { select: '*', order: [{ col: 'sort_order', ascending: true }] }, 'arrangement_id', ids));
     arrangementsWithDays = arrangements.map(a=>({...a, days:(days||[]).filter(d=>d.arrangement_id===a.id)}));
   }
 
@@ -10244,7 +10244,7 @@ async function exportFullBackup(){
     asSbResult(tableQueryAll('booking_sales', { select: '*' })),
     asSbResult(tableQueryAll('booking_costs', { select: '*' })),
     asSbResult(tableQueryAll('invoices', { select: '*' })),
-    sb.from('tour_arrangements').select('*').in('booking_ref',refNos),
+    asSbResult(tableQueryAllIn('tour_arrangements', { select: '*' }, 'booking_ref', refNos)),
     sb.from('guide_settlements').select('*').in('booking_ref',refNos)
   ]);
   // 売上明細・仕入明細・Invoiceの取得に失敗した場合は、欠けたアーカイブを「正常に」出力しないよう中止する。
@@ -10296,7 +10296,7 @@ async function exportFiscalYearArchive(){
     asSbResult(tableQueryAllIn('booking_sales', { select: '*' }, 'booking_id', ids)),
     asSbResult(tableQueryAllIn('booking_costs', { select: '*' }, 'booking_id', ids)),
     asSbResult(tableQueryAllIn('invoices', { select: '*' }, 'booking_id', ids)),
-    sb.from('tour_arrangements').select('*').in('booking_ref', refNos),
+    asSbResult(tableQueryAllIn('tour_arrangements', { select: '*' }, 'booking_ref', refNos)),
     asSbResult(tableQueryAllIn('estimations', { select: '*' }, 'converted_booking_id', ids)),
     sb.from('guide_settlements').select('*').in('booking_ref', refNos)
   ]);
@@ -10307,7 +10307,9 @@ async function exportFiscalYearArchive(){
   let arrDays = [], estDaysAll = [], estFixedRowsAll = [], gItems = [];
   if(arrangements && arrangements.length>0){
     const arrIds = arrangements.map(a=>a.id);
-    const r = await sb.from('tour_arrangement_days').select('*').in('arrangement_id', arrIds).order('sort_order');
+    const r = await asSbResult(tableQueryAllIn('tour_arrangement_days', { select: '*', order: [{ col: 'sort_order', ascending: true }] }, 'arrangement_id', arrIds));
+    // 取得失敗を空配列として黙って出力しない(欠けたアーカイブを正常に見せないため)
+    if(r.error){ alert('手配書日程の取得に失敗したため、出力を中止しました: '+r.error.message); return; }
     arrDays = r.data||[];
   }
   if(estimations && estimations.length>0){
@@ -10375,15 +10377,15 @@ async function backupBookingDataBeforeDelete(b, refNo){
     booking_buses: sb.from('booking_buses').select('*').eq('booking_id', b.id),
     booking_restaurants: sb.from('booking_restaurants').select('*').eq('booking_id', b.id),
     booking_facilities: sb.from('booking_facilities').select('*').eq('booking_id', b.id),
-    bullet_train_arrangements: sb.from('bullet_train_arrangements').select('*').eq('booking_ref', refNo),
+    bullet_train_arrangements: asSbResult(tableQueryAll('bullet_train_arrangements', { select: '*', filters: [{ col: 'booking_ref', op: 'eq', value: refNo }] })),
     booking_guides: sb.from('booking_guides').select('*').eq('booking_id', b.id),
-    tour_arrangement_headers: sb.from('tour_arrangement_headers').select('*').eq('booking_id', b.id),
-    tour_guides: sb.from('tour_guides').select('*').eq('booking_id', b.id),
-    tour_day_itinerary: sb.from('tour_day_itinerary').select('*').eq('booking_id', b.id),
-    tour_arrangement_notes: sb.from('tour_arrangement_notes').select('*').eq('booking_id', b.id),
+    tour_arrangement_headers: asSbResult(tableQueryAll('tour_arrangement_headers', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: b.id }] })),
+    tour_guides: asSbResult(tableQueryAll('tour_guides', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: b.id }] })),
+    tour_day_itinerary: asSbResult(tableQueryAll('tour_day_itinerary', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: b.id }] })),
+    tour_arrangement_notes: asSbResult(tableQueryAll('tour_arrangement_notes', { select: '*', filters: [{ col: 'booking_id', op: 'eq', value: b.id }] })),
     arrangement_documents: sb.from('arrangement_documents').select('*').eq('booking_id', b.id),
     guide_settlements: sb.from('guide_settlements').select('*').eq('booking_ref', refNo),
-    tour_arrangements: sb.from('tour_arrangements').select('*').eq('booking_ref', refNo),
+    tour_arrangements: asSbResult(tableQueryAll('tour_arrangements', { select: '*', filters: [{ col: 'booking_ref', op: 'eq', value: refNo }] })),
     // 2026-08-12点検で追加: 以下4テーブルもbooking_id/booking_refで予約に紐づくが、
     // バックアップ・削除の両方から漏れていた(DB側のcascade設定に依存して消える場合、
     // バックアップに残らないままデータが失われる)。
@@ -10498,7 +10500,8 @@ async function deleteBookingData(){
     await bookingGuidesApiCall('deleteByBooking', { bookingId: b.id });
 
     // 旧手配書（tour_arrangements/tour_arrangement_days、現在は使われていない旧テーブル）
-    const {data: arrangements} = await sb.from('tour_arrangements').select('id').eq('booking_ref', refNo);
+    // 取得失敗を「手配書なし」として黙って削除をスキップしないよう、失敗時は例外にする(tableQueryAllは失敗時throw)
+    const arrangements = await tableQueryAll('tour_arrangements', { select: 'id', filters: [{ col: 'booking_ref', op: 'eq', value: refNo }] });
     if(arrangements && arrangements.length>0){
       await tourArrangementDaysApiCall('deleteByField', { field: 'arrangement_id', value: arrangements.map(a=>a.id) });
       await tourArrangementsApiCall('deleteByField', { field: 'booking_ref', value: refNo });
@@ -21539,7 +21542,7 @@ async function loadGuideAdvanceList(){
     ({arrangements, estimations, settlements, localExpenses, estGuideSumByEstId} = gaCached);
   } else {
     const [{data: arrangementsData}, {data: estimationsData, error: estimationsErr}, {data: settlementsData}, {data: localExpensesData}] = await Promise.all([
-      sb.from('tour_arrangements').select('booking_ref, guide_name, guide_phone').in('booking_ref', refNos),
+      asSbResult(tableQueryAllIn('tour_arrangements', { select: 'booking_ref, guide_name, guide_phone' }, 'booking_ref', refNos)),
       asSbResult(tableQueryAllIn('estimations', { select: 'id, converted_booking_id' }, 'converted_booking_id', ids)),
       sb.from('guide_settlements').select('booking_ref, guide_name, guide_phone, guide_names, advance_payment, additional_advance_payment, status').in('booking_ref', refNos),
       sb.from('local_expenses').select('booking_id, expense_date, content, category, unit_price, qty, amount, payment_method').in('booking_id', ids).order('sort_order')
@@ -25398,7 +25401,7 @@ async function loadBulletTrains(){
   if(bulletTrainCache.length>0 && cacheIsFresh(bulletTrainCacheAt)){ filterBulletTrains(); return; }
   document.getElementById('bt-tbody').innerHTML = '<tr><td colspan="11" class="empty">読み込み中...</td></tr>';
   requestAnimationFrame(updateBtTableHeight);
-  const {data, error} = await sb.from('bullet_train_arrangements').select('*').order('ride_date',{ascending:true});
+  const {data, error} = await asSbResult(tableQueryAll('bullet_train_arrangements', { select: '*', order: [{ col: 'ride_date', ascending: true }] }));
   if(error){ document.getElementById('bt-tbody').innerHTML = `<tr><td colspan="11" class="empty">読み込みエラー: ${error.message}</td></tr>`; return; }
   bulletTrainCache = data||[];
   bulletTrainCacheAt = Date.now();
@@ -25735,9 +25738,10 @@ async function onBtCsvFileSelected(e){
   const refsToCheck = [...new Set(btCsvBlocks.map(b=>b.matchedBooking?.ref_no).filter(Boolean))];
   let existingSet = new Set();
   if(refsToCheck.length){
-    const {data: existing} = await sb.from('bullet_train_arrangements')
-      .select('booking_ref,ride_date,train_number,departure_station,arrival_station')
-      .in('booking_ref', refsToCheck);
+    // 取得失敗を「既存なし」として黙って進めると重複登録になるため、失敗時は取込を中止する
+    let existing;
+    try{ existing = await tableQueryAllIn('bullet_train_arrangements', { select: 'booking_ref,ride_date,train_number,departure_station,arrival_station' }, 'booking_ref', refsToCheck); }
+    catch(err){ logError('新幹線CSV取込の重複チェック', err); alert('既存の新幹線手配の取得に失敗したため、取込を中止しました: '+err.message); return; }
     if(existing) existing.forEach(r=>{
       existingSet.add(`${r.booking_ref}|${r.ride_date||''}|${r.train_number||''}|${r.departure_station||''}|${r.arrival_station||''}`);
     });
@@ -27218,7 +27222,7 @@ async function renderTourCalendar(){
       // created_at(入力順)を使う。
       sb.from('booking_buses').select('booking_id,bus_company,start_date,end_date').in('booking_id', ids).order('created_at'),
       sb.from('booking_guides').select('booking_id,guide_id,guide_name_freetext,start_date,end_date,guides(name)').in('booking_id', ids),
-      sb.from('tour_arrangement_headers').select('booking_id,arr_flight').in('booking_id', ids),
+      asSbResult(tableQueryAllIn('tour_arrangement_headers', { select: 'booking_id,arr_flight' }, 'booking_id', ids)),
     ]);
     const detailErr = hErr||buErr||gErr||arrErr;
     if(detailErr){ body.innerHTML = `<p style="color:var(--red);font-size:12px">明細の読み込みエラー: ${escHtml(detailErr.message)}</p>`; return; }

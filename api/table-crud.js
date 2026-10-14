@@ -326,9 +326,21 @@ const TABLE_CONFIG = {
   // (phone/display_orderのみ、status/amountは持たない)。詳細はindex.htmlの
   // bookingGuidesApiCall宣言部のコメント参照。
   booking_guides: { actions: ['replace', 'deleteByBooking'], label: 'ガイド明細(アサイン状況管理)' },
-  tour_guides: { actions: ['replace', 'deleteByBooking'], label: '手配書ガイド(印字用メタデータ)' },
-  tour_day_itinerary: { actions: ['replace', 'deleteByBooking'], label: '手配書日毎明細' },
-  tour_arrangement_notes: { actions: ['replace', 'deleteByBooking'], label: '手配書注意文言' },
+  tour_guides: {
+    actions: ['replace', 'deleteByBooking'], label: '手配書ガイド(印字用メタデータ)',
+    // RLS対応フェーズ2 バッチ3(グループ1): query/queryBatch経由の読み取り(ブラウザからの直接SELECTは廃止)。
+    readable: { filters: { booking_id: ['eq', 'in'] }, order: ['display_order', 'id'] },
+  },
+  tour_day_itinerary: {
+    actions: ['replace', 'deleteByBooking'], label: '手配書日毎明細',
+    // RLS対応フェーズ2 バッチ3(グループ1): query/queryBatch経由の読み取り(ブラウザからの直接SELECTは廃止)。
+    readable: { filters: { booking_id: ['eq', 'in'] }, order: ['day_no', 'id'] },
+  },
+  tour_arrangement_notes: {
+    actions: ['replace', 'deleteByBooking'], label: '手配書注意文言',
+    // RLS対応フェーズ2 バッチ3(グループ1): query/queryBatch経由の読み取り(ブラウザからの直接SELECTは廃止)。
+    readable: { filters: { booking_id: ['eq', 'in'] }, order: ['id'] },
+  },
   // deleteByBookingは予約削除(deleteBookingData)用(2026-08-12点検で追加。それまで予約削除の削除対象から漏れていた)
   // markCostAdded: 手配タブ「仕入明細へ追加」ボタンのcost_added更新専用(下記handler参照)。
   // booking_water_itemsはcreated_by/updated_by列を持たないためstampIdentityは付けない。
@@ -337,7 +349,11 @@ const TABLE_CONFIG = {
   // replaceではなくupdate(存在時)/insert(新規時)の直接呼び出しのため、汎用の
   // updateById/insertReturningをそのまま使う(insertReturningは新規作成時に採番id を
   // クライアントへ返す必要があるため)。deleteByBookingはF3対応で追加(上記と同じ理由)。
-  tour_arrangement_headers: { actions: ['updateById', 'insertReturning', 'deleteByBooking'], label: '手配書ヘッダー' },
+  tour_arrangement_headers: {
+    actions: ['updateById', 'insertReturning', 'deleteByBooking'], label: '手配書ヘッダー',
+    // RLS対応フェーズ2 バッチ3(グループ1): query/queryBatch経由の読み取り(ブラウザからの直接SELECTは廃止)。
+    readable: { filters: { booking_id: ['eq', 'in'] }, order: ['id'] },
+  },
   // arrangement_document_days/arrangement_document_notes: キー列がbooking_idではなく
   // arrangement_document_idのため、doReplaceをそのまま使えない。allowedDeleteFieldsと
   // 同じ考え方でキー列をホワイトリスト化した新規action『replaceByKey』を使う
@@ -456,6 +472,8 @@ const TABLE_CONFIG = {
     label: '手配書',
     allowedDeleteFields: ['booking_ref'],
     auditLog: true,
+    // RLS対応フェーズ2 バッチ3(グループ1): query/queryBatch経由の読み取り(ブラウザからの直接SELECTは廃止)。
+    readable: { filters: { id: ['eq', 'in'], booking_ref: ['eq', 'in'] }, order: ['created_at', 'id'] },
   },
   // tour_arrangement_days: 1手配書(tour_arrangements.id)に対する日毎明細。保存は
   // 既存のarrangement_document_days等と同じ「全削除→再挿入」(replaceByKey、キー列は
@@ -466,6 +484,8 @@ const TABLE_CONFIG = {
     label: '手配書日毎明細',
     allowedReplaceKeyFields: ['arrangement_id'],
     allowedDeleteFields: ['arrangement_id'],
+    // RLS対応フェーズ2 バッチ3(グループ1): query/queryBatch経由の読み取り(ブラウザからの直接SELECTは廃止)。
+    readable: { filters: { arrangement_id: ['eq', 'in'] }, order: ['sort_order', 'id'] },
   },
   // bullet_train_arrangements: 予約詳細モーダル「新幹線」タブの一括保存
   // (saveBulletTrainItems)はbooking_refキーの全削除→再挿入(replaceByKey)。サイドバー
@@ -483,6 +503,8 @@ const TABLE_CONFIG = {
     // 重複でINSERT時にunique制約違反となる(2026-08、予約#1068で発覚)。旧コードの
     // sb.from(...).delete()→insert()と同じDELETE→INSERT順序に切り替える。
     replaceByKeyDeleteFirst: true,
+    // RLS対応フェーズ2 バッチ3(グループ1): query/queryBatch経由の読み取り(ブラウザからの直接SELECTは廃止)。
+    readable: { filters: { booking_ref: ['eq', 'in'] }, order: ['ride_date', 'sort_order', 'created_at', 'id'] },
   },
   // arrangement_documents: ガイド別手配書のヘッダー行(booking_idに1:N、booking_guide_idに
   // 1:1)。新規作成(syncArrangementDocumentsFromDraft)はinsertReturning(挿入直後の採番idを

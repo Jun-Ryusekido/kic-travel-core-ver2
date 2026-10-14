@@ -1035,3 +1035,16 @@ PR: https://github.com/Jun-Ryusekido/kic-travel-core-ver2/pull/224 （未マー�
 #222: index.html競合なし。#220: index.htmlは自動マージ可、SESSION_NOTES.mdのみ競合（従来どおり）。#144: 履歴が無関係（unrelated histories）で、コミット4f77353のindex.html差分は今のmainにも当たらない（従来から。この変更とは無関係）。
 ### JUNさん確認手順
 PR: https://github.com/Jun-Ryusekido/kic-travel-core-ver2/pull/225 （未マージ）。**Preview: https://kic-travel-core-ver2-git-claude-b33b5d-jun-ryusekido-s-projects.vercel.app** （Vercel Ready、2026-10-05 10:13 UTC、コミット 7d0ff8b。Claude環境からは到達不可で画面は未確認）にログイン → サイドバー「ツアー運行カレンダー」 → 月が「2026年10月」になっていること。月を別の月に変えて表示が切り替わること。別画面へ移動して戻ると今月に戻ること。本番(https://kic-travel-core-ver2.vercel.app)での確認は未実施（マージ後に同じ手順で）。
+
+## RLS対応フェーズ2 バッチ3: anon直接SELECT→API(service_role)経由への移行（ブランチ claude/loving-rubin-1ip7mv・SQLなし）
+目的: Supabase Advisor「RLS無効・anonでSELECT可」の解消。DB(SQL)は一切変更しない（REVOKE/RLS有効化はコード移行→実機確認後に別途）。
+### 事前確認の結果
+- api/table-crud.js: 全actionでverifySessionToken（HMAC署名＋12時間期限、:1730）を検証。query/queryBatchもログイン必須（ゲストaction以外）。API化しても外部から読めない。
+- 読み取り許可はTABLE_CONFIG[table].readable（filters/order列のホワイトリスト）。select句は'*'または列名のみ（埋め込みJOIN不可）→ JOINは2回呼び出しに分割。
+- scripts/*.js・email-automation/・parking-automation/: 対象16テーブルへの参照は import_kic1153_tehaisho.js（service_role必須・anonフォールバック無し）、backup_supabase*.ps1（service_role必須）のみ。archive/generate-haichisho.js は anon(publishable)キーで tour_arrangements / tour_arrangement_days を読む旧スクリプト（アーカイブ扱い。REVOKE後は動かない）。
+### グループ1（完了・実機確認待ち）: tour_guides, tour_arrangement_headers, tour_arrangement_notes, tour_day_itinerary, tour_arrangements, tour_arrangement_days, bullet_train_arrangements
+- api/table-crud.js: 7テーブルにreadable追加（読み取りのみ。書き込みactionは無変更）。
+- index.html変更関数: generateLocalExpensesFromArrangements / openBookingDetail / loadArrangementsList / openArrangementEditor / exportBookingArchive / exportFullBackup / exportFiscalYearArchive / backupBookingDataBeforeDelete / deleteBookingData / loadGuideAdvanceList / loadBulletTrains / onBtCsvFileSelected / renderTourCalendar（headers部分）。
+- 挙動を安全側にした箇所: deleteBookingData（旧手配書の取得失敗を「なし」と見なして黙ってスキップしない→例外）、onBtCsvFileSelected（重複チェック取得失敗時は中止してalert）、exportFiscalYearArchive（tour_arrangement_days取得失敗時は出力中止）。
+- 件数上限: tableQueryAll/AllInが1,000件上限・200件in分割を吸収（バックアップ系は全件取り切り）。
+- 検証: 実データ未確認（Claude環境にSupabase鍵/ブラウザ認証なし）。api/table-crud.jsの実handlerに全26呼び出しを通すモックfetchハーネスで400エラー0件を確認したのみ。
