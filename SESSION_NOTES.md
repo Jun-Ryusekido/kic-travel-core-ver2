@@ -1035,3 +1035,24 @@ PR: https://github.com/Jun-Ryusekido/kic-travel-core-ver2/pull/224 （未マー�
 #222: index.html競合なし。#220: index.htmlは自動マージ可、SESSION_NOTES.mdのみ競合（従来どおり）。#144: 履歴が無関係（unrelated histories）で、コミット4f77353のindex.html差分は今のmainにも当たらない（従来から。この変更とは無関係）。
 ### JUNさん確認手順
 PR: https://github.com/Jun-Ryusekido/kic-travel-core-ver2/pull/225 （未マージ）。**Preview: https://kic-travel-core-ver2-git-claude-b33b5d-jun-ryusekido-s-projects.vercel.app** （Vercel Ready、2026-10-05 10:13 UTC、コミット 7d0ff8b。Claude環境からは到達不可で画面は未確認）にログイン → サイドバー「ツアー運行カレンダー」 → 月が「2026年10月」になっていること。月を別の月に変えて表示が切り替わること。別画面へ移動して戻ると今月に戻ること。本番(https://kic-travel-core-ver2.vercel.app)での確認は未実施（マージ後に同じ手順で）。
+
+---
+
+## 予約の進捗判定（ステッパー/進捗ドット）— 指示1 調査完了（コード未変更）
+
+### 確定した事実（実コードで確認）
+- 詳細: index.html `openBookingDetail`(:9413)。モーダル「予約台帳」。売上/仕入/請求書は `tableQueryBatch` 経由(API)、hotels/buses/手配書ヘッダーは `sb.from()` 直接。
+- 一覧: `loadBookingListGeneric`(:4545) → `fetchBookingsListLight`(:4290) が bookings を軽量列で全件取得し `bookingsListCache`(5分TTL)に保持。ダッシュボード(db)と予約一覧(bl)が共用。
+- 入金は **payments テーブルではない**。`booking_sales.payments` は jsonb 配列 `[{date,amount,bank,remark}]`。入金合計=全売上行の payments[].amount の合計(`salesPaymentsTotal` :7232 / 詳細KPI `bd-sum-paid`)。売上合計は `booking_sales.amount` の合計。
+- invoices.status = 'pending' / 'paid' / 'void'（コード・SQLコメントで確認）。invoicesは `readable`(booking_id eq/in)でAPI経由のみ。
+- 手配ステータス値: 未予約 / 問い合わせ中 / 手配OK / FNL済 / NG回答 / 予約不要 / キャンセル(施設)。ホテル/バスの選択肢は VENDOR_EMAIL_STATUS_OPTIONS=未予約,問い合わせ中,手配OK,FNL済,NG回答,キャンセル(+旧「確定」「回答待ち」が色分け関数に残存)。
+- estimations: `converted_booking_id`(予約への紐付け)、`is_template` はあるが、**「確定済み」を表す列はコード/SQL上見つからない**。
+- 書類: `tour_arrangement_headers`(booking_id 1:1, 共通ドラフト) と `arrangement_documents`(ガイド別手配書, booking_id)。「手配一覧表を作成した」ことを示す専用フラグは未発見。
+- bookings.status は既に open/pending/confirmed/finalized/invoiced/paid/settlement/closed/cancelled (STATUS_ORDER :7083) を持つ。
+
+### 実装上の制約（要判断）
+- booking_sales / invoices は RLS有効でAPI(`query`)のみ。`booking_id in` は1回200件まで、全件取得用のfilterなし取得は不可 → 1000件超の一覧には「進捗集計用の読み取り専用action」を api/table-crud.js に新設するのが現実的(DBスキーマ変更なし)。
+- booking_hotels/booking_buses は一覧側で既に anon `sb.from()` 直接select(:27213)。
+
+### 未実施
+- 実データでのドライラン: この環境にSupabase認証情報なし(env/ .env 無し)。Claude in Chrome 接続も無し。
