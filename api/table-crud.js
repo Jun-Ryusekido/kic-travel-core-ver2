@@ -1451,6 +1451,91 @@ async function doQuery(table, q) {
   return { status: 200, body: { ok: true, ...result, __sb: budget.sb } };
 }
 
+// ===== 予約の進捗集計(progressSummary、読み取り専用) =====
+// 予約一覧の「進捗ドット」「要確認」用。予約ごとにDBを叩かず(N+1回避)、必要なテーブルを
+// 1000行ずつページングで全件取得し、予約単位の合計だけを返す(明細・個人情報・取引先名は返さない)。
+// 返す内容(予約idをキーとしたオブジェクト。データが1つも無い予約は含めない):
+//   sr: 売上明細の行数 / st: 売上合計(booking_sales.amount) / pt: 入金合計(booking_sales.payments[].amount)
+//   ai: 有効な請求書の件数(status が 'void' 以外) / arr: ホテル+バスの手配ステータス別件数 / est: 1(見積が紐付き)
+// 判定そのもの(完了/進行中/要確認等)はここでは行わず、クライアントが public/js/booking-progress.js の
+// 共通関数で行う(詳細画面と判定がずれないようにするため)。
+// 取得件数が count=exact の総件数と一致しない場合は、集計を返さずエラーにする
+// (取得中の更新で行が欠落・重複した集計を、正しい値として表示させないため)。
+// 認証は他のaction(query等)と同じログインセッション検証を、ハンドラ側で通過済みの前提とする。
+// service_roleキーはサーバー内でのみ使い、レスポンスには含めない。
+const PROGRESS_PAGE_SIZE = 1000;
+async function progressFetchAll(table, select, extra) {
+  let rows = [];
+  let total = null;
+  let offset = 0;
+  while (true) {
+    const q = `?select=${encodeURIComponent(select)}${extra ? '&' + extra : ''}&order=id.asc&offset=${offset}&limit=${PROGRESS_PAGE_SIZE}`;
+    const r = await sbFetch(table, q, { method: 'GET', headers: { Prefer: 'count=exact' } });
+    const text = await r.text();
+    if (!r.ok) {
+      let msg = '';
+      try { msg = JSON.parse(text).message || ''; } catch (e) { /* ignore */ }
+      throw new Error(withGrantHint(msg, table) || `${table}の取得に失敗しました(HTTP ${r.status})`);
+    }
+    const m = /\/(\d+)$/.exec(r.headers.get('content-range') || '');
+    if (!m) throw new Error(`${table}の件数(content-range)を読み取れませんでした`);
+    const t = Number(m[1]);
+    if (total !== null && t !== total) throw new Error(`${table}の取得中に件数が変化しました。もう一度お試しください`);
+    total = t;
+    const page = JSON.parse(text);
+    if (!Array.isArray(page)) throw new Error(`${table}の取得結果が不正です`);
+    rows = rows.concat(page);
+    if (page.length < PROGRESS_PAGE_SIZE) break;
+    offset += PROGRESS_PAGE_SIZE;
+  }
+  if (rows.length !== total) throw new Error(`${table}の取得件数(${rows.length})が総件数(${total})と一致しません。集計を中止しました`);
+  return rows;
+}
+
+async function doProgressSummary() {
+  const [sales, invoices, hotels, buses, estimations] = await Promise.all([
+    progressFetchAll('booking_sales', 'id,booking_id,amount,payments'),
+    progressFetchAll('invoices', 'id,booking_id,status'),
+    progressFetchAll('booking_hotels', 'id,booking_id,status'),
+    progressFetchAll('booking_buses', 'id,booking_id,status'),
+    progressFetchAll('estimations', 'id,converted_booking_id', 'converted_booking_id=not.is.null'),
+  ]);
+  const items = {};
+  const get = (id) => items[id] || (items[id] = { sr: 0, st: 0, pt: 0, ai: 0, arr: {} });
+  for (const r of sales) {
+    if (!r.booking_id) continue;
+    const it = get(r.booking_id);
+    it.sr += 1;
+    it.st += Number(r.amount) || 0;
+    if (Array.isArray(r.payments)) for (const p of r.payments) it.pt += Number(p && p.amount) || 0;
+  }
+  for (const r of invoices) {
+    if (!r.booking_id) continue;
+    if (r.status !== 'void') get(r.booking_id).ai += 1;
+  }
+  for (const r of [...hotels, ...buses]) {
+    if (!r.booking_id) continue;
+    const k = r.status == null ? '' : String(r.status);
+    const arr = get(r.booking_id).arr;
+    arr[k] = (arr[k] || 0) + 1;
+  }
+  for (const r of estimations) {
+    if (r.converted_booking_id) get(r.converted_booking_id).est = 1;
+  }
+  for (const it of Object.values(items)) {
+    it.st = Math.round(it.st * 100) / 100;
+    it.pt = Math.round(it.pt * 100) / 100;
+    if (!Object.keys(it.arr).length) delete it.arr;
+  }
+  return {
+    status: 200,
+    body: {
+      ok: true, items,
+      verified: { booking_sales: sales.length, invoices: invoices.length, booking_hotels: hotels.length, booking_buses: buses.length, estimations: estimations.length },
+    },
+  };
+}
+
 // 複数テーブルのクエリを1リクエストでまとめて取得する(予約詳細を開く時の売上・仕入・
 // Invoiceの3件等、クライアント→Vercelの往復とコールドスタートの発生回数を減らすため)。
 // サイズ・時間の予算は全クエリで共有し、取り切れなかったクエリはnextOffsetを返す
@@ -1666,7 +1751,7 @@ async function doAuditHistory(targetTable, recordId) {
 //   RLS対象の4テーブルを読み書きせず、ガイドに再読み込みを求める理由が無いため対象外。
 // - appInfo: 版の確認そのもの(データに触れない)。
 const APP_VERSION_EXEMPT_ACTIONS = new Set([
-  'query', 'queryBatch', 'rpc', 'rpcBatch', 'auditHistory', 'list', 'listByField', 'list_active',
+  'query', 'queryBatch', 'rpc', 'rpcBatch', 'progressSummary', 'auditHistory', 'list', 'listByField', 'list_active',
   'guestInsert', 'guestUpdateById', 'guestUpsertConfirm',
   'appInfo',
 ]);
@@ -1749,6 +1834,17 @@ export default async function handler(req, res) {
       else if (action === 'queryBatch') result = await doQueryBatch(req.body.queries);
       else if (action === 'rpcBatch') result = await doRpcBatch(req.body.calls);
       else result = await doRpc(req.body.fn, req.body.params, req.body.offset);
+      return res.status(result.status).json(result.body);
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+  }
+
+  // progressSummary: 予約の進捗集計(読み取り専用。上のdoProgressSummary参照)。ログイン検証済みの
+  // セッションのみ(ゲスト操作はここに来ない)。テーブル指定は不要。
+  if (action === 'progressSummary') {
+    try {
+      const result = await doProgressSummary();
       return res.status(result.status).json(result.body);
     } catch (e) {
       return res.status(500).json({ error: e.message });

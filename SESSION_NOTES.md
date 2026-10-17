@@ -1073,3 +1073,30 @@ PR: https://github.com/Jun-Ryusekido/kic-travel-core-ver2/pull/225 （未マー�
 1. JUNさんがドライラン実行 → 結果(summary JSON)を貼る。参考値(入金超過≒56・売上0円入金あり≒30)と大きくずれたら実装に進まず原因調査。
 2. 結果確認後に実装: api/table-crud.js に進捗集計の読み取り専用action新設（予約ごとの売上合計/入金合計/有効請求書件数のみ。既存の認証を通す。5分TTL）、詳細ステッパー、一覧ドット・要確認チップ・横断検索、「対象外」(灰色の丸に—)表示。vercel.jsonにルート追加。
 3. 実データでの画面確認手順はJUNさん環境向けに最後に提示。
+
+---
+
+## 予約進捗（ステッパー・一覧ドット・要確認チップ）— 実装完了（PR未作成・mainへ未反映）
+
+### JUNさんの判断（反映済み）
+- ドライランは実施せず、SQLで入金判定を検証済み（売上明細あり652件: 完了36/進行中16/なし519/超過26/売上0円で入金あり30。超過26+0円30=56が10/6点検値と一致）。判定条件はそのまま採用。
+- `scripts/progress_dryrun.js` と .gitignore追記は削除（PRに含めない）。`public/js/booking-progress.js` は実装で使用。
+- 売上明細が1行も無い予約: 入金=未着手「売上未入力」（要確認にしない）。見積=あり→完了/なし→対象外「見積なし」。書類=常に対象外「記録なし」。cancelled=全段階対象外。
+
+### 実装内容
+- `public/js/booking-progress.js`: 判定の純粋関数（UMD）。理由に badge(一覧用)/message(詳細の帯用)を追加。`hideAmounts`（財務サマリーを見られないロール向けに金額を伏せる）。単体テスト `scripts/test_booking_progress.js`。
+- `api/table-crud.js`: 読み取り専用 action `progressSummary`。booking_sales/invoices/booking_hotels/booking_buses/estimations を1000行ずつページング(count=exact照合、不一致なら500で集計を返さない)し、予約単位の合計のみ返す（売上行数・売上合計・入金合計・有効請求書数・手配ステータス別件数・見積有無。明細/個人名/取引先名は返さない）。ログインセッション検証は他actionと同じ（ゲスト不可）。service_roleキーはレスポンスに出ない。APP_VERSION_EXEMPT(読み取り専用)に追加。
+- `index.html`: 一覧に「進捗」(5つのドット)・「要確認」(バッジ)列、「すべて/要確認 N件」チップ（ダッシュボードと Booking List の両方。共通の filterBookingListGeneric）。進捗の集計は一覧取得と並行して1リクエスト・5分TTL、関連テーブルへの書き込み(tableCrudApiCall)で破棄。詳細モーダル最上部にステッパー+要確認の理由帯（丸/ボタンで該当節へジャンプ）。詳細は画面上の最新データ(売上・入金・手配・請求書キャッシュ)から計算し、編集に追従。
+- `vercel.json`: `/js/booking-progress.js` のルート追加。
+- 副次修正: `scrollBdModalToSection` を、固定ヘッダー下端基準(`scrollBdModalToElement`)に変更（スマホ幅で見出しがヘッダーに数px潜る問題）。既存の scrollTo:'sales' 遷移にも効く。
+- 検索: 既存の検索が既に REF#・Agent・Tour Code・Tour Name を横断していたため拡張なし。
+
+### 検証（Playwright+合成データ2300予約、実クリック）
+- 一覧: チップ件数=独立計算と一致(683)、チップクリックで絞り込み、検索（REF#/Agent/Tour Code/Tour Name）、条件クリアでチップ解除、1000件超でも初回描画0.2秒/再描画約30ms、375px・1280pxで横スクロールなし、集計の遅延中は「読み込み中…」（絞り込みは取得後）、取得失敗時は一覧は表示され「取得失敗」。
+- 詳細: 順調/入金超過/手配途中/中止/売上なし/NG+キャンセル+売上0円入金 の6種で期待どおりの状態・理由帯。丸のクリックと帯のボタンでジャンプ（PC/375px、見出しがヘッダー下に表示）。入金・ホテルステータスの編集にステッパーが追従。375pxで説明の重なりなし。staffロールは金額を伏せる。
+- API: モックでページング(2600予約・13リクエスト・応答約177KB)、GETのみ、401（トークン無し/不正）、件数不一致で500・集計なし。
+
+### 残タスク / 注意
+- 実データ(本番Preview)での確認はJUNさん。
+- 書類の判定（手配一覧表の作成記録が無い）は未対応。候補: arrangement_documents(draft/final)・tour_arrangement_headers。
+- SQL変更なし（スキーマ・RLS・GRANT変更なし）。
