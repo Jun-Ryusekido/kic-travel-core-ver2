@@ -1056,3 +1056,20 @@ PR: https://github.com/Jun-Ryusekido/kic-travel-core-ver2/pull/225 （未マー�
 
 ### 未実施
 - 実データでのドライラン: この環境にSupabase認証情報なし(env/ .env 無し)。Claude in Chrome 接続も無し。
+
+---
+
+## 予約進捗判定 — ドライラン用スクリプト完成（画面は未実装・JUNさんのドライラン結果待ち）
+
+### 確定したこと
+- ブランチ: claude/epic-goodall-ysy4ll は origin/main(7764fe3)を含む（`git merge-base --is-ancestor` で確認）。
+- 判定の純粋関数: `public/js/booking-progress.js`（UMD。ブラウザは `window.BookingProgress`、Nodeは require）。`vercel.json` へのルート追加は未実施（画面実装時に追加。image-compress.js と同じ方式）。
+- ドライラン: `scripts/progress_dryrun.js`（GETのみ。出力 scripts/data/progress_dryrun_summary.json）。全テーブル1000行ずつページング、`count=exact` と取得件数が不一致なら集計を出さず exit 2。
+- ルール（調査報告+JUN回答どおり）: 見積=紐付き見積あり→完了/なし→対象外「見積なし」。書類=常に対象外「記録なし」。cancelled予約=全段階対象外・要確認なし。手配=NG/キャンセル→要確認、問い合わせ中→進行中、全件OK→完了、全件未予約/0件→未着手、**一部OKで残りが未予約のみ→進行中（指示に明記なしのため私の補足。要確認）**。入金は1円未満の差を等しいとみなす。**売上がマイナス(<-1円)→要確認(sales_negative)も私の補足**。
+- 「手配一覧表PDF」(`printArrangementSummaryList` index.html:26258) は画面メモリ上の bdHotelItems/bdBusItems/bdFacilityItems/bdRestaurantItems/bdBulletTrainItems と business_partners を読んで印刷するだけで、**作成記録をDBに残さない**。→ 書類は判定不能のまま。候補: tour_arrangement_headers の有無 / arrangement_documents の有無（statusは draft/final）。件数はドライラン出力に含む。
+- 検証: 純粋関数の単体テスト(境界・小数・旧値・cancelled)OK。モックサーバー(2300予約でページング)でスクリプト動作OK、count不一致時は集計を出さず中止、GET以外のリクエスト0件。
+
+### 残タスク
+1. JUNさんがドライラン実行 → 結果(summary JSON)を貼る。参考値(入金超過≒56・売上0円入金あり≒30)と大きくずれたら実装に進まず原因調査。
+2. 結果確認後に実装: api/table-crud.js に進捗集計の読み取り専用action新設（予約ごとの売上合計/入金合計/有効請求書件数のみ。既存の認証を通す。5分TTL）、詳細ステッパー、一覧ドット・要確認チップ・横断検索、「対象外」(灰色の丸に—)表示。vercel.jsonにルート追加。
+3. 実データでの画面確認手順はJUNさん環境向けに最後に提示。

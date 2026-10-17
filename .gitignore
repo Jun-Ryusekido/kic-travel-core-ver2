@@ -19,3 +19,4 @@ scripts/backups/
 
 .vercel
 .env*
+scripts/data/progress_dryrun_summary.json
