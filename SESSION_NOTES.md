@@ -1100,3 +1100,26 @@ PR: https://github.com/Jun-Ryusekido/kic-travel-core-ver2/pull/225 （未マー�
 - 実データ(本番Preview)での確認はJUNさん。
 - 書類の判定（手配一覧表の作成記録が無い）は未対応。候補: arrangement_documents(draft/final)・tour_arrangement_headers。
 - SQL変更なし（スキーマ・RLS・GRANT変更なし）。
+
+---
+
+## 進捗ステッパー — ebc84c5 後の修正（権限・通信量・プレビュー確認準備）
+
+### 修正1: 金額の権限制御（サーバー側）
+- 確認: `api/table-crud.js` には role/email で金額を制限するコードが無く（email制限は ACCOUNTING_EMAILS等の別機能のみ）、既存の `query`/`queryBatch` は booking_sales(amount,payments)・invoices を**ログイン済みの全ロールに全列**返す。金額の非表示は index.html のUI制御(`canViewFinancials`相当)のみという既存設計。→ 今回の progressSummary だけがサーバー側で制限する（既存actionの設計変更はしていない）。
+- progressSummary: 判定を純粋関数(`public/js/booking-progress.js`)でサーバー計算。閲覧可=role==='admin' または email==='kanri@kictravel.jp'（クライアントの canViewFinancials と同基準、署名済みトークンの値）。権限なし=金額を含まない文言(hideAmounts)。売上合計・入金合計の数値は誰にも返さない。レスポンス形式: 中止={c:1}、その他={st:[[状態,説明]×5],rs:[[段階,コード,バッジ,理由]]}。データなし予約はクライアントが同じ純粋関数で既定値を算出。
+- 純粋関数の読み込みは動的import（失敗しても他のactionに影響しない）。vercel.json の api ビルドに includeFiles を追加。
+- 注意: 予約詳細を開くと売上・入金は既存 queryBatch で取得される（既存設計のまま）。詳細の金額を権限なしロールに完全に隠すには既存action側の設計変更が必要（未実施・要判断）。
+### 修正2: 通信量
+- 取得列を最小化（idはselectしない。bookingsは status=cancelled のidのみ）。サーバー側5分キャッシュ(globalThis.__progressRawCache、権限と無関係な集計元データ。ロール別変換はキャッシュ後)。関連テーブル(booking_sales/invoices/booking_hotels/booking_buses/estimations/bookings)への書き込み成功で同一インスタンスのキャッシュを破棄。
+- 1回あたりSupabaseから読む量（現実的な合成データ: 予約1,300・売上2,300・請求1,500・ホテル3,000・バス1,000・見積300で実測）: 約825KB（sales 413KB / ホテル 227KB / 請求書 107KB / バス 77KB / 見積 19KB / 中止予約 2KB）。クライアントへの応答は約0.2MB(gzip前)。
+- 概算（50人×営業8h×5分ごと=96回/日/人=4,800回/日、22営業日）: キャッシュ無し 4,800×22×0.825MB≒85GB/月。サーバーキャッシュ有り: 1インスタンスが5分に1回=96回/日×22日×0.825MB≒1.7GB/月（インスタンス数×1〜3で1.7〜5GB/月）。Free枠5GBに対し余裕が小さい → DB側で集計するRPC/ビュー（SQL必要、1回あたり約0.1MBに削減見込み）を提案（未実施・要承認）。
+### 修正3/確認準備
+- Preview の接続先: index.html と api/*.js が本番SupabaseのURLをハードコード、VERCEL_ENVによる切替なし → **Previewは本番DBに接続**。確認は読み取り（見る・移動する）のみ。
+### 副次修正の確認
+- scrollBdModalToSection の呼び出し元は openBookingDetail 内の1箇所（opts.scrollTo==='sales'）のみ。入口は Invoice画面の行クリック と Agent未紐付けモーダルの請求書行。旧コードでは見出しが固定ヘッダーに約10px隠れていた(PC/375px)が、修正後は見える。
+### 検証（Playwright+ダミー2,300予約）
+- 入金額を実際の入力欄に打ち込み(500,000→300,000→900,000)、ステッパーが 完了/進行中/要確認(帯の文言も変化)に変わることを確認。ホテルのステータスを実際のドロップダウンで変更し、手配が 進行中→完了→要確認 に変わることを確認。
+- サーバー: admin/kanri=金額つき、staff/view=金額なし（レスポンス中に金額の数字が無いことを確認）、状態は全ロール同一、キャッシュ再利用、書き込みで破棄・無関係テーブルの書き込みでは破棄しない、401。
+### 残タスク
+- PR作成・プレビューでの実データ確認（読み取りのみ）。egress対策のRPC化の可否。詳細画面の金額の権限（既存action）の扱い。書類判定は対象外のまま。

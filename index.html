@@ -5579,8 +5579,9 @@ function statusPill(status){
 // 判定は public/js/booking-progress.js(BookingProgress)に集約している。詳細画面のステッパーと
 // 一覧の進捗ドットは必ずその関数を通す(判定がずれないように)。進捗状態はどこにも保存せず、
 // 表示のたびに既存データから計算する(読み取り専用)。
-// 一覧用の入力は api/table-crud.js の progressSummary(全予約分を1リクエストで集計。予約ごとにDBを
-// 叩かない)から得て、5分TTLでキャッシュする。書き込み(tableCrudApiCall)で関連テーブルが
+// 一覧用は api/table-crud.js の progressSummary(全予約分を1リクエストで集計し、同じ判定関数で
+// サーバーが計算して返す。予約ごとにDBを叩かない。権限のないロールには金額を含めない)から得て、
+// 5分TTLでキャッシュする。書き込み(tableCrudApiCall)で関連テーブルが
 // 更新されたらキャッシュを破棄する。
 const BOOKING_PROGRESS_TABLES = new Set(['booking_sales','invoices','booking_hotels','booking_buses','estimations','bookings']);
 let bookingProgressSummary = null;   // {予約id: {sr,st,pt,ai,arr,est}}
@@ -5615,20 +5616,23 @@ function ensureBookingProgress(){
   return bookingProgressPromise;
 }
 
-// 一覧用: 集計(progressSummary)の1予約分から共通の判定関数に入力して結果を返す。未取得ならnull。
+// 一覧用: サーバーが計算して返した進捗(progressSummary。権限に応じて金額を含む/含まない文言)を、
+// 画面で扱う判定結果の形に直して返す。未取得ならnull。金額の数値そのものはサーバーから届かない。
+// サーバーに載っていない予約(売上・請求書・手配・見積が1件も無い予約)と中止の予約は、データを
+// 持たない入力を同じ純粋関数(BookingProgress)に通して求める(金額は含まれない)。
 function bookingProgressFor(b){
   if(!bookingProgressSummary || typeof BookingProgress === 'undefined') return null;
   let r = bookingProgressResults[b.id];
   if(r) return r;
-  const sm = bookingProgressSummary[b.id] || {};
-  const hotels = [];
-  Object.keys(sm.arr || {}).forEach(st=>{ for(let i=0; i<sm.arr[st]; i++) hotels.push({status: st}); });
-  r = BookingProgress.judgeBookingProgress({
-    booking: { status: normalizeStatus(b.status) },
-    hasEstimation: !!sm.est, hotels: hotels, buses: [],
-    activeInvoiceCount: sm.ai || 0, salesTotal: sm.st || 0, paidTotal: sm.pt || 0, salesRowCount: sm.sr || 0,
-    hideAmounts: !canViewFinancials(),
-  });
+  const sm = bookingProgressSummary[b.id];
+  if(sm && !sm.c){
+    const stages = {};
+    BookingProgress.STAGE_KEYS.forEach((k,i)=>{ stages[k] = { state: sm.st[i][0], text: sm.st[i][1] }; });
+    const reasons = (sm.rs||[]).map(x=>({ stage: x[0], code: x[1], badge: x[2], message: x[3] }));
+    r = { cancelled: false, stages, needsAttention: reasons.length > 0, reasons };
+  }else{
+    r = BookingProgress.judgeBookingProgress({ booking: { status: sm ? 'cancelled' : normalizeStatus(b.status) }, hideAmounts: true });
+  }
   bookingProgressResults[b.id] = r;
   return r;
 }

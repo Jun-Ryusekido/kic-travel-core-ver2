@@ -6,7 +6,7 @@
     { "src": "guide.html", "use": "@vercel/static" },
     { "src": "arrangement_excel.js", "use": "@vercel/static" },
     { "src": "public/**", "use": "@vercel/static" },
-    { "src": "api/*.js", "use": "@vercel/node" }
+    { "src": "api/*.js", "use": "@vercel/node", "config": { "includeFiles": ["public/js/booking-progress.js"] } }
   ],
   "routes": [
     { "src": "/api/extract-card", "dest": "/api/extract-card.js" },
