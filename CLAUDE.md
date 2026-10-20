@@ -274,20 +274,40 @@ SQL変更前の古い表示が残る場合がある。
 ## 新規テーブル作成時の必須ルール(Supabase仕様変更対応・2026/10/30〜)
 
 Supabaseの仕様変更により、2026/10/30以降publicスキーマに新規作成したテーブルには、
-anon/authenticated/service_roleのいずれにも自動で権限が付かなくなる。service_roleにも
-GRANTしないと、api/配下のサーバー関数(supabase-js経由)からも permission denied (42501)
-になる。
+anon/authenticated/service_roleのいずれにも自動で権限が付かなくなる(Data APIから
+使うには明示的なGRANTが必要。既存テーブルは影響なし)。service_roleにもGRANTしないと、
+api/配下のサーバー関数(supabase-js経由)からも permission denied (42501) になる。
 
-新規テーブルを作るSQLファイルには、**必ず**CREATE TABLEと同じファイル内に以下を含めること:
+新規テーブルを作るSQLファイルには、**必ず**CREATE TABLEと同じファイル(同じマイグレーション)内に
+GRANT・RLS有効化・ポリシーをすべて含めること。後から別SQLで追加する方式は禁止
+(`fix_group1_service_role_grants.sql`のようなGRANT漏れの後追い修正が実際に発生した)。
 
 ```sql
+create table public.<テーブル名> (...);
+
+grant select, insert, update, delete on public.<テーブル名> to authenticated;
 grant select, insert, update, delete on public.<テーブル名> to service_role;
+-- anon には原則 GRANT しない(下記参照)
+
 alter table public.<テーブル名> enable row level security;
+
+-- authenticated 向けポリシー(要件に応じて条件を絞る。service_roleはRLSをバイパスするため不要)
+create policy <テーブル名>_authenticated_all on public.<テーブル名>
+  for all to authenticated using (true) with check (true);
+
+notify pgrst, 'reload schema';
 ```
 
-- anon と authenticated には GRANT しない(ブラウザからの直接アクセスは今後作らない方針のため)
-- ポリシーは作らない(service_roleはRLSをバイパスするため不要)
+- authenticated: select, insert, update, delete を GRANT
+- service_role: select, insert, update, delete を GRANT
+- anon: 原則 GRANT しない。未ログインで公開する必要があるテーブルのみ、個別に判断し、
+  必要最小限の権限(通常はselectのみ)＋専用ポリシーを同じマイグレーション内に書き、
+  SQL冒頭のコメントにその理由を明記する
+- RLSは必ず有効化(`enable row level security`)し、ポリシーも同じマイグレーション内に含める。
+  上記テンプレートの `using (true)` は雛形であり、テーブルの性質に応じて条件を絞ること
 - シーケンスを使う場合(serial / identity以外の独自シーケンス)は
-  `grant usage, select on sequence ... to service_role` も追加
-- 実装完了報告の「SQL要否」欄に、GRANTとRLS有効化が含まれていることを明記する
+  `grant usage, select on sequence ... to authenticated, service_role` も追加
+- 実装完了報告の「SQL要否」欄に、GRANT・RLS有効化・ポリシーが含まれていることを明記する
 - フロントから新規テーブルへ直接 `.from()` するコードは書かない。必ずapi/経由にする
+  (authenticatedへのGRANTは将来の拡張・Data API仕様変更への備えであり、
+  ブラウザ直アクセスを許可する意味ではない)
