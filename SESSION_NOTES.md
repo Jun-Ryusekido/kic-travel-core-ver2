@@ -1142,3 +1142,13 @@ PR: https://github.com/Jun-Ryusekido/kic-travel-core-ver2/pull/225 （未マー�
 - 本番(https://kic-travel-core-ver2.vercel.app/)での画面確認（予約詳細→手配管理→ホテルタブに区分欄が無いこと、行の幅・並びが崩れないこと、既存行の保存）: **未確認**。
 - ドライバー関連コードの整理（上記の未使用処理を削除するか、将来の利用に備えて残すか）を行うかどうかをJUNさんが決める。行う場合は別PR（lodging_for列・RPC・SQLの扱いも含めて要検討）。
 - #233 の SESSION_NOTES.md 競合の解消（#233 側で main を取り込む）。
+
+### PR #235 マージ・#233 保留・残タスク（2026-10-21追記）
+- **#235（変更履歴にマイナンバーの値を保存・返却しない）をマージコミット方式でマージ**。main先頭: `a0878bb`（Merge pull request #235）。マージ後のmainで `api/table-crud.js` の構文チェックOK、`scripts/test_audit_redact.js` は **17件成功 / 0件失敗**。
+- **#233（予約の進捗ステッパー・一覧の進捗ドット・要確認チップ）は未マージ**。動作確認のため保留中。
+- 残タスク:
+  1. 本番での画面確認: ホテルタブに区分欄が無いこと・既存行の保存（#236）。**未確認**
+  2. 本番でのマイナンバー履歴マスクの確認（変更履歴モーダルで my_number が値として見えないこと）。**未確認**
+  3. audit_logs の RLS/GRANT の実状態の確認（`scripts/investigate_guide_audit_logs.sql`をJUNさんがSQLエディタで実行）。**未確認**
+  4. 既存の audit_logs にある平文マイナンバーの処理方針の決定（API返却はマスク済みだが、DB上の既存行は書き換えていない）。**未決**
+  5. ドライバー関連コード（`setHotelLodgingFor`・DRVバッジ・`lodging_for`列/SQL等。実データはdriver 0件）を整理するかどうかの決定。**未決**
