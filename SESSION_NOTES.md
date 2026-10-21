@@ -1,5 +1,33 @@
 # SESSION_NOTES
 
+## 変更履歴(audit_logs)へのマイナンバー平文保存を塞ぐ(2026-10-21。PR作成済み・**マージはJUN承認待ち**)
+- 実装: TABLE_CONFIG.guides に `auditRedactFields:['my_number']`。api/lib/audit-redact.js の redactAuditPair を (a) writeAuditLogs(保存時) と (b) doAuditHistory(返却時) で使用。
+  値は保存・返却せず「(マイナンバー・値は非保存)」に置換。値が変わった更新は after 側を「(…・変更あり)」にして変更を判別可能に。空は空のまま。既存 audit_logs の行は書き換えない(返却時にマスクするので過去の平文もAPIからは見えない)。
+- 検証: scripts/test_audit_redact.js(本物の table-crud.js handler を疑似Supabase+合成データで実行)17/17成功。修正前の table-crud.js では同じテストが5件失敗(平文保存・平文返却を検出)。実DB・本番には触れていない。
+- 他テーブルのマイナンバー/個人番号項目: リポジトリ全体をgrep(index.html は null バイトを含むため grep -a)。my_number は guides のみ(index.html のガイド編集/照会/保存、api/extract-card.js は「マイナンバーは抽出しない」指示のみ)。パスポート/national_id 等の列も無し。対象追加なし。
+- audit_logs の RLS/GRANT: リポジトリ内に CREATE TABLE/GRANT/ポリシー定義は無い(SESSION_NOTES.md:650 にも「audit_logs のCREATE TABLEはリポジトリに無い」)。SESSION_NOTES.md:457 に「audit_logs はRLS有効化済み(A区分)」の記述と investigate_batch4_readable_tables.sql の分類があるのみで、実際の状態は**未確認**。確認用の読み取り専用SQLを scripts/investigate_guide_audit_logs.sql の (c) に用意(JUNが実行)。
+- 同SQLの (a) マイナンバー入りの audit_logs 行の件数、(b) SAHDEV VIJAY KUMAR の bank_info 変更履歴 も用意(未実行。列名は table-crud.js の writeAuditLogs/doAuditHistory から確認)。
+- 未対応(スコープ外): ガイド一覧のブラウザ直接読み取り(`sb.from('guides').select('*')`)で全ロールに my_number が渡る点と、auditHistory のロール判定なし(マスクにより guides では値は返らない)。
+### 残タスク
+- JUNさん: 本番ガイド管理で照会・コピー・マイナンバー表示切替・編集画面コピーの画面確認(ハードリロード。PR #234 はマージ済みだがデプロイ完了は未確認)。
+- JUNさん: investigate_guide_audit_logs.sql (b) で銀行口座二重入力の経緯確認 / (c) で audit_logs のRLS・権限確認 / (a) で既存 audit_logs の平文マイナンバー件数確認。
+- 既存 audit_logs の平文マイナンバーの処理方針の決定(CLAUDE.md の手順: バックアップ→件数確認→承認→実行→再SELECT検証。今回は書き換えていない)。
+- マイナンバー閲覧権限(現状ロール制御なし)の方針決定。
+
+## ガイド管理: 照会画面・コピーボタン(2026-10-21。PR #234 を main にマージ済み)
+- 内容: 一覧に「照会」ボタン、読み取り専用の照会モーダル(13項目・空欄は「-」・編集ボタン)、照会/編集画面の各項目のコピーボタン、マイナンバーは伏せ字+「表示/隠す」(コピーは伏せ字のままでも実値)。変更は index.html のみ。SQL不要。
+- 確認できたこと: ローカルChromium+合成データで表示・各コピー・マイナンバー切替・375px横スクロールなし。
+- 確認できていないこと: **本番での動作**(この環境から vercel.app に到達できずデプロイ完了も未確認。JUNさんの実機確認待ち。マージ後は main のマージコミット 542cebf)。
+- デプロイ方式: .github/ と .vercel/ は無く、vercel.json は静的ビルド+APIのルート定義のみ。PRのチェックに "Vercel Preview Comments" が出るため Vercel の Git 連携は確認できたが、「main マージで本番自動デプロイ」の設定自体はリポジトリ内に無く(Vercelダッシュボード側)、本セッションでは未確認。過去のノートの記述(本番=main、Instant Rollback)と整合。
+### 調査(コードのみ。変更なし・DB値は読んでいない)
+- 銀行口座欄の二重入力: 通帳OCR(processGuideBankFile, index.html)は「欄が空のときだけ」代入(追記しない)。bank_info を書く経路は saveGuide とこのOCRのみ(index.html/api を grep)。よって**コード上はOCRで二重になる経路を特定できなかった**。可能性: 手入力/貼り付け、過去データ(移行・SQL・旧コード)。当該ガイドの audit_logs(変更履歴)の before/after で入った時期を見れば切り分け可能(要JUN確認)。
+- 変更履歴とマイナンバー: guides は auditLog:true。doUpdateById/insert/delete が行全体(select=*)を before_data/after_data に保存するため、**my_number も平文で audit_logs に保存される**(table-crud.js:1088-1111, 757-775)。除外・伏せ字処理は無い。閲覧API auditHistory は有効なログインセッションのみ要求しロール判定なし(table-crud.js:1734-1740)。画面の「変更履歴」ボタンは bookings と credit_card_statements のみ(openAuditHistory呼び出し3箇所)で guides には無いが、APIは table=guides でも応答する。audit_logs テーブルのRLS/GRANTは未確認。
+- 対策案(未実装): (1) writeAuditLogs 前に TABLE_CONFIG の auditRedactFields:['my_number'] で値を「(変更あり)」等に置換、(2) doAuditHistory 側でも同様にマスク、(3) 既存の audit_logs 内の my_number はバックアップ→件数確認→承認→更新→再SELECT検証の手順で処理(CLAUDE.md規定)。
+### 残タスク
+- JUNさん: 本番ガイド管理で照会・コピー・マイナンバー表示切替・編集画面コピーを実機確認(ハードリロード)。
+- 銀行口座二重入力の原因切り分け(上記)。修正案: OCR側は現状で追記しないため変更不要の可能性が高く、先に原因データの経緯を確認。
+- マイナンバーの閲覧権限(現状ロール制御なし)と audit_logs への平文保存の対応方針の決定。
+
 ## 仮払い一覧表: 観光施設の人数が数量に反映されない件(2026-10-01 調査。**修正なし・JUN確認待ち**。マージ・SQL・データ書き換えなし)
 - ブランチ: claude/fix-facility-qty-local-expense(origin/main d326a3c から。claude/jolly-bohr-wsq2w8・claude/magical-ride-6phzj3 には触れていない)。コード変更は無し。
 ### 1. 反映コードの特定(origin/main d326a3c の index.html)
@@ -1123,3 +1151,89 @@ PR: https://github.com/Jun-Ryusekido/kic-travel-core-ver2/pull/225 （未マー�
 - サーバー: admin/kanri=金額つき、staff/view=金額なし（レスポンス中に金額の数字が無いことを確認）、状態は全ロール同一、キャッシュ再利用、書き込みで破棄・無関係テーブルの書き込みでは破棄しない、401。
 ### 残タスク
 - PR作成・プレビューでの実データ確認（読み取りのみ）。egress対策のRPC化の可否。詳細画面の金額の権限（既存action）の扱い。書類判定は対象外のまま。
+## ホテル行の「区分(ゲスト/ドライバー)」選択欄を画面から削除（ブランチ claude/charming-keller-f6lvzg・index.htmlのみ・SQLなし）
+
+### 確定内容
+- 予約詳細→手配管理→ホテルタブの各行から、区分の `<select class="hotel-lodging-sel">` と専用CSS、見出し「ホテル名 / 区分」→「ホテル名」だけを削除。他の入力欄は変更なし。
+- データ列 `booking_hotels.lodging_for`('guest'既定/'driver')と内部処理は変更なし。保存は `buildHotelRows` が `normalizeLodgingFor(it.lodging_for)` を使うため、既存行の値は維持され、新規行(`addHotelRow`)は 'guest'。
+- 既存のドライバー行のDRVバッジ・備考プレースホルダは残した（表示のみ）。
+
+### lodging_for の使用箇所（コードで全件確認。APIフォルダ・scripts内のJS・他HTMLでは未使用）
+- 画面: 保存/読込(mapHotelDbRow/buildHotelRows)、REF#コピー、手配確認の催促除外(:6188)、仕入明細へ追加の対象外(:6781,:6833)、仮払い自動生成(区分D)(:9234)、手配書の表示(:9340,:26473)、ホテル選択肢(:19326)、到着ホテル照合(:19474)、重複確認(:23080)、ホテル予約管理(:25327)
+- SQL: scripts/add_lodging_for_to_booking_hotels.sql（列・CHECK制約・RPC2本でguestのみ対象）
+- これらは値を読むだけで、選択欄の有無に依存しない → 壊れない。
+
+### 残タスク・注意
+- **画面からドライバー区分に変更できなくなった**（既存のドライバー行の区分は維持される）。新規にドライバー宿泊を登録する手段が必要なら別途検討。
+- `setHotelLodgingFor`（index.html）は呼び出し元が無くなった（内部処理は変更しない指示のため残置）。不要なら別PRで削除。
+- 既存データにドライバー行が何件あるかは、DBを読んでいないため不明（確認SQL: `select lodging_for, count(*) from public.booking_hotels group by 1`）。
+- 本番(Vercel)での目視は未実施。
+
+---
+
+## PR #236（ホテル区分の選択欄削除）マージ保留 — 追加確認の結果（コードのみ・DB未参照・SQLなし）
+
+### マージ保留の理由
+区分(booking_hotels.lodging_for)は画面の飾りではなく処理に使われている。選択欄を消すと、**新規にドライバー宿泊を登録する手段と、誤ってdriverにした行をguestに戻す手段が無くなる**。JUNさんが本番で driver の件数を確認し（`select lodging_for, count(*) from public.booking_hotels group by 1;`）、0件ならマージ可、1件以上なら代替手段（例: 選択欄を残す／別の入口を用意する）を決める。決まるまでマージしない。
+
+### 保存処理（実コードの追跡）
+保存ボタン(:15979 等) → `saveHotelItems`(:13390) → `buildHotelRows`(:13341) → `bookingHotelsApiCall('replace')` → api/table-crud.js `doReplace`。
+`lodging_for` は **画面のselectの値ではなく、メモリ上の `bdHotelItems[].lodging_for` を `normalizeLodgingFor` に通して送る**（:13357）。読込は `mapHotelDbRow`(:13331)で DB値→`bdHotelItems`。DOMのselectを読む箇所は無い。
+スタブ(Chromium+Supabaseスタブ、実index.html)での再現: 読込行[guest, driver]を画面でホテル名編集→新規行追加→OCR形の行(lodging_for無し)→REF#コピー形の行(driver)を保存すると、送信rowsは
+[ゲストH:guest, DRV宿(変更):**driver**, 新規H:guest, OCR行:guest, コピー元:driver]。既存driver行はguestに書き換わらない。選択欄は0個。
+
+### 'driver' 行の扱い（関数名・行番号）
+| 処理 | 関数 / 行 | driver行の扱い |
+|---|---|---|
+| 手配確定状況の催促 | fetchVendorEmailCandidates :6188-6190 | 対象外 |
+| 仕入明細へ追加ボタン | arrCostCheckboxHtml :6779 | 押すと理由表示のみ（追加不可） |
+| 仕入明細へ追加（実行） | addArrRowToCostNow :6831 | alertして中止 |
+| 仮払い一覧の自動生成 | generateLocalExpensesFromArrangements :9233 | 区分「D（ドライバー）」で出す |
+| 日付チェックのエラー文 | findArrangementDateRangeErrors :9338 | 「・ドライバー宿泊」を付記（表示のみ） |
+| 手配書の日別ホテル選択肢 | renderArrDayList :19321 | 【DRV】を付記 |
+| 手配書の貼り付け解析・到着ホテル照合 | parseArrDayPasteText :19469 | driver行は照合対象外 |
+| 重複確認 | hmFetchExistingForDupCheck :23075 | guestのみ取得（driverは対象外） |
+| ホテル予約管理 | loadHotelManagement :25322 | guestのみ表示 |
+| 手配一覧の印刷 | printArrangementSummaryList :26468 | 「(ドライバー宿泊)」を付記 |
+| REF#からコピー | ARR_COPY_CONFIG.hotel :13083 | lodging_forをそのままコピー |
+| ホテルDB側 | scripts/add_lodging_for_to_booking_hotels.sql | 列(NOT NULL 既定guest)・CHECK制約・RPC2本はguestのみ |
+
+### 新規にドライバー宿泊を登録する手段（選択欄削除後）
+| 経路 | lodging_for に入る値 |
+|---|---|
+| 行追加(addHotelRow :13316) | 'guest' 固定 |
+| メール・テキスト読み取り(:20696 付近、再利用行は Object.assign で既存値を維持) | 未指定→保存時 'guest'。既存の空行を再利用した場合は、その行の既存値 |
+| Excel/PDF/Word読み取り(:20617) | 未指定→'guest' |
+| 画像・カメラ読み取り | 同上（読取結果の形は同じ関数。lodging_forを持たない）→'guest' |
+| 空行(メール抜粋 :15977) | 未指定→'guest' |
+| REF#コピー(:13083) | コピー元の値を引き継ぐ（コピー元がdriverならdriver） |
+→ **削除後、新規にdriverにする手段は無い**（REF#コピーでコピー元の値を引き継ぐ場合のみ）。誤ってdriverになった既存行を**guestに戻す手段も無い**（画面に入口が無い。SQL直接修正のみ）。
+
+### 残タスク
+- JUNさん: 上記SELECTでdriver件数を確認 → 0ならマージ可、1件以上なら代替方式を決定。
+- 未確認: 本番(Vercel)の実画面・実保存、実データのdriver件数。
+
+---
+
+## PR #236（ホテル区分の選択欄削除）マージ完了の記録（SESSION_NOTESのみ・SQLなし）
+
+### 確定内容
+- 2026-10-21 PR #236 をマージコミット方式でマージ（main先頭 694924c）。
+- 経緯: JUNさんが本番DBで確認した結果、`booking_hotels.lodging_for` は **guest 313件・driver 0件**。ドライバー区分は実運用で使われていないと確認できたため、マージ保留（ドライバー区分の扱い未決のため）を解除してマージした。
+- ホテル行の区分の選択欄・専用CSS・見出し「/ 区分」を削除。**ドライバー関連の処理（催促除外・仕入明細へ追加の対象外・仮払い自動生成の区分D・手配書の【DRV】表示・重複確認/ホテル予約管理のguest絞り込み・DRVバッジ・`setHotelLodgingFor`・列`lodging_for`とSQL）は未使用のまま残してある**（変更していない）。
+- 他PRへの影響（マージ直後にローカルで試算）: #235 は競合なし。#233 は SESSION_NOTES.md のみ競合（末尾追記同士の従来どおりの競合。index.htmlは自動マージ可）。マージ・解消は未実施。
+
+### 残タスク
+- 本番(https://kic-travel-core-ver2.vercel.app/)での画面確認（予約詳細→手配管理→ホテルタブに区分欄が無いこと、行の幅・並びが崩れないこと、既存行の保存）: **未確認**。
+- ドライバー関連コードの整理（上記の未使用処理を削除するか、将来の利用に備えて残すか）を行うかどうかをJUNさんが決める。行う場合は別PR（lodging_for列・RPC・SQLの扱いも含めて要検討）。
+- #233 の SESSION_NOTES.md 競合の解消（#233 側で main を取り込む）。
+
+### PR #235 マージ・#233 保留・残タスク（2026-10-21追記）
+- **#235（変更履歴にマイナンバーの値を保存・返却しない）をマージコミット方式でマージ**。main先頭: `a0878bb`（Merge pull request #235）。マージ後のmainで `api/table-crud.js` の構文チェックOK、`scripts/test_audit_redact.js` は **17件成功 / 0件失敗**。
+- **#233（予約の進捗ステッパー・一覧の進捗ドット・要確認チップ）は未マージ**。動作確認のため保留中。
+- 残タスク:
+  1. 本番での画面確認: ホテルタブに区分欄が無いこと・既存行の保存（#236）。**未確認**
+  2. 本番でのマイナンバー履歴マスクの確認（変更履歴モーダルで my_number が値として見えないこと）。**未確認**
+  3. audit_logs の RLS/GRANT の実状態の確認（`scripts/investigate_guide_audit_logs.sql`をJUNさんがSQLエディタで実行）。**未確認**
+  4. 既存の audit_logs にある平文マイナンバーの処理方針の決定（API返却はマスク済みだが、DB上の既存行は書き換えていない）。**未決**
+  5. ドライバー関連コード（`setHotelLodgingFor`・DRVバッジ・`lodging_for`列/SQL等。実データはdriver 0件）を整理するかどうかの決定。**未決**

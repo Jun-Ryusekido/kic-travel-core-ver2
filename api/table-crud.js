@@ -11,6 +11,7 @@
 // バリデーション/レスポンス形状は、移行前の各ファイルの実装をそのまま踏襲する。
 import { getServiceKey } from './lib/app-users-db.js';
 import { verifySessionToken } from './lib/session-token.js';
+import { redactAuditPair } from './lib/audit-redact.js';
 import {
   MIN_WRITE_APP_VERSION, APP_VERSION_OUTDATED_CODE, APP_VERSION_OUTDATED_MESSAGE,
   getRequestAppVersion, isAppVersionAllowedForWrite, getDeploymentId, setAppVersionResponseHeaders,
@@ -184,6 +185,9 @@ const TABLE_CONFIG = {
     label: 'ガイドマスタ',
     stampIdentity: true,
     auditLog: true,
+    // マイナンバーは変更履歴(audit_logs)に値を保存しない・返さない(writeAuditLogs/
+    // doAuditHistory参照)。変更があったことだけが分かる伏せ字に置換する。
+    auditRedactFields: ['my_number'],
   },
   // bookings(予約本体): フェーズ3。他の全テーブルから参照される中核テーブルのため、
   // 今回は書き込み(insert/updateById/deleteById)のみをservice_role経由に移行し、
@@ -756,16 +760,21 @@ async function doPresenceRelease(table, bookingId, changedBy) {
 // entries: [{recordId, action:'insert'|'update'|'delete', before, after}]
 async function writeAuditLogs(table, entries, changedBy) {
   if (!Array.isArray(entries) || !entries.length) return;
+  const redactFields = (TABLE_CONFIG[table] && TABLE_CONFIG[table].auditRedactFields) || null;
   const rows = entries
     .filter((e) => e && e.recordId != null)
-    .map((e) => ({
-      table_name: table,
-      record_id: String(e.recordId),
-      action: e.action,
-      changed_by: changedBy || null,
-      before_data: e.before != null ? e.before : null,
-      after_data: e.after != null ? e.after : null,
-    }));
+    .map((e) => {
+      // 機密項目(マイナンバー等)は値を保存せず伏せ字にする(auditRedactFields)。
+      const { before, after } = redactAuditPair(e.before, e.after, redactFields);
+      return {
+        table_name: table,
+        record_id: String(e.recordId),
+        action: e.action,
+        changed_by: changedBy || null,
+        before_data: before != null ? before : null,
+        after_data: after != null ? after : null,
+      };
+    });
   if (!rows.length) return;
   try {
     await sbFetch('audit_logs', '', { method: 'POST', prefer: 'return=minimal', body: JSON.stringify(rows) });
@@ -1782,7 +1791,13 @@ async function doAuditHistory(targetTable, recordId) {
     const e = await readJsonSafe(r);
     return { status: 500, body: { error: withGrantHint(e.message, 'audit_logs') || '変更履歴の取得に失敗しました' } };
   }
-  const rows = await r.json();
+  const rawRows = await r.json();
+  // 過去に平文で保存された機密項目(マイナンバー等)も、ここで必ず伏せ字にして返す
+  // (audit_logs内の既存データは書き換えず、返却時にマスクする)。
+  const rows = (rawRows || []).map((row) => {
+    const { before, after } = redactAuditPair(row.before_data, row.after_data, targetConfig.auditRedactFields);
+    return { ...row, before_data: before, after_data: after };
+  });
   return { status: 200, body: { ok: true, rows } };
 }
 
