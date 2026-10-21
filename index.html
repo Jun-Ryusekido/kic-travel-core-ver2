@@ -887,8 +887,6 @@ input[type=number]{-moz-appearance:textfield}
      並び替えセルがDOM上も先頭のtdになったため、以降の項目のnth-childは
      全て+1する(nth-child(1)=ホテル名だったものがnth-child(2)になる、等)。 */
   #bd-hotels-tbody td:nth-child(2){grid-row:2;grid-column:1/12;gap:4px}
-  /* ホテル名のセルに区分(ゲスト/ドライバー)の選択とDRVの目印を同居させる(列を増やすとnth-childの配置がずれるため)。 */
-  #bd-hotels-tbody td select.hotel-lodging-sel{width:92px!important;flex:0 0 92px;margin-top:0!important}
   #bd-hotels-tbody td:nth-child(2) input{width:auto!important;flex:1;min-width:0}
   #bd-hotels-tbody td.li-del{grid-row:2;grid-column:12/13;justify-content:center}
 
@@ -2722,7 +2720,7 @@ input[type=number]{-moz-appearance:textfield}
       <div class="tbl-wrap arr-tbl-sticky"><table class="li-table confirm-table" style="min-width:970px">
         <thead><tr>
           <th class="li-reorder" style="width:60px"></th>
-          <th style="width:160px">ホテル名 / 区分</th>
+          <th style="width:160px">ホテル名</th>
           <th style="width:100px;cursor:pointer;user-select:none" onclick="sortHotelTable('check_in')">チェックイン <span id="hotel-checkin-sort-arrow" style="color:var(--text3)">⇅</span></th>
           <th style="width:100px;cursor:pointer;user-select:none" onclick="sortHotelTable('check_out')">チェックアウト <span id="hotel-checkout-sort-arrow" style="color:var(--text3)">⇅</span></th>
           <th style="width:70px">部屋タイプ</th>
@@ -13278,10 +13276,7 @@ function renderHotelTable(){
       const nights = calcHotelNights(it.check_in, it.check_out);
       return `<tr${sorted ? '' : arrRowDropHtml('bdHotelItems',i,'renderHotelTable')}>
         ${arrReorderHtml('bdHotelItems', i, bdHotelItems.length, 'renderHotelTable', sorted)}
-        <td data-label="ホテル名" style="position:relative">${isDriverLodging(it) ? HOTEL_DRV_BADGE_HTML : ''}<input value="${escAttr(it.hotel_name)}" oninput="bdHotelItems[${i}].hotel_name=this.value;showHotelSuggest(this,${i},bdHotelItems)" onfocus="showHotelSuggest(this,${i},bdHotelItems)" onblur="setTimeout(hideHotelSuggest,150)" style="width:100%"><select class="hotel-lodging-sel" title="区分(ゲスト/ドライバー宿泊)" onchange="setHotelLodgingFor(${i}, this.value)" style="width:100%;margin-top:2px;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:2px 4px">
-          <option value="guest" ${isDriverLodging(it)?'':'selected'}>ゲスト</option>
-          <option value="driver" ${isDriverLodging(it)?'selected':''}>ドライバー</option>
-        </select></td>
+        <td data-label="ホテル名" style="position:relative">${isDriverLodging(it) ? HOTEL_DRV_BADGE_HTML : ''}<input value="${escAttr(it.hotel_name)}" oninput="bdHotelItems[${i}].hotel_name=this.value;showHotelSuggest(this,${i},bdHotelItems)" onfocus="showHotelSuggest(this,${i},bdHotelItems)" onblur="setTimeout(hideHotelSuggest,150)" style="width:100%"></td>
         <td data-label="ｲﾝ"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.check_in}" onchange="bdHotelItems[${i}].check_in=this.value;hotelCalc(${i})"></td>
         <td data-label="ｱｳﾄ"><input type="date" min="1900-01-01" max="9999-12-31" value="${it.check_out}" onchange="bdHotelItems[${i}].check_out=this.value;hotelCalc(${i})"></td>
         <td data-label="部屋タイプ"><input value="${escAttr(it.room_type)}" oninput="bdHotelItems[${i}].room_type=this.value" placeholder="部屋タイプ" style="width:100%"></td>
