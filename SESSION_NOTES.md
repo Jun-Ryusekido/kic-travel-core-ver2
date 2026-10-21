@@ -1,5 +1,19 @@
 # SESSION_NOTES
 
+## ガイド管理: 照会画面・コピーボタン(2026-10-21。PR #234 を main にマージ済み)
+- 内容: 一覧に「照会」ボタン、読み取り専用の照会モーダル(13項目・空欄は「-」・編集ボタン)、照会/編集画面の各項目のコピーボタン、マイナンバーは伏せ字+「表示/隠す」(コピーは伏せ字のままでも実値)。変更は index.html のみ。SQL不要。
+- 確認できたこと: ローカルChromium+合成データで表示・各コピー・マイナンバー切替・375px横スクロールなし。
+- 確認できていないこと: **本番での動作**(この環境から vercel.app に到達できずデプロイ完了も未確認。JUNさんの実機確認待ち。マージ後は main のマージコミット 542cebf)。
+- デプロイ方式: .github/ と .vercel/ は無く、vercel.json は静的ビルド+APIのルート定義のみ。PRのチェックに "Vercel Preview Comments" が出るため Vercel の Git 連携は確認できたが、「main マージで本番自動デプロイ」の設定自体はリポジトリ内に無く(Vercelダッシュボード側)、本セッションでは未確認。過去のノートの記述(本番=main、Instant Rollback)と整合。
+### 調査(コードのみ。変更なし・DB値は読んでいない)
+- 銀行口座欄の二重入力: 通帳OCR(processGuideBankFile, index.html)は「欄が空のときだけ」代入(追記しない)。bank_info を書く経路は saveGuide とこのOCRのみ(index.html/api を grep)。よって**コード上はOCRで二重になる経路を特定できなかった**。可能性: 手入力/貼り付け、過去データ(移行・SQL・旧コード)。当該ガイドの audit_logs(変更履歴)の before/after で入った時期を見れば切り分け可能(要JUN確認)。
+- 変更履歴とマイナンバー: guides は auditLog:true。doUpdateById/insert/delete が行全体(select=*)を before_data/after_data に保存するため、**my_number も平文で audit_logs に保存される**(table-crud.js:1088-1111, 757-775)。除外・伏せ字処理は無い。閲覧API auditHistory は有効なログインセッションのみ要求しロール判定なし(table-crud.js:1734-1740)。画面の「変更履歴」ボタンは bookings と credit_card_statements のみ(openAuditHistory呼び出し3箇所)で guides には無いが、APIは table=guides でも応答する。audit_logs テーブルのRLS/GRANTは未確認。
+- 対策案(未実装): (1) writeAuditLogs 前に TABLE_CONFIG の auditRedactFields:['my_number'] で値を「(変更あり)」等に置換、(2) doAuditHistory 側でも同様にマスク、(3) 既存の audit_logs 内の my_number はバックアップ→件数確認→承認→更新→再SELECT検証の手順で処理(CLAUDE.md規定)。
+### 残タスク
+- JUNさん: 本番ガイド管理で照会・コピー・マイナンバー表示切替・編集画面コピーを実機確認(ハードリロード)。
+- 銀行口座二重入力の原因切り分け(上記)。修正案: OCR側は現状で追記しないため変更不要の可能性が高く、先に原因データの経緯を確認。
+- マイナンバーの閲覧権限(現状ロール制御なし)と audit_logs への平文保存の対応方針の決定。
+
 ## 仮払い一覧表: 観光施設の人数が数量に反映されない件(2026-10-01 調査。**修正なし・JUN確認待ち**。マージ・SQL・データ書き換えなし)
 - ブランチ: claude/fix-facility-qty-local-expense(origin/main d326a3c から。claude/jolly-bohr-wsq2w8・claude/magical-ride-6phzj3 には触れていない)。コード変更は無し。
 ### 1. 反映コードの特定(origin/main d326a3c の index.html)
