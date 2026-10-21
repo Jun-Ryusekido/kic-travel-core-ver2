@@ -31672,5 +31672,118 @@ function setDateInputValue(el, d){
   </div>
 </div>
 
+<!-- ===== ダッシュボードの「ホーム」ボタン(見え方だけの追加。2026-10) =====
+     サイドバー(#sidebar)の項目を読み取ってボタンを生成する(メニュー定義はサイドバーが唯一の正。
+     ここには項目名・遷移先・表示条件を一切書かない)。ボタンを押すと対応するサイドバー項目の
+     click()を呼ぶだけなので、遷移先・権限による表示制限・メール受信箱の停止(EMAIL_INBOX_SUSPENDED)
+     の動きは、サイドバーを押した時と完全に同じになる。既存のコードは一切変更していない。
+     元に戻す方法: 下の HOME_BUTTONS_ENABLED を false にする(カード自体が作られず、従来と同じ画面になる)。
+     このブロック(<style>と<script>)ごと削除しても同じ。 -->
+<style>
+#db-home-card .hb-group{margin-bottom:10px}
+#db-home-card .hb-group:last-child{margin-bottom:0}
+#db-home-card .hb-ghead{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;box-sizing:border-box;padding:6px 8px;margin:0 0 6px;border:none;border-radius:8px;background:var(--bg);color:var(--text2);font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;text-align:left}
+#db-home-card .hb-ghead .hb-garrow{font-size:10px;color:var(--text3);flex-shrink:0}
+#db-home-card .hb-ghead .hb-gen{font-weight:400;color:var(--text3);text-transform:uppercase}
+#db-home-card .hb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+#db-home-card .hb-group.hb-collapsed .hb-grid{display:none}
+#db-home-card .hb-btn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-width:0;min-height:68px;box-sizing:border-box;padding:8px 6px;border:1px solid var(--border);border-radius:10px;background:var(--card,#fff);color:var(--text);font-family:inherit;text-align:center;cursor:pointer}
+#db-home-card .hb-btn:hover{background:var(--bg);border-color:var(--blue)}
+#db-home-card .hb-icon{font-size:20px;line-height:1.1}
+#db-home-card .hb-ja{font-size:12px;font-weight:600;line-height:1.25;overflow-wrap:anywhere;word-break:break-word;max-width:100%}
+#db-home-card .hb-en{font-size:10px;color:var(--text3);line-height:1.2;overflow-wrap:anywhere;word-break:break-word;max-width:100%}
+@media(max-width:768px){#db-home-card .hb-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+</style>
+<script>
+const HOME_BUTTONS_ENABLED = true;
+(function(){
+  if(!HOME_BUTTONS_ENABLED) return;
+  const closedGroups = new Set();   // 折りたたんだグループ(初期状態は全グループ開)
+  let pending = false;
+  function isShown(el){ return !!el && getComputedStyle(el).display !== 'none'; }
+  function parseItem(it){
+    const first = it.firstChild && it.firstChild.nodeType === 3 ? it.firstChild.textContent.trim() : it.textContent.trim();
+    const m = first.match(/^(\S+)\s+([\s\S]+)$/);
+    const en = it.querySelector('.sb-en');
+    return {
+      icon: m ? m[1] : '',
+      ja: m ? m[2].trim() : first,
+      en: en ? en.textContent.trim().replace(/^\/\s*/, '') : ''
+    };
+  }
+  function build(){
+    pending = false;
+    const sidebar = document.getElementById('sidebar');
+    const anchor = document.getElementById('db-arrival-alert-card');
+    if(!sidebar || !anchor) return;
+    let card = document.getElementById('db-home-card');
+    if(!card){
+      card = document.createElement('div');
+      card.className = 'card';
+      card.id = 'db-home-card';
+      anchor.insertAdjacentElement('afterend', card);
+    }
+    const frag = document.createDocumentFragment();
+    const title = document.createElement('div');
+    title.className = 'card-title';
+    title.textContent = 'ホーム';
+    frag.appendChild(title);
+    sidebar.querySelectorAll('.sb-sec[data-sec]').forEach(sec=>{
+      if(!isShown(sec)) return;
+      const key = sec.dataset.sec;
+      const body = sidebar.querySelector('.sb-sec-body[data-sec-body="' + key + '"]');
+      if(!body) return;
+      const items = Array.from(body.querySelectorAll('.sb-item')).filter(isShown);
+      if(!items.length) return;
+      const label = sec.querySelector('.sb-sec-label');
+      const en = label && label.querySelector('.sb-en');
+      const ja = label ? Array.from(label.childNodes).filter(n=>n.nodeType===3).map(n=>n.textContent).join('').trim() : key;
+      const group = document.createElement('div');
+      group.className = 'hb-group' + (closedGroups.has(key) ? ' hb-collapsed' : '');
+      const head = document.createElement('button');
+      head.type = 'button';
+      head.className = 'hb-ghead';
+      head.setAttribute('aria-expanded', closedGroups.has(key) ? 'false' : 'true');
+      const hl = document.createElement('span');
+      hl.appendChild(document.createTextNode(ja + ' '));
+      if(en){ const e = document.createElement('span'); e.className = 'hb-gen'; e.textContent = en.textContent; hl.appendChild(e); }
+      const arrow = document.createElement('span');
+      arrow.className = 'hb-garrow';
+      arrow.textContent = closedGroups.has(key) ? '▸' : '▾';
+      head.appendChild(hl); head.appendChild(arrow);
+      head.addEventListener('click', ()=>{
+        const c = group.classList.toggle('hb-collapsed');
+        if(c) closedGroups.add(key); else closedGroups.delete(key);
+        head.setAttribute('aria-expanded', c ? 'false' : 'true');
+        arrow.textContent = c ? '▸' : '▾';
+      });
+      const grid = document.createElement('div');
+      grid.className = 'hb-grid';
+      items.forEach(it=>{
+        const info = parseItem(it);
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'hb-btn';
+        const i = document.createElement('span'); i.className = 'hb-icon'; i.textContent = info.icon;
+        const j = document.createElement('span'); j.className = 'hb-ja'; j.textContent = info.ja;
+        b.appendChild(i); b.appendChild(j);
+        if(info.en){ const e = document.createElement('span'); e.className = 'hb-en'; e.textContent = info.en; b.appendChild(e); }
+        // 遷移・権限・メール受信箱の停止は、サイドバー項目自身のonclickをそのまま使う(二重定義しない)
+        b.addEventListener('click', ()=>it.click());
+        grid.appendChild(b);
+      });
+      group.appendChild(head); group.appendChild(grid);
+      frag.appendChild(group);
+    });
+    card.replaceChildren(frag);
+  }
+  function schedule(){ if(pending) return; pending = true; requestAnimationFrame(build); }
+  // サイドバーの項目の表示・非表示(権限・ログイン後のel.style.display代入)に追従して作り直す
+  const sb = document.getElementById('sidebar');
+  if(sb) new MutationObserver(schedule).observe(sb, {attributes:true, attributeFilter:['style'], subtree:true});
+  schedule();
+})();
+</script>
+
 </body>
 </html>

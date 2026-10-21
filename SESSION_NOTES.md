@@ -1152,3 +1152,24 @@ PR: https://github.com/Jun-Ryusekido/kic-travel-core-ver2/pull/225 （未マー�
   3. audit_logs の RLS/GRANT の実状態の確認（`scripts/investigate_guide_audit_logs.sql`をJUNさんがSQLエディタで実行）。**未確認**
   4. 既存の audit_logs にある平文マイナンバーの処理方針の決定（API返却はマスク済みだが、DB上の既存行は書き換えていない）。**未決**
   5. ドライバー関連コード（`setHotelLodgingFor`・DRVバッジ・`lodging_for`列/SQL等。実データはdriver 0件）を整理するかどうかの決定。**未決**
+
+---
+
+## ダッシュボードに「ホーム」ボタンを追加（見え方だけ・追加のみ・index.htmlのみ・SQLなし・未マージ）
+
+### 確定内容
+- ダッシュボードの「到着日アラート」カードの直後（検索・絞り込みカードの前）に「ホーム」カードを追加。既存の表示・位置は変更なし（既存行の変更・削除は0行。`</body>`直前に`<style>`と`<script>`を1ブロック追加しただけ）。
+- メニュー定義はサイドバー(`#sidebar`、静的HTML)が唯一の正。ボタンはその項目(`.sb-sec`/`.sb-item`)を読んで生成し、押すと対応するサイドバー項目の`click()`を呼ぶだけ。遷移先・権限(`admin-only`/`accounting-only`等)・メール受信箱の停止(`EMAIL_INBOX_SUSPENDED`)はサイドバーと完全に同じ動き。サイドバーの表示切替(`style`)をMutationObserverで追って作り直す。
+- ボタンは3段（アイコン／日本語名／小さく英語名）。名前はサイドバーの文字そのまま（英語名の先頭の区切り「/ 」だけ除く。英語名が無い項目=Booking List・Invoice・GROSS / 粗利は日本語名の段のみ）。グループ見出しはサイドバーの表記（英語はCSSで大文字表示）。グループは見出しで折りたたみ（初期は全て開、状態は保存しない）。375pxは2列、PCは`auto-fill`。
+- 追加する場合の定数: `HOME_BUTTONS_ENABLED`（初期値 true）。false にするとカード自体が作られず従来と同じ画面。
+- 数字のカードは作っていない（#233の「要確認」の件数と定義がずれるのを避けるため）。
+
+### 元に戻す方法
+1. 定数 `HOME_BUTTONS_ENABLED` を false にする（index.html末尾付近の1行）。
+2. このPRを閉じる（マージ前）。
+3. マージ後は、このコミットをrevertする（変更は1コミット・index.htmlとSESSION_NOTES.mdのみ）。
+
+### 残タスク
+- 第二段階でサイドバーを細くする場合は、アイコンだけにせず、文字付きに開閉できる形にする。
+- 数字のカード（到着8日以内・要確認・未確定の手配）は、#233 のマージ後に、同じ定義で作る。到着日アラートは `renderDbArrivalAlert`（`bookingsListCache`から、in_dateが今日以降・cancelled/closed除外・90日以内を6段階(8/14/21/30/60/90日)に分ける）、#233の「要確認」は `progressSummary`（サーバー集計の理由）で、定義が別。
+- 本番(Vercel)での実画面確認（PC・スマホ）。**未確認**。
