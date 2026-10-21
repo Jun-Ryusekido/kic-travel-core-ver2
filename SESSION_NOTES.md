@@ -1055,3 +1055,47 @@ PR: https://github.com/Jun-Ryusekido/kic-travel-core-ver2/pull/225 （未マー�
 - `setHotelLodgingFor`（index.html）は呼び出し元が無くなった（内部処理は変更しない指示のため残置）。不要なら別PRで削除。
 - 既存データにドライバー行が何件あるかは、DBを読んでいないため不明（確認SQL: `select lodging_for, count(*) from public.booking_hotels group by 1`）。
 - 本番(Vercel)での目視は未実施。
+
+---
+
+## PR #236（ホテル区分の選択欄削除）マージ保留 — 追加確認の結果（コードのみ・DB未参照・SQLなし）
+
+### マージ保留の理由
+区分(booking_hotels.lodging_for)は画面の飾りではなく処理に使われている。選択欄を消すと、**新規にドライバー宿泊を登録する手段と、誤ってdriverにした行をguestに戻す手段が無くなる**。JUNさんが本番で driver の件数を確認し（`select lodging_for, count(*) from public.booking_hotels group by 1;`）、0件ならマージ可、1件以上なら代替手段（例: 選択欄を残す／別の入口を用意する）を決める。決まるまでマージしない。
+
+### 保存処理（実コードの追跡）
+保存ボタン(:15979 等) → `saveHotelItems`(:13390) → `buildHotelRows`(:13341) → `bookingHotelsApiCall('replace')` → api/table-crud.js `doReplace`。
+`lodging_for` は **画面のselectの値ではなく、メモリ上の `bdHotelItems[].lodging_for` を `normalizeLodgingFor` に通して送る**（:13357）。読込は `mapHotelDbRow`(:13331)で DB値→`bdHotelItems`。DOMのselectを読む箇所は無い。
+スタブ(Chromium+Supabaseスタブ、実index.html)での再現: 読込行[guest, driver]を画面でホテル名編集→新規行追加→OCR形の行(lodging_for無し)→REF#コピー形の行(driver)を保存すると、送信rowsは
+[ゲストH:guest, DRV宿(変更):**driver**, 新規H:guest, OCR行:guest, コピー元:driver]。既存driver行はguestに書き換わらない。選択欄は0個。
+
+### 'driver' 行の扱い（関数名・行番号）
+| 処理 | 関数 / 行 | driver行の扱い |
+|---|---|---|
+| 手配確定状況の催促 | fetchVendorEmailCandidates :6188-6190 | 対象外 |
+| 仕入明細へ追加ボタン | arrCostCheckboxHtml :6779 | 押すと理由表示のみ（追加不可） |
+| 仕入明細へ追加（実行） | addArrRowToCostNow :6831 | alertして中止 |
+| 仮払い一覧の自動生成 | generateLocalExpensesFromArrangements :9233 | 区分「D（ドライバー）」で出す |
+| 日付チェックのエラー文 | findArrangementDateRangeErrors :9338 | 「・ドライバー宿泊」を付記（表示のみ） |
+| 手配書の日別ホテル選択肢 | renderArrDayList :19321 | 【DRV】を付記 |
+| 手配書の貼り付け解析・到着ホテル照合 | parseArrDayPasteText :19469 | driver行は照合対象外 |
+| 重複確認 | hmFetchExistingForDupCheck :23075 | guestのみ取得（driverは対象外） |
+| ホテル予約管理 | loadHotelManagement :25322 | guestのみ表示 |
+| 手配一覧の印刷 | printArrangementSummaryList :26468 | 「(ドライバー宿泊)」を付記 |
+| REF#からコピー | ARR_COPY_CONFIG.hotel :13083 | lodging_forをそのままコピー |
+| ホテルDB側 | scripts/add_lodging_for_to_booking_hotels.sql | 列(NOT NULL 既定guest)・CHECK制約・RPC2本はguestのみ |
+
+### 新規にドライバー宿泊を登録する手段（選択欄削除後）
+| 経路 | lodging_for に入る値 |
+|---|---|
+| 行追加(addHotelRow :13316) | 'guest' 固定 |
+| メール・テキスト読み取り(:20696 付近、再利用行は Object.assign で既存値を維持) | 未指定→保存時 'guest'。既存の空行を再利用した場合は、その行の既存値 |
+| Excel/PDF/Word読み取り(:20617) | 未指定→'guest' |
+| 画像・カメラ読み取り | 同上（読取結果の形は同じ関数。lodging_forを持たない）→'guest' |
+| 空行(メール抜粋 :15977) | 未指定→'guest' |
+| REF#コピー(:13083) | コピー元の値を引き継ぐ（コピー元がdriverならdriver） |
+→ **削除後、新規にdriverにする手段は無い**（REF#コピーでコピー元の値を引き継ぐ場合のみ）。誤ってdriverになった既存行を**guestに戻す手段も無い**（画面に入口が無い。SQL直接修正のみ）。
+
+### 残タスク
+- JUNさん: 上記SELECTでdriver件数を確認 → 0ならマージ可、1件以上なら代替方式を決定。
+- 未確認: 本番(Vercel)の実画面・実保存、実データのdriver件数。
