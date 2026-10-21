@@ -1,5 +1,19 @@
 # SESSION_NOTES
 
+## 変更履歴(audit_logs)へのマイナンバー平文保存を塞ぐ(2026-10-21。PR作成済み・**マージはJUN承認待ち**)
+- 実装: TABLE_CONFIG.guides に `auditRedactFields:['my_number']`。api/lib/audit-redact.js の redactAuditPair を (a) writeAuditLogs(保存時) と (b) doAuditHistory(返却時) で使用。
+  値は保存・返却せず「(マイナンバー・値は非保存)」に置換。値が変わった更新は after 側を「(…・変更あり)」にして変更を判別可能に。空は空のまま。既存 audit_logs の行は書き換えない(返却時にマスクするので過去の平文もAPIからは見えない)。
+- 検証: scripts/test_audit_redact.js(本物の table-crud.js handler を疑似Supabase+合成データで実行)17/17成功。修正前の table-crud.js では同じテストが5件失敗(平文保存・平文返却を検出)。実DB・本番には触れていない。
+- 他テーブルのマイナンバー/個人番号項目: リポジトリ全体をgrep(index.html は null バイトを含むため grep -a)。my_number は guides のみ(index.html のガイド編集/照会/保存、api/extract-card.js は「マイナンバーは抽出しない」指示のみ)。パスポート/national_id 等の列も無し。対象追加なし。
+- audit_logs の RLS/GRANT: リポジトリ内に CREATE TABLE/GRANT/ポリシー定義は無い(SESSION_NOTES.md:650 にも「audit_logs のCREATE TABLEはリポジトリに無い」)。SESSION_NOTES.md:457 に「audit_logs はRLS有効化済み(A区分)」の記述と investigate_batch4_readable_tables.sql の分類があるのみで、実際の状態は**未確認**。確認用の読み取り専用SQLを scripts/investigate_guide_audit_logs.sql の (c) に用意(JUNが実行)。
+- 同SQLの (a) マイナンバー入りの audit_logs 行の件数、(b) SAHDEV VIJAY KUMAR の bank_info 変更履歴 も用意(未実行。列名は table-crud.js の writeAuditLogs/doAuditHistory から確認)。
+- 未対応(スコープ外): ガイド一覧のブラウザ直接読み取り(`sb.from('guides').select('*')`)で全ロールに my_number が渡る点と、auditHistory のロール判定なし(マスクにより guides では値は返らない)。
+### 残タスク
+- JUNさん: 本番ガイド管理で照会・コピー・マイナンバー表示切替・編集画面コピーの画面確認(ハードリロード。PR #234 はマージ済みだがデプロイ完了は未確認)。
+- JUNさん: investigate_guide_audit_logs.sql (b) で銀行口座二重入力の経緯確認 / (c) で audit_logs のRLS・権限確認 / (a) で既存 audit_logs の平文マイナンバー件数確認。
+- 既存 audit_logs の平文マイナンバーの処理方針の決定(CLAUDE.md の手順: バックアップ→件数確認→承認→実行→再SELECT検証。今回は書き換えていない)。
+- マイナンバー閲覧権限(現状ロール制御なし)の方針決定。
+
 ## ガイド管理: 照会画面・コピーボタン(2026-10-21。PR #234 を main にマージ済み)
 - 内容: 一覧に「照会」ボタン、読み取り専用の照会モーダル(13項目・空欄は「-」・編集ボタン)、照会/編集画面の各項目のコピーボタン、マイナンバーは伏せ字+「表示/隠す」(コピーは伏せ字のままでも実値)。変更は index.html のみ。SQL不要。
 - 確認できたこと: ローカルChromium+合成データで表示・各コピー・マイナンバー切替・375px横スクロールなし。
