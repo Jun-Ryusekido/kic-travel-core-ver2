@@ -1227,3 +1227,46 @@ PR: https://github.com/Jun-Ryusekido/kic-travel-core-ver2/pull/225 （未マー�
 - 実データでのプレビュー確認（JUNさん）。
 - RPCによるDB側集計に切り替えるかどうかの判断。
 - 本番/プレビューでキャッシュが複数インスタンスでどれだけ効くか（Vercelの設定。未確認）。
+
+---
+
+## 「ホーム」を最初の画面にする(第1段階): 手順0 調査(2026-10-22・読み取りのみ・コード変更なし)
+
+### 土台
+- PR #238(ダッシュボードにホームボタン・HOME_BUTTONS_ENABLED)は **未マージ**(open)。ブランチ `claude/charming-keller-f6lvzg` を、この環境のブランチ `claude/trusting-franklin-rxs5ss` に取り込んだ(fast-forward、d7fe9fb)。
+- PR #233(進捗ステッパー等)との試しマージ: **競合なし**(自動マージ成功。試しマージは取り消し済み)。
+
+### 1. 最初の画面が決まる場所
+- ログイン成功時 `doLogin()` の末尾 `go('dashboard')`、再読み込み時 `restoreSession()` の `go('dashboard')`(index.html 3926行・4176行付近)。どちらも固定で `'dashboard'`。
+- `let currentPageId='dashboard'`(3410行)、サイドバーの初期 active もダッシュボード(1193行)。
+- URLハッシュ・`history.pushState`・`popstate`・`hashchange` は **一切使っていない**。再読み込みは常にダッシュボード(15分以内のセッション復元時)。ブラウザの戻るボタンは画面遷移に効かない。
+- `go(id)`: 未保存確認(手配確定状況)→権限チェック→`.page`を全部非表示→`#pg-<id>`を表示→サイドバーactive付け替え→タイトル更新→画面ごとのデータ読込。`#pg-<id>`が無いidは何もしない。`pageNames`にidを足す必要あり。
+- ダッシュボード以外の遷移は `logAction('ページ遷移')` が書かれる(アクセスログ)。
+
+### 2. アラート3種類
+- **対応が必要な予約**: `booking_facilities`(対応期限日あり)を全件取得→`fetchAllFacilityDeadlineItems()`(5分TTL `facilityDeadlineItemsCache`)→`buildFacilityDeadlineResult(allItems,7)`。未完了(`!deadline_completed`)・予約がcancelled/closedでない・施設status≠キャンセル。区分は `FACILITY_DEADLINE_TIERS`(日数≤0 / =1 / 2〜3 / 4〜7)。**件数は「予約」ではなく booking_facilities の行(ToDo)数**。結合に `allBookingsCache`(`fetchAllBookings` = bookings全列)を使う。
+- **到着日アラート**: `bookingsListCache`(`fetchBookingsListLight`、5分TTL)から、in_date≥今日・cancelled/closed以外・90日以内を、8/14/21/30/60/90日のティアに分ける(`renderDbArrivalAlert`)。件数は予約単位。
+- **Agent未紐付け**: `bookings`(agent_nameあり・agent_id null)+`invoices`(同条件)を取得(`refreshAgentUnlinkedBanner`、5分TTL `_agentUnlinkedCache`)。名前が空/'0'は除外。件数は「予約N件・請求書M件」。
+- 再利用可否: **新しいAPIは不要**。ホームから同じ関数(`fetchBookingsListLight`/`prefetchFacilityDeadlineAllItems`/`refreshAgentUnlinkedBanner`/`refreshGlobalDeadlineBanner`)を呼べば、同じ5分TTLキャッシュを共有する。ただし今は `loadBookingListGeneric('db')`(ダッシュボード表示時)がこれらを呼んでおり、ホームが最初の画面になると、**ホーム側でこの取得の呼び出しを引き継ぐ必要がある**(取得量は今と同じ。ダッシュボードを後で開いても、TTL内ならキャッシュで再取得なし)。
+- 既存の描画関数は表示先のid(`db-todo-summary`・`db-arrival-alert`)と開閉状態(`dbTodoOpenTiers`等)が固定。ホームの右欄には、表示先を引数にする最小の変更か、ホーム側の薄い描画(`todoRow`・ティア定義は再利用)が必要。
+
+### 3. 「期限当日・超過 73件」と「#1118 ×3」
+- 画面の「N件」は **booking_facilities の行数**(`b.items.length`)。代表REF#の3件も `items.slice(0,3)` の各行の予約番号をそのまま並べる(重複除去なし)。→ 1つの予約に期限超過の施設明細が複数あると、同じ予約番号が並び、件数も予約数より多くなる。**#1118 は、期限超過・未完了の施設明細が少なくとも3行ある**ことを示す(原因は重複バグではなく「件=施設明細の数」という数え方)。
+- 73件の内訳(行数/重複除いた予約数)は、実データを見ていないため未確認。下記SQLをJUNさんが実行して確認する(読み取り専用)。
+- 定義は変更しない。導入するバッジ(作業画面の「要対応 N」)は予約番号の重複を除く。
+
+### 4. スマホ幅(375px)の今のナビ
+- `@media(max-width:760px)`: サイドバーは `left:-210px` の画面外ドロワー。トップバーの☰で `.open` を切替え(`go()` 実行時にも閉じる)。背景のオーバーレイは無い。
+- トップバーは `flex-wrap`・高さ自動、`.ver-badge`と`.tb-label`は非表示。
+- 下部固定バーは `#db-mobile-bottombar`(ダッシュボードの検索・絞り込み)のみ。他に `#cc-ocr-save-bar`(クレカ明細OCR画面)、`#pt-batch-bar`/`#pt-save-bar`(取引先マスタ)が下部固定。→ 下に固定バーを増やさないほうがよい。
+- 注意: `#db-filter-card`等のsticky(`top:50px`)は、50pxのトップバーの下に付く前提。上の移動バーをstickyで足すと位置が重なる(下記の確認事項)。
+- 画面上部の赤/黄の固定バナー `#global-deadline-banner`(対応が必要な予約N件)と、期限前日の通知・緊急モーダルも既にある(`refreshGlobalDeadlineBanner`)。今回は変更しない。
+
+### 確認事項(実装前にJUNさんへ)
+1. 移動バーを sticky にすると既存の `top:50px` の固定カードと重なる。→ 案A: 移動バーはスクロールで流れる(固定しない) / 案B: トップバーの中に入れる。
+2. 作業画面のバッジ「要対応 N」: 期限切れ(5分)後は、メモリ上の古い値のまま表示(新規取得なし)で良いか。それとも開いたときだけ同じ取得関数を呼ぶか。
+3. N の「予約件数の重複除外」: 赤2種類を合わせた後で重複除外(同じ予約が両方に該当したら1件)で良いか。
+4. 再読み込み時も常にホームから始まる(今のダッシュボードと同じ動き)で良いか。
+
+### 残タスク
+- 実装(A〜D)・検証・プレビュー確認はJUNさんの確認後。
