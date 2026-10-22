@@ -31680,13 +31680,18 @@ function setDateInputValue(el, d){
      元に戻す方法: 下の HOME_BUTTONS_ENABLED を false にする(カード自体が作られず、従来と同じ画面になる)。
      このブロック(<style>と<script>)ごと削除しても同じ。 -->
 <style>
-#db-home-card .hb-group{margin-bottom:10px}
-#db-home-card .hb-group:last-child{margin-bottom:0}
-#db-home-card .hb-ghead{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;box-sizing:border-box;padding:6px 8px;margin:0 0 6px;border:none;border-radius:8px;background:var(--bg);color:var(--text2);font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;text-align:left}
-#db-home-card .hb-ghead .hb-garrow{font-size:10px;color:var(--text3);flex-shrink:0}
+#db-home-card .hb-tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+#db-home-card .hb-ghead{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;box-sizing:border-box;padding:6px 10px;border:1px solid var(--border);border-radius:14px;background:var(--bg);color:var(--text2);font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;text-align:left;white-space:nowrap}
+#db-home-card .hb-ghead:hover{border-color:var(--blue)}
+#db-home-card .hb-ghead[aria-expanded="true"]{background:var(--blue-lt);border-color:var(--blue);color:var(--blue)}
+#db-home-card .hb-ghead .hb-garrow{font-size:10px;flex-shrink:0}
 #db-home-card .hb-ghead .hb-gen{font-weight:400;color:var(--text3);text-transform:uppercase}
+#db-home-card .hb-ghead[aria-expanded="true"] .hb-gen{color:inherit}
+#db-home-card .hb-panel{margin-bottom:10px}
+#db-home-card .hb-panel:last-child{margin-bottom:0}
+#db-home-card .hb-panel[hidden]{display:none}
+#db-home-card .hb-plabel{margin:0 0 6px 2px;font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase}
 #db-home-card .hb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
-#db-home-card .hb-group.hb-collapsed .hb-grid{display:none}
 #db-home-card .hb-btn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-width:0;min-height:68px;box-sizing:border-box;padding:8px 6px;border:1px solid var(--border);border-radius:10px;background:var(--card,#fff);color:var(--text);font-family:inherit;text-align:center;cursor:pointer}
 #db-home-card .hb-btn:hover{background:var(--bg);border-color:var(--blue)}
 #db-home-card .hb-icon{font-size:20px;line-height:1.1}
@@ -31701,7 +31706,7 @@ function setDateInputValue(el, d){
 const HOME_BUTTONS_ENABLED = true;
 (function(){
   if(!HOME_BUTTONS_ENABLED) return;
-  const closedGroups = new Set();   // 折りたたんだグループ(初期状態は全グループ開)
+  const openGroups = new Set();   // 開いているグループ(初期状態は全グループ閉じる。状態は保存しない=開くたびに閉じた状態から始まる)
   let pending = false;
   function isShown(el){ return !!el && getComputedStyle(el).display !== 'none'; }
   function parseItem(it){
@@ -31731,6 +31736,9 @@ const HOME_BUTTONS_ENABLED = true;
     title.className = 'card-title';
     title.textContent = 'ホーム';
     frag.appendChild(title);
+    const tabs = document.createElement('div');
+    tabs.className = 'hb-tabs';
+    const panels = document.createElement('div');
     sidebar.querySelectorAll('.sb-sec[data-sec]').forEach(sec=>{
       if(!isShown(sec)) return;
       const key = sec.dataset.sec;
@@ -31742,24 +31750,33 @@ const HOME_BUTTONS_ENABLED = true;
       const label = sec.querySelector('.sb-sec-label');
       const en = label && label.querySelector('.sb-en');
       const ja = label ? Array.from(label.childNodes).filter(n=>n.nodeType===3).map(n=>n.textContent).join('').trim() : key;
-      const group = document.createElement('div');
-      group.className = 'hb-group' + (closedGroups.has(key) ? ' hb-collapsed' : '');
+      const isOpen = openGroups.has(key);
+      // 見出し(横に並べる。折り返しあり)。押せる見た目: 枠つき+右向き矢印(開くと下向き・色つき)
       const head = document.createElement('button');
       head.type = 'button';
       head.className = 'hb-ghead';
-      head.setAttribute('aria-expanded', closedGroups.has(key) ? 'false' : 'true');
+      head.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
       const hl = document.createElement('span');
       hl.appendChild(document.createTextNode(ja + ' '));
       if(en){ const e = document.createElement('span'); e.className = 'hb-gen'; e.textContent = en.textContent; hl.appendChild(e); }
       const arrow = document.createElement('span');
       arrow.className = 'hb-garrow';
-      arrow.textContent = closedGroups.has(key) ? '▸' : '▾';
+      arrow.textContent = isOpen ? '▾' : '▸';
       head.appendChild(hl); head.appendChild(arrow);
+      // 開いたグループ。複数開いたときに見分けられるよう、グループ名を小さく添える
+      const panel = document.createElement('div');
+      panel.className = 'hb-panel';
+      panel.hidden = !isOpen;
+      const pl = document.createElement('div');
+      pl.className = 'hb-plabel';
+      pl.textContent = ja + (en ? ' ' + en.textContent : '');
+      panel.appendChild(pl);
       head.addEventListener('click', ()=>{
-        const c = group.classList.toggle('hb-collapsed');
-        if(c) closedGroups.add(key); else closedGroups.delete(key);
-        head.setAttribute('aria-expanded', c ? 'false' : 'true');
-        arrow.textContent = c ? '▸' : '▾';
+        const nowOpen = panel.hidden;   // 閉じていれば開く
+        panel.hidden = !nowOpen;
+        if(nowOpen) openGroups.add(key); else openGroups.delete(key);
+        head.setAttribute('aria-expanded', nowOpen ? 'true' : 'false');
+        arrow.textContent = nowOpen ? '▾' : '▸';
       });
       const grid = document.createElement('div');
       grid.className = 'hb-grid';
@@ -31781,9 +31798,12 @@ const HOME_BUTTONS_ENABLED = true;
         b.addEventListener('click', ()=>it.click());
         grid.appendChild(b);
       });
-      group.appendChild(head); group.appendChild(grid);
-      frag.appendChild(group);
+      panel.appendChild(grid);
+      tabs.appendChild(head);
+      panels.appendChild(panel);
     });
+    frag.appendChild(tabs);
+    frag.appendChild(panels);
     card.replaceChildren(frag);
   }
   function schedule(){ if(pending) return; pending = true; requestAnimationFrame(build); }
