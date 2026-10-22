@@ -4204,6 +4204,8 @@ const NEW_BOOKING_BTN_VISIBLE_PAGES = new Set(['home','dashboard','new-booking',
 const EMAIL_INBOX_SUSPENDED = true;
 
 function go(id){
+  // ホームがダッシュボードの代わり(HOME_SCREEN_ENABLED)。ダッシュボードへの移動はすべてホームへ向ける。
+  if(id==='dashboard' && HOME_SCREEN_ENABLED) id = 'home';
   // 手配確定状況画面に未保存の変更(一括保存前のステータス変更)が残っている場合、
   // 他の画面へ移動すると破棄されることを警告する(SPA内遷移はbeforeunloadでは
   // 検知できないため、go()側で別途確認する)。
@@ -5217,7 +5219,7 @@ function renderTodoPageFromCache(){
   const flatRows = allFlat.map(f=>todoRow(f, tierFgForDeadlineDays(f._days), !!f.deadline_completed)).join('');
   el.innerHTML = `
     <div style="margin-bottom:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-      <button class="btn" onclick="go('dashboard')">← ダッシュボードに戻る</button>
+      <button class="btn" onclick="go('dashboard')">${HOME_SCREEN_ENABLED ? '← ホームに戻る' : '← ダッシュボードに戻る'}</button>
       <span style="font-size:11px;color:var(--text3)">全${allFlat.length}件を対応期限日順に表示中</span>
     </div>
     ${todoActionBarHtml('page')}
@@ -31897,6 +31899,21 @@ body:not(.has-deadline-banner) #home-drawer{top:0}
 #home-drawer-backdrop.open{display:block}
 #home-drawer .hd-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;border-bottom:1px solid var(--border);font-weight:700;font-size:14px}
 #home-drawer .hd-body{flex:1;overflow-y:auto;padding:12px 14px}
+/* 通帳OCR(経理のみ): ダッシュボードにあったカードをホームへ移して使う。閉じている間はカード自体を出さない(ボタンで開閉) */
+#pg-home .home-ocr-card:not(.home-ocr-open){display:none}
+#pg-home .home-ocr-card{scroll-margin-top:110px}
+#pg-home .home-ocr-card button[onclick^="toggleDashboardBankbookOcr"]{display:none}
+/* サイドバーは基本は閉じる(PC幅。スマホは従来どおり)。「すべての画面」ボタンで重ねて開く。開閉の状態は保存しない */
+.menu-btn .mb-label{display:none}
+#home-sb-backdrop{display:none}
+@media(min-width:761px){
+  body.home-sb-closed .sb{position:fixed;left:-210px;top:0;z-index:80;transition:left .2s;box-shadow:2px 0 8px rgba(0,0,0,.1)}
+  body.home-sb-closed .sb.open{left:0}
+  body.home-sb-closed.has-deadline-banner .sb{top:var(--deadline-banner-h,34px);height:calc(100vh - var(--deadline-banner-h,34px))}
+  body.home-sb-closed .menu-btn{display:flex!important;width:auto;padding:0 10px;gap:6px}
+  body.home-sb-closed .menu-btn .mb-label{display:inline;font-size:12px;font-weight:600}
+  #home-sb-backdrop.open{display:block;position:fixed;inset:0;z-index:79;background:rgba(0,0,0,.2)}
+}
 @media(max-width:760px){
   body.home-nav-on .topbar{flex-wrap:nowrap}
   body.home-nav-on .topbar .tb-left{flex:1 1 auto;min-width:0}
@@ -31914,6 +31931,25 @@ body:not(.has-deadline-banner) #home-drawer{top:0}
   let homeLoading = null, homeLoaded = false, homeDrawerIsOpen = false;
   const sbHome = document.getElementById('sb-home-item');
   if(sbHome) sbHome.style.display = '';
+  // ホームがダッシュボードの代わり: サイドバーのダッシュボード項目は非表示(コードは残す。定数オフで元に戻る)
+  const sbDash = document.querySelector('#sidebar .sb-item[data-pg="dashboard"]');
+  if(sbDash) sbDash.style.display = 'none';
+  // サイドバーは基本は閉じる(PC幅)。上のバーの☰(既存の.menu-btn)に「すべての画面」を添え、押したときだけ開く
+  document.body.classList.add('home-sb-closed');
+  const menuBtn = document.querySelector('.topbar .menu-btn');
+  if(menuBtn && !menuBtn.querySelector('.mb-label')){
+    const lb = document.createElement('span'); lb.className = 'mb-label'; lb.textContent = 'すべての画面';
+    menuBtn.appendChild(lb);
+  }
+  (function(){
+    const sbEl = document.getElementById('sidebar');
+    if(!sbEl) return;
+    const bd = document.createElement('div');
+    bd.id = 'home-sb-backdrop';
+    bd.addEventListener('click', ()=>sbEl.classList.remove('open'));
+    document.body.appendChild(bd);
+    new MutationObserver(()=>bd.classList.toggle('open', sbEl.classList.contains('open'))).observe(sbEl, {attributes:true, attributeFilter:['class']});
+  })();
 
   // ---- データ(ダッシュボードと同じ取得関数・同じ5分キャッシュ。新しい取得は足さない) ----
   // ダッシュボードを開いた時に loadBookingListGeneric('db') が行っている取得を、ホームが引き継ぐ。
@@ -32022,15 +32058,35 @@ body:not(.has-deadline-banner) #home-drawer{top:0}
         <input id="home-search" type="search" placeholder="検索（REF# / Agent / Tour名 / Tour Code）" autocomplete="off" oninput="homeSearchRender()">
         <div id="home-search-results"></div>
       </div>
+      <div id="home-ocr-slot"></div>
       <button type="button" class="home-badge home-todo-row" onclick="homeOpenDrawer()">要対応 …</button>
       <div class="home-cols">
         <div class="card home-left hb-scope" id="home-buttons"></div>
         <div class="card home-right"><div class="card-title">要対応・アラート</div><div id="home-alerts"></div></div>
       </div>`;
+    // 通帳OCR(経理のみ): ダッシュボードにあったカード(ID・関数は変えずDOMだけ移動。権限は従来の.accounting-onlyのまま)をホームへ移す
+    const ocr = document.querySelector('#pg-dashboard > .card.accounting-only');
+    const slot = document.getElementById('home-ocr-slot');
+    if(ocr && slot){ ocr.classList.add('home-ocr-card'); slot.appendChild(ocr); }
   }
+  window.homeToggleBankbookOcr = function(){
+    toggleDashboardBankbookOcr();
+    const area = document.getElementById('db-bankbook-ocr-area');
+    const card = area && area.closest('.home-ocr-card');
+    if(!card) return;
+    const open = area.style.display !== 'none';
+    card.classList.toggle('home-ocr-open', open);
+    if(open) card.scrollIntoView({behavior:'smooth', block:'start'});
+  };
   function homeRenderButtons(){
     const el = document.getElementById('home-buttons');
     if(el && typeof hbFillHomeButtons === 'function') hbFillHomeButtons(el, { allOpen:true, includeDashboard:true });
+    // 通帳OCRのボタン(経理のみ。ダッシュボードと同じ isAccountingUser() の判定)
+    if(el && isAccountingUser()){
+      const panel = document.createElement('div'); panel.className = 'hb-panel';
+      panel.innerHTML = '<div class="hb-plabel">経理 ACCOUNTING</div><div class="hb-grid"><button type="button" class="hb-btn" onclick="homeToggleBankbookOcr()"><span class="hb-icon">📷</span><span class="hb-ja">通帳OCR</span><span class="hb-en">Bankbook OCR</span></button></div>';
+      el.insertBefore(panel, el.firstChild);
+    }
   }
   // 検索: ダッシュボードの検索(filterBookingListGeneric)と同じ対象・同じ判定(REF#/Agent/Tour Code/Tour名、全角→半角、日付範囲は問わない)
   window.homeSearchRender = function(){
