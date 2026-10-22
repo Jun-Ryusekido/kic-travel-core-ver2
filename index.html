@@ -31692,6 +31692,9 @@ function setDateInputValue(el, d){
 #db-home-card .hb-icon{font-size:20px;line-height:1.1}
 #db-home-card .hb-ja{font-size:12px;font-weight:600;line-height:1.25;overflow-wrap:anywhere;word-break:break-word;max-width:100%}
 #db-home-card .hb-en{font-size:10px;color:var(--text3);line-height:1.2;overflow-wrap:anywhere;word-break:break-word;max-width:100%}
+#db-home-card .hb-btn.hb-suspended{background:var(--bg);color:var(--text3);border-style:dashed}
+#db-home-card .hb-btn.hb-suspended .hb-icon,#db-home-card .hb-btn.hb-suspended .hb-ja{opacity:.55}
+#db-home-card .hb-susp{font-size:9px;font-weight:700;line-height:1.2;color:var(--text2);background:var(--border);border-radius:8px;padding:0 6px;margin-top:1px}
 @media(max-width:768px){#db-home-card .hb-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 </style>
 <script>
@@ -31733,7 +31736,8 @@ const HOME_BUTTONS_ENABLED = true;
       const key = sec.dataset.sec;
       const body = sidebar.querySelector('.sb-sec-body[data-sec-body="' + key + '"]');
       if(!body) return;
-      const items = Array.from(body.querySelectorAll('.sb-item')).filter(isShown);
+      // ダッシュボード自身へ移るボタンは不要なので、ホームカードからだけ除く(サイドバーの項目は変更しない)
+      const items = Array.from(body.querySelectorAll('.sb-item')).filter(it=>isShown(it) && it.dataset.pg !== 'dashboard');
       if(!items.length) return;
       const label = sec.querySelector('.sb-sec-label');
       const en = label && label.querySelector('.sb-en');
@@ -31768,6 +31772,11 @@ const HOME_BUTTONS_ENABLED = true;
         const j = document.createElement('span'); j.className = 'hb-ja'; j.textContent = info.ja;
         b.appendChild(i); b.appendChild(j);
         if(info.en){ const e = document.createElement('span'); e.className = 'hb-en'; e.textContent = info.en; b.appendChild(e); }
+        // 停止中の機能(メール受信箱: EMAIL_INBOX_SUSPENDED)は、グレー表示+小さく「停止中」。押した時の動きはサイドバーと同じ(停止の案内が出る)。
+        if(it.dataset.pg === 'email-inbox' && typeof EMAIL_INBOX_SUSPENDED !== 'undefined' && EMAIL_INBOX_SUSPENDED){
+          b.classList.add('hb-suspended');
+          const sp = document.createElement('span'); sp.className = 'hb-susp'; sp.textContent = '停止中'; b.appendChild(sp);
+        }
         // 遷移・権限・メール受信箱の停止は、サイドバー項目自身のonclickをそのまま使う(二重定義しない)
         b.addEventListener('click', ()=>it.click());
         grid.appendChild(b);
