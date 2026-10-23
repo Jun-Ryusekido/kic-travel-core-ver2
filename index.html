@@ -32336,6 +32336,27 @@ body.home-nav-on .home-nav{display:flex}
 #home-user-menu .hum-who{padding:2px 4px 8px;margin-bottom:8px;border-bottom:1px solid var(--border);font-size:12px;font-weight:600;overflow-wrap:anywhere}
 #home-user-menu .hum-out{display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;box-sizing:border-box;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:#fff;color:var(--red,#c0392b);font-family:inherit;cursor:pointer}
 #home-user-menu .hum-out:hover{background:var(--bg)}
+/* PC幅: 上のバーの右端に「ユーザー名（ロール）」と「ログアウト / Logout」のボタンを直接出す(丸のメニューはPC幅では出さない)。
+   ログアウトは確認(はい/いいえ)を挟む。スマホ幅(760px以下)は従来どおり丸→メニュー(そのログアウトにも同じ確認) */
+.home-user-inline{display:none;align-items:center;gap:8px;flex-shrink:0}
+.home-user-inline .hu-name{font-size:12px;font-weight:600;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.home-user-inline .hu-logout{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;box-sizing:border-box;min-height:34px;padding:3px 12px;border-radius:8px;border:1.5px solid #c0392b;background:#fff;color:#c0392b;font-family:inherit;cursor:pointer}
+.home-user-inline .hu-logout:hover{background:#fde8ea}
+@media(min-width:761px){
+  .home-user-inline{display:flex}
+  #home-user-btn{display:none}
+  body.home-sb-closed .topbar{flex-wrap:nowrap}
+}
+@media(min-width:761px) and (max-width:1400px){ body.home-sb-closed .topbar .ver-badge{display:none} }
+@media(min-width:761px) and (max-width:1100px){ .home-user-inline .hu-name{display:none} }
+@media(min-width:761px) and (max-width:900px){ body.home-sb-closed .topbar .tb-label{display:none} body.home-sb-closed .topbar .ver-badge{display:none} }
+#home-logout-confirm{display:none;position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.4);align-items:center;justify-content:center;padding:16px}
+#home-logout-confirm.open{display:flex}
+#home-logout-confirm .hlc-box{background:var(--card);border-radius:12px;padding:18px;width:100%;max-width:340px;box-sizing:border-box;box-shadow:0 8px 28px rgba(0,0,0,.25)}
+#home-logout-confirm .hlc-msg{text-align:center;margin-bottom:14px}
+#home-logout-confirm .hlc-btns{display:flex;gap:10px}
+#home-logout-confirm .hlc-btns button{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:40px;border-radius:8px;border:1px solid var(--border);background:#fff;font-family:inherit;cursor:pointer}
+#home-logout-confirm .hlc-btns .hlc-yes{background:#c0392b;border-color:#c0392b;color:#fff}
 /* ホーム画面では、見出し「ホーム / Home」と重複して見えるため、青いボタンは出さない(ホーム以外の全画面では出る) */
 body:not(.home-nav-on) #home-nav-home{display:none}
 #home-nav-home.hn-cur{background:#0C447C;border-color:#0C447C;box-shadow:inset 0 2px 4px rgba(0,0,0,.35);cursor:default}
@@ -32584,6 +32605,9 @@ body:not(.has-deadline-banner) #home-drawer{top:0}
     const b = document.getElementById('home-user-btn'), av = document.getElementById('sb-avatar');
     const ini = b && b.querySelector('.hu-ini');
     if(ini) ini.textContent = (av && av.textContent.trim()) || '👤';
+    // PC幅の「ユーザー名（ロール）」
+    const nm = document.getElementById('sb-uname'), rl = document.getElementById('sb-urole'), n = document.getElementById('home-user-name');
+    if(n){ n.textContent = ((nm && nm.textContent) || '') + '（' + ((rl && rl.textContent) || '') + '）'; const g = document.getElementById('home-user-inline'); if(g) g.title = n.textContent; }
   }
   function homeOpenUserMenu(){
     const b = document.getElementById('home-user-btn'), m = document.getElementById('home-user-menu');
@@ -32602,14 +32626,24 @@ body:not(.has-deadline-banner) #home-drawer{top:0}
     if(b) b.setAttribute('aria-expanded', 'false');
   };
   // ログアウトは今までの doLogout() をそのまま呼ぶ(サイドバーのログアウトと同じ結果)。呼ぶ前にこの画面側の開いている部品を閉じる
-  window.homeLogout = function(){ homeCloseUserMenu(); doLogout(); };
+  // ログアウトは確認(はい/いいえ)を挟み、「はい」で今までの doLogout() をそのまま呼ぶ。サイドバーのログアウトは従来どおり(確認なし)
+  window.homeLogout = function(){ homeAskLogout(); };
+  window.homeAskLogout = function(){
+    homeCloseUserMenu();
+    const c = document.getElementById('home-logout-confirm');
+    if(!c) return;
+    c.classList.add('open');
+    const no = c.querySelector('.hlc-no'); if(no) no.focus();   // 誤操作を避けるため「いいえ」に合わせる
+  };
+  window.homeCloseLogoutConfirm = function(){ const c = document.getElementById('home-logout-confirm'); if(c) c.classList.remove('open'); };
+  window.homeConfirmLogout = function(){ homeCloseLogoutConfirm(); doLogout(); };
   // ログイン画面に戻った時(サイドバーのログアウトを含む)、開いたままの欄・背景が残らないように閉じる
   (function(){
     const app = document.getElementById('screen-app');
     if(!app) return;
     new MutationObserver(()=>{
       if(getComputedStyle(app).display !== 'none') return;
-      homeCloseUserMenu(); homeCloseDrawer();
+      homeCloseUserMenu(); homeCloseDrawer(); homeCloseLogoutConfirm();
       const sbEl = document.getElementById('sidebar'); if(sbEl) sbEl.classList.remove('open');
     }).observe(app, {attributes:true, attributeFilter:['style']});
   })();
@@ -32661,6 +32695,20 @@ body:not(.has-deadline-banner) #home-drawer{top:0}
       document.addEventListener('click', e=>{ if(homeUserMenuIsOpen() && !um.contains(e.target)) homeCloseUserMenu(); });
       document.addEventListener('keydown', e=>{ if(e.key === 'Escape' && homeUserMenuIsOpen()) homeCloseUserMenu(); });
       window.addEventListener('resize', ()=>homeCloseUserMenu());
+      homeUpdateUser();
+    }
+    if(actions && !document.getElementById('home-user-inline')){
+      const ug = document.createElement('div');
+      ug.id = 'home-user-inline'; ug.className = 'home-user-inline';
+      ug.innerHTML = `<span class="hu-name" id="home-user-name"></span><button type="button" class="hu-logout" onclick="homeAskLogout()">${bi('ログアウト', 'Logout')}</button>`;
+      actions.appendChild(ug);
+      const dlg = document.createElement('div');
+      dlg.id = 'home-logout-confirm'; dlg.setAttribute('role', 'dialog'); dlg.setAttribute('aria-modal', 'true');
+      dlg.innerHTML = `<div class="hlc-box"><div class="hlc-msg">${bi('ログアウトしますか？', 'Log out?')}</div>
+        <div class="hlc-btns"><button type="button" class="hlc-no" onclick="homeCloseLogoutConfirm()">${bi('いいえ', 'No')}</button><button type="button" class="hlc-yes" onclick="homeConfirmLogout()">${bi('はい', 'Yes')}</button></div></div>`;
+      dlg.addEventListener('click', e=>{ if(e.target === dlg) homeCloseLogoutConfirm(); });
+      document.body.appendChild(dlg);
+      document.addEventListener('keydown', e=>{ if(e.key === 'Escape' && dlg.classList.contains('open')) homeCloseLogoutConfirm(); });
       homeUpdateUser();
     }
     if(!document.getElementById('home-drawer')){
