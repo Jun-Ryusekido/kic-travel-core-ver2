@@ -25,11 +25,19 @@ const ACCOUNTING_EMAILS = ['admin@kictravel.jp', 'kanri@kictravel.jp'];
 // isErrorLogViewer()によるUI制御(メニュー非表示)だけでなく、有効なセッションさえあれば誰でも
 // 叩けてしまわないよう、サーバー側でもここに含まれるemailのみに制限する。
 const ERROR_LOG_VIEWER_EMAILS = ['admin@kictravel.jp', 'jr@kictravel.jp'];
-// クライアント側(index.html)のCARD_HOLDER_ADMIN_EMAILSと同じ一覧。card_holders(カード名義人
-// マスタ)のinsert/updateByIdは、isCardHolderAdmin()によるUI制御(メニュー非表示・go()の
-// ガード)だけでなく、有効なセッションさえあれば誰でも叩けてしまわないよう、サーバー側でも
-// ここに含まれるemailのみに制限する(error_logsのlistアクションと同じ考え方)。
-const CARD_HOLDER_ADMIN_EMAILS = ['admin@kictravel.jp'];
+// card_holders(カード名義人マスタ)のinsert(新規追加)/updateById(無効化・有効化)は、画面のボタンを隠す
+// だけでなく、有効なセッションさえあれば誰でも叩けてしまわないよう、サーバー側で検証済みセッションの
+// ロールが 'admin' のものだけに制限する(verifySessionTokenの結果。クライアントの自己申告は使わない)。
+// 画面を開ける人(index.htmlのisCardHolderAdmin)の条件とは別。それ以外のロールには403を返し、データは変更しない。
+function isCardHolderOpsAllowed(session) { return !!session && session.role === 'admin'; }
+// updateByIdで変更できるのは is_active(無効化=false・有効化=true)だけ。名前・メモ等は変更させない。
+function validateCardHolderUpdateFields(fields) {
+  const keys = fields && typeof fields === 'object' ? Object.keys(fields) : [];
+  if (keys.length !== 1 || keys[0] !== 'is_active' || typeof fields.is_active !== 'boolean') {
+    return { status: 400, body: { error: 'カード名義人マスタで変更できるのは is_active(無効化・有効化)だけです' } };
+  }
+  return null;
+}
 // bookings(予約本体)のdeleteByIdのみに適用する制限。予約詳細モーダルの削除ボタンは
 // admin-onlyクラスでUI表示を制御しているだけで、有効なセッションさえあればstaff等の
 // 他ロールでも直接APIを叩けてしまう抜け穴があった(2026-08-19点検で発見)。card_holders
@@ -564,11 +572,14 @@ const TABLE_CONFIG = {
   // (scripts/create_card_holders_table.sql参照)。読み取り(select)はanon/authenticatedにも
   // SELECTを許可しているため各画面が直接読み取る。新規追加(insert)・無効化(updateById、
   // is_active=falseへの更新のみ。物理削除はしない)はこのAPI経由のservice_role操作のみとし、
-  // かつCARD_HOLDER_ADMIN_EMAILSに含まれるemailのみ実行できるようhandler側で追加チェックする
+  // かつadminロールのセッションのみ実行できるようhandler側で追加チェックする
   // (下記の'insert'/'updateById'分岐内、table==='card_holders'の判定を参照)。
+  // auditLog: 新規追加・無効化・有効化を、既存の汎用の監査ログ(audit_logs。誰が・いつ・前後の値)に記録する
+  // (agents/guidesと同じ方式。stampIdentityは使わないため、card_holdersの列の追加は不要)。
   card_holders: {
     actions: ['insert', 'updateById'],
     label: 'カード名義人マスタ',
+    auditLog: true,
   },
   // booking_edit_presence(予約編集の「編集中表示」用プレゼンス): ロック(排他制御)は行わず、
   // 誰が今この予約を編集中かの気づきのための記録のみ(scripts/create_booking_edit_presence_table.sql
@@ -2019,8 +2030,8 @@ export default async function handler(req, res) {
       return res.status(result.status).json(result.body);
     }
     if (action === 'insert') {
-      if (table === 'card_holders' && (!changedBy || !CARD_HOLDER_ADMIN_EMAILS.includes(changedBy))) {
-        return res.status(403).json({ error: 'カード名義人マスタの追加はadmin@kictravel.jpのみ操作できます' });
+      if (table === 'card_holders' && !isCardHolderOpsAllowed(session)) {
+        return res.status(403).json({ error: 'カード名義人マスタの追加はadminロールのみ操作できます' });
       }
       const { rows } = req.body;
       if (table === 'business_partners' && Array.isArray(rows)) {
@@ -2085,10 +2096,14 @@ export default async function handler(req, res) {
       return res.status(result.status).json(result.body);
     }
     if (action === 'updateById') {
-      if (table === 'card_holders' && (!changedBy || !CARD_HOLDER_ADMIN_EMAILS.includes(changedBy))) {
-        return res.status(403).json({ error: 'カード名義人マスタの更新はadmin@kictravel.jpのみ操作できます' });
+      if (table === 'card_holders' && !isCardHolderOpsAllowed(session)) {
+        return res.status(403).json({ error: 'カード名義人マスタの無効化・有効化はadminロールのみ操作できます' });
       }
       const { id, fields } = req.body;
+      if (table === 'card_holders') {
+        const badCh = validateCardHolderUpdateFields(fields);
+        if (badCh) return res.status(badCh.status).json(badCh.body);
+      }
       const invalid = validateUpdatableFields(fields);
       if (invalid) return res.status(invalid.status).json(invalid.body);
       const denied = checkRestrictedFieldValues(fields);

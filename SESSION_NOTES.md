@@ -1638,3 +1638,13 @@ limit 100;
 - 幅が狭くなったときに省く順番: 1.「KIC Ver 2.0」(1400px以下)→ 2.「バックアップ」「New Booking」の文字(1100px以下。アイコンだけ。title は既存)→ 3.「ログアウト / Logout」の文字(900px以下。赤い枠の ⏻ アイコンだけ・title「ログアウト / Logout」)。名前とログアウトのボタンは、761px以上のどの幅でも必ず出る。スマホ幅(760px以下)・ログアウトの確認・`HOME_SCREEN_ENABLED` オフは変更なし。
 - ログイン保持(15分で自動復元)は変更なし。
 - 検証(Playwright・ダミーデータ・長い名前=日本語19字): 管理者/スタッフ × 1920/1400/1280/1100/1024/900/820/768/761px で92項目合格(名前とログアウトが出る、折り返さず・重ならず・横スクロールなし、長い名前は「…」で切れ title に全体、省く順番、ログアウト→確認→いいえ/はい)。
+
+---
+
+## カード名義人の無効化・有効化をadminのみにし、未精算の警告を出す(2026-10-23・権限はサーバー側で強制)
+- 背景: 退職者の名義人(ログインアカウントなし)をシステム内で無効化できるようにする。スキーマ変更なし(`audit_logs` の汎用監査を利用)。
+- サーバー(`api/table-crud.js`): `card_holders` の insert / updateById は `session.role==='admin'` だけ許可、それ以外は403(データ変更なし)。updateById で変更できるのは `is_active`(boolean)だけ(それ以外は400)。`auditLog:true` で誰が・いつを `audit_logs` に記録。
+- 画面(`index.html`): adminのみ「無効化」「有効化」「新規追加」を表示(`isCardHolderOpsAdmin`)。非adminは閲覧だけ。無効の行は「無効（日付 ユーザー）」を表示(`loadCardHolderAuditInfo`)。
+- 無効化の前に、その名義人の未精算の個人立替(`booking_costs`: クレジットカード(個人・要精算)・出金日なし)を数える(`fetchUnreimbursedPersonalAdvanceRows`、バナーと共通)。0件=通常の確認、1件以上=赤い警告+「やめる」/「それでも無効化する」(日英2段、Esc・背景で閉じる)。定数 `CARD_HOLDER_UNSETTLED_WARN`(初期値 true、false で従来の単純な確認)。
+- 未解決: ページを開くガード(`isCardHolderAdmin`)は従来どおりメール限定(admin@kictravel.jp)。
+- 検証(Playwright+実際のサーバーハンドラ+ダミーDB): 51項目合格。

@@ -2538,7 +2538,7 @@ input[type=number]{-moz-appearance:textfield}
         <div class="card">
           <div class="card-title">カード名義人マスタ
             <span>
-              <button class="btn btn-p" onclick="openCardHolderAddForm()">＋ 新規追加</button>
+              <button class="btn btn-p" id="ch-add-btn" onclick="openCardHolderAddForm()">＋ 新規追加</button>
             </span>
           </div>
           <div style="font-size:11px;color:var(--text3);margin-bottom:8px">
@@ -3471,6 +3471,11 @@ function isEmailExcludeUser(){ return currentUser && EMAIL_EXCLUDE_EMAILS.includ
 // リストに載っていないと経理系機能(伝票内容を仕入明細に反映ボタン等)を使えない不具合があった。
 function isAccountingUser(){ return !!currentUser && (currentUser.role==='admin' || ACCOUNTING_EMAILS.includes(currentUser.email)); }
 function isCardHolderAdmin(){ return currentUser && CARD_HOLDER_ADMIN_EMAILS.includes(currentUser.email); }
+// カード名義人の「新規追加」「無効化」「有効化」ができるのは admin ロールだけ(サーバー側でも検証済みセッションのロールで強制。
+// これは画面のボタンを出すかどうかの判定)。画面を開ける人の判定(上のisCardHolderAdmin)は変えていない。
+function isCardHolderOpsAdmin(){ return !!currentUser && currentUser.role === 'admin'; }
+// 無効化の前に、その名義人の「未精算の個人立替」の件数・合計を出して確認する。false にすると、今までの簡単な確認(confirm)に戻る。
+const CARD_HOLDER_UNSETTLED_WARN = true;
 let currentPageId = 'dashboard';
 // 「ホーム」画面(ログイン後・再読み込み後の最初の画面。ダッシュボードとは別の画面)のオン・オフ。
 // false にすると、最初の画面は従来どおりダッシュボードになり、ホーム画面・上部の移動バーは作られない。
@@ -4079,6 +4084,7 @@ async function loadCardHolders(){
     if(error) throw error;
     cardHoldersAdminCache = data||[];
     renderCardHolders();
+    loadCardHolderAuditInfo();   // 無効の名義人の「いつ・だれが」(読み取りだけ。失敗しても一覧は出たまま)
   }catch(e){
     logError('カード名義人マスタの読み込み', e);
     tbody.innerHTML = `<tr><td colspan="4" class="empty" style="color:var(--red)">読み込みに失敗しました: ${escHtml(e.message||'')}</td></tr>`;
@@ -4096,9 +4102,56 @@ function renderCardHolders(){
   tbody.innerHTML = cardHoldersAdminCache.map(h=>`<tr>
     <td data-label="名前">${escHtml(h.name)}</td>
     <td data-label="メモ">${escHtml(h.notes||'')}</td>
-    <td data-label="状態">${h.is_active ? '<span style="color:var(--green)">有効</span>' : '<span style="color:var(--text3)">無効</span>'}</td>
-    <td>${h.is_active ? `<button class="btn" style="font-size:10px;color:var(--red)" onclick="deactivateCardHolder('${h.id}')">無効化</button>` : ''}</td>
+    <td data-label="状態">${h.is_active ? '<span style="color:var(--green)">有効</span>' : `<span style="color:var(--text3)">無効</span>${chAuditCache[h.id] ? `<div style="font-size:10px;color:var(--text3)">（${escHtml(chAuditCache[h.id])}）</div>` : ''}`}</td>
+    <td>${!isCardHolderOpsAdmin() ? '' : (h.is_active ? `<button class="btn" style="font-size:10px;color:var(--red)" onclick="deactivateCardHolder('${h.id}')">無効化</button>` : `<button class="btn" style="font-size:10px" onclick="activateCardHolder('${h.id}')">有効化</button>`)}</td>
   </tr>`).join('');
+  const addBtn = document.getElementById('ch-add-btn');
+  if(addBtn) addBtn.style.display = isCardHolderOpsAdmin() ? '' : 'none';
+}
+// 無効の名義人の「いつ・だれが」を、既存の監査ログ(audit_logs。auditHistory)から読む。記録が無い(この機能より前に無効化した)場合は何も出さない
+let chAuditCache = {};
+async function loadCardHolderAuditInfo(){
+  const inactive = cardHoldersAdminCache.filter(h=>!h.is_active);
+  if(!inactive.length) return;
+  await Promise.all(inactive.map(async h=>{
+    try{
+      const d = await tableCrudApiCall('card_holders', 'auditHistory', { recordId: h.id });
+      const row = (d.rows||[]).find(r=>r.action==='update' && r.after_data && r.after_data.is_active===false);
+      if(row) chAuditCache[h.id] = `${new Date(row.changed_at).toLocaleString('ja-JP')} ${row.changed_by||''}`.trim();
+    }catch(e){ /* 履歴が読めなくても一覧の表示・操作は止めない */ }
+  }));
+  renderCardHolders();
+}
+// 小さな確認ダイアログ(日本語を大きく・英語を小さく)。Esc・背景のクリックで閉じる(=false)。
+function chDialog({ titleJa, titleEn, bodyHtml, cancelJa, cancelEn, okJa, okEn, okStyle, cancelPrimary }){
+  return new Promise(resolve=>{
+    const two = (ja,en)=>`<span style="display:flex;flex-direction:column;align-items:center"><span style="font-size:13px;font-weight:700;line-height:1.25">${ja}</span><span style="font-size:9px;font-weight:400;opacity:.85;line-height:1.1">${en}</span></span>`;
+    const ov = document.createElement('div');
+    ov.id = 'ch-dialog';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px';
+    ov.innerHTML = `<div role="dialog" aria-modal="true" style="background:#fff;border-radius:12px;padding:18px;width:100%;max-width:420px;max-height:90vh;overflow-y:auto;box-sizing:border-box;box-shadow:0 8px 28px rgba(0,0,0,.25)">
+      <div style="margin-bottom:10px;display:flex;flex-direction:column"><span style="font-size:14px;font-weight:700">${titleJa}</span><span style="font-size:10px;color:var(--text3)">${titleEn}</span></div>
+      <div style="font-size:12px;line-height:1.6;margin-bottom:14px">${bodyHtml}</div>
+      <div style="display:flex;gap:10px">
+        <button type="button" id="ch-dlg-cancel" class="btn${cancelPrimary?' btn-p':''}" style="flex:1;justify-content:center;min-height:40px">${two(cancelJa,cancelEn)}</button>
+        <button type="button" id="ch-dlg-ok" class="btn" style="flex:1;justify-content:center;min-height:40px;${okStyle||''}">${two(okJa,okEn)}</button>
+      </div></div>`;
+    const done = v=>{ document.removeEventListener('keydown', onKey); ov.remove(); resolve(v); };
+    const onKey = e=>{ if(e.key==='Escape') done(false); };
+    document.addEventListener('keydown', onKey);
+    ov.addEventListener('click', e=>{ if(e.target===ov) done(false); });
+    document.body.appendChild(ov);
+    ov.querySelector('#ch-dlg-cancel').addEventListener('click', ()=>done(false));
+    ov.querySelector('#ch-dlg-ok').addEventListener('click', ()=>done(true));
+    ov.querySelector(cancelPrimary ? '#ch-dlg-cancel' : '#ch-dlg-ok').focus();
+  });
+}
+// その名義人(名前を全角半角・前後の空白をそろえて比べる)の未精算の個人立替の件数・合計
+async function chUnsettledFor(name){
+  const norm = v=>String(v||'').normalize('NFKC').replace(/\s+/g,' ').trim().toLowerCase();
+  const rows = await fetchUnreimbursedPersonalAdvanceRows();
+  const mine = rows.filter(r=>norm(r.card_holder)===norm(name));
+  return { count: mine.length, total: mine.reduce((s,r)=>s+Number(r.amount||0),0) };
 }
 function openCardHolderAddForm(){
   document.getElementById('ch-add-form').style.display = 'block';
@@ -4123,12 +4176,47 @@ async function saveNewCardHolder(){
 }
 async function deactivateCardHolder(id){
   const h = cardHoldersAdminCache.find(x=>String(x.id)===String(id));
-  if(!confirm(`「${h?h.name:''}」を無効化しますか？\n以後、名義人の選択肢に表示されなくなります（既存の明細データは残ります）。`)) return;
+  if(!isCardHolderOpsAdmin()) return;   // 画面側の判定(サーバーも403で拒否する)
+  if(CARD_HOLDER_UNSETTLED_WARN){
+    let u;
+    try{ u = await chUnsettledFor(h?h.name:''); }
+    catch(e){ alert('未精算の個人立替の確認に失敗したため、無効化を中止しました: '+e.message); return; }
+    const nameHtml = escHtml(h?h.name:'');
+    const ok = await chDialog(u.count===0 ? {
+      titleJa: `${nameHtml} を無効化しますか？`, titleEn: 'Deactivate this card holder?',
+      bodyHtml: `<div>未精算の個人立替: 0件 <span style="font-size:10px;color:var(--text3)">/ Unsettled personal advances: 0</span></div>
+        <div style="margin-top:6px">選択肢から外れます。過去の明細の名前は、そのまま残ります。あとで「有効化」で元に戻せます。<div style="font-size:10px;color:var(--text3)">It will be removed from the selection list. Names on past statements stay. You can reactivate it later.</div></div>`,
+      cancelJa:'やめる', cancelEn:'Cancel', okJa:'無効化する', okEn:'Deactivate', okStyle:'', cancelPrimary:false
+    } : {
+      titleJa: `${nameHtml} を無効化しますか？`, titleEn: 'Deactivate this card holder?',
+      bodyHtml: `<div style="border:1px solid #c0392b;background:#fde8ea;color:#c0392b;border-radius:8px;padding:8px 10px;font-weight:700">未精算の個人立替が ${u.count}件（合計 ${yen(u.total)}）あります。先に精算してください。
+          <div style="font-size:10px;font-weight:400">${u.count} unsettled personal advance(s), total ${yen(u.total)}. Please settle them first.</div></div>
+        <div style="margin-top:8px">このまま無効化しても、記録は残りますが、精算が漏れるおそれがあります。<div style="font-size:10px;color:var(--text3)">The records stay, but the settlement may be missed.</div></div>`,
+      cancelJa:'やめる', cancelEn:'Cancel', okJa:'それでも無効化する', okEn:'Deactivate Anyway', okStyle:'border:1.5px solid #c0392b;color:#c0392b', cancelPrimary:true
+    });
+    if(!ok) return;
+  }else if(!confirm(`「${h?h.name:''}」を無効化しますか？\n以後、名義人の選択肢に表示されなくなります（既存の明細データは残ります）。`)) return;
   try{
     await cardHoldersApiCall('updateById', { id, fields: { is_active:false } });
   }catch(e){ alert('無効化に失敗しました: '+e.message); return; }
   await logAction('カード名義人無効化', h?h.name:id);
   ccCardHolderStaffCache = null;
+  await loadCardHolders();
+}
+// 有効化(元に戻す)。adminだけ。確認のあと、選択肢に戻る
+async function activateCardHolder(id){
+  const h = cardHoldersAdminCache.find(x=>String(x.id)===String(id));
+  if(!isCardHolderOpsAdmin()) return;
+  const ok = await chDialog({ titleJa: `${escHtml(h?h.name:'')} を有効化しますか？`, titleEn: 'Reactivate this card holder?',
+    bodyHtml: `<div>名義人の選択肢に戻ります。<div style="font-size:10px;color:var(--text3)">It will return to the selection list.</div></div>`,
+    cancelJa:'やめる', cancelEn:'Cancel', okJa:'有効化する', okEn:'Reactivate', okStyle:'', cancelPrimary:false });
+  if(!ok) return;
+  try{
+    await cardHoldersApiCall('updateById', { id, fields: { is_active:true } });
+  }catch(e){ alert('有効化に失敗しました: '+e.message); return; }
+  await logAction('カード名義人有効化', h?h.name:id);
+  ccCardHolderStaffCache = null;
+  delete chAuditCache[id];
   await loadCardHolders();
 }
 
@@ -24472,13 +24560,17 @@ async function loadCreditCardStatements(){
 
 // 個人立替(クレジットカード(個人・要精算))の未精算分を、クレジットカード明細一覧の
 // 上部にバナー表示する(支払方法再設計、返金漏れ防止の可視化)。全予約横断で集計する。
+// 未精算の個人立替の行(全予約横断)。上のバナーと、カード名義人の無効化の前の確認(chUnsettledFor)で同じ取得を使う。
+// 以前はPostgRESTの1,000件上限で黙って切り捨てられていた。tableQueryAllで取り切る。
+function fetchUnreimbursedPersonalAdvanceRows(){
+  return tableQueryAll('booking_costs', { select: 'id,amount,card_holder,booking_id', filters: [
+    { col: 'payment_method', op: 'eq', value: 'クレジットカード(個人・要精算)' }, { col: 'payment_date', op: 'isNull' } ] });
+}
 async function renderUnreimbursedPersonalAdvanceBanner(){
   const el = document.getElementById('cc-unreimbursed-banner');
   if(!el) return;
   try{
-    // 以前はPostgRESTの1,000件上限で黙って切り捨てられていた。tableQueryAllで取り切る。
-    const rows = await tableQueryAll('booking_costs', { select: 'id,amount,card_holder,booking_id', filters: [
-      { col: 'payment_method', op: 'eq', value: 'クレジットカード(個人・要精算)' }, { col: 'payment_date', op: 'isNull' } ] });
+    const rows = await fetchUnreimbursedPersonalAdvanceRows();
     if(rows.length===0){ el.innerHTML=''; return; }
     const total = rows.reduce((s,r)=>s+Number(r.amount||0),0);
     const byHolder = {};
