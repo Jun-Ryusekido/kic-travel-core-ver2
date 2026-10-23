@@ -167,6 +167,13 @@ table{width:100%;border-collapse:collapse;font-size:12px}
 .pg-chip.pg-chip-alert{color:#A32D2D;border-color:#e8b4b4}
 .pg-chip.pg-chip-alert.active{background:#FCEBEB;border-color:#C62828;color:#A32D2D}
 .pg-chips-note{font-size:10px;color:var(--text3)}
+.pg-chip.pg-chip-alert.active.pg-chip-on{background:#C62828;border-color:#C62828;color:#fff}
+.pg-chip.pg-chip-alert.active.pg-chip-on .hn-en{opacity:.9}
+.bl-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:2px 0 8px}
+.bl-tabs:empty{display:none}
+.bl-tab{display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:3px 14px;border-radius:10px;border:1px solid var(--border);background:#fff;color:var(--text2);font-family:inherit;cursor:pointer}
+.bl-tab.active{background:var(--blue-lt);border-color:var(--blue);color:var(--blue)}
+.bl-tab:disabled{opacity:.6;cursor:default}
 .pg-stepper{display:flex;align-items:flex-start;margin:6px 0 10px;padding:10px 4px 6px;border:1px solid var(--border);border-radius:10px;background:var(--card,#fff)}
 .pg-step{position:relative;flex:1 1 0;min-width:0;text-align:center;background:none;border:none;padding:0 2px;font-family:inherit;cursor:pointer;color:var(--text)}
 .pg-step.pg-static{cursor:default}
@@ -1498,6 +1505,9 @@ input[type=number]{-moz-appearance:textfield}
         </div>
         <div class="card" id="bl-list-card" style="border-top:none;border-radius:0 0 12px 12px;padding-top:0;margin-bottom:14px">
           <div class="card-title">Booking List</div>
+          <!-- 今後 / 過去 / すべて のタブ(BOOKING_LIST_TABS_ENABLED。オフのときは空のまま) -->
+          <div class="bl-tabs" id="bl-tabs" role="tablist"></div>
+          <div id="bl-search-note" style="display:none;font-size:12px;font-weight:600;color:var(--amber,#854F0B);margin:0 0 8px"></div>
           <div class="pg-chips" id="bl-pg-chips"></div>
           <!-- カード表示(768px未満)では見出し行が消えるため、ソートの導線をここに置く -->
           <div class="bl-sort-bar" id="bl-sort-bar"></div>
@@ -4543,7 +4553,7 @@ let allBookingsCacheAt = 0;
 let bookingsListCache = [];
 let bookingsListCacheAt = 0;
 const LIST_PAGE_SIZE = 100;
-const listState = { db:{page:1, sortField:null, sortDir:1}, bl:{page:1, sortField:null, sortDir:1} };
+const listState = { db:{page:1, sortField:null, sortDir:1}, bl:{page:1, sortField:null, sortDir:1, tab:'upcoming'} };
 
 // table-layout:fixedの列は、合計が必ず100%になるようにする（62pxのような固定px指定と
 // %指定を混在させたまま合計が100%未満だと、ブラウザが余った幅を列間で予測不能に再配分し、
@@ -4556,10 +4566,64 @@ const LIST_COLUMNS = [
   // 進捗ドット(見積・手配・書類・請求・入金)と要確認バッジ。並べ替え対象外(判定は共通関数 BookingProgress)
   ['progress','進捗',false,'11%'], ['attention','要確認',false,'9%']
 ];
+// ===== Booking List の「今後 / 過去 / すべて」タブ(見え方・並べ方だけ。データ・件数の数え方は変えない) =====
+// BOOKING_LIST_TABS_ENABLED を false にする(または HOME_SCREEN_ENABLED を false にする)と、従来の一覧(タブなし・
+// 「進捗に問題 N件」のチップ・進捗列は全予約)に戻る。タブの状態は保存しない(一覧を開くたびに「今後」から始まる)。
+// 対象は Booking List(prefix 'bl')だけ。ダッシュボード(prefix 'db')・他の画面は変更しない。
+const BOOKING_LIST_TABS_ENABLED = true;
+const BL_TABS_ACTIVE = BOOKING_LIST_TABS_ENABLED && HOME_SCREEN_ENABLED;
+// 進捗の列とチップを出さない「過去」「すべて」用の列幅(進捗列の追加前=従来の列幅)
+const LIST_COLUMNS_NO_PROGRESS = [
+  ['ref_no','REF#',true,'6%'], ['agent_name','Agent',true,'23%'], ['tour_code','Tour Code',true,'15%'], ['tour_name','Tour Name',true,'18%'],
+  ['in_date','In',true,'11%'], ['out_date','Out',true,'11%'], ['pax','Pax',true,'6%'],
+  ['status','Status',true,'10%']
+];
+function blTabActive(prefix){ return BL_TABS_ACTIVE && prefix === 'bl'; }
+// 今日(日本時間)。YYYY-MM-DD
+function todayJst(){ return new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' }); }
+// 'up'(今後)/'past'(過去)/'x'(cancelled)/'n'(帰着日も出発日も空)。基準日は帰着日(Out)、空なら出発日(In)
+function blBookingCategory(b, today){
+  if(normalizeStatus(b.status) === 'cancelled') return 'x';
+  const e = b.out_date || b.in_date;
+  if(!e) return 'n';
+  return e >= today ? 'up' : 'past';
+}
+// 検索語が入っているときは、タブに関係なく全予約から探す(実質「すべて」)
+function blEffectiveTab(prefix, q){
+  if(!blTabActive(prefix)) return null;
+  return q ? 'all' : (listState.bl.tab || 'upcoming');
+}
+function blCurrentTab(prefix){
+  if(!blTabActive(prefix)) return null;
+  const el = document.getElementById('bl-search');
+  return blEffectiveTab(prefix, el ? toHalfWidth(el.value.trim().toLowerCase()) : '');
+}
+// 手配の段階(ホテル・バスのNG回答・キャンセル)の問題があるか。入金の問題(入金超過等)は含めない
+function hasArrangementProblem(b){
+  const r = bookingProgressFor(b);
+  return !!(r && !r.cancelled && r.reasons.some(x=>x.stage === 'arrangement'));
+}
+function renderBlTabs(counts, tab, searching){
+  const box = document.getElementById('bl-tabs'), note = document.getElementById('bl-search-note');
+  if(!box) return;
+  const defs = [['upcoming','今後','Upcoming',counts.upcoming], ['past','過去','Past',counts.past], ['all','すべて','All',counts.all]];
+  box.innerHTML = defs.map(([k,ja,en,n])=>`<button type="button" role="tab" class="bl-tab${tab===k?' active':''}" aria-selected="${tab===k}" ${searching?'disabled':''} onclick="setBlTab('${k}')"><span class="hn-t"><span class="hn-ja">${ja} ${n}</span><span class="hn-en">${en}</span></span></button>`).join('');
+  if(note){ note.style.display = searching ? '' : 'none'; if(searching) note.textContent = '🔍 全ての予約から検索中 / Searching All'; }
+}
+function setBlTab(tab){
+  listState.bl.tab = tab;
+  listState.bl.attentionOnly = false;
+  listState.bl.page = 1;
+  filterBookingListGeneric('bl');
+}
 
 function renderListHeader(prefix){
   const state = listState[prefix];
-  document.getElementById(prefix+'-thead').innerHTML = '<tr>' + LIST_COLUMNS.map(([field,label,sortable,width])=>{
+  const tabNow = blCurrentTab(prefix);
+  let cols = LIST_COLUMNS;
+  if(tabNow && tabNow !== 'upcoming') cols = LIST_COLUMNS_NO_PROGRESS;
+  else if(tabNow === 'upcoming') cols = LIST_COLUMNS.map(c=> c[0]==='attention' ? [c[0], '<span class="hn-t"><span class="hn-ja">手配の問題</span><span class="hn-en">Arrangement</span></span>', c[2], c[3]] : c);
+  document.getElementById(prefix+'-thead').innerHTML = '<tr>' + cols.map(([field,label,sortable,width])=>{
     let arrow = '';
     if(state.sortField===field) arrow = ' <span class="sort-arrow">'+(state.sortDir===1?'▲':'▼')+'</span>';
     const styleAttr = width ? ` style="width:${width}"` : '';
@@ -4623,6 +4687,7 @@ async function loadBookingListGeneric(prefix){
     bookingsListCacheAt = Date.now();
   }
   listState[prefix].page = 1;
+  if(blTabActive(prefix)){ listState.bl.tab = 'upcoming'; listState.bl.attentionOnly = false; }  // 一覧を開くたびに「今後」から(保存しない)
   const fromEl = document.getElementById(prefix+'-from');
   const isAdmin = currentUser && currentUser.role==='admin';
   if(fromEl && !fromEl.value && !isAdmin) fromEl.value = TEMP_DEFAULT_FROM;
@@ -5560,11 +5625,25 @@ function filterBookingListGeneric(prefix){
 
   // 進捗の「要確認」絞り込み。件数チップは他の条件(検索・日付・ステータス)で絞った結果に対する件数。
   // 進捗の集計が未取得の間は絞り込まず、チップに「読み込み中」を出す(取得後に再描画される)。
-  const attentionCount = filtered.filter(b=>{ const r = bookingProgressFor(b); return !!(r && r.needsAttention); }).length;
-  if(listState[prefix].attentionOnly && bookingProgressSummary){
-    filtered = filtered.filter(b=>{ const r = bookingProgressFor(b); return !!(r && r.needsAttention); });
+  // Booking List(タブ有効時): 今後/過去/すべてで絞る。件数は日付・STATUS(検索中は検索語)で絞った結果に対する件数。
+  // 「手配に問題」は手配の段階の問題だけを数える(今後のタブだけ)。それ以外は従来どおり。
+  const tabNow = blEffectiveTab(prefix, q);
+  const showProg = !tabNow || tabNow === 'upcoming';
+  let tabCounts = null;
+  if(tabNow){
+    const today = todayJst();
+    tabCounts = { upcoming:0, past:0, all:filtered.length };
+    filtered.forEach(b=>{ const c = blBookingCategory(b, today); if(c==='up') tabCounts.upcoming++; else if(c==='past') tabCounts.past++; });
+    if(tabNow === 'upcoming') filtered = filtered.filter(b=>blBookingCategory(b, today)==='up');
+    else if(tabNow === 'past') filtered = filtered.filter(b=>blBookingCategory(b, today)==='past');
+  }
+  const needsAtt = tabNow ? hasArrangementProblem : (b=>{ const r = bookingProgressFor(b); return !!(r && r.needsAttention); });
+  const attentionCount = showProg ? filtered.filter(needsAtt).length : 0;
+  if(showProg && listState[prefix].attentionOnly && bookingProgressSummary){
+    filtered = filtered.filter(needsAtt);
   }
   updateProgressChips(prefix, attentionCount);
+  if(tabNow) renderBlTabs(tabCounts, tabNow, !!q);
   const countText = `${filtered.length}件 / 全${bookingsListCache.length}件`;
   document.getElementById(prefix+'-count').textContent = countText;
   if(prefix === 'db'){
@@ -5600,7 +5679,8 @@ function filterBookingListGeneric(prefix){
   renderListHeader(prefix);
 
   const tbody = document.getElementById(prefix+'-tbody');
-  if(filtered.length===0){ tbody.innerHTML='<tr class="bl-fullrow"><td colspan="10" class="empty">該当する予約がありません</td></tr>'; return; }
+  const colspan = showProg ? 10 : 8;
+  if(filtered.length===0){ tbody.innerHTML=`<tr class="bl-fullrow"><td colspan="${colspan}" class="empty">該当する予約がありません</td></tr>`; return; }
 
   // ページネーション
   let page = listState[prefix].page;
@@ -5618,13 +5698,13 @@ function filterBookingListGeneric(prefix){
       <td class="lnk" onclick="event.stopPropagation();openBookingDetail('${b.id}')">${b.ref_no}</td><td data-label="Agent">${b.agent_name||''}</td><td data-label="Tour Code">${b.tour_code||''}</td><td data-label="Tour">${b.tour_name||''}</td>
       <td data-label="In">${b.in_date||''}</td><td data-label="Out">${b.out_date||''}</td><td data-label="Pax">${b.pax||0}</td>
       <td data-label="Status">${statusPill(b.status)}</td>
-      <td data-label="進捗">${progressDotsHtml(b)}</td><td data-label="要確認">${progressAttentionHtml(b)}</td>
+      ${showProg ? `<td data-label="進捗">${progressDotsHtml(b)}</td><td data-label="${tabNow ? '手配の問題' : '要確認'}">${progressAttentionHtml(b, !!tabNow)}</td>` : ''}
     </tr>`;
   }).join('');
 
   // ページネーションUI
   if(totalPages > 1){
-    let pager = `<tr class="bl-fullrow"><td colspan="10" style="text-align:center;padding:10px">`;
+    let pager = `<tr class="bl-fullrow"><td colspan="${colspan}" style="text-align:center;padding:10px">`;
     pager += `<button class="btn" ${page<=1?'disabled':''} onclick="listGoPage('${prefix}',${page-1})">← 前へ</button> `;
     pager += `<span style="margin:0 10px;font-size:11px;color:var(--text3)">ページ ${page} / ${totalPages}</span>`;
     pager += `<button class="btn" ${page>=totalPages?'disabled':''} onclick="listGoPage('${prefix}',${page+1})">次へ →</button>`;
@@ -5739,27 +5819,39 @@ function progressDotsHtml(b){
 }
 function BookingProgress_keys(){ return (typeof BookingProgress !== 'undefined') ? BookingProgress.STAGE_KEYS : ['estimate','arrangement','document','invoice','payment']; }
 
-function progressAttentionHtml(b){
+// arrOnly=true(Booking Listの「今後」タブ): 手配の段階の理由だけを出す(入金の理由は出さない)
+function progressAttentionHtml(b, arrOnly){
   const r = bookingProgressFor(b);
   if(!r) return '';
   if(r.cancelled) return '<span class="pg-ok">—</span>';
-  if(!r.needsAttention) return '<span class="pg-ok">問題なし</span>';
-  const tip = r.reasons.map(x=>x.message).join('\n');
-  const badges = r.reasons.slice(0,2).map(x=>`<span class="pg-badge">${escHtml(x.badge)}</span>`).join('');
-  const more = r.reasons.length > 2 ? `<span class="pg-badge">+${r.reasons.length-2}</span>` : '';
+  const reasons = arrOnly ? r.reasons.filter(x=>x.stage === 'arrangement') : r.reasons;
+  if(arrOnly ? reasons.length === 0 : !r.needsAttention) return '<span class="pg-ok">問題なし</span>';
+  const tip = reasons.map(x=>x.message).join('\n');
+  const badges = reasons.slice(0,2).map(x=>`<span class="pg-badge">${escHtml(x.badge)}</span>`).join('');
+  const more = reasons.length > 2 ? `<span class="pg-badge">+${reasons.length-2}</span>` : '';
   return `<span title="${escHtml(tip)}">${badges}${more}</span>`;
 }
 
 function updateProgressChips(prefix, attentionCount){
   const el = document.getElementById(prefix+'-pg-chips');
   if(!el) return;
+  // Booking Listの「過去」「すべて」(検索中を含む)では、進捗のチップは出さない
+  if(blTabActive(prefix) && blCurrentTab(prefix) !== 'upcoming'){ el.innerHTML = ''; return; }
   const only = !!listState[prefix].attentionOnly;
   let attLabel;
   // 名前: 進捗の問題の件数(HOME_SCREEN_ENABLEDオン時は「進捗に問題 N件 / Progress Issues」の2段。オフは従来の「要確認 N件」)
-  const chipName = HOME_SCREEN_ENABLED ? '進捗に問題' : '要確認';
+  // Booking Listのタブ有効時は「手配に問題 N件 / Arrangement Issues」(手配の問題だけの件数)
+  const tabsOn = blTabActive(prefix);
+  const chipName = tabsOn ? '手配に問題' : (HOME_SCREEN_ENABLED ? '進捗に問題' : '要確認');
   if(bookingProgressSummary) attLabel = `${chipName} ${attentionCount}件`;
   else attLabel = bookingProgressError ? `${chipName}(取得失敗)` : `${chipName} 読み込み中…`;
-  if(HOME_SCREEN_ENABLED) attLabel = `<span class="hn-t"><span class="hn-ja">${attLabel}</span><span class="hn-en">Progress Issues</span></span>`;
+  if(HOME_SCREEN_ENABLED) attLabel = `<span class="hn-t"><span class="hn-ja">${attLabel}</span><span class="hn-en">${tabsOn ? 'Arrangement Issues' : 'Progress Issues'}</span></span>`;
+  if(tabsOn){
+    // タブ有効時: タブの「すべて」と紛らわしいため、チップ行の「すべて」は出さない。
+    // 「手配に問題」はスイッチ(押すと絞り込み、もう一度押すと解除)。押されている間は色を濃くする
+    el.innerHTML = `<button type="button" class="pg-chip pg-chip-alert${only?' active pg-chip-on':''}" aria-pressed="${only}" onclick="setBookingListAttentionOnly('${prefix}',${only?'false':'true'})">${attLabel}</button>`;
+    return;
+  }
   el.innerHTML =
     `<button type="button" class="pg-chip${only?'':' active'}" onclick="setBookingListAttentionOnly('${prefix}',false)">すべて</button>` +
     `<button type="button" class="pg-chip pg-chip-alert${only?' active':''}" onclick="setBookingListAttentionOnly('${prefix}',true)">${attLabel}</button>`;
