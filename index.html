@@ -40,6 +40,8 @@ body.has-deadline-banner .app{margin-top:var(--deadline-banner-h,34px)}
 .sb-sec-arrow{transition:transform .15s;font-size:8px;flex-shrink:0;margin-left:6px}
 .sb-sec.collapsed .sb-sec-arrow{transform:rotate(-90deg)}
 .sb-sec-body.collapsed{display:none}
+/* 仮払い一覧表: 支払方法が空・選択肢にない値の行を薄い黄色にする */
+tr.le-pay-warn>td{background:#fff8d6}
 /* スマホのドロワー(.sb.open)ではタップ操作になるため、セクション見出しの
    タップ領域を指で押しやすい高さまで広げる(デスクトップの詰めた表示はそのまま)。 */
 @media(max-width:768px){
@@ -7247,6 +7249,14 @@ const LOCAL_EXPENSE_PAYMENT_METHODS = ['現地払い','事前決済','請求書�
 // クレジットカード払い(法人・個人)を選んだ場合にのみ、名義人・個人立替の精算状況の
 // 入力欄を追加表示する対象の支払方法。
 const CC_PAYMENT_METHODS = ['クレジットカード(法人)','クレジットカード(個人・要精算)'];
+// 仮払い一覧表の支払方法が空(未選択)・選択肢にない値の行を、画面で「未選択」「(旧)」と見せ、印刷の前に警告する。
+// false にすると、今までの表示(空の選択肢なし・確認なし・印刷の列幅も従来)に戻る。
+const LOCAL_EXPENSE_PAYMENT_UNSET_UI = true;
+// 'ok'=選択肢にある値 / 'unset'=空・NULL / 'legacy'=選択肢にない値
+function localExpensePaymentState(v){
+  if(v===null || v===undefined || String(v).trim()==='') return 'unset';
+  return LOCAL_EXPENSE_PAYMENT_METHODS.includes(v) ? 'ok' : 'legacy';
+}
 // 手配管理タブ(ホテル・バス・ミネラルウォーター・新幹線・ガイド)共通の支払方法選択肢。
 // 「現地払い」のものだけが実際に現金の仮払いが必要な対象、それ以外(事前決済/請求書払い/
 // 全旅クーポン/無料(FREE))は今回のツアー中の現金仮払いは不要、という仮払い一覧表側の
@@ -9535,6 +9545,23 @@ function removeCostRow(i){
   renderCostTable();
 }
 
+// 支払方法のプルダウンの選択肢。空は「未選択 / Not Set」、選択肢にない保存値はその値を「（旧）」つきで足して選ばれた状態にする
+// (画面が保存値と違う値を見せないため)。
+function localExpensePaymentOptionsHtml(cur){
+  if(!LOCAL_EXPENSE_PAYMENT_UNSET_UI){
+    return LOCAL_EXPENSE_PAYMENT_METHODS.map(m=>`<option value="${m}" ${cur===m?'selected':''}>${m}</option>`).join('');
+  }
+  const st = localExpensePaymentState(cur);
+  return `<option value="" ${st==='unset'?'selected':''}>未選択 / Not Set</option>`
+    + (st==='legacy' ? `<option value="${escAttr(cur)}" selected>${escHtml(cur)}（旧）</option>` : '')
+    + LOCAL_EXPENSE_PAYMENT_METHODS.map(m=>`<option value="${m}" ${cur===m?'selected':''}>${m}</option>`).join('');
+}
+// 選択を変えたとき、その行の黄色だけを付け外しする(一覧全体は描画し直さない)。
+function localExpensePaymentMark(sel){
+  if(!LOCAL_EXPENSE_PAYMENT_UNSET_UI) return;
+  const tr = sel.closest('tr'); if(!tr) return;
+  tr.classList.toggle('le-pay-warn', localExpensePaymentState(sel.value)!=='ok');
+}
 function renderLocalExpenses(){
   if(_dateInputFocusedIn('bd-local-tbody')) return;
   const tbody = document.getElementById('bd-local-tbody');
@@ -9544,7 +9571,7 @@ function renderLocalExpenses(){
     tbody.innerHTML='<tr><td colspan="10" class="empty" style="padding:6px;font-size:10px">明細なし</td></tr>';
   }else{
     tbody.innerHTML = bdLocalExpenses.map((it,i)=>`
-      <tr${arrRowDropHtml('bdLocalExpenses',i,'renderLocalExpenses')}>
+      <tr${arrRowDropHtml('bdLocalExpenses',i,'renderLocalExpenses')}${(LOCAL_EXPENSE_PAYMENT_UNSET_UI && localExpensePaymentState(it.payment_method)!=='ok') ? ' class="le-pay-warn"' : ''}>
       ${arrReorderHtml('bdLocalExpenses', i, bdLocalExpenses.length, 'renderLocalExpenses')}
         <td data-label="日付"><input type="date" min="1900-01-01" max="9999-12-31" value="${_safeDate(it.expense_date)}" onchange="bdLocalExpenses[${i}].expense_date=this.value" style="width:100%"></td>
         <td data-label="費用種類"><select onchange="bdLocalExpenses[${i}].expense_type=this.value" style="width:100%">
@@ -9558,8 +9585,8 @@ function renderLocalExpenses(){
         <td data-label="単価"><input type="text" inputmode="numeric" value="${Number(it.unit_price||0).toLocaleString('ja-JP')}" onchange="localExpenseCalc(${i},this)" style="width:70px;text-align:right"></td>
         <td data-label="数量"><input type="number" value="${isLocalExpenseQtyUndetermined(it) ? '' : it.qty}" placeholder="未確定" onchange="localExpenseQtyChange(${i},this)" style="width:45px${isLocalExpenseQtyUndetermined(it) ? ';border-color:var(--amber);background:#fff8e6' : ''}"></td>
         <td data-label="金額" style="text-align:right;white-space:nowrap">${isLocalExpenseQtyUndetermined(it) ? '<span style="color:var(--amber);font-size:10px;font-weight:600" title="数量が決まっていないため金額は0円です。数量を入力してください。">数量未確定</span>' : yen(it.amount||0)}</td>
-        <td data-label="支払方法"><select onchange="bdLocalExpenses[${i}].payment_method=this.value" style="width:100%">
-          ${LOCAL_EXPENSE_PAYMENT_METHODS.map(m=>`<option value="${m}" ${it.payment_method===m?'selected':''}>${m}</option>`).join('')}
+        <td data-label="支払方法"><select onchange="bdLocalExpenses[${i}].payment_method=this.value;localExpensePaymentMark(this)" style="width:100%">
+          ${localExpensePaymentOptionsHtml(it.payment_method)}
         </select></td>
         ${arrDelBtnHtml('bdLocalExpenses', i, 'renderLocalExpenses', escAttr([it.expense_date, it.expense_type, it.content].filter(Boolean).join(' '))+' の行を削除しますか？', 'duplicateLocalExpenseRow')}
       </tr>`).join('');
@@ -12016,9 +12043,28 @@ function printGuideSettlement(settlementId, guideIndex){
   const win = window.open('','_blank','width=800,height=900');
 win.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><style>@page{size:A4 portrait;margin:10mm}body{margin:0}table{page-break-inside:auto}tr{page-break-inside:avoid}<\/style><\/head><body>'+html+'<script>window.onload=function(){window.print()}<\/script><\/body><\/html>');
   win.document.close();
-}function printLocalExpenses(){
+}async function printLocalExpenses(){
   const b = findBookingById(currentDetailId);
   if(!b) return;
+
+  // 支払方法が空(未選択)・選択肢にない値の行があれば、印刷の前に確認する(0件なら出さない)。
+  if(LOCAL_EXPENSE_PAYMENT_UNSET_UI){
+    const unsetN = bdLocalExpenses.filter(it=>localExpensePaymentState(it.payment_method)==='unset').length;
+    const legacyN = bdLocalExpenses.filter(it=>localExpensePaymentState(it.payment_method)==='legacy').length;
+    if(unsetN + legacyN > 0){
+      const go_ = await chDialog({
+        titleJa: `支払方法が未選択の行が ${unsetN + legacyN}件あります`,
+        titleEn: 'Some rows have no payment method',
+        bodyHtml: `<div>このまま印刷すると、その行の支払方法は空欄になります。</div>`
+          + (legacyN>0 ? `<div style="margin-top:6px;color:var(--text3)">うち${legacyN}件は、選択肢にない旧い値です(印刷にはその値が出ます)。</div>` : '')
+          + `<div style="margin-top:6px;font-size:10px;color:var(--text3)">If you print now, the payment method of those rows will be blank.</div>`,
+        cancelJa: '戻って確認する', cancelEn: 'Go back and check',
+        okJa: 'このまま印刷', okEn: 'Print anyway',
+        cancelPrimary: true
+      });
+      if(!go_) return;
+    }
+  }
 
   const guideNames = guideSettlementsCache.flatMap(s=>{
     if(Array.isArray(s.guide_names)&&s.guide_names.length>0) return s.guide_names.map(g=>g.name).filter(Boolean);
@@ -12031,6 +12077,9 @@ win.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><style>@pag
   const tdB = 'style="border:1px solid #bbb;padding:2px 4px;vertical-align:top;white-space:nowrap"';
   const tdR = 'style="border:1px solid #bbb;padding:2px 4px;text-align:right;vertical-align:top;white-space:nowrap"';
   const tdContent = 'style="border:1px solid #bbb;padding:2px 4px;vertical-align:top;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:0"';
+  // 支払方法の列は列幅を広げ、長い値(「クレジットカード(個人・要精算)」等)は折り返して全部見せる。
+  const tdPay = LOCAL_EXPENSE_PAYMENT_UNSET_UI ? 'style="border:1px solid #bbb;padding:2px 4px;vertical-align:top;white-space:normal;word-break:break-all"' : tdB;
+  const colWidths = LOCAL_EXPENSE_PAYMENT_UNSET_UI ? [7,38,12,7,13,23] : [7,43,12,7,13,18];
   // 日付は年を省略し「MM-DD」形式にして列幅を詰める(年をまたぐツアーはほぼ無い前提。
   // 表示上どうしても年が必要なケースはヘッダー側の「日にち」欄で確認できる)。
   const shortDate = d => d ? String(d).replace(/^\d{4}-/,'') : '';
@@ -12067,14 +12116,14 @@ win.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><style>@pag
         <td ${tdR}>${Number(it.unit_price||0).toLocaleString('ja-JP')}</td>
         <td ${tdR}>${isLocalExpenseQtyUndetermined(it) ? '' : it.qty}</td>
         <td ${tdR}>${isLocalExpenseQtyUndetermined(it) ? '<span style="font-weight:700">数量未確定</span>' : Number(it.amount||0).toLocaleString('ja-JP')}</td>
-        <td ${tdB}>${escHtml(it.payment_method||'')}</td>
+        <td ${tdPay}>${escHtml(it.payment_method||'')}</td>
       </tr>`;
     }).join('');
 
     return `${multiBand?`<div style="font-size:13pt;font-weight:700;margin-bottom:4px">${band}班</div>`:''}
     <table style="width:100%;border-collapse:collapse;font-size:8pt;table-layout:fixed">
       <colgroup>
-        <col style="width:7%"><col style="width:43%"><col style="width:12%"><col style="width:7%"><col style="width:13%"><col style="width:18%">
+        ${colWidths.map(w=>`<col style="width:${w}%">`).join('')}
       </colgroup>
       <thead><tr>
         <th ${thStyle} style="border:1px solid #999;padding:3px 4px;background:#dce4f0;font-weight:700">日付</th>
