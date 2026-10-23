@@ -167,6 +167,8 @@ table{width:100%;border-collapse:collapse;font-size:12px}
 .pg-chip.pg-chip-alert{color:#A32D2D;border-color:#e8b4b4}
 .pg-chip.pg-chip-alert.active{background:#FCEBEB;border-color:#C62828;color:#A32D2D}
 .pg-chips-note{font-size:10px;color:var(--text3)}
+.pg-chip.pg-chip-alert.active.pg-chip-on{background:#C62828;border-color:#C62828;color:#fff}
+.pg-chip.pg-chip-alert.active.pg-chip-on .hn-en{opacity:.9}
 .bl-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:2px 0 8px}
 .bl-tabs:empty{display:none}
 .bl-tab{display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:3px 14px;border-radius:10px;border:1px solid var(--border);background:#fff;color:var(--text2);font-family:inherit;cursor:pointer}
@@ -5844,6 +5846,12 @@ function updateProgressChips(prefix, attentionCount){
   if(bookingProgressSummary) attLabel = `${chipName} ${attentionCount}件`;
   else attLabel = bookingProgressError ? `${chipName}(取得失敗)` : `${chipName} 読み込み中…`;
   if(HOME_SCREEN_ENABLED) attLabel = `<span class="hn-t"><span class="hn-ja">${attLabel}</span><span class="hn-en">${tabsOn ? 'Arrangement Issues' : 'Progress Issues'}</span></span>`;
+  if(tabsOn){
+    // タブ有効時: タブの「すべて」と紛らわしいため、チップ行の「すべて」は出さない。
+    // 「手配に問題」はスイッチ(押すと絞り込み、もう一度押すと解除)。押されている間は色を濃くする
+    el.innerHTML = `<button type="button" class="pg-chip pg-chip-alert${only?' active pg-chip-on':''}" aria-pressed="${only}" onclick="setBookingListAttentionOnly('${prefix}',${only?'false':'true'})">${attLabel}</button>`;
+    return;
+  }
   el.innerHTML =
     `<button type="button" class="pg-chip${only?'':' active'}" onclick="setBookingListAttentionOnly('${prefix}',false)">すべて</button>` +
     `<button type="button" class="pg-chip pg-chip-alert${only?' active':''}" onclick="setBookingListAttentionOnly('${prefix}',true)">${attLabel}</button>`;
