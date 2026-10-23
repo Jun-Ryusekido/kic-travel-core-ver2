@@ -32347,9 +32347,20 @@ body.home-nav-on .home-nav{display:flex}
   #home-user-btn{display:none}
   body.home-sb-closed .topbar{flex-wrap:nowrap}
 }
+/* 共有PC向け: 「ユーザー名（ロール）」は、PC幅(761px以上)のどの幅でも隠さない(長いときは「…」で短く切り、全体は title で見える)。
+   幅が狭くなったときに省く順番: 1.「KIC Ver 2.0」 2.「バックアップ」「New Booking」の文字(アイコンだけ) 3.「ログアウト / Logout」の文字(赤い枠のアイコンだけ) */
+.home-user-inline .hu-lo-ic{display:none;font-size:15px;line-height:1}
 @media(min-width:761px) and (max-width:1400px){ body.home-sb-closed .topbar .ver-badge{display:none} }
-@media(min-width:761px) and (max-width:1100px){ .home-user-inline .hu-name{display:none} }
-@media(min-width:761px) and (max-width:900px){ body.home-sb-closed .topbar .tb-label{display:none} body.home-sb-closed .topbar .ver-badge{display:none} }
+@media(min-width:761px) and (max-width:1100px){
+  body.home-sb-closed .topbar .tb-label{display:none}
+  .home-user-inline .hu-name{max-width:150px}
+}
+@media(min-width:761px) and (max-width:900px){
+  .home-user-inline .hu-name{max-width:120px}
+  .home-user-inline .hu-logout{width:34px;padding:0}
+  .home-user-inline .hu-logout .hn-t{display:none}
+  .home-user-inline .hu-logout .hu-lo-ic{display:inline}
+}
 #home-logout-confirm{display:none;position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.4);align-items:center;justify-content:center;padding:16px}
 #home-logout-confirm.open{display:flex}
 #home-logout-confirm .hlc-box{background:var(--card);border-radius:12px;padding:18px;width:100%;max-width:340px;box-sizing:border-box;box-shadow:0 8px 28px rgba(0,0,0,.25)}
@@ -32700,7 +32711,7 @@ body:not(.has-deadline-banner) #home-drawer{top:0}
     if(actions && !document.getElementById('home-user-inline')){
       const ug = document.createElement('div');
       ug.id = 'home-user-inline'; ug.className = 'home-user-inline';
-      ug.innerHTML = `<span class="hu-name" id="home-user-name"></span><button type="button" class="hu-logout" onclick="homeAskLogout()">${bi('ログアウト', 'Logout')}</button>`;
+      ug.innerHTML = `<span class="hu-name" id="home-user-name"></span><button type="button" class="hu-logout" title="ログアウト / Logout" aria-label="ログアウト / Logout" onclick="homeAskLogout()">${bi('ログアウト', 'Logout')}<span class="hu-lo-ic" aria-hidden="true">⏻</span></button>`;
       actions.appendChild(ug);
       const dlg = document.createElement('div');
       dlg.id = 'home-logout-confirm'; dlg.setAttribute('role', 'dialog'); dlg.setAttribute('aria-modal', 'true');
