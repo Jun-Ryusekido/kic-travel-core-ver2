@@ -6,7 +6,7 @@
     { "src": "guide.html", "use": "@vercel/static" },
     { "src": "arrangement_excel.js", "use": "@vercel/static" },
     { "src": "public/**", "use": "@vercel/static" },
-    { "src": "api/*.js", "use": "@vercel/node" }
+    { "src": "api/*.js", "use": "@vercel/node", "config": { "includeFiles": ["public/js/booking-progress.js"] } }
   ],
   "routes": [
     { "src": "/api/extract-card", "dest": "/api/extract-card.js" },
@@ -32,6 +32,7 @@
     { "src": "/kic_stamp_v2.png", "dest": "/public/kic_stamp_v2.png" },
     { "src": "/tour_arrangement_template.xlsx", "dest": "/public/tour_arrangement_template.xlsx" },
     { "src": "/js/image-compress.js", "dest": "/public/js/image-compress.js" },
+    { "src": "/js/booking-progress.js", "dest": "/public/js/booking-progress.js" },
     { "src": "/guide.html", "dest": "/guide.html" },
     { "src": "/arrangement_excel.js", "dest": "/arrangement_excel.js" },
     { "src": "/", "dest": "/index.html" }

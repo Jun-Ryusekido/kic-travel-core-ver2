@@ -1066,6 +1066,91 @@ PR: https://github.com/Jun-Ryusekido/kic-travel-core-ver2/pull/225 （未マー�
 
 ---
 
+## 予約の進捗判定（ステッパー/進捗ドット）— 指示1 調査完了（コード未変更）
+
+### 確定した事実（実コードで確認）
+- 詳細: index.html `openBookingDetail`(:9413)。モーダル「予約台帳」。売上/仕入/請求書は `tableQueryBatch` 経由(API)、hotels/buses/手配書ヘッダーは `sb.from()` 直接。
+- 一覧: `loadBookingListGeneric`(:4545) → `fetchBookingsListLight`(:4290) が bookings を軽量列で全件取得し `bookingsListCache`(5分TTL)に保持。ダッシュボード(db)と予約一覧(bl)が共用。
+- 入金は **payments テーブルではない**。`booking_sales.payments` は jsonb 配列 `[{date,amount,bank,remark}]`。入金合計=全売上行の payments[].amount の合計(`salesPaymentsTotal` :7232 / 詳細KPI `bd-sum-paid`)。売上合計は `booking_sales.amount` の合計。
+- invoices.status = 'pending' / 'paid' / 'void'（コード・SQLコメントで確認）。invoicesは `readable`(booking_id eq/in)でAPI経由のみ。
+- 手配ステータス値: 未予約 / 問い合わせ中 / 手配OK / FNL済 / NG回答 / 予約不要 / キャンセル(施設)。ホテル/バスの選択肢は VENDOR_EMAIL_STATUS_OPTIONS=未予約,問い合わせ中,手配OK,FNL済,NG回答,キャンセル(+旧「確定」「回答待ち」が色分け関数に残存)。
+- estimations: `converted_booking_id`(予約への紐付け)、`is_template` はあるが、**「確定済み」を表す列はコード/SQL上見つからない**。
+- 書類: `tour_arrangement_headers`(booking_id 1:1, 共通ドラフト) と `arrangement_documents`(ガイド別手配書, booking_id)。「手配一覧表を作成した」ことを示す専用フラグは未発見。
+- bookings.status は既に open/pending/confirmed/finalized/invoiced/paid/settlement/closed/cancelled (STATUS_ORDER :7083) を持つ。
+
+### 実装上の制約（要判断）
+- booking_sales / invoices は RLS有効でAPI(`query`)のみ。`booking_id in` は1回200件まで、全件取得用のfilterなし取得は不可 → 1000件超の一覧には「進捗集計用の読み取り専用action」を api/table-crud.js に新設するのが現実的(DBスキーマ変更なし)。
+- booking_hotels/booking_buses は一覧側で既に anon `sb.from()` 直接select(:27213)。
+
+### 未実施
+- 実データでのドライラン: この環境にSupabase認証情報なし(env/ .env 無し)。Claude in Chrome 接続も無し。
+
+---
+
+## 予約進捗判定 — ドライラン用スクリプト完成（画面は未実装・JUNさんのドライラン結果待ち）
+
+### 確定したこと
+- ブランチ: claude/epic-goodall-ysy4ll は origin/main(7764fe3)を含む（`git merge-base --is-ancestor` で確認）。
+- 判定の純粋関数: `public/js/booking-progress.js`（UMD。ブラウザは `window.BookingProgress`、Nodeは require）。`vercel.json` へのルート追加は未実施（画面実装時に追加。image-compress.js と同じ方式）。
+- ドライラン: `scripts/progress_dryrun.js`（GETのみ。出力 scripts/data/progress_dryrun_summary.json）。全テーブル1000行ずつページング、`count=exact` と取得件数が不一致なら集計を出さず exit 2。
+- ルール（調査報告+JUN回答どおり）: 見積=紐付き見積あり→完了/なし→対象外「見積なし」。書類=常に対象外「記録なし」。cancelled予約=全段階対象外・要確認なし。手配=NG/キャンセル→要確認、問い合わせ中→進行中、全件OK→完了、全件未予約/0件→未着手、**一部OKで残りが未予約のみ→進行中（指示に明記なしのため私の補足。要確認）**。入金は1円未満の差を等しいとみなす。**売上がマイナス(<-1円)→要確認(sales_negative)も私の補足**。
+- 「手配一覧表PDF」(`printArrangementSummaryList` index.html:26258) は画面メモリ上の bdHotelItems/bdBusItems/bdFacilityItems/bdRestaurantItems/bdBulletTrainItems と business_partners を読んで印刷するだけで、**作成記録をDBに残さない**。→ 書類は判定不能のまま。候補: tour_arrangement_headers の有無 / arrangement_documents の有無（statusは draft/final）。件数はドライラン出力に含む。
+- 検証: 純粋関数の単体テスト(境界・小数・旧値・cancelled)OK。モックサーバー(2300予約でページング)でスクリプト動作OK、count不一致時は集計を出さず中止、GET以外のリクエスト0件。
+
+### 残タスク
+1. JUNさんがドライラン実行 → 結果(summary JSON)を貼る。参考値(入金超過≒56・売上0円入金あり≒30)と大きくずれたら実装に進まず原因調査。
+2. 結果確認後に実装: api/table-crud.js に進捗集計の読み取り専用action新設（予約ごとの売上合計/入金合計/有効請求書件数のみ。既存の認証を通す。5分TTL）、詳細ステッパー、一覧ドット・要確認チップ・横断検索、「対象外」(灰色の丸に—)表示。vercel.jsonにルート追加。
+3. 実データでの画面確認手順はJUNさん環境向けに最後に提示。
+
+---
+
+## 予約進捗（ステッパー・一覧ドット・要確認チップ）— 実装完了（PR未作成・mainへ未反映）
+
+### JUNさんの判断（反映済み）
+- ドライランは実施せず、SQLで入金判定を検証済み（売上明細あり652件: 完了36/進行中16/なし519/超過26/売上0円で入金あり30。超過26+0円30=56が10/6点検値と一致）。判定条件はそのまま採用。
+- `scripts/progress_dryrun.js` と .gitignore追記は削除（PRに含めない）。`public/js/booking-progress.js` は実装で使用。
+- 売上明細が1行も無い予約: 入金=未着手「売上未入力」（要確認にしない）。見積=あり→完了/なし→対象外「見積なし」。書類=常に対象外「記録なし」。cancelled=全段階対象外。
+
+### 実装内容
+- `public/js/booking-progress.js`: 判定の純粋関数（UMD）。理由に badge(一覧用)/message(詳細の帯用)を追加。`hideAmounts`（財務サマリーを見られないロール向けに金額を伏せる）。単体テスト `scripts/test_booking_progress.js`。
+- `api/table-crud.js`: 読み取り専用 action `progressSummary`。booking_sales/invoices/booking_hotels/booking_buses/estimations を1000行ずつページング(count=exact照合、不一致なら500で集計を返さない)し、予約単位の合計のみ返す（売上行数・売上合計・入金合計・有効請求書数・手配ステータス別件数・見積有無。明細/個人名/取引先名は返さない）。ログインセッション検証は他actionと同じ（ゲスト不可）。service_roleキーはレスポンスに出ない。APP_VERSION_EXEMPT(読み取り専用)に追加。
+- `index.html`: 一覧に「進捗」(5つのドット)・「要確認」(バッジ)列、「すべて/要確認 N件」チップ（ダッシュボードと Booking List の両方。共通の filterBookingListGeneric）。進捗の集計は一覧取得と並行して1リクエスト・5分TTL、関連テーブルへの書き込み(tableCrudApiCall)で破棄。詳細モーダル最上部にステッパー+要確認の理由帯（丸/ボタンで該当節へジャンプ）。詳細は画面上の最新データ(売上・入金・手配・請求書キャッシュ)から計算し、編集に追従。
+- `vercel.json`: `/js/booking-progress.js` のルート追加。
+- 副次修正: `scrollBdModalToSection` を、固定ヘッダー下端基準(`scrollBdModalToElement`)に変更（スマホ幅で見出しがヘッダーに数px潜る問題）。既存の scrollTo:'sales' 遷移にも効く。
+- 検索: 既存の検索が既に REF#・Agent・Tour Code・Tour Name を横断していたため拡張なし。
+
+### 検証（Playwright+合成データ2300予約、実クリック）
+- 一覧: チップ件数=独立計算と一致(683)、チップクリックで絞り込み、検索（REF#/Agent/Tour Code/Tour Name）、条件クリアでチップ解除、1000件超でも初回描画0.2秒/再描画約30ms、375px・1280pxで横スクロールなし、集計の遅延中は「読み込み中…」（絞り込みは取得後）、取得失敗時は一覧は表示され「取得失敗」。
+- 詳細: 順調/入金超過/手配途中/中止/売上なし/NG+キャンセル+売上0円入金 の6種で期待どおりの状態・理由帯。丸のクリックと帯のボタンでジャンプ（PC/375px、見出しがヘッダー下に表示）。入金・ホテルステータスの編集にステッパーが追従。375pxで説明の重なりなし。staffロールは金額を伏せる。
+- API: モックでページング(2600予約・13リクエスト・応答約177KB)、GETのみ、401（トークン無し/不正）、件数不一致で500・集計なし。
+
+### 残タスク / 注意
+- 実データ(本番Preview)での確認はJUNさん。
+- 書類の判定（手配一覧表の作成記録が無い）は未対応。候補: arrangement_documents(draft/final)・tour_arrangement_headers。
+- SQL変更なし（スキーマ・RLS・GRANT変更なし）。
+
+---
+
+## 進捗ステッパー — ebc84c5 後の修正（権限・通信量・プレビュー確認準備）
+
+### 修正1: 金額の権限制御（サーバー側）
+- 確認: `api/table-crud.js` には role/email で金額を制限するコードが無く（email制限は ACCOUNTING_EMAILS等の別機能のみ）、既存の `query`/`queryBatch` は booking_sales(amount,payments)・invoices を**ログイン済みの全ロールに全列**返す。金額の非表示は index.html のUI制御(`canViewFinancials`相当)のみという既存設計。→ 今回の progressSummary だけがサーバー側で制限する（既存actionの設計変更はしていない）。
+- progressSummary: 判定を純粋関数(`public/js/booking-progress.js`)でサーバー計算。閲覧可=role==='admin' または email==='kanri@kictravel.jp'（クライアントの canViewFinancials と同基準、署名済みトークンの値）。権限なし=金額を含まない文言(hideAmounts)。売上合計・入金合計の数値は誰にも返さない。レスポンス形式: 中止={c:1}、その他={st:[[状態,説明]×5],rs:[[段階,コード,バッジ,理由]]}。データなし予約はクライアントが同じ純粋関数で既定値を算出。
+- 純粋関数の読み込みは動的import（失敗しても他のactionに影響しない）。vercel.json の api ビルドに includeFiles を追加。
+- 注意: 予約詳細を開くと売上・入金は既存 queryBatch で取得される（既存設計のまま）。詳細の金額を権限なしロールに完全に隠すには既存action側の設計変更が必要（未実施・要判断）。
+### 修正2: 通信量
+- 取得列を最小化（idはselectしない。bookingsは status=cancelled のidのみ）。サーバー側5分キャッシュ(globalThis.__progressRawCache、権限と無関係な集計元データ。ロール別変換はキャッシュ後)。関連テーブル(booking_sales/invoices/booking_hotels/booking_buses/estimations/bookings)への書き込み成功で同一インスタンスのキャッシュを破棄。
+- 1回あたりSupabaseから読む量（現実的な合成データ: 予約1,300・売上2,300・請求1,500・ホテル3,000・バス1,000・見積300で実測）: 約825KB（sales 413KB / ホテル 227KB / 請求書 107KB / バス 77KB / 見積 19KB / 中止予約 2KB）。クライアントへの応答は約0.2MB(gzip前)。
+- 概算（50人×営業8h×5分ごと=96回/日/人=4,800回/日、22営業日）: キャッシュ無し 4,800×22×0.825MB≒85GB/月。サーバーキャッシュ有り: 1インスタンスが5分に1回=96回/日×22日×0.825MB≒1.7GB/月（インスタンス数×1〜3で1.7〜5GB/月）。Free枠5GBに対し余裕が小さい → DB側で集計するRPC/ビュー（SQL必要、1回あたり約0.1MBに削減見込み）を提案（未実施・要承認）。
+### 修正3/確認準備
+- Preview の接続先: index.html と api/*.js が本番SupabaseのURLをハードコード、VERCEL_ENVによる切替なし → **Previewは本番DBに接続**。確認は読み取り（見る・移動する）のみ。
+### 副次修正の確認
+- scrollBdModalToSection の呼び出し元は openBookingDetail 内の1箇所（opts.scrollTo==='sales'）のみ。入口は Invoice画面の行クリック と Agent未紐付けモーダルの請求書行。旧コードでは見出しが固定ヘッダーに約10px隠れていた(PC/375px)が、修正後は見える。
+### 検証（Playwright+ダミー2,300予約）
+- 入金額を実際の入力欄に打ち込み(500,000→300,000→900,000)、ステッパーが 完了/進行中/要確認(帯の文言も変化)に変わることを確認。ホテルのステータスを実際のドロップダウンで変更し、手配が 進行中→完了→要確認 に変わることを確認。
+- サーバー: admin/kanri=金額つき、staff/view=金額なし（レスポンス中に金額の数字が無いことを確認）、状態は全ロール同一、キャッシュ再利用、書き込みで破棄・無関係テーブルの書き込みでは破棄しない、401。
+### 残タスク
+- PR作成・プレビューでの実データ確認（読み取りのみ）。egress対策のRPC化の可否。詳細画面の金額の権限（既存action）の扱い。書類判定は対象外のまま。
 ## ホテル行の「区分(ゲスト/ドライバー)」選択欄を画面から削除（ブランチ claude/charming-keller-f6lvzg・index.htmlのみ・SQLなし）
 
 ### 確定内容

@@ -10,6 +10,7 @@
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 <script src="arrangement_excel.js"></script>
 <script src="/js/image-compress.js"></script>
+<script src="/js/booking-progress.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{--blue:#185FA5;--blue-lt:#E6F1FB;--blue-bd:#B5D4F4;--green:#0F6E56;--green-lt:#EAF3DE;--green2:#2E7D32;--green2-lt:#E3F2E3;--amber:#854F0B;--amber-lt:#FAEEDA;--red:#A32D2D;--red-lt:#FCEBEB;--grey:#5F5E5A;--grey-lt:#ECEAE4;--orange:#B35C00;--orange-lt:#FDEBD8;--purple:#6A3FA0;--purple-lt:#F1E9FA;--bg:#F4F3EE;--card:#FFFFFF;--border:#E3E1D9;--text:#1F1E1B;--text2:#5F5E5A;--text3:#9B998F}
@@ -150,6 +151,43 @@ table{width:100%;border-collapse:collapse;font-size:12px}
 .bl-sort-bar label{font-size:10px;color:var(--text3);font-weight:600}
 .bl-sort-bar select{padding:6px 8px;border-radius:8px;border:1px solid var(--border);background:#fff;font-size:12px;color:var(--text);flex:1;min-width:0}
 .bl-sort-bar .btn{font-size:11px;white-space:nowrap}
+/* ===== 予約の進捗(詳細ステッパー/一覧ドット)。判定は public/js/booking-progress.js ===== */
+.pg-dot{display:inline-block;width:14px;height:14px;border-radius:50%;box-sizing:border-box;vertical-align:middle;margin-right:3px}
+.pg-dot.pg-done{background:var(--green2)}
+.pg-dot.pg-progress{background:var(--blue)}
+.pg-dot.pg-todo{border:1.5px dashed #9a9a9a;background:transparent}
+.pg-dot.pg-alert{background:#C62828}
+.pg-dot.pg-na{background:#e3e3e3;border:1px solid #cfcfcf}
+.pg-dot.pg-loading{background:#ececec}
+.pg-badge{display:inline-block;font-size:10px;padding:1px 6px;border-radius:8px;background:#FCEBEB;color:#A32D2D;font-weight:600;margin-right:3px;white-space:nowrap}
+.pg-ok{font-size:10px;color:#b5b5b5}
+.pg-chips{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:2px 0 8px}
+.pg-chip{font-size:11px;padding:4px 10px;border-radius:14px;border:1px solid var(--border);background:#fff;color:var(--text2);cursor:pointer}
+.pg-chip.active{background:var(--blue-lt);border-color:var(--blue);color:var(--blue);font-weight:600}
+.pg-chip.pg-chip-alert{color:#A32D2D;border-color:#e8b4b4}
+.pg-chip.pg-chip-alert.active{background:#FCEBEB;border-color:#C62828;color:#A32D2D}
+.pg-chips-note{font-size:10px;color:var(--text3)}
+.pg-stepper{display:flex;align-items:flex-start;margin:6px 0 10px;padding:10px 4px 6px;border:1px solid var(--border);border-radius:10px;background:var(--card,#fff)}
+.pg-step{position:relative;flex:1 1 0;min-width:0;text-align:center;background:none;border:none;padding:0 2px;font-family:inherit;cursor:pointer;color:var(--text)}
+.pg-step.pg-static{cursor:default}
+.pg-step::before{content:'';position:absolute;top:17px;left:-50%;width:100%;height:2px;background:var(--border);z-index:0}
+.pg-step:first-child::before{display:none}
+.pg-circle{position:relative;z-index:1;display:flex;align-items:center;justify-content:center;width:34px;height:34px;margin:0 auto 4px;border-radius:50%;box-sizing:border-box;font-size:15px;font-weight:700;color:#fff}
+.pg-step.pg-done .pg-circle{background:var(--green2)}
+.pg-step.pg-progress .pg-circle{background:var(--blue)}
+.pg-step.pg-todo .pg-circle{background:var(--card,#fff);border:2px dashed #9a9a9a}
+.pg-step.pg-alert .pg-circle{background:#C62828}
+.pg-step.pg-na .pg-circle{background:#e3e3e3;color:#888}
+.pg-step-name{display:block;font-size:11px;font-weight:700}
+.pg-step-state{display:block;font-size:10px;color:var(--text3)}
+.pg-step.pg-alert .pg-step-state{color:#C62828;font-weight:600}
+.pg-step-desc{display:block;font-size:10px;color:var(--text2);margin-top:1px;overflow-wrap:anywhere;word-break:break-word;line-height:1.3}
+.pg-band{margin:0 0 10px;padding:8px 10px;border:1px solid #e8b4b4;background:#FCEBEB;border-radius:8px;font-size:12px;color:#7a1f1f}
+.pg-band-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.pg-band-row+.pg-band-row{margin-top:6px}
+.pg-band-msg{flex:1 1 180px;min-width:0;overflow-wrap:anywhere}
+.pg-flash{animation:pgflash 1.4s ease-out}
+@keyframes pgflash{0%{box-shadow:0 0 0 3px rgba(198,40,40,.45)}100%{box-shadow:0 0 0 3px rgba(198,40,40,0)}}
 /* 予約一覧(ダッシュボード/Booking List)を768px未満で「1予約=1カード」の縦積みにする。
    従来は列2/3/6/7(Agent/Tour Code/Out/Pax)をdisplay:noneで丸ごと捨てていたが、
    情報を落とさずに全項目を表示する。PC(768px以上)は従来の表形式のまま。
@@ -197,6 +235,13 @@ table{width:100%;border-collapse:collapse;font-size:12px}
   #pg-dashboard .bl-table td:nth-child(6),#pg-booking-list .bl-table td:nth-child(6){grid-row:4;grid-column:2;text-align:right}
   #pg-dashboard .bl-table td:nth-child(7),#pg-booking-list .bl-table td:nth-child(7){grid-row:5;grid-column:1}
   #pg-dashboard .bl-table td:nth-child(8),#pg-booking-list .bl-table td:nth-child(8){grid-row:5;grid-column:2;text-align:right}
+  /* 進捗ドット(9列目)と要確認バッジ(10列目)は最下段に並べる */
+  #pg-dashboard .bl-table td:nth-child(9),#pg-booking-list .bl-table td:nth-child(9){grid-row:6;grid-column:1}
+  #pg-dashboard .bl-table td:nth-child(10),#pg-booking-list .bl-table td:nth-child(10){grid-row:6;grid-column:2;text-align:right}
+  .pg-step-name{font-size:10px}
+  .pg-step-desc,.pg-step-state{font-size:9px}
+  .pg-circle{width:30px;height:30px}
+  .pg-step::before{top:15px}
   /* 見出し行が無い分、判別しにくい項目にはラベルを添える(REF#/ツアー名/Agentは自明なので付けない) */
   #pg-dashboard .bl-table td:nth-child(3)::before,#pg-booking-list .bl-table td:nth-child(3)::before,
   #pg-dashboard .bl-table td:nth-child(6)::before,#pg-booking-list .bl-table td:nth-child(6)::before,
@@ -1332,11 +1377,12 @@ input[type=number]{-moz-appearance:textfield}
         <div id="db-filter-backdrop" onclick="toggleDbMobileFilterSheet(true)"></div>
         <div class="card" id="db-list-card" style="border-top:none;border-radius:0 0 12px 12px;padding-top:0;margin-bottom:14px">
           <div class="card-title">予約一覧 <span id="db-count-mobile" style="font-size:11px;font-weight:400;color:var(--text3)"></span></div>
+          <div class="pg-chips" id="db-pg-chips"></div>
           <!-- カード表示(768px未満)では見出し行が消えるため、ソートの導線をここに置く -->
           <div class="bl-sort-bar" id="db-sort-bar"></div>
           <div class="tbl-wrap"><table class="bl-table">
             <thead id="db-thead"></thead>
-            <tbody id="db-tbody"><tr class="bl-fullrow"><td colspan="8" class="empty">読み込み中...</td></tr></tbody>
+            <tbody id="db-tbody"><tr class="bl-fullrow"><td colspan="10" class="empty">読み込み中...</td></tr></tbody>
           </table></div>
         </div>
         <!-- モバイル専用の下部固定バー(768px未満でのみ表示)。position:stickyは親の
@@ -1452,11 +1498,12 @@ input[type=number]{-moz-appearance:textfield}
         </div>
         <div class="card" id="bl-list-card" style="border-top:none;border-radius:0 0 12px 12px;padding-top:0;margin-bottom:14px">
           <div class="card-title">Booking List</div>
+          <div class="pg-chips" id="bl-pg-chips"></div>
           <!-- カード表示(768px未満)では見出し行が消えるため、ソートの導線をここに置く -->
           <div class="bl-sort-bar" id="bl-sort-bar"></div>
           <div class="tbl-wrap"><table class="bl-table">
             <thead id="bl-thead"></thead>
-            <tbody id="bl-tbody"><tr class="bl-fullrow"><td colspan="8" class="empty">読み込み中...</td></tr></tbody>
+            <tbody id="bl-tbody"><tr class="bl-fullrow"><td colspan="10" class="empty">読み込み中...</td></tr></tbody>
           </table></div>
         </div>
       </div>
@@ -2604,6 +2651,9 @@ input[type=number]{-moz-appearance:textfield}
         <div class="modal-close" onclick="closeBookingDetailWithConfirm()">✕</div>
       </div>
     </div>
+
+    <!-- 進捗ステッパー(見積→手配→書類→請求→入金)。判定は public/js/booking-progress.js -->
+    <div id="bd-progress-stepper"></div>
 
     <div id="bd-presence-banner" style="display:none;background:#FFF3CD;border:1px solid #FFE69C;border-radius:6px;padding:6px 12px;margin-bottom:8px;font-size:11px;color:#856404"></div>
 
@@ -4499,9 +4549,11 @@ const listState = { db:{page:1, sortField:null, sortDir:1}, bl:{page:1, sortFiel
 // 意図せずREF#列が62pxよりはるかに広く描画されてAgent列を圧迫・省略させる原因になっていた
 // [2026-07-27 Agent列省略の不具合対応]。REF#も%指定にして必ず合計100%にすること。
 const LIST_COLUMNS = [
-  ['ref_no','REF#',true,'6%'], ['agent_name','Agent',true,'23%'], ['tour_code','Tour Code',true,'15%'], ['tour_name','Tour Name',true,'18%'],
-  ['in_date','In',true,'11%'], ['out_date','Out',true,'11%'], ['pax','Pax',true,'6%'],
-  ['status','Status',true,'10%']
+  ['ref_no','REF#',true,'6%'], ['agent_name','Agent',true,'17%'], ['tour_code','Tour Code',true,'11%'], ['tour_name','Tour Name',true,'15%'],
+  ['in_date','In',true,'9%'], ['out_date','Out',true,'9%'], ['pax','Pax',true,'5%'],
+  ['status','Status',true,'8%'],
+  // 進捗ドット(見積・手配・書類・請求・入金)と要確認バッジ。並べ替え対象外(判定は共通関数 BookingProgress)
+  ['progress','進捗',false,'11%'], ['attention','要確認',false,'9%']
 ];
 
 function renderListHeader(prefix){
@@ -4510,6 +4562,7 @@ function renderListHeader(prefix){
     let arrow = '';
     if(state.sortField===field) arrow = ' <span class="sort-arrow">'+(state.sortDir===1?'▲':'▼')+'</span>';
     const styleAttr = width ? ` style="width:${width}"` : '';
+    if(!sortable) return `<th${styleAttr}>${label}</th>`;
     return `<th class="sortable"${styleAttr} onclick="sortBookingList('${prefix}','${field}')">${label}${arrow}</th>`;
   }).join('') + '</tr>';
   renderListSortBar(prefix);   // モバイルのソート導線も同じ状態で更新する
@@ -4559,7 +4612,10 @@ function toggleBookingListSortDir(prefix){
 const TEMP_DEFAULT_FROM = '2026-03-01';
 
 async function loadBookingListGeneric(prefix){
-  document.getElementById(prefix+'-tbody').innerHTML='<tr class="bl-fullrow"><td colspan="8" class="empty">読み込み中...</td></tr>';
+  // 進捗の集計(予約ごとではなく全予約分を1リクエスト)を、予約一覧の取得と並行して開始する。
+  const progWasFresh = !!bookingProgressSummary && cacheIsFresh(bookingProgressAt);
+  const progP = ensureBookingProgress();
+  document.getElementById(prefix+'-tbody').innerHTML='<tr class="bl-fullrow"><td colspan="10" class="empty">読み込み中...</td></tr>';
   renderListHeader(prefix);
   if(!bookingsListCache.length || !cacheIsFresh(bookingsListCacheAt)){
     bookingsListCache = await fetchBookingsListLight();
@@ -4570,6 +4626,8 @@ async function loadBookingListGeneric(prefix){
   const isAdmin = currentUser && currentUser.role==='admin';
   if(fromEl && !fromEl.value && !isAdmin) fromEl.value = TEMP_DEFAULT_FROM;
   filterBookingListGeneric(prefix);
+  // 進捗の集計が後から届いた場合は、一覧(tbodyのみ)を描画し直す。入力欄は作り直さない。
+  if(!progWasFresh) progP.then(()=>filterBookingListGeneric(prefix));
   if(prefix === 'db'){
     renderDbArrivalAlert();
     // ダッシュボード初期表示では、renderDashboardTodoSummary()とrefreshGlobalDeadlineBanner()
@@ -4592,6 +4650,7 @@ function resetBookingFilter(prefix){
   document.getElementById(prefix+'-status').value='';
   const statusExcludeEl = document.getElementById(prefix+'-status-exclude');
   if(statusExcludeEl) statusExcludeEl.checked = false;
+  listState[prefix].attentionOnly = false;
   listState[prefix].page = 1;
   filterBookingListGeneric(prefix);
 }
@@ -5456,6 +5515,13 @@ function filterBookingListGeneric(prefix){
     return true;
   });
 
+  // 進捗の「要確認」絞り込み。件数チップは他の条件(検索・日付・ステータス)で絞った結果に対する件数。
+  // 進捗の集計が未取得の間は絞り込まず、チップに「読み込み中」を出す(取得後に再描画される)。
+  const attentionCount = filtered.filter(b=>{ const r = bookingProgressFor(b); return !!(r && r.needsAttention); }).length;
+  if(listState[prefix].attentionOnly && bookingProgressSummary){
+    filtered = filtered.filter(b=>{ const r = bookingProgressFor(b); return !!(r && r.needsAttention); });
+  }
+  updateProgressChips(prefix, attentionCount);
   const countText = `${filtered.length}件 / 全${bookingsListCache.length}件`;
   document.getElementById(prefix+'-count').textContent = countText;
   if(prefix === 'db'){
@@ -5491,7 +5557,7 @@ function filterBookingListGeneric(prefix){
   renderListHeader(prefix);
 
   const tbody = document.getElementById(prefix+'-tbody');
-  if(filtered.length===0){ tbody.innerHTML='<tr class="bl-fullrow"><td colspan="8" class="empty">該当する予約がありません</td></tr>'; return; }
+  if(filtered.length===0){ tbody.innerHTML='<tr class="bl-fullrow"><td colspan="10" class="empty">該当する予約がありません</td></tr>'; return; }
 
   // ページネーション
   let page = listState[prefix].page;
@@ -5509,12 +5575,13 @@ function filterBookingListGeneric(prefix){
       <td class="lnk" onclick="event.stopPropagation();openBookingDetail('${b.id}')">${b.ref_no}</td><td data-label="Agent">${b.agent_name||''}</td><td data-label="Tour Code">${b.tour_code||''}</td><td data-label="Tour">${b.tour_name||''}</td>
       <td data-label="In">${b.in_date||''}</td><td data-label="Out">${b.out_date||''}</td><td data-label="Pax">${b.pax||0}</td>
       <td data-label="Status">${statusPill(b.status)}</td>
+      <td data-label="進捗">${progressDotsHtml(b)}</td><td data-label="要確認">${progressAttentionHtml(b)}</td>
     </tr>`;
   }).join('');
 
   // ページネーションUI
   if(totalPages > 1){
-    let pager = `<tr class="bl-fullrow"><td colspan="8" style="text-align:center;padding:10px">`;
+    let pager = `<tr class="bl-fullrow"><td colspan="10" style="text-align:center;padding:10px">`;
     pager += `<button class="btn" ${page<=1?'disabled':''} onclick="listGoPage('${prefix}',${page-1})">← 前へ</button> `;
     pager += `<span style="margin:0 10px;font-size:11px;color:var(--text3)">ページ ${page} / ${totalPages}</span>`;
     pager += `<button class="btn" ${page>=totalPages?'disabled':''} onclick="listGoPage('${prefix}',${page+1})">次へ →</button>`;
@@ -5551,6 +5618,194 @@ function statusPill(status){
   const label = shortLabels[norm] || status;
   if(!c) return `<span class="pill s-open">${escHtml(label)}</span>`;
   return `<span class="pill" style="background:${c.bg};color:${c.fg}">${escHtml(label)}</span>`;
+}
+
+// ===== 予約の進捗(見積→手配→書類→請求→入金) =====
+// 判定は public/js/booking-progress.js(BookingProgress)に集約している。詳細画面のステッパーと
+// 一覧の進捗ドットは必ずその関数を通す(判定がずれないように)。進捗状態はどこにも保存せず、
+// 表示のたびに既存データから計算する(読み取り専用)。
+// 一覧用は api/table-crud.js の progressSummary(全予約分を1リクエストで集計し、同じ判定関数で
+// サーバーが計算して返す。予約ごとにDBを叩かない。権限のないロールには金額を含めない)から得て、
+// 5分TTLでキャッシュする。書き込み(tableCrudApiCall)で関連テーブルが
+// 更新されたらキャッシュを破棄する。
+const BOOKING_PROGRESS_TABLES = new Set(['booking_sales','invoices','booking_hotels','booking_buses','estimations','bookings']);
+let bookingProgressSummary = null;   // {予約id: {sr,st,pt,ai,arr,est}}
+let bookingProgressAt = 0;
+let bookingProgressPromise = null;
+let bookingProgressError = null;
+let bookingProgressGen = 0;
+let bookingProgressResults = {};     // 予約id → 判定結果(集計の更新時に破棄)
+let bdHasEstimation = false;
+
+function canViewFinancials(){
+  return !!currentUser && (currentUser.role==='admin' || currentUser.email==='kanri@kictravel.jp');
+}
+function bookingProgressInvalidate(){ bookingProgressAt = 0; bookingProgressGen++; }
+
+function ensureBookingProgress(){
+  if(bookingProgressSummary && cacheIsFresh(bookingProgressAt)) return Promise.resolve(bookingProgressSummary);
+  if(bookingProgressPromise) return bookingProgressPromise;
+  const gen = bookingProgressGen;
+  bookingProgressPromise = tableCrudApiCall(null, 'progressSummary', {}).then(d=>{
+    bookingProgressSummary = d.items || {};
+    bookingProgressResults = {};
+    bookingProgressError = null;
+    // 取得中に書き込みがあった場合は、この結果を使いつつ次回すぐ再取得する
+    bookingProgressAt = (gen === bookingProgressGen) ? Date.now() : 0;
+    return bookingProgressSummary;
+  }).catch(e=>{
+    bookingProgressError = e;
+    logError('予約の進捗集計の読み込み', e, {toast:false});
+    return null;
+  }).finally(()=>{ bookingProgressPromise = null; });
+  return bookingProgressPromise;
+}
+
+// 一覧用: サーバーが計算して返した進捗(progressSummary。権限に応じて金額を含む/含まない文言)を、
+// 画面で扱う判定結果の形に直して返す。未取得ならnull。金額の数値そのものはサーバーから届かない。
+// サーバーに載っていない予約(売上・請求書・手配・見積が1件も無い予約)と中止の予約は、データを
+// 持たない入力を同じ純粋関数(BookingProgress)に通して求める(金額は含まれない)。
+function bookingProgressFor(b){
+  if(!bookingProgressSummary || typeof BookingProgress === 'undefined') return null;
+  let r = bookingProgressResults[b.id];
+  if(r) return r;
+  const sm = bookingProgressSummary[b.id];
+  if(sm && !sm.c){
+    const stages = {};
+    BookingProgress.STAGE_KEYS.forEach((k,i)=>{ stages[k] = { state: sm.st[i][0], text: sm.st[i][1] }; });
+    const reasons = (sm.rs||[]).map(x=>({ stage: x[0], code: x[1], badge: x[2], message: x[3] }));
+    r = { cancelled: false, stages, needsAttention: reasons.length > 0, reasons };
+  }else{
+    r = BookingProgress.judgeBookingProgress({ booking: { status: sm ? 'cancelled' : normalizeStatus(b.status) }, hideAmounts: true });
+  }
+  bookingProgressResults[b.id] = r;
+  return r;
+}
+
+function progressDotsHtml(b){
+  const r = bookingProgressFor(b);
+  if(!r){
+    const t = bookingProgressError ? '進捗を取得できませんでした' : '進捗を読み込み中';
+    return BookingProgress_keys().map(()=>`<span class="pg-dot pg-loading" title="${t}"></span>`).join('');
+  }
+  return BookingProgress.STAGE_KEYS.map(k=>{
+    const st = r.stages[k];
+    const tip = `${BookingProgress.STAGE_LABELS[k]}: ${BookingProgress.STATE_LABELS[st.state]}(${st.text})`;
+    return `<span class="pg-dot pg-${st.state}" title="${escHtml(tip)}" aria-label="${escHtml(tip)}"></span>`;
+  }).join('');
+}
+function BookingProgress_keys(){ return (typeof BookingProgress !== 'undefined') ? BookingProgress.STAGE_KEYS : ['estimate','arrangement','document','invoice','payment']; }
+
+function progressAttentionHtml(b){
+  const r = bookingProgressFor(b);
+  if(!r) return '';
+  if(r.cancelled) return '<span class="pg-ok">—</span>';
+  if(!r.needsAttention) return '<span class="pg-ok">問題なし</span>';
+  const tip = r.reasons.map(x=>x.message).join('\n');
+  const badges = r.reasons.slice(0,2).map(x=>`<span class="pg-badge">${escHtml(x.badge)}</span>`).join('');
+  const more = r.reasons.length > 2 ? `<span class="pg-badge">+${r.reasons.length-2}</span>` : '';
+  return `<span title="${escHtml(tip)}">${badges}${more}</span>`;
+}
+
+function updateProgressChips(prefix, attentionCount){
+  const el = document.getElementById(prefix+'-pg-chips');
+  if(!el) return;
+  const only = !!listState[prefix].attentionOnly;
+  let attLabel;
+  if(bookingProgressSummary) attLabel = `要確認 ${attentionCount}件`;
+  else attLabel = bookingProgressError ? '要確認(取得失敗)' : '要確認 読み込み中…';
+  el.innerHTML =
+    `<button type="button" class="pg-chip${only?'':' active'}" onclick="setBookingListAttentionOnly('${prefix}',false)">すべて</button>` +
+    `<button type="button" class="pg-chip pg-chip-alert${only?' active':''}" onclick="setBookingListAttentionOnly('${prefix}',true)">${attLabel}</button>`;
+}
+function setBookingListAttentionOnly(prefix, on){
+  listState[prefix].attentionOnly = !!on;
+  listState[prefix].page = 1;
+  filterBookingListGeneric(prefix);
+}
+
+// ---- 詳細画面の進捗ステッパー ----
+const PG_SVG = 'viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
+const PG_ICONS = {
+  done: `<svg ${PG_SVG}><polyline points="5 12.5 10 17.5 19 7"/></svg>`,
+  progress: `<svg ${PG_SVG}><circle cx="12" cy="12" r="8.5"/><polyline points="12 7.5 12 12 15.5 14"/></svg>`,
+  alert: `<svg ${PG_SVG}><path d="M12 4 L21 19 H3 Z"/><line x1="12" y1="10" x2="12" y2="14"/><line x1="12" y1="16.8" x2="12" y2="17"/></svg>`,
+  todo: '',
+  na: '—',
+};
+// ジャンプ先: key → 見出し/要素。手配はホテル/バスのどちらのタブを開くかも判定する。
+function bdProgressArrangementTab(){
+  if(typeof BookingProgress === 'undefined') return 'hotel';
+  const toArr = rows => rows.map(r=>({status:r.status}));
+  const h = BookingProgress.judgeArrangement(toArr(buildHotelRows(currentDetailId)), []);
+  if(h.state !== 'done' && h.detail.counts.total > 0) return 'hotel';
+  const bu = BookingProgress.judgeArrangement([], toArr(buildBusRows(currentDetailId)));
+  if(bu.state !== 'done' && bu.detail.counts.total > 0) return 'bus';
+  return 'hotel';
+}
+function jumpBdProgress(key){
+  let target = null;
+  if(key === 'arrangement'){
+    try{ switchArrangTab(bdProgressArrangementTab()); }catch(e){}
+    target = Array.from(document.querySelectorAll('#detail-modal .modal-section-title')).find(el=>el.textContent.trim()==='手配管理');
+  }else if(key === 'invoice'){
+    target = document.getElementById('bd-invoice-actions');
+  }else if(key === 'payment'){
+    target = Array.from(document.querySelectorAll('#detail-modal .modal-section-title')).find(el=>el.textContent.trim()==='売上明細 / 仕入明細');
+  }else if(key === 'document'){
+    target = Array.from(document.querySelectorAll('#detail-modal .modal-section-title')).find(el=>el.textContent.trim()==='手配書');
+  }else if(key === 'estimate'){
+    const h = document.getElementById('bd-reflect-history');
+    target = (h && h.style.display !== 'none') ? h : null;
+  }
+  if(!target) return;
+  scrollBdModalToElement(target);
+  target.classList.remove('pg-flash'); void target.offsetWidth; target.classList.add('pg-flash');
+}
+
+let _bdProgressTimer = null;
+function refreshBdProgressSoon(){
+  clearTimeout(_bdProgressTimer);
+  _bdProgressTimer = setTimeout(renderBookingProgressStepper, 120);
+}
+function computeBdProgress(){
+  if(!currentDetailId || typeof BookingProgress === 'undefined') return null;
+  const b = findBookingById(currentDetailId) || {};
+  const salesRows = buildSalesRows(currentDetailId);
+  const salesTotal = salesRows.reduce((s,r)=>s+(Number(r.amount)||0),0);
+  const paidTotal = salesRows.reduce((s,r)=>s+(r.payments||[]).reduce((x,p)=>x+(Number(p && p.amount)||0),0),0);
+  const statusEl = document.getElementById('bd-status');
+  return BookingProgress.judgeBookingProgress({
+    booking: { status: normalizeStatus((statusEl && statusEl.value) || b.status) },
+    hasEstimation: bdHasEstimation,
+    hotels: buildHotelRows(currentDetailId).map(r=>({status:r.status})),
+    buses: buildBusRows(currentDetailId).map(r=>({status:r.status})),
+    activeInvoiceCount: (bdInvoicesCache||[]).filter(i=>i.status !== 'void').length,
+    salesTotal, paidTotal, salesRowCount: salesRows.length,
+    hideAmounts: !canViewFinancials(),
+  });
+}
+function renderBookingProgressStepper(){
+  const el = document.getElementById('bd-progress-stepper');
+  if(!el || !currentDetailId) return;
+  let r = null;
+  try{ r = computeBdProgress(); }catch(e){ logError('進捗ステッパーの計算', e, {toast:false}); }
+  if(!r){ el.innerHTML = ''; return; }
+  const steps = BookingProgress.STAGE_KEYS.map(k=>{
+    const st = r.stages[k];
+    const label = BookingProgress.STAGE_LABELS[k];
+    const stateLabel = BookingProgress.STATE_LABELS[st.state];
+    const isStatic = (k === 'estimate' && st.state === 'na');
+    const aria = `${label}: ${stateLabel} ${st.text}`;
+    return `<button type="button" class="pg-step pg-${st.state}${isStatic?' pg-static':''}" data-stage="${k}" ${isStatic?'':`onclick="jumpBdProgress('${k}')"`} aria-label="${escHtml(aria)}">`
+      + `<span class="pg-circle">${PG_ICONS[st.state]}</span>`
+      + `<span class="pg-step-name">${label}</span><span class="pg-step-state">${stateLabel}</span>`
+      + `<span class="pg-step-desc">${escHtml(st.text)}</span></button>`;
+  }).join('');
+  const band = r.needsAttention
+    ? `<div class="pg-band">${r.reasons.map(x=>`<div class="pg-band-row"><span class="pg-band-msg">⚠ ${escHtml(x.message)}</span><button type="button" class="btn" style="font-size:11px" onclick="jumpBdProgress('${x.stage}')">${escHtml(BookingProgress.STAGE_LABELS[x.stage])}の該当箇所へ</button></div>`).join('')}</div>`
+    : '';
+  el.innerHTML = `<div class="pg-stepper">${steps}</div>${band}`;
 }
 
 // ===== 予約台帳モーダル =====
@@ -5711,7 +5966,7 @@ function appendSchemaErrorHint(message){
 // 理由から、安全側に倒して一律リトライ対象外とする。
 // ※サーバー側(api/table-crud.jsのAPP_VERSION_EXEMPT_ACTIONS)で、画面の版による書き込みガードの対象外に
 //   している読み取り専用actionと同じ一覧。読み取り専用actionを追加する時は両方に追加すること。
-const TABLE_CRUD_IDEMPOTENT_READ_ACTIONS = new Set(['auditHistory', 'list', 'listByField', 'list_active', 'query', 'queryBatch', 'rpc', 'rpcBatch']);
+const TABLE_CRUD_IDEMPOTENT_READ_ACTIONS = new Set(['auditHistory', 'list', 'listByField', 'list_active', 'query', 'queryBatch', 'rpc', 'rpcBatch', 'progressSummary']);
 
 async function tableCrudApiCall(table, action, payload){
   const token = currentUser ? currentUser.token : null;
@@ -5781,6 +6036,8 @@ async function tableCrudApiCall(table, action, payload){
     if(data.existingCompanyName) err.existingCompanyName = data.existingCompanyName;
     throw err;
   }
+  // 進捗の集計(予約一覧のドット)に関わるテーブルへの書き込みが成功したら、集計のキャッシュを破棄する。
+  if(!TABLE_CRUD_IDEMPOTENT_READ_ACTIONS.has(action) && BOOKING_PROGRESS_TABLES.has(table)) bookingProgressInvalidate();
   return data;
 }
 // ===== 読み取りAPI(RLS対応フェーズ2 バッチ1、2026-09) =====
@@ -7175,11 +7432,12 @@ function updateFinancialSummaryVisibility(){
   if(!wrap) return;
   // kanri@kictravel.jp(財務担当。実際のroleはstaff)は個別の例外として表示対象に含める
   // (staffロール全体には引き続き非表示のまま)。
-  const canView = !!currentUser && (currentUser.role==='admin' || currentUser.email==='kanri@kictravel.jp');
+  const canView = canViewFinancials();
   wrap.style.display = canView ? '' : 'none';
 }
 
 function updateDetailGrossPreview(){
+  refreshBdProgressSoon();
   const sales = bdSalesTotal();
      const totalPaid = bdSalesItems.reduce((s,it)=>s+salesPaymentsTotal(it),0);
   const unpaid = sales - totalPaid;
@@ -7646,6 +7904,7 @@ function getDistinctSalesAgents(){
 }
 
 function renderInvoiceActions(){
+  refreshBdProgressSoon();
   const container = document.getElementById('bd-invoice-actions');
   if(!container) return;
   const agents = getDistinctSalesAgents();
@@ -9450,9 +9709,19 @@ function scrollBdModalToSection(sectionTitle){
   const target = Array.from(box.querySelectorAll('.modal-section-title'))
     .find(el=>el.textContent.trim()===sectionTitle);
   if(!target) return;
-  const headerH = document.querySelector('#detail-modal .modal-header')?.offsetHeight || 0;
-  const targetTop = target.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop;
-  box.scrollTop = Math.max(0, targetTop - headerH - 8);
+  scrollBdModalToElement(target);
+}
+// 予約台帳モーダル内を、指定した要素の位置までスクロールする(進捗ステッパーのジャンプでも共用)。
+function scrollBdModalToElement(target){
+  const box = document.querySelector('#detail-modal .modal-box');
+  if(!box || !target) return;
+  // 固定ヘッダーの下端(modal-boxの上パディング分を含む)を基準にする。offsetHeightだけだと、
+  // スマホ幅などでパディング分だけ見出しがヘッダーの下に潜ることがあった。
+  const header = document.querySelector('#detail-modal .modal-header');
+  const boxTop = box.getBoundingClientRect().top;
+  const headerBottom = header ? header.getBoundingClientRect().bottom - boxTop : 0;
+  const targetTop = target.getBoundingClientRect().top - boxTop + box.scrollTop;
+  box.scrollTop = Math.max(0, targetTop - headerBottom - 8);
 }
 
 async function openBookingDetail(id, opts){
@@ -9479,6 +9748,8 @@ async function openBookingDetail(id, opts){
   }
   currentDetailId = id;
   bdCurrentRefNo = b.ref_no;
+  bdHasEstimation = false;
+  { const stepEl = document.getElementById('bd-progress-stepper'); if(stepEl) stepEl.innerHTML = ''; } // 前の予約の進捗を残さない
   updateFinancialSummaryVisibility();
   bdLoadSnapshot = {}; // 予約を開き直すたびに差分保存のスナップショットをリセットする
   // 観光施設・ホテル・バス・レストラン・新幹線の各タブの表示専用ソートも予約ごとにリセットする
@@ -9553,12 +9824,14 @@ async function openBookingDetail(id, opts){
   // (クライアント→APIの往復とコールドスタートの回数を3回→1回に減らすため)。
   // 取得に失敗した場合は、空の明細のまま画面を開くと、そのまま保存した時に既存の明細を
   // 消してしまうおそれがあるため、予約詳細を閉じて中止する。
-  let salesRows, costRows, invoices;
+  let salesRows, costRows, invoices, estRows;
   try{
-    [salesRows, costRows, invoices] = await tableQueryBatch([
+    [salesRows, costRows, invoices, estRows] = await tableQueryBatch([
       { table: 'booking_sales', select: '*', filters: [{ col: 'booking_id', op: 'eq', value: id }], order: [{ col: 'sort_order' }, { col: 'created_at' }] },
       { table: 'booking_costs', select: '*', filters: [{ col: 'booking_id', op: 'eq', value: id }], order: [{ col: 'created_at' }] },
       { table: 'invoices', select: '*', filters: [{ col: 'booking_id', op: 'eq', value: id }], order: [{ col: 'created_at', ascending: false }] },
+      // 進捗ステッパーの「見積」判定用(この予約に紐付く見積の有無のみ)
+      { table: 'estimations', select: 'id', filters: [{ col: 'converted_booking_id', op: 'eq', value: id }], limit: 1 },
     ]);
   }catch(e){
     if(_stale()) return;
@@ -9584,6 +9857,8 @@ async function openBookingDetail(id, opts){
   // 関連Invoiceを読み込み（一覧はモーダル内、通常表示はボタンの件数のみ）
   // (関連Invoiceは上の売上明細・仕入明細と同じqueryBatchで取得済み)
   bdInvoicesCache = invoices||[];
+  bdHasEstimation = (estRows||[]).length > 0;
+  refreshBdProgressSoon();
   document.getElementById('bd-inv-count').textContent = bdInvoicesCache.length;
   document.getElementById('bd-inv-empty-hint').style.display = bdInvoicesCache.length===0 ? '' : 'none';
 
@@ -13305,6 +13580,7 @@ function calcHotelNights(ci, co){
 }
 
 function renderHotelTable(){
+  refreshBdProgressSoon();
   const tbody = document.getElementById('bd-hotels-tbody');
   if(!tbody) return;
   const total = bdHotelItems.reduce((s,it)=>s+Number(it.amount||0),0);
@@ -13476,6 +13752,7 @@ function facilityAmountCalc(i, el){
 
 // ─── バス ───────────────────────────────────────────────────────────────────
 function renderBusTable(){
+  refreshBdProgressSoon();
   const tbody = document.getElementById('bd-buses-tbody');
   if(!tbody) return;
   const total = bdBusItems.reduce((s,it)=>s+Number(it.amount||0),0);
@@ -21158,6 +21435,7 @@ async function saveBookingDetail(){
     if(bLight) Object.assign(bLight, payload, { updated_at: savedUpdatedAt });
     document.getElementById('bd-msg').style.display='inline';
     document.getElementById('bd-msg-top').style.display='inline';
+    refreshBdProgressSoon();
     document.getElementById('bd-updated').textContent = '最終更新: '+new Date(savedUpdatedAt).toLocaleString('ja-JP');
     // 保存後もそのまま編集を続ける可能性があるため、ハートビートのsetInterval自体は止めず、
     // 保存直後にも1回送っておく(「編集中」表示が保存タイミングで途切れて見えないようにする)。

@@ -1460,6 +1460,137 @@ async function doQuery(table, q) {
   return { status: 200, body: { ok: true, ...result, __sb: budget.sb } };
 }
 
+// ===== 予約の進捗集計(progressSummary、読み取り専用) =====
+// 予約一覧の「進捗ドット」「要確認」用。予約ごとにDBを叩かず(N+1回避)、必要なテーブルを
+// 1000行ずつページングで全件取得し、予約単位の合計から進捗の判定までをサーバーで行って返す。
+// 判定は public/js/booking-progress.js(詳細画面のステッパーと同じ純粋関数)を使う。
+//
+// 【権限】金額(売上合計・入金合計)は、財務サマリーを閲覧できるロール(admin、または
+// kanri@kictravel.jp。index.htmlのcanViewFinancials()と同じ基準)にだけ、説明文・理由の文言の
+// 形で返す。それ以外のロールには、金額を含まない文言(hideAmounts)だけを返し、売上合計・入金合計の
+// 数値そのものはどのロールにも返さない(レスポンスに載せない)。
+//
+// 【通信量(egress)対策】
+// - 取得する列は判定に必要な最小限(idは並び順にだけ使い、selectしない)。中止の予約は
+//   status=cancelled のidだけを取得する。
+// - 集計の元データ(権限に依存しない)を、このサーバーインスタンス内で5分間キャッシュする
+//   (globalThis.__progressRawCache)。ロールごとの出力への変換はキャッシュの後で行う。
+//   関連テーブルへの書き込みが成功したら、同じインスタンスのキャッシュを破棄する
+//   (handler内のres.json参照。別インスタンスは期限切れで更新される)。
+// - 取得件数が count=exact の総件数と一致しない場合は、集計を返さずエラーにする。
+// 返す内容(予約idをキーとしたオブジェクト。データが1つも無い、中止でもない予約は含めない):
+//   中止: { c: 1 } / それ以外: { st: [[状態,説明]×5(見積,手配,書類,請求,入金)], rs: [[段階,コード,バッジ,理由の文言]...] }
+// 認証は他のaction(query等)と同じログインセッション検証を、ハンドラ側で通過済みの前提とする。
+// service_roleキーはサーバー内でのみ使い、レスポンスには含めない。
+const PROGRESS_PAGE_SIZE = 1000;
+const PROGRESS_CACHE_TTL_MS = 5 * 60 * 1000;
+const PROGRESS_TABLES = new Set(['booking_sales', 'invoices', 'booking_hotels', 'booking_buses', 'estimations', 'bookings']);
+
+function progressInvalidateCache() { globalThis.__progressRawCache = null; }
+
+// 財務サマリー(金額)を閲覧できるセッションか。index.htmlのcanViewFinancials()と同じ基準。
+function canViewFinancialsSession(session) {
+  return !!session && (session.role === 'admin' || session.email === 'kanri@kictravel.jp');
+}
+
+async function progressFetchAll(table, select, extra, bytesOut) {
+  let rows = [];
+  let total = null;
+  let offset = 0;
+  while (true) {
+    const q = `?select=${encodeURIComponent(select)}${extra ? '&' + extra : ''}&order=id.asc&offset=${offset}&limit=${PROGRESS_PAGE_SIZE}`;
+    const r = await sbFetch(table, q, { method: 'GET', headers: { Prefer: 'count=exact' } });
+    const text = await r.text();
+    bytesOut[table] = (bytesOut[table] || 0) + Buffer.byteLength(text, 'utf8');
+    if (!r.ok) {
+      let msg = '';
+      try { msg = JSON.parse(text).message || ''; } catch (e) { /* ignore */ }
+      throw new Error(withGrantHint(msg, table) || `${table}の取得に失敗しました(HTTP ${r.status})`);
+    }
+    const m = /\/(\d+)$/.exec(r.headers.get('content-range') || '');
+    if (!m) throw new Error(`${table}の件数(content-range)を読み取れませんでした`);
+    const t = Number(m[1]);
+    if (total !== null && t !== total) throw new Error(`${table}の取得中に件数が変化しました。もう一度お試しください`);
+    total = t;
+    const page = JSON.parse(text);
+    if (!Array.isArray(page)) throw new Error(`${table}の取得結果が不正です`);
+    rows = rows.concat(page);
+    if (page.length < PROGRESS_PAGE_SIZE) break;
+    offset += PROGRESS_PAGE_SIZE;
+  }
+  if (rows.length !== total) throw new Error(`${table}の取得件数(${rows.length})が総件数(${total})と一致しません。集計を中止しました`);
+  return rows;
+}
+
+// 集計の元データ(権限に依存しない)。5分キャッシュ。
+async function loadProgressRaw() {
+  const c = globalThis.__progressRawCache;
+  if (c && Date.now() - c.at < PROGRESS_CACHE_TTL_MS) return { raw: c.raw, cached: true };
+  const bytes = {};
+  const [sales, invoices, hotels, buses, estimations, cancelled] = await Promise.all([
+    progressFetchAll('booking_sales', 'booking_id,amount,payments', null, bytes),
+    progressFetchAll('invoices', 'booking_id,status', null, bytes),
+    progressFetchAll('booking_hotels', 'booking_id,status', null, bytes),
+    progressFetchAll('booking_buses', 'booking_id,status', null, bytes),
+    progressFetchAll('estimations', 'converted_booking_id', 'converted_booking_id=not.is.null', bytes),
+    progressFetchAll('bookings', 'id', 'status=ilike.cancelled', bytes),
+  ]);
+  const items = {};
+  const get = (id) => items[id] || (items[id] = { sr: 0, st: 0, pt: 0, ai: 0, arr: {}, est: 0 });
+  for (const r of sales) {
+    if (!r.booking_id) continue;
+    const it = get(r.booking_id);
+    it.sr += 1;
+    it.st += Number(r.amount) || 0;
+    if (Array.isArray(r.payments)) for (const p of r.payments) it.pt += Number(p && p.amount) || 0;
+  }
+  for (const r of invoices) {
+    if (r.booking_id && r.status !== 'void') get(r.booking_id).ai += 1;
+  }
+  for (const r of [...hotels, ...buses]) {
+    if (!r.booking_id) continue;
+    const k = r.status == null ? '' : String(r.status);
+    const arr = get(r.booking_id).arr;
+    arr[k] = (arr[k] || 0) + 1;
+  }
+  for (const r of estimations) {
+    if (r.converted_booking_id) get(r.converted_booking_id).est = 1;
+  }
+  const raw = {
+    items,
+    cancelled: cancelled.map((r) => r.id),
+    verified: { booking_sales: sales.length, invoices: invoices.length, booking_hotels: hotels.length, booking_buses: buses.length, estimations: estimations.length, cancelled_bookings: cancelled.length },
+    bytes,
+  };
+  globalThis.__progressRawCache = { at: Date.now(), raw };
+  return { raw, cached: false };
+}
+
+async function doProgressSummary(session) {
+  // 判定の純粋関数は、詳細画面と共用のファイル(UMD)を読み込む。読み込みに失敗した場合に
+  // このactionだけが失敗する(他のactionに影響しない)よう、動的importにしている。
+  const BP = (await import('../public/js/booking-progress.js')).default;
+  const { raw, cached } = await loadProgressRaw();
+  const hide = !canViewFinancialsSession(session);
+  const out = {};
+  for (const id of raw.cancelled) out[id] = { c: 1 };
+  for (const id of Object.keys(raw.items)) {
+    if (out[id]) continue;
+    const it = raw.items[id];
+    const hotels = [];
+    for (const k of Object.keys(it.arr)) for (let i = 0; i < it.arr[k]; i++) hotels.push({ status: k });
+    const res = BP.judgeBookingProgress({
+      booking: { status: 'open' }, hasEstimation: !!it.est, hotels, buses: [],
+      activeInvoiceCount: it.ai, salesTotal: it.st, paidTotal: it.pt, salesRowCount: it.sr, hideAmounts: hide,
+    });
+    out[id] = {
+      st: BP.STAGE_KEYS.map((k) => [res.stages[k].state, res.stages[k].text]),
+      rs: res.reasons.map((x) => [x.stage, x.code, x.badge, x.message]),
+    };
+  }
+  return { status: 200, body: { ok: true, items: out, canViewAmounts: !hide, verified: raw.verified, __progress: { cached, bytes: raw.bytes } } };
+}
+
 // 複数テーブルのクエリを1リクエストでまとめて取得する(予約詳細を開く時の売上・仕入・
 // Invoiceの3件等、クライアント→Vercelの往復とコールドスタートの発生回数を減らすため)。
 // サイズ・時間の予算は全クエリで共有し、取り切れなかったクエリはnextOffsetを返す
@@ -1681,7 +1812,7 @@ async function doAuditHistory(targetTable, recordId) {
 //   RLS対象の4テーブルを読み書きせず、ガイドに再読み込みを求める理由が無いため対象外。
 // - appInfo: 版の確認そのもの(データに触れない)。
 const APP_VERSION_EXEMPT_ACTIONS = new Set([
-  'query', 'queryBatch', 'rpc', 'rpcBatch', 'auditHistory', 'list', 'listByField', 'list_active',
+  'query', 'queryBatch', 'rpc', 'rpcBatch', 'progressSummary', 'auditHistory', 'list', 'listByField', 'list_active',
   'guestInsert', 'guestUpdateById', 'guestUpsertConfirm',
   'appInfo',
 ]);
@@ -1706,6 +1837,13 @@ export default async function handler(req, res) {
     if (body && typeof body === 'object') {
       body.__meta = { serverMs: Date.now() - __reqT0, coldStart: __wasCold };
     }
+    // 進捗の集計キャッシュ(progressSummary)に関わるテーブルへの書き込みが成功したら、このインスタンスの
+    // キャッシュを破棄する(読み取り専用actionは対象外。別インスタンスのキャッシュは5分の期限で更新される)。
+    try {
+      const rb = req.body || {};
+      const t = rb.table || (req.query && req.query.legacyTable);
+      if (res.statusCode < 400 && PROGRESS_TABLES.has(t) && !APP_VERSION_EXEMPT_ACTIONS.has(rb.action)) progressInvalidateCache();
+    } catch (e) { /* キャッシュ破棄の失敗でレスポンスを妨げない */ }
     return __origJson(body);
   };
 
@@ -1764,6 +1902,17 @@ export default async function handler(req, res) {
       else if (action === 'queryBatch') result = await doQueryBatch(req.body.queries);
       else if (action === 'rpcBatch') result = await doRpcBatch(req.body.calls);
       else result = await doRpc(req.body.fn, req.body.params, req.body.offset);
+      return res.status(result.status).json(result.body);
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+  }
+
+  // progressSummary: 予約の進捗集計(読み取り専用。上のdoProgressSummary参照)。ログイン検証済みの
+  // セッションのみ(ゲスト操作はここに来ない)。テーブル指定は不要。
+  if (action === 'progressSummary') {
+    try {
+      const result = await doProgressSummary(session);
       return res.status(result.status).json(result.body);
     } catch (e) {
       return res.status(500).json({ error: e.message });
