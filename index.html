@@ -5712,8 +5712,11 @@ function updateProgressChips(prefix, attentionCount){
   if(!el) return;
   const only = !!listState[prefix].attentionOnly;
   let attLabel;
-  if(bookingProgressSummary) attLabel = `要確認 ${attentionCount}件`;
-  else attLabel = bookingProgressError ? '要確認(取得失敗)' : '要確認 読み込み中…';
+  // 名前: 進捗の問題の件数(HOME_SCREEN_ENABLEDオン時は「進捗に問題 N件 / Progress Issues」の2段。オフは従来の「要確認 N件」)
+  const chipName = HOME_SCREEN_ENABLED ? '進捗に問題' : '要確認';
+  if(bookingProgressSummary) attLabel = `${chipName} ${attentionCount}件`;
+  else attLabel = bookingProgressError ? `${chipName}(取得失敗)` : `${chipName} 読み込み中…`;
+  if(HOME_SCREEN_ENABLED) attLabel = `<span class="hn-t"><span class="hn-ja">${attLabel}</span><span class="hn-en">Progress Issues</span></span>`;
   el.innerHTML =
     `<button type="button" class="pg-chip${only?'':' active'}" onclick="setBookingListAttentionOnly('${prefix}',false)">すべて</button>` +
     `<button type="button" class="pg-chip pg-chip-alert${only?' active':''}" onclick="setBookingListAttentionOnly('${prefix}',true)">${attLabel}</button>`;
@@ -32146,11 +32149,11 @@ const HOME_BUTTONS_ENABLED = true;
 })();
 </script>
 
-<!-- ===== 「ホーム」画面(最初の画面)・作業画面の上の移動バー・要対応アラート欄(HOME_SCREEN。2026-10) =====
+<!-- ===== 「ホーム」画面(最初の画面)・作業画面の上の移動バー・アラート欄(HOME_SCREEN。2026-10) =====
      ・HOME_SCREEN_ENABLED(上のメインscript先頭付近で定義)が false の時は、このブロックは何も作らない(従来と同じ画面)。
      ・ホーム画面(#pg-home): 左=サイドバーと同じ項目のボタン(PR #238のボタン生成処理を再利用。全グループ開いた状態、
        ダッシュボードも含む)、右=アラート欄(件数のみ。押すとその場で一覧が開く)、上部=検索ボックス。
-     ・移動バー: ホーム以外の画面の既存トップバー(.topbar)の中に「ホーム/よく使う3画面/要対応 N」を入れる。
+     ・移動バー: ホーム以外の画面の既存トップバー(.topbar)の中に「ホーム/よく使う3画面/期限・到着 N」を入れる。
      ・アラートの一覧表示は、ダッシュボードの既存の描画処理(renderDbTodoSummaryFromCache/renderDbArrivalAlert)を
        表示先を指定して再利用する。データはダッシュボードと同じ取得関数・同じ5分キャッシュを使い、新しい取得は足していない。
      ・状態の保存(localStorage等)・DB変更は一切しない。 -->
@@ -32159,7 +32162,19 @@ const HOME_BUTTONS_ENABLED = true;
 body.home-nav-on .home-nav{display:flex}
 .home-nav .btn{font-size:12px;padding:5px 10px;white-space:nowrap}
 .home-nav .btn.hn-cur{background:var(--blue-lt);border-color:var(--blue);color:var(--blue);font-weight:600}
+/* 日本語・英語の2段表記(日本語を大きく、その下に英語を小さく)。上のバー・バッジ・見出しで共通 */
+.hn-ja{display:block;font-size:12px;font-weight:700;line-height:1.2;white-space:nowrap}
+.hn-en{display:block;font-size:9px;font-weight:400;line-height:1.1;opacity:.8;white-space:nowrap}
+.hn-t{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;min-width:0}
+.home-nav .btn,#home-nav-home,.topbar .menu-btn{min-height:34px;box-sizing:border-box}
+.home-nav .btn{padding:3px 10px;justify-content:center}
+/* ホームボタン: 上のバーの一番左。青の塗りつぶしで他のボタンより目立たせる。ホーム画面では「押された状態」 */
+#home-nav-home{display:inline-flex;align-items:center;gap:6px;flex-shrink:0;margin-right:8px;padding:3px 12px;border-radius:8px;border:1px solid var(--blue);background:var(--blue);color:#fff;font-family:inherit;cursor:pointer}
+#home-nav-home:hover{background:#0C447C}
+#home-nav-home .hn-ic{font-size:16px;line-height:1}
+#home-nav-home.hn-cur{background:#0C447C;border-color:#0C447C;box-shadow:inset 0 2px 4px rgba(0,0,0,.35);cursor:default}
 .home-badge{display:inline-flex;align-items:center;justify-content:center;gap:4px;box-sizing:border-box;border:1px solid #ddd;border-radius:14px;padding:4px 10px;font-family:inherit;font-size:12px;font-weight:700;line-height:1.3;cursor:pointer;background:#f2f2f2;color:#666;white-space:nowrap;flex-shrink:0}
+.home-badge{flex-direction:column;gap:0;border-radius:12px}
 .home-badge.hb-red{background:#fde8ea;color:#c0392b;border-color:#f5c6cb}
 .home-badge-top{display:none}
 body.home-nav-on .home-badge-top{display:inline-flex}
@@ -32189,14 +32204,21 @@ body:not(.has-deadline-banner) #home-drawer{top:0}
   body.home-sb-closed .sb.open{left:0}
   body.home-sb-closed.has-deadline-banner .sb{top:var(--deadline-banner-h,34px);height:calc(100vh - var(--deadline-banner-h,34px))}
   body.home-sb-closed .menu-btn{display:flex!important;width:auto;padding:0 10px;gap:6px}
-  body.home-sb-closed .menu-btn .mb-label{display:inline;font-size:12px;font-weight:600}
+  body.home-sb-closed .menu-btn .mb-label{display:inline-flex;flex-direction:column}
+  body.home-sb-closed .menu-btn{height:auto}
   #home-sb-backdrop.open{display:block;position:fixed;inset:0;z-index:79;background:rgba(0,0,0,.2)}
 }
+@media(min-width:761px) and (max-width:1100px){ .home-nav .hn-quick{display:none} }
 @media(max-width:760px){
   body.home-nav-on .topbar{flex-wrap:nowrap}
   body.home-nav-on .topbar .tb-left{flex:1 1 auto;min-width:0}
   .home-nav{margin-left:6px}
   .home-nav .hn-quick{display:none}
+  /* スマホ: 上のバーは「ホーム」「☰」「期限・到着」を1行に収める(☰は文字なし。タイトルは省略表示) */
+  body.home-nav-on .topbar .tb-title,#pg-home-bar-title{min-width:0}
+  #home-nav-home{margin-right:6px;padding:3px 9px}
+  .topbar #home-nav-home .hn-ja{font-size:12px}
+  .topbar .home-badge{padding:3px 8px}
   #pg-home .home-cols{grid-template-columns:1fr}
   #pg-home .home-right{display:none}
   #pg-home .home-todo-row{display:flex}
@@ -32209,6 +32231,16 @@ body:not(.has-deadline-banner) #home-drawer{top:0}
   let homeLoading = null, homeLoaded = false, homeDrawerIsOpen = false;
   const sbHome = document.getElementById('sb-home-item');
   if(sbHome) sbHome.style.display = '';
+  // 日本語・英語の2段表記。英語名はサイドバー項目(.sb-en)から読み取る(ここでは作らない)。サイドバーに英語名が無い項目は日本語のみ
+  const bi = (ja, en) => `<span class="hn-t"><span class="hn-ja">${ja}</span>${en ? `<span class="hn-en">${en}</span>` : ''}</span>`;
+  function sbLabel(pg){
+    const it = document.querySelector(`#sidebar .sb-item[data-pg="${pg}"]`);
+    if(!it) return { icon:'', ja:pg, en:'' };
+    const first = it.firstChild && it.firstChild.nodeType === 3 ? it.firstChild.textContent.trim() : it.textContent.trim();
+    const m = first.match(/^(\S+)\s+([\s\S]+)$/);
+    const en = it.querySelector('.sb-en');
+    return { icon: m ? m[1] : '', ja: m ? m[2].trim() : first, en: en ? en.textContent.trim().replace(/^\/\s*/, '') : '' };
+  }
   // ホームがダッシュボードの代わり: サイドバーのダッシュボード項目は非表示(コードは残す。定数オフで元に戻る)
   const sbDash = document.querySelector('#sidebar .sb-item[data-pg="dashboard"]');
   if(sbDash) sbDash.style.display = 'none';
@@ -32216,8 +32248,9 @@ body:not(.has-deadline-banner) #home-drawer{top:0}
   document.body.classList.add('home-sb-closed');
   const menuBtn = document.querySelector('.topbar .menu-btn');
   if(menuBtn && !menuBtn.querySelector('.mb-label')){
-    const lb = document.createElement('span'); lb.className = 'mb-label'; lb.textContent = 'すべての画面';
+    const lb = document.createElement('span'); lb.className = 'mb-label'; lb.innerHTML = bi('すべての画面', 'All Pages');
     menuBtn.appendChild(lb);
+    menuBtn.setAttribute('aria-label', 'すべての画面 / All Pages');
   }
   (function(){
     const sbEl = document.getElementById('sidebar');
@@ -32298,7 +32331,7 @@ body:not(.has-deadline-banner) #home-drawer{top:0}
   function homeUpdateBadges(){
     const n = homeLoaded ? homeUrgentCount() : null;
     document.querySelectorAll('.home-badge').forEach(el=>{
-      el.textContent = '要対応 ' + (n === null ? '…' : n);
+      el.innerHTML = bi('期限・到着 ' + (n === null ? '…' : n), 'Deadlines');
       el.classList.toggle('hb-red', !!n);
     });
   }
@@ -32337,10 +32370,10 @@ body:not(.has-deadline-banner) #home-drawer{top:0}
         <div id="home-search-results"></div>
       </div>
       <div id="home-ocr-slot"></div>
-      <button type="button" class="home-badge home-todo-row" onclick="homeOpenDrawer()">要対応 …</button>
+      <button type="button" class="home-badge home-todo-row" onclick="homeOpenDrawer()">${bi('期限・到着 …', 'Deadlines')}</button>
       <div class="home-cols">
         <div class="card home-left hb-scope" id="home-buttons"></div>
-        <div class="card home-right"><div class="card-title">要対応・アラート</div><div id="home-alerts"></div></div>
+        <div class="card home-right"><div class="card-title">${bi('要対応・アラート', 'Alerts')}</div><div id="home-alerts"></div></div>
       </div>`;
     // 通帳OCR(経理のみ): ダッシュボードにあったカード(ID・関数は変えずDOMだけ移動。権限は従来の.accounting-onlyのまま)をホームへ移す
     const ocr = document.querySelector('#pg-dashboard > .card.accounting-only');
@@ -32386,17 +32419,26 @@ body:not(.has-deadline-banner) #home-drawer{top:0}
     if(left && !document.getElementById('home-nav')){
       const nav = document.createElement('div');
       nav.id = 'home-nav'; nav.className = 'home-nav';
-      [['home','🏠 ホーム',''],['booking-list','Booking List','hn-quick'],['vendor-email','手配確定状況','hn-quick'],['hotels','ホテル予約管理','hn-quick']].forEach(([pg,label,cls])=>{
+      ['booking-list','vendor-email','hotels'].forEach(pg=>{
+        const l = sbLabel(pg);
         const b = document.createElement('button');
-        b.type = 'button'; b.className = 'btn ' + cls; b.dataset.go = pg; b.textContent = label;
+        b.type = 'button'; b.className = 'btn hn-quick'; b.dataset.go = pg; b.innerHTML = bi(l.ja, l.en);
         b.addEventListener('click', ()=>go(pg));
         nav.appendChild(b);
       });
       left.appendChild(nav);
+      // 「ホーム / Home」ボタン: 上のバーの一番左(☰より左)。どの画面でも出る(ホーム画面では押された状態)
+      const hl = sbLabel('home');
+      const hb = document.createElement('button');
+      hb.type = 'button'; hb.id = 'home-nav-home'; hb.dataset.go = 'home';
+      hb.innerHTML = `<span class="hn-ic">${hl.icon || '🏠'}</span>` + bi(hl.ja, hl.en);
+      hb.setAttribute('aria-label', hl.ja + ' / ' + hl.en);
+      hb.addEventListener('click', ()=>go('home'));
+      left.insertBefore(hb, left.firstChild);
     }
     if(actions && !actions.querySelector('.home-badge-top')){
       const bd = document.createElement('button');
-      bd.type = 'button'; bd.className = 'home-badge home-badge-top'; bd.textContent = '要対応 …';
+      bd.type = 'button'; bd.className = 'home-badge home-badge-top'; bd.innerHTML = bi('期限・到着 …', 'Deadlines');
       bd.addEventListener('click', ()=>homeOpenDrawer());
       actions.appendChild(bd);
     }
@@ -32404,7 +32446,7 @@ body:not(.has-deadline-banner) #home-drawer{top:0}
       const wrap = document.createElement('div');
       wrap.innerHTML = `<div id="home-drawer-backdrop" onclick="homeCloseDrawer()"></div>
         <div id="home-drawer" role="dialog" aria-label="要対応">
-          <div class="hd-head"><span>要対応・アラート</span><button type="button" class="btn" onclick="homeCloseDrawer()">✕ 閉じる</button></div>
+          <div class="hd-head">${bi('要対応・アラート', 'Alerts')}<button type="button" class="btn" onclick="homeCloseDrawer()">✕ 閉じる</button></div>
           <div class="hd-body" id="home-drawer-body"></div>
         </div>`;
       while(wrap.firstChild) document.body.appendChild(wrap.firstChild);
@@ -32416,7 +32458,10 @@ body:not(.has-deadline-banner) #home-drawer{top:0}
   window.homeOnGo = function(id){
     homeCloseDrawer();
     document.body.classList.toggle('home-nav-on', id !== 'home');
-    document.querySelectorAll('#home-nav [data-go]').forEach(b=>b.classList.toggle('hn-cur', b.dataset.go === id));
+    document.querySelectorAll('#home-nav [data-go], #home-nav-home').forEach(b=>{ b.classList.toggle('hn-cur', b.dataset.go === id); if(b.id === 'home-nav-home') b.setAttribute('aria-current', id === 'home' ? 'page' : 'false'); });
+    // ホーム画面の見出し(上のバーのタイトル): 日本語・英語の2段。他の画面へ移ると go() が通常の文字に戻す
+    const ttl = document.getElementById('pg-title');
+    if(ttl && id === 'home') ttl.innerHTML = bi('ホーム', 'Home');
     if(id === 'home'){
       homeBuildPage();
       homeRenderButtons();
