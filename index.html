@@ -4900,6 +4900,18 @@ const FACILITY_DEADLINE_TIERS_FULL = FACILITY_DEADLINE_TIERS.concat([
 // 全件ページングスキャンしていたため、5分TTLキャッシュを導入する
 // (bookingFacilitiesApiCall側で書き込み成功時にfacilityDeadlineItemsCacheAt=0にして
 // 無効化する)。UIの見た目・動作(表示内容・件数)は変更しない。
+// 「対応が必要な予約」のアラート(期限当日・超過など)の対象外にする施設。施設名にこの文字列が含まれていれば除外する
+// (「箱根ロープウェイ（往復）」などの表記ゆれにも当てはまる。全角/半角はNFKCにそろえて比較)。
+// 除外はアラートの計算・表示だけ(booking_facilitiesの行・対応期限日・完了のチェックは変更しない。予約詳細の
+// 「観光施設・バス駐車場等」の表や観光地予約管理には、今までどおり出る)。ホームの右の欄・上のバーの「期限・到着」・
+// 赤/黄の固定バナー・緊急モーダル・ブラウザ通知・対応リストページ・ダッシュボードは、すべてこの読み込み
+// (fetchAllFacilityDeadlineItems)と同じキャッシュから作られるため、ここ1か所でそろう。
+// 他の施設を足すときは、この配列に名前を足す(画面からの設定は無い)。[] にすると今までの表示に戻る。
+const TODO_EXCLUDED_FACILITIES = ['箱根ロープウェイ'];
+function isTodoExcludedFacility(name){
+  const n = String(name||'').normalize('NFKC');
+  return TODO_EXCLUDED_FACILITIES.some(x=>x && n.includes(String(x).normalize('NFKC')));
+}
 let facilityDeadlineItemsCache = null;
 let facilityDeadlineItemsCacheAt = 0;
 async function fetchAllFacilityDeadlineItems(){
@@ -4935,6 +4947,7 @@ async function fetchAllFacilityDeadlineItems(){
     .filter(f=>{
       if(f._booking && (normalizeStatus(f._booking.status) === 'cancelled' || normalizeStatus(f._booking.status) === 'closed')) return false;
       if(f.status === 'キャンセル') return false;
+      if(isTodoExcludedFacility(f.facility_name)) return false;   // アラートの対象外の施設(TODO_EXCLUDED_FACILITIES)
       return true;
     })
     // 「期限日が近い順」(_days昇順)だと、118日前から放置されている古い期限超過が
