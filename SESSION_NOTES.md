@@ -1498,3 +1498,68 @@ PR: https://github.com/Jun-Ryusekido/kic-travel-core-ver2/pull/225 （未マー�
 - 管理者/スタッフ × PC1280×800/スマホ375×812: 63項目すべて合格・JSエラー0。全作業画面(サイドバーの全項目+ホーム)でホームボタンが一番左・「ホーム Home」・併記の文字が切れない・横スクロールなし。スマホは「ホーム」「☰」「期限・到着」が1行(バー高さ66px以下)。ホームボタンで実クリックでホームへ。古い名前(要確認 N件/要対応 N)が画面に無い。数字は従来どおり(バッジ3・チップ1)、「進捗に問題」を押す絞り込みも従来どおり。PCで固定の検索カードがバーと重ならない。中間幅(1024/820/768)でも横スクロールなし。
 - 定数オフ: 最初の画面・バーの文字/DOM数/高さ・チップ文言が、変更前の定数オフと同一。
 - スクリーンショット(scratchpad/shots): before_*(変更前)・after_*(変更後)・off_*(定数オフ)。
+
+---
+
+## ホーム画面の重複解消 + 対応が必要な予約の一覧で完了済みを折りたたむ + ユーザーメニュー(ログアウト)(2026-10-23・見え方だけ)
+
+### 前提
+- PR #240 は main にマージ済み(06964a2)。最新の main から、新しいブランチ `claude/home-todo-completed-fold` を作って作業(古い `claude/trusting-franklin-rxs5ss` は再利用しない。環境の指定名ではなく、JUNさんの指示で新しい名前にした)。
+
+### 1. ホーム画面の青い「ホーム / Home」ボタンを非表示
+- `body:not(.home-nav-on) #home-nav-home{display:none}`(ホーム画面だけ非表示。他の全画面では一番左に出る)。ホーム画面では☰の右に見出し「ホーム / Home」が並ぶ。HOME_SCREEN_ENABLED オフではボタン自体が作られない。
+
+### 2. 「対応が必要な予約」の一覧(pg-todo)で完了済みを隠す
+- 「すべて表示（全N件）」で開く一覧は **対応リストページ `#pg-todo`(renderTodoPageFromCache)の1か所だけ**。入口はすべて `go('todo')`: ホーム右欄(PC)・上のバッジから開く右の欄・ホームのスマホ1行バッジの欄(いずれも `renderAlertsInto` の「対応事項をすべて表示」)、ダッシュボードの「すべて表示」ボタン(`renderDbTodoSummaryFromCache`。ダッシュボードはホームへ向くため通常は到達しない)、赤/黄の固定バナー(`toggleGlobalDeadlineBannerNav`)、緊急モーダルの「一覧で確認する」。同じ処理を共有しているので、1か所の変更で全入口にそろう。完了済みの行が出るのはこのページだけ(ホーム右欄・ダッシュボードの区分別の一覧は未完了のみ)。
+- `TODO_HIDE_COMPLETED`(初期値 true)。オン: 初めは未完了の行だけ(対応期限日の古い順)、見出し「未完了 N件（M予約）／ 完了済み K件」(Mはbooking_idの重複を除く)、下に折りたたみ「▼ 完了済み K件を表示 / Show Completed」(押すと開く/「隠す / Hide Completed」)。開閉は保存しない(別の画面へ移動すると閉じる=`go()`でリセット)。「✓ 完了」「完了を取り消す」「✕ 削除」は完了済みの折りたたみの中だけ(ボタンの処理は変更なし)。選択→まとめて操作は従来どおり。
+- 表の見た目(オンのときだけ): 列幅 4/7/30/27/11/11/10%(ツアー名43%・施設名20%だった)、「残り」を右寄せ、完了済みの表は最後の列を広く(25%)。オフは今までの列幅・中央寄せ・完了済みが混ざる。
+- 変更した既存の行: `TODO_TABLE_COLGROUP_HTML`/`TODO_TABLE_THEAD_HTML` の定義(フラグで切替)、`todoRow` の「残り」セルの寄せ、`go()` に `todoCompletedOpen=false` の1行、`renderTodoPageFromCache` に分岐を追加。
+
+### 3. 調査(読み取りのみ): 対応期限日はどこで決まるか
+- **コード上は、すべて人が入力する値**。自動計算(利用日から施設ごとの規則で算出)・取込み処理で付ける処理は、index.html・api/・scripts/・email-automation/・parking-automation/・arrangement_excel.js のどこにも無い(`deadline_date` の代入箇所を全検索)。
+  - 入力場所: 予約詳細の「観光施設・バス駐車場等」表の「期限日」の日付欄(17695行付近 `onchange="bdFacilityItems[i].deadline_date=this.value"`)。新しい行の初期値は空(16313・17946行付近)。保存は `sanitizeDateField(it.deadline_date)`(17997行付近)。
+  - 一括変更: 対応リストの「対応期限日を変更」(選択した行に同じ日付を設定。`runTodoDeadlineChange`)。
+  - コピー: 「REF#からコピー」(`ARR_COPY_CONFIG.fac`)は、コピー元の `date`(利用日)と `deadline_date` を**そのまま**コピーする(日付をずらさない)。
+  - 完了: 期限日がある行を保存するとき、ステータスが手配OK/FNL済/予約不要なら自動で完了扱いにする処理がある(17983行付近の `autoComplete`。期限日の値は変えない)。
+- 結論: 「箱根ロープウェイ(往復)は利用日のちょうど1年前、スカイツリー・箱根海賊船は約6か月前」という違いは、**コードの規則ではなく、入力されたデータ(担当者の手入力、またはREF#からのコピー・一括変更の結果)による**。施設ごとの規則を持つマスタ列・計算は無い(business_partners 側にも期限日用の列は見つからなかった)。
+- 実データで確認するための読み取り専用SQL(SELECTのみ。SupabaseのSQL Editorに貼って実行):
+  1. 施設ごとの「利用日−対応期限日」の日数の種類と件数(施設ごとに1つの日数なら規則的な運用、ばらつくなら手入力):
+```sql
+select facility_name,
+       count(*) as 件数,
+       min(date::date - deadline_date::date) as 最小日数,
+       max(date::date - deadline_date::date) as 最大日数,
+       count(distinct (date::date - deadline_date::date)) as 日数の種類
+from booking_facilities
+where deadline_date is not null and date is not null
+group by facility_name
+order by 件数 desc
+limit 50;
+```
+  2. 3施設の中身(予約番号つき):
+```sql
+select b.ref_no, f.facility_name, f.date, f.deadline_date,
+       (f.date::date - f.deadline_date::date) as 何日前, f.status, f.deadline_completed
+from booking_facilities f
+left join bookings b on b.id = f.booking_id
+where f.deadline_date is not null
+  and (f.facility_name ilike '%ロープウェイ%' or f.facility_name ilike '%スカイツリー%' or f.facility_name ilike '%海賊船%')
+order by f.facility_name, f.date
+limit 100;
+```
+  3. ちょうど1年前(365/366日前)になっている行の一覧:
+```sql
+select b.ref_no, f.facility_name, f.date, f.deadline_date, (f.date::date - f.deadline_date::date) as 何日前
+from booking_facilities f
+left join bookings b on b.id = f.booking_id
+where f.deadline_date is not null and f.date is not null
+  and (f.date::date - f.deadline_date::date) in (365, 366)
+order by f.date
+limit 100;
+```
+
+### 4. ユーザーのアイコンとメニュー(ログアウト)(JUNさんの追加依頼)
+- 調査: ログアウトは、サイドバー最下部 `.sb-user` 内の `<div class="sb-logout" onclick="doLogout()">`。`doLogout()`(ログ記録・currentUser=null・`clearSession()`・ログイン画面表示)。ユーザー名・ロールは同じ最下部の `#sb-avatar`/`#sb-uname`/`#sb-urole`(`applyLoggedInUI` が設定)。サイドバーを閉じて普段見えなくなったもの: 上部=ロゴ「✈ KIC Travel Core」「Ver 2.0 · INBOUND」、下部=アバター・ユーザー名・ロール・「🔑 パスワード変更」・「ログアウト」(今回は、ログアウトとユーザー名だけ上のバーへ。ロゴ・パスワード変更は未対応=別途決める)。
+- 実装: 上のバーの右端(最右)にユーザーのアイコン(イニシャルの丸)。押すと小メニュー「ユーザー名（ロール）」「ログアウト / Logout」(2段)。外を押す/Esc/画面移動/リサイズで閉じる(保存しない)。`homeLogout()` は閉じてから既存の `doLogout()` をそのまま呼ぶ。サイドバーのログアウトは残している。HOME_SCREEN_ENABLED オフでは出ない。
+- スマホ375px: アイコンのみ。☰・ホーム/Home・期限・到着 N/Deadlines・アイコン(と、管理者の📦・＋)が1行に収まった(バッジは数字だけにしなくて済んだ)。ただし画面名は短く切れる(「B.」程度。ホームでは見出しがあるため問題なし)。
+- **発見した不具合(main 06964a2 に存在)**: PCでサイドバーを開いた状態でサイドバー内の「ログアウト」を押すと、`.open` が外れないため、暗い背景(`#home-sb-backdrop`)がログイン画面の上に残り、ログイン入力欄が押せなくなる(再読み込みするまで)。ログイン画面に戻った時に、開いた欄・背景・メニューを閉じる処理(`#screen-app` の表示監視)を足して解消した。
