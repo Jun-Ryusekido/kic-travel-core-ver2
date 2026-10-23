@@ -4272,6 +4272,7 @@ function go(id){
   // 引きずらないため)。
   todoSelectedIds.clear();
   todoDeadlineEditOpen = false;
+  todoCompletedOpen = false;   // 完了済みの折りたたみは、画面を移動すると閉じた状態に戻る(保存しない)
   currentPageId = id;
   document.querySelectorAll('.page').forEach(el=>el.style.display='none');
   document.getElementById('pg-'+id).style.display='';
@@ -4952,7 +4953,7 @@ function todoRow(f, tierFg, done){
     <td data-label="施設名" style="padding:5px 8px;cursor:pointer;${nameStyle}" onclick="openBookingDetail('${f.booking_id}')">${escHtml(f.facility_name||'（名称未設定）')}</td>
     <td data-label="利用日" style="padding:5px 8px;white-space:nowrap;cursor:pointer" onclick="openBookingDetail('${f.booking_id}')">${escHtml(f.date||'')}</td>
     <td data-label="対応期限日" style="padding:5px 8px;white-space:nowrap;cursor:pointer" onclick="openBookingDetail('${f.booking_id}')">${escHtml(f.deadline_date||'')}</td>
-    <td data-label="残り" style="padding:5px 8px;text-align:center;font-weight:700;color:${done?'var(--text3)':tierFg};white-space:nowrap">
+    <td data-label="残り" style="padding:5px 8px;text-align:${TODO_HIDE_COMPLETED ? 'right' : 'center'};font-weight:700;color:${done?'var(--text3)':tierFg};white-space:nowrap">
       <span style="cursor:pointer" onclick="openBookingDetail('${f.booking_id}')">${done?'✓ 完了':dLabel}</span>${undoBtn?' '+undoBtn:''}${delBtn?' '+delBtn:''}
     </td>
   </tr>`;
@@ -4964,9 +4965,23 @@ function tierFgForDeadlineDays(d){
 }
 // 対応リストページ・ダッシュボードサマリーで共通のテーブル列構成(REF#/ツアー名/施設名/
 // 利用日/対応期限日/残り)。列構成を完全に一致させるため、この1つのHTMLを両方で使う。
-const TODO_TABLE_COLGROUP_HTML = `<colgroup>
+// 「すべて表示」の一覧(対応リストページ pg-todo)で、完了済みを初めは隠し、折りたたみ「完了済み N件を表示」に入れる。
+// true=隠す(見出しに件数、列幅・「残り」の右寄せも整える)。false=今までの表示(完了済みが混ざる・今までの列幅)。
+// 開閉の状態(todoCompletedOpen)は保存しない(別の画面へ移動すると閉じた状態に戻る)。
+const TODO_HIDE_COMPLETED = true;
+let todoCompletedOpen = false;
+function toggleTodoCompleted(){ todoCompletedOpen = !todoCompletedOpen; renderTodoPageFromCache(); }
+const TODO_TABLE_COLGROUP_HTML = TODO_HIDE_COMPLETED ? `<colgroup>
+      <col style="width:4%"><col style="width:7%"><col style="width:30%">
+      <col style="width:27%"><col style="width:11%"><col style="width:11%"><col style="width:10%">
+    </colgroup>` : `<colgroup>
       <col style="width:4%"><col style="width:7%"><col style="width:43%">
       <col style="width:20%"><col style="width:10%"><col style="width:8%"><col style="width:8%">
+    </colgroup>`;
+// 完了済みの折りたたみ内の表: 最後の列に「✓ 完了」「完了を取り消す」「✕ 削除」が並ぶため、その列を広くする
+const TODO_TABLE_COLGROUP_DONE_HTML = `<colgroup>
+      <col style="width:4%"><col style="width:7%"><col style="width:24%">
+      <col style="width:20%"><col style="width:10%"><col style="width:10%"><col style="width:25%">
     </colgroup>`;
 const TODO_TABLE_THEAD_HTML = `<thead><tr style="background:var(--bg)">
       <th style="padding:4px 6px;white-space:nowrap">選択</th>
@@ -4975,7 +4990,7 @@ const TODO_TABLE_THEAD_HTML = `<thead><tr style="background:var(--bg)">
       <th style="padding:4px 8px;text-align:left">施設名</th>
       <th style="padding:4px 8px;text-align:left;white-space:nowrap">利用日</th>
       <th style="padding:4px 8px;text-align:left;white-space:nowrap">対応期限日</th>
-      <th style="padding:4px 8px;text-align:center;white-space:nowrap">残り</th>
+      <th style="padding:4px 8px;text-align:${TODO_HIDE_COMPLETED ? 'right' : 'center'};white-space:nowrap">残り</th>
     </tr></thead>`;
 
 // ダッシュボードに常時表示する「対応が必要な予約」の簡易サマリー。期限7日以内(対応リスト
@@ -5273,8 +5288,36 @@ function renderTodoPageFromCache(){
   // 文字通り「全件」)。中間の区分別サマリーページは廃止したため、このページを開いた
   // 時点で常にこの一覧を表示する。行の描画(todoRow)・列構成(TODO_TABLE_*)はダッシュボードの
   // 対応リストサマリーと共通の実装を使う。
+  const byDeadline = (a,b)=>(a.deadline_date||'').localeCompare(b.deadline_date||'');
+  if(TODO_HIDE_COMPLETED){
+    // 初めは未完了の行だけ。完了済みは下の折りたたみ(押したときだけ開く)。並びは今までどおり対応期限日の古い順
+    const openItems = incompleteAll.slice().sort(byDeadline);
+    const doneItems = (completed||[]).slice().sort(byDeadline);
+    const bookingCount = new Set(openItems.map(f=>f.booking_id)).size;
+    const openRows = openItems.map(f=>todoRow(f, tierFgForDeadlineDays(f._days), false)).join('');
+    const doneRows = doneItems.map(f=>todoRow(f, tierFgForDeadlineDays(f._days), true)).join('');
+    el.innerHTML = `
+    <div style="margin-bottom:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <button class="btn" onclick="go('dashboard')">${HOME_SCREEN_ENABLED ? '← ホームに戻る' : '← ダッシュボードに戻る'}</button>
+      <span id="todo-page-counts" style="font-size:12px;font-weight:600">未完了 ${openItems.length}件（${bookingCount}予約）／ 完了済み ${doneItems.length}件</span>
+      <span style="font-size:11px;color:var(--text3)">対応期限日の古い順</span>
+    </div>
+    ${todoActionBarHtml('page')}
+    ${openItems.length ? `<div class="tbl-wrap"><table class="confirm-table" style="width:100%;border-collapse:collapse;font-size:12px">
+      ${TODO_TABLE_COLGROUP_HTML}${TODO_TABLE_THEAD_HTML}
+      <tbody>${openRows}</tbody>
+    </table></div>` : '<div style="color:var(--text3);font-size:12px;padding:6px 0">未完了の対応事項はありません。</div>'}
+    ${doneItems.length ? `<div style="margin-top:14px">
+      <button type="button" id="todo-completed-toggle" class="btn" aria-expanded="${todoCompletedOpen}" onclick="toggleTodoCompleted()">${todoCompletedOpen ? '▲' : '▼'} 完了済み ${doneItems.length}件を${todoCompletedOpen ? '隠す / Hide Completed' : '表示 / Show Completed'}</button>
+      ${todoCompletedOpen ? `<div id="todo-completed-list" class="tbl-wrap" style="margin-top:8px"><table class="confirm-table" style="width:100%;border-collapse:collapse;font-size:12px">
+        ${TODO_TABLE_COLGROUP_DONE_HTML}${TODO_TABLE_THEAD_HTML}
+        <tbody>${doneRows}</tbody>
+      </table></div>` : ''}
+    </div>` : ''}`;
+    return;
+  }
   const allFlat = [...incompleteAll, ...completed]
-    .sort((a,b)=>(a.deadline_date||'').localeCompare(b.deadline_date||''));
+    .sort(byDeadline);
   const flatRows = allFlat.map(f=>todoRow(f, tierFgForDeadlineDays(f._days), !!f.deadline_completed)).join('');
   el.innerHTML = `
     <div style="margin-bottom:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
@@ -32172,6 +32215,16 @@ body.home-nav-on .home-nav{display:flex}
 #home-nav-home{display:inline-flex;align-items:center;gap:6px;flex-shrink:0;margin-right:8px;padding:3px 12px;border-radius:8px;border:1px solid var(--blue);background:var(--blue);color:#fff;font-family:inherit;cursor:pointer}
 #home-nav-home:hover{background:#0C447C}
 #home-nav-home .hn-ic{font-size:16px;line-height:1}
+/* ユーザーのアイコン(上のバーの右端)と、押すと開く小さなメニュー(ユーザー名(ロール)・ログアウト) */
+#home-user-btn{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;box-sizing:border-box;width:34px;height:34px;padding:0;border-radius:50%;border:1px solid var(--blue);background:var(--blue-lt);color:var(--blue);font-family:inherit;font-size:11px;font-weight:700;cursor:pointer}
+#home-user-btn[aria-expanded="true"]{background:var(--blue);color:#fff}
+#home-user-menu{display:none;position:fixed;z-index:95;box-sizing:border-box;min-width:200px;max-width:calc(100vw - 16px);background:var(--card);border:1px solid var(--border);border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.18);padding:10px}
+#home-user-menu.open{display:block}
+#home-user-menu .hum-who{padding:2px 4px 8px;margin-bottom:8px;border-bottom:1px solid var(--border);font-size:12px;font-weight:600;overflow-wrap:anywhere}
+#home-user-menu .hum-out{display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;box-sizing:border-box;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:#fff;color:var(--red,#c0392b);font-family:inherit;cursor:pointer}
+#home-user-menu .hum-out:hover{background:var(--bg)}
+/* ホーム画面では、見出し「ホーム / Home」と重複して見えるため、青いボタンは出さない(ホーム以外の全画面では出る) */
+body:not(.home-nav-on) #home-nav-home{display:none}
 #home-nav-home.hn-cur{background:#0C447C;border-color:#0C447C;box-shadow:inset 0 2px 4px rgba(0,0,0,.35);cursor:default}
 .home-badge{display:inline-flex;align-items:center;justify-content:center;gap:4px;box-sizing:border-box;border:1px solid #ddd;border-radius:14px;padding:4px 10px;font-family:inherit;font-size:12px;font-weight:700;line-height:1.3;cursor:pointer;background:#f2f2f2;color:#666;white-space:nowrap;flex-shrink:0}
 .home-badge{flex-direction:column;gap:0;border-radius:12px}
@@ -32412,6 +32465,41 @@ body:not(.has-deadline-banner) #home-drawer{top:0}
     out.innerHTML = `<div style="font-size:11px;color:var(--text3);margin:8px 0 4px">${hits.length}件 / 全${bookingsListCache.length}件${hits.length>20?'（先頭20件を表示）':''}</div>` + rows;
   };
 
+  // ---- ユーザーのアイコンとメニュー(ユーザー名・ログアウト)。表示は既存のサイドバー下部の表示(#sb-avatar/#sb-uname/#sb-urole)から読む ----
+  function homeUserMenuIsOpen(){ const m = document.getElementById('home-user-menu'); return !!m && m.classList.contains('open'); }
+  function homeUpdateUser(){
+    const b = document.getElementById('home-user-btn'), av = document.getElementById('sb-avatar');
+    if(b) b.textContent = (av && av.textContent.trim()) || '👤';
+  }
+  function homeOpenUserMenu(){
+    const b = document.getElementById('home-user-btn'), m = document.getElementById('home-user-menu');
+    if(!b || !m) return;
+    homeUpdateUser();
+    const nm = document.getElementById('sb-uname'), rl = document.getElementById('sb-urole');
+    document.getElementById('home-user-who').textContent = ((nm && nm.textContent) || '') + '（' + ((rl && rl.textContent) || '') + '）';
+    m.classList.add('open'); b.setAttribute('aria-expanded', 'true');
+    const r = b.getBoundingClientRect();
+    m.style.top = Math.round(r.bottom + 6) + 'px';
+    m.style.right = Math.max(8, Math.round(window.innerWidth - r.right)) + 'px';
+  }
+  window.homeCloseUserMenu = function(){
+    const b = document.getElementById('home-user-btn'), m = document.getElementById('home-user-menu');
+    if(m) m.classList.remove('open');
+    if(b) b.setAttribute('aria-expanded', 'false');
+  };
+  // ログアウトは今までの doLogout() をそのまま呼ぶ(サイドバーのログアウトと同じ結果)。呼ぶ前にこの画面側の開いている部品を閉じる
+  window.homeLogout = function(){ homeCloseUserMenu(); doLogout(); };
+  // ログイン画面に戻った時(サイドバーのログアウトを含む)、開いたままの欄・背景が残らないように閉じる
+  (function(){
+    const app = document.getElementById('screen-app');
+    if(!app) return;
+    new MutationObserver(()=>{
+      if(getComputedStyle(app).display !== 'none') return;
+      homeCloseUserMenu(); homeCloseDrawer();
+      const sbEl = document.getElementById('sidebar'); if(sbEl) sbEl.classList.remove('open');
+    }).observe(app, {attributes:true, attributeFilter:['style']});
+  })();
+
   // ---- 作業画面の上の移動バー(既存トップバーの中に入れる) ----
   function homeInstallChrome(){
     const left = document.querySelector('.topbar .tb-left');
@@ -32442,6 +32530,23 @@ body:not(.has-deadline-banner) #home-drawer{top:0}
       bd.addEventListener('click', ()=>homeOpenDrawer());
       actions.appendChild(bd);
     }
+    // ユーザーのアイコン(右端。ホーム画面を含む、上のバーが出る全画面)。押すとメニュー(ユーザー名(ロール)・ログアウト)
+    if(actions && !document.getElementById('home-user-btn')){
+      const ub = document.createElement('button');
+      ub.type = 'button'; ub.id = 'home-user-btn'; ub.setAttribute('aria-haspopup', 'true'); ub.setAttribute('aria-expanded', 'false');
+      ub.setAttribute('aria-label', 'ユーザーメニュー / User menu');
+      ub.addEventListener('click', e=>{ e.stopPropagation(); homeUserMenuIsOpen() ? homeCloseUserMenu() : homeOpenUserMenu(); });
+      actions.appendChild(ub);
+      const um = document.createElement('div');
+      um.id = 'home-user-menu'; um.setAttribute('role', 'menu');
+      um.innerHTML = `<div class="hum-who" id="home-user-who"></div>
+        <button type="button" class="hum-out" role="menuitem" onclick="homeLogout()">${bi('ログアウト', 'Logout')}</button>`;
+      document.body.appendChild(um);
+      document.addEventListener('click', e=>{ if(homeUserMenuIsOpen() && !um.contains(e.target)) homeCloseUserMenu(); });
+      document.addEventListener('keydown', e=>{ if(e.key === 'Escape' && homeUserMenuIsOpen()) homeCloseUserMenu(); });
+      window.addEventListener('resize', ()=>homeCloseUserMenu());
+      homeUpdateUser();
+    }
     if(!document.getElementById('home-drawer')){
       const wrap = document.createElement('div');
       wrap.innerHTML = `<div id="home-drawer-backdrop" onclick="homeCloseDrawer()"></div>
@@ -32457,6 +32562,7 @@ body:not(.has-deadline-banner) #home-drawer{top:0}
   // go() から呼ばれる(ホーム画面・移動バーの切替)
   window.homeOnGo = function(id){
     homeCloseDrawer();
+    homeCloseUserMenu(); homeUpdateUser();
     document.body.classList.toggle('home-nav-on', id !== 'home');
     document.querySelectorAll('#home-nav [data-go], #home-nav-home').forEach(b=>{ b.classList.toggle('hn-cur', b.dataset.go === id); if(b.id === 'home-nav-home') b.setAttribute('aria-current', id === 'home' ? 'page' : 'false'); });
     // ホーム画面の見出し(上のバーのタイトル): 日本語・英語の2段。他の画面へ移ると go() が通常の文字に戻す
