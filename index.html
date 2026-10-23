@@ -2533,7 +2533,7 @@ input[type=number]{-moz-appearance:textfield}
         </div>
       </div>
 
-      <!-- Card Holders(カード名義人マスタ、admin@kictravel.jp限定。go()側でもガードする) -->
+      <!-- Card Holders(カード名義人マスタ、adminロール限定。go()側でもガードする) -->
       <div id="pg-card-holders" class="page" style="display:none">
         <div class="card">
           <div class="card-title">カード名義人マスタ
@@ -3457,11 +3457,10 @@ const ERROR_LOG_VIEWER_EMAILS = ['admin@kictravel.jp','jr@kictravel.jp'];
 // メール受信箱の「対象外にする」は、送信元学習(learned_mappings)にも記録され以後の
 // 新着メールの表示にも影響するため、操作できるアカウントを限定する。
 const EMAIL_EXCLUDE_EMAILS = ['admin@kictravel.jp','jr@kictravel.jp'];
-// カード名義人マスタ(card_holders)の管理(追加・無効化)はadmin@kictravel.jpのみに限定する。
+// カード名義人マスタ(card_holders)の管理(追加・無効化・有効化)はadminロールのみに限定する。
 // UI側(このメニュー項目の表示・go()のガード)に加え、api/table-crud.jsのcard_holders専用
-// チェックでサーバー側でも同じ一覧を使って二重に制限する(有効なセッショントークンさえ
+// チェックでサーバー側でも同じ role で二重に制限する(有効なセッショントークンさえ
 // あれば誰でも叩けてしまう抜け穴を塞ぐ、error_logsのlistアクションと同じ考え方)。
-const CARD_HOLDER_ADMIN_EMAILS = ['admin@kictravel.jp'];
 function isBackupUser(){ return currentUser && BACKUP_EMAILS.includes(currentUser.email); }
 function isErrorLogViewer(){ return currentUser && ERROR_LOG_VIEWER_EMAILS.includes(currentUser.email); }
 function isEmailExcludeUser(){ return currentUser && EMAIL_EXCLUDE_EMAILS.includes(currentUser.email); }
@@ -3470,9 +3469,9 @@ function isEmailExcludeUser(){ return currentUser && EMAIL_EXCLUDE_EMAILS.includ
 // のみで判定していたため、実際にはadminロールで運用されているユーザー(jr@kictravel.jp等)が
 // リストに載っていないと経理系機能(伝票内容を仕入明細に反映ボタン等)を使えない不具合があった。
 function isAccountingUser(){ return !!currentUser && (currentUser.role==='admin' || ACCOUNTING_EMAILS.includes(currentUser.email)); }
-function isCardHolderAdmin(){ return currentUser && CARD_HOLDER_ADMIN_EMAILS.includes(currentUser.email); }
+function isCardHolderAdmin(){ return !!currentUser && currentUser.role === 'admin'; }
 // カード名義人の「新規追加」「無効化」「有効化」ができるのは admin ロールだけ(サーバー側でも検証済みセッションのロールで強制。
-// これは画面のボタンを出すかどうかの判定)。画面を開ける人の判定(上のisCardHolderAdmin)は変えていない。
+// これは画面のボタンを出すかどうかの判定)。画面を開ける人の判定(isCardHolderAdmin)も同じ role==='admin'。
 function isCardHolderOpsAdmin(){ return !!currentUser && currentUser.role === 'admin'; }
 // 無効化の前に、その名義人の「未精算の個人立替」の件数・合計を出して確認する。false にすると、今までの簡単な確認(confirm)に戻る。
 const CARD_HOLDER_UNSETTLED_WARN = true;
@@ -4068,10 +4067,10 @@ async function loadErrorLogs(){
   }).join('');
 }
 
-// ===== カード名義人マスタ管理ページ（admin@kictravel.jp限定） =====
+// ===== カード名義人マスタ管理ページ（adminロール限定） =====
 // 一覧(有効/無効含む全件)はanonにSELECTが許可されているため直接読み取る。
 // 追加(insert)・無効化(updateById、is_active=falseへの更新のみ。物理削除はしない)は
-// /api/table-crud経由のservice_role操作とし、サーバー側でもadmin@kictravel.jpのみに
+// /api/table-crud経由のservice_role操作とし、サーバー側でもadminロールのみに
 // 制限する(このページ自体もgo()側でisCardHolderAdmin()によるガードがある、二重の防御)。
 let cardHoldersAdminCache = [];
 async function loadCardHolders(){
@@ -6477,7 +6476,7 @@ async function partnerAliasesApiCall(action, payload){
   partnerGuideDataCacheAt = 0;
   return result;
 }
-// card_holders(カード名義人マスタ)への書き込み(insert/updateById)。admin@kictravel.jp限定の
+// card_holders(カード名義人マスタ)への書き込み(insert/updateById)。adminロール限定の
 // チェックはUI側(isCardHolderAdmin())に加え、api/table-crud.js側でも検証済みセッションの
 // emailを確認してから実行する(二重の防御、error_logsのlistアクションと同じ考え方)。
 async function cardHoldersApiCall(action, payload){ return tableCrudApiCall('card_holders', action, payload); }
