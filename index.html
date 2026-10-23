@@ -4283,6 +4283,7 @@ function go(id){
   todoSelectedIds.clear();
   todoDeadlineEditOpen = false;
   todoCompletedOpen = false;   // 完了済みの折りたたみは、画面を移動すると閉じた状態に戻る(保存しない)
+  todoViewMode = 'facility';   // 「施設ごと / 期限順」も、画面を移動すると「施設ごと」に戻る(保存しない)
   currentPageId = id;
   document.querySelectorAll('.page').forEach(el=>el.style.display='none');
   document.getElementById('pg-'+id).style.display='';
@@ -5012,7 +5013,7 @@ let todoPageDataCache = null;
 // 対応リストページ(renderTodoPageFromCache)・ダッシュボードの対応リストサマリー
 // (renderDashboardTodoSummary)の両方で共通して使う個別REF#明細1行分の描画関数。
 // 表示形式を統一するため、新規実装せずこの1つの実装を両方から呼び出す。
-function todoRow(f, tierFg, done){
+function todoRow(f, tierFg, done, hideFacility){
   const bk = f._booking || {};
   const dLabel = done ? '' : (f._days < 0 ? `期限超過${-f._days}日` : (f._days===0 ? '本日' : `あと${f._days}日`));
   const nameStyle = done ? 'text-decoration:line-through;color:var(--text3)' : '';
@@ -5028,7 +5029,7 @@ function todoRow(f, tierFg, done){
     ${selectCell}
     <td data-label="REF#" class="lnk" style="padding:5px 8px;white-space:nowrap;cursor:pointer" onclick="openBookingDetail('${f.booking_id}')">${escHtml(bk.ref_no||'')}</td>
     <td data-label="ツアー名" style="padding:5px 8px;cursor:pointer" onclick="openBookingDetail('${f.booking_id}')">${escHtml(bkTourLabel(bk))}</td>
-    <td data-label="施設名" style="padding:5px 8px;cursor:pointer;${nameStyle}" onclick="openBookingDetail('${f.booking_id}')">${escHtml(f.facility_name||'（名称未設定）')}</td>
+    ${hideFacility ? '' : `<td data-label="施設名" style="padding:5px 8px;cursor:pointer;${nameStyle}" onclick="openBookingDetail('${f.booking_id}')">${escHtml(f.facility_name||'（名称未設定）')}</td>`}
     <td data-label="利用日" style="padding:5px 8px;white-space:nowrap;cursor:pointer" onclick="openBookingDetail('${f.booking_id}')">${escHtml(f.date||'')}</td>
     <td data-label="対応期限日" style="padding:5px 8px;white-space:nowrap;cursor:pointer" onclick="openBookingDetail('${f.booking_id}')">${escHtml(f.deadline_date||'')}</td>
     <td data-label="残り" style="padding:5px 8px;text-align:${TODO_HIDE_COMPLETED ? 'right' : 'center'};font-weight:700;color:${done?'var(--text3)':tierFg};white-space:nowrap">
@@ -5049,6 +5050,25 @@ function tierFgForDeadlineDays(d){
 const TODO_HIDE_COMPLETED = true;
 let todoCompletedOpen = false;
 function toggleTodoCompleted(){ todoCompletedOpen = !todoCompletedOpen; renderTodoPageFromCache(); }
+// 「すべて表示」の一覧(対応リストページ)に、「施設ごと / 期限順」の切り替えを出す。初めは「施設ごと」(施設名ごとにまとめ、
+// いちばん遅れている日数の大きい順)。false にすると、切り替えなしで今までの表示(期限順のみ)に戻る。
+// TODO_HIDE_COMPLETED=オンの表示の中だけで動く。切り替えの状態(todoViewMode)は保存しない(別の画面へ移動すると「施設ごと」に戻る)。
+// 件数の数え方・TODO_EXCLUDED_FACILITIES・TODO_HIDE_COMPLETED の動きは変更しない。
+const TODO_GROUP_BY_FACILITY = true;
+let todoViewMode = 'facility';
+let todoGroupKeys = [];   // 直近に描画した「施設ごと」のグループの並び(「全て選択」はこの順番号で参照し、押した時点の最新データから行を読み直す)
+function setTodoView(mode){ todoViewMode = mode; renderTodoPageFromCache(); }
+// 施設名の同一判定: 全角・半角(NFKC)、連続する空白、前後の空白をそろえて比べる
+function todoFacilityKey(f){ return String(f.facility_name||'（名称未設定）').normalize('NFKC').replace(/\s+/g,' ').trim() || '（名称未設定）'; }
+function toggleTodoGroupSelect(idx){
+  const key = todoGroupKeys[idx];
+  const ids = ((todoPageDataCache && todoPageDataCache.incompleteAll) || []).filter(f=>todoFacilityKey(f)===key).map(f=>f.id);
+  if(!ids.length) return;
+  const allSel = ids.every(id=>todoSelectedIds.has(id));
+  ids.forEach(id=>{ if(allSel) todoSelectedIds.delete(id); else todoSelectedIds.add(id); });
+  renderDbTodoSummaryFromCache();
+  renderTodoPageFromCache();
+}
 const TODO_TABLE_COLGROUP_HTML = TODO_HIDE_COMPLETED ? `<colgroup>
       <col style="width:4%"><col style="width:7%"><col style="width:30%">
       <col style="width:27%"><col style="width:11%"><col style="width:11%"><col style="width:10%">
@@ -5061,6 +5081,19 @@ const TODO_TABLE_COLGROUP_DONE_HTML = `<colgroup>
       <col style="width:4%"><col style="width:7%"><col style="width:24%">
       <col style="width:20%"><col style="width:10%"><col style="width:10%"><col style="width:25%">
     </colgroup>`;
+// 「施設ごと」の表: 施設名はグループの見出しにあるため、施設名の列は省く
+const TODO_TABLE_COLGROUP_GROUP_HTML = `<colgroup>
+      <col style="width:4%"><col style="width:9%"><col style="width:41%">
+      <col style="width:14%"><col style="width:14%"><col style="width:18%">
+    </colgroup>`;
+const TODO_TABLE_THEAD_GROUP_HTML = `<thead><tr style="background:var(--bg)">
+      <th style="padding:4px 6px;white-space:nowrap">選択</th>
+      <th style="padding:4px 8px;text-align:left;white-space:nowrap">REF#</th>
+      <th style="padding:4px 8px;text-align:left">ツアー名</th>
+      <th style="padding:4px 8px;text-align:left;white-space:nowrap">利用日</th>
+      <th style="padding:4px 8px;text-align:left;white-space:nowrap">対応期限日</th>
+      <th style="padding:4px 8px;text-align:right;white-space:nowrap">残り</th>
+    </tr></thead>`;
 const TODO_TABLE_THEAD_HTML = `<thead><tr style="background:var(--bg)">
       <th style="padding:4px 6px;white-space:nowrap">選択</th>
       <th style="padding:4px 8px;text-align:left;white-space:nowrap">REF#</th>
@@ -5372,19 +5405,49 @@ function renderTodoPageFromCache(){
     const openItems = incompleteAll.slice().sort(byDeadline);
     const doneItems = (completed||[]).slice().sort(byDeadline);
     const bookingCount = new Set(openItems.map(f=>f.booking_id)).size;
-    const openRows = openItems.map(f=>todoRow(f, tierFgForDeadlineDays(f._days), false)).join('');
+    const grouped = TODO_GROUP_BY_FACILITY && todoViewMode === 'facility';
+    let openTableHtml = '';
+    if(openItems.length && grouped){
+      // 施設ごと: 施設名(表記をそろえて同じもの)ごとのグループ。並びは、いちばん遅れている日数の大きい順。グループ内は対応期限日の古い順
+      const map = new Map();
+      openItems.forEach(f=>{ const k = todoFacilityKey(f); if(!map.has(k)) map.set(k, { key:k, name:String(f.facility_name||'（名称未設定）').trim()||'（名称未設定）', items:[] }); map.get(k).items.push(f); });
+      const groups = Array.from(map.values()).map(g=>({ ...g, minDays: Math.min(...g.items.map(f=>f._days)) }));
+      groups.sort((a,b)=> (a.minDays - b.minDays) || (b.items.length - a.items.length) || a.name.localeCompare(b.name, 'ja'));   // minDaysが小さい(=より遅れている)順。同じなら件数の多い順
+      todoGroupKeys = groups.map(g=>g.key);
+      const body = groups.map((g,idx)=>{
+        const allSel = g.items.every(f=>todoSelectedIds.has(f.id));
+        const late = g.minDays < 0 ? `期限超過${-g.minDays}日` : (g.minDays === 0 ? '期限は本日' : `期限超過なし(あと${g.minDays}日)`);
+        const fg = tierFgForDeadlineDays(g.minDays);
+        return `<tr class="section-row"><td colspan="6" style="padding:8px;background:var(--bg);border-top:2px solid var(--border)">
+          <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-weight:700;font-size:13px"><input type="checkbox" ${allSel?'checked':''} onclick="event.stopPropagation();toggleTodoGroupSelect(${idx})" style="cursor:pointer;width:16px;height:16px" aria-label="${escHtml(g.name)} を全て選択"><span>${escHtml(g.name)}　${g.items.length}件</span></label>
+          <span style="margin-left:12px;font-size:11px;font-weight:700;color:${fg};white-space:nowrap">いちばん遅れている: ${late}</span></td></tr>`
+          + g.items.map(f=>todoRow(f, tierFgForDeadlineDays(f._days), false, true)).join('');
+      }).join('');
+      openTableHtml = `<div class="tbl-wrap"><table class="confirm-table" id="todo-grouped-table" style="width:100%;border-collapse:collapse;font-size:12px">
+      ${TODO_TABLE_COLGROUP_GROUP_HTML}${TODO_TABLE_THEAD_GROUP_HTML}
+      <tbody>${body}</tbody>
+    </table></div>`;
+    }else if(openItems.length){
+      const openRows = openItems.map(f=>todoRow(f, tierFgForDeadlineDays(f._days), false)).join('');
+      openTableHtml = `<div class="tbl-wrap"><table class="confirm-table" style="width:100%;border-collapse:collapse;font-size:12px">
+      ${TODO_TABLE_COLGROUP_HTML}${TODO_TABLE_THEAD_HTML}
+      <tbody>${openRows}</tbody>
+    </table></div>`;
+    }
+    const viewToggleHtml = TODO_GROUP_BY_FACILITY ? `<div class="bl-tabs" id="todo-view-toggle" role="tablist" style="margin:0 0 8px">
+      <button type="button" role="tab" class="bl-tab${grouped?' active':''}" aria-selected="${grouped}" onclick="setTodoView('facility')"><span class="hn-t"><span class="hn-ja">施設ごと</span><span class="hn-en">By Facility</span></span></button>
+      <button type="button" role="tab" class="bl-tab${grouped?'':' active'}" aria-selected="${!grouped}" onclick="setTodoView('deadline')"><span class="hn-t"><span class="hn-ja">期限順</span><span class="hn-en">By Deadline</span></span></button>
+    </div>` : '';
     const doneRows = doneItems.map(f=>todoRow(f, tierFgForDeadlineDays(f._days), true)).join('');
     el.innerHTML = `
     <div style="margin-bottom:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
       <button class="btn" onclick="go('dashboard')">${HOME_SCREEN_ENABLED ? '← ホームに戻る' : '← ダッシュボードに戻る'}</button>
       <span id="todo-page-counts" style="font-size:12px;font-weight:600">未完了 ${openItems.length}件（${bookingCount}予約）／ 完了済み ${doneItems.length}件</span>
-      <span style="font-size:11px;color:var(--text3)">対応期限日の古い順</span>
+      <span style="font-size:11px;color:var(--text3)">${grouped ? '施設ごと(いちばん遅れている順)' : '対応期限日の古い順'}</span>
     </div>
+    ${viewToggleHtml}
     ${todoActionBarHtml('page')}
-    ${openItems.length ? `<div class="tbl-wrap"><table class="confirm-table" style="width:100%;border-collapse:collapse;font-size:12px">
-      ${TODO_TABLE_COLGROUP_HTML}${TODO_TABLE_THEAD_HTML}
-      <tbody>${openRows}</tbody>
-    </table></div>` : '<div style="color:var(--text3);font-size:12px;padding:6px 0">未完了の対応事項はありません。</div>'}
+    ${openItems.length ? openTableHtml : '<div style="color:var(--text3);font-size:12px;padding:6px 0">未完了の対応事項はありません。</div>'}
     ${doneItems.length ? `<div style="margin-top:14px">
       <button type="button" id="todo-completed-toggle" class="btn" aria-expanded="${todoCompletedOpen}" onclick="toggleTodoCompleted()">${todoCompletedOpen ? '▲' : '▼'} 完了済み ${doneItems.length}件を${todoCompletedOpen ? '隠す / Hide Completed' : '表示 / Show Completed'}</button>
       ${todoCompletedOpen ? `<div id="todo-completed-list" class="tbl-wrap" style="margin-top:8px"><table class="confirm-table" style="width:100%;border-collapse:collapse;font-size:12px">
