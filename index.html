@@ -1233,6 +1233,7 @@ input[type=number]{-moz-appearance:textfield}
          開閉(親である.sb-sec-bodyへのcollapsedクラス付与)とは別要素・別プロパティの
          ため、互いに干渉しない(閉じたセクションが権限判定で勝手に開くことはなく、
          開いたセクション内で権限が無い項目は従来通り項目自身の非表示が効く)。 -->
+    <div class="sb-item" id="sb-home-item" data-pg="home" onclick="go('home')" style="display:none">🏠 ホーム<span class="sb-en">/ Home</span></div>
     <div class="sb-sec" data-sec="booking" onclick="toggleSbSection('booking')" aria-expanded="true"><span class="sb-sec-label">予約管理 <span class="sb-en">/ Booking</span></span><span class="sb-sec-arrow">▾</span></div>
     <div class="sb-sec-body" data-sec-body="booking">
     <div class="sb-item active" data-pg="dashboard" onclick="go('dashboard')">📊 ダッシュボード<span class="sb-en">/ Dashboard</span></div>
@@ -1296,6 +1297,9 @@ input[type=number]{-moz-appearance:textfield}
     </div>
 
     <div class="content">
+
+      <!-- Home(HOME_SCREEN_ENABLEDがtrueの時の最初の画面。中身は末尾のHOME_SCREENブロックが作る) -->
+      <div id="pg-home" class="page" style="display:none"></div>
 
       <!-- Dashboard -->
       <div id="pg-dashboard" class="page">
@@ -3458,6 +3462,11 @@ function isEmailExcludeUser(){ return currentUser && EMAIL_EXCLUDE_EMAILS.includ
 function isAccountingUser(){ return !!currentUser && (currentUser.role==='admin' || ACCOUNTING_EMAILS.includes(currentUser.email)); }
 function isCardHolderAdmin(){ return currentUser && CARD_HOLDER_ADMIN_EMAILS.includes(currentUser.email); }
 let currentPageId = 'dashboard';
+// 「ホーム」画面(ログイン後・再読み込み後の最初の画面。ダッシュボードとは別の画面)のオン・オフ。
+// false にすると、最初の画面は従来どおりダッシュボードになり、ホーム画面・上部の移動バーは作られない。
+// (HOME_BUTTONS_ENABLED(ダッシュボードのホームカード)とは別の定数で、互いに影響しない)
+const HOME_SCREEN_ENABLED = true;
+function initialPageId(){ return HOME_SCREEN_ENABLED ? 'home' : 'dashboard'; }
 const SESSION_KEY = 'kic_session_v1';
 const SESSION_TIMEOUT_MS = 15*60*1000; // 15分操作がなければ自動ログアウト
 
@@ -3973,7 +3982,7 @@ async function doLogin(){
 
   applyLoggedInUI(data);
   saveSession();
-  go('dashboard');
+  go(initialPageId());
 }
 document.getElementById('login-id').addEventListener('keydown', e=>{if(e.key==='Enter')doLogin()});
 document.getElementById('login-pw').addEventListener('keydown', e=>{if(e.key==='Enter')doLogin()});
@@ -4223,19 +4232,19 @@ function restoreSession(){
     currentUser = s.user;
     applyLoggedInUI(currentUser);
     touchSession();
-    go('dashboard');
+    go(initialPageId());
   }catch(e){ clearSession(); }
 }
 
 // ===== ナビゲーション =====
 const pageNames={
-  dashboard:'Dashboard','new-booking':'New Booking','booking-list':'Booking List','tour-calendar':'ツアー運行カレンダー',
+  home:'ホーム',dashboard:'Dashboard','new-booking':'New Booking','booking-list':'Booking List','tour-calendar':'ツアー運行カレンダー',
   invoice:'Invoice',estimation:'見積もり','guide-settlements':'ガイド精算一覧','guide-management':'ガイド管理',gross:'GROSS / 粗利管理',payment:'入出金管理','credit-card-statements':'クレジットカード明細',accounts:'アカウント管理',logs:'アクセスログ','error-logs':'エラーログ','card-holders':'カード名義人管理'
 ,hotels:'ホテル予約管理',partners:'取引先マスタ',agents:'取引先マスタ(Agent)','bullet-trains':'新幹線手配','invoice-import':'請求書読み取り','email-inbox':'メール受信箱','facility-management':'観光地予約管理',todo:'対応が必要な予約','vendor-email':'手配確定状況','restaurant-conflicts':'レストラン重複確認'
 };
 // トップバーの「+ New Booking」ボタンを表示する画面(予約管理の主要4画面のみ)。
 // go(id)内でNEW_BOOKING_BTN_VISIBLE_PAGES.has(id)により表示/非表示を切り替える。
-const NEW_BOOKING_BTN_VISIBLE_PAGES = new Set(['dashboard','new-booking','booking-list','tour-calendar']);
+const NEW_BOOKING_BTN_VISIBLE_PAGES = new Set(['home','dashboard','new-booking','booking-list','tour-calendar']);
 // ===== 2026-09 egress緊急対応: メール受信箱機能の一時停止(9/16〜。当面停止中・再開時期は未定) =====
 // Supabase無料枠のegress枯渇のため、停止中はメール受信箱画面を開いても
 // email_import_queue等への読み込みを一切発生させず、案内メッセージのみ表示する。
@@ -4245,6 +4254,8 @@ const NEW_BOOKING_BTN_VISIBLE_PAGES = new Set(['dashboard','new-booking','bookin
 const EMAIL_INBOX_SUSPENDED = true;
 
 function go(id){
+  // ホームがダッシュボードの代わり(HOME_SCREEN_ENABLED)。ダッシュボードへの移動はすべてホームへ向ける。
+  if(id==='dashboard' && HOME_SCREEN_ENABLED) id = 'home';
   // 手配確定状況画面に未保存の変更(一括保存前のステータス変更)が残っている場合、
   // 他の画面へ移動すると破棄されることを警告する(SPA内遷移はbeforeunloadでは
   // 検知できないため、go()側で別途確認する)。
@@ -4281,7 +4292,8 @@ function go(id){
   document.getElementById('sidebar').classList.remove('open');
   updateGlobalDeadlineBannerAction();
 
-  if(id!=='dashboard') logAction('ページ遷移', pageNames[id]||id);
+  if(id!=='dashboard' && id!=='home') logAction('ページ遷移', pageNames[id]||id);
+  if(typeof homeOnGo==='function') homeOnGo(id); // ホーム画面・上部の移動バー(末尾のHOME_SCREENブロック)
 
   if(id==='dashboard') loadBookingListGeneric('db');
   if(id==='new-booking') resetNewBookingForm();
@@ -4710,9 +4722,8 @@ function toggleDbArrivalTier(maxKey){
   renderDbArrivalAlert();
 }
 
-function renderDbArrivalAlert(){
-  const el = document.getElementById('db-arrival-alert');
-  if(!el) return;
+// 到着日アラートの区分分け(表示と、ホームのバッジの件数で同じ定義を使うため、描画から切り出した。計算内容は変更していない)。
+function computeDbArrivalBuckets(){
   const today = new Date(); today.setHours(0,0,0,0);
   const todayStr = localDateStr(today);
   const inDays = dateStr => Math.floor((new Date(dateStr) - today) / 86400000);
@@ -4744,15 +4755,29 @@ function renderDbArrivalAlert(){
       .filter(b => { const d = inDays(b.in_date); return d <= t.max && (t.minEx === null || d > t.minEx); })
       .sort((a,b) => (a.in_date||'').localeCompare(b.in_date||''))
   }));
+  return { buckets, inDays };
+}
+
+// target(省略可): ホーム画面・上部バーのアラート欄など、ダッシュボード以外へ同じ一覧表示を出すための指定。
+// 省略時は従来どおり #db-arrival-alert に出す(動きは変わらない)。
+//   { el, openTiers, toggleFn(関数名), only:[max値...] }(onlyを指定すると、その区分だけ描画し「0件」の案内文は出さない)
+function renderDbArrivalAlert(target){
+  const t = target || {};
+  const el = t.el || document.getElementById('db-arrival-alert');
+  if(!el) return;
+  const openTiers = t.openTiers || dbArrivalOpenTiers;
+  const toggleFn = t.toggleFn || 'toggleDbArrivalTier';
+  const { buckets, inDays } = computeDbArrivalBuckets();
 
   const hasAny = buckets.some(b => b.items.length > 0);
-  if(!hasAny){
+  if(!hasAny && !t.only){
     el.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:4px 0">到着が90日以内に迫っている進行中の予約はありません。</div>';
     return;
   }
 
   el.innerHTML = buckets.map(b => {
-    const isOpen = !!dbArrivalOpenTiers[b.max];
+    if(t.only && !t.only.includes(b.max)) return '';
+    const isOpen = !!openTiers[b.max];
     const previewRefs = b.items.slice(0,3).map(x=>escHtml(x.ref_no||'')).join('、');
     const moreCount = b.items.length - 3;
     const previewText = b.items.length===0 ? '' : (previewRefs + (moreCount>0 ? ` 他${moreCount}件` : ''));
@@ -4767,7 +4792,7 @@ function renderDbArrivalAlert(){
       </div>`;
     }).join('') : `<div style="padding:8px 12px;font-size:11px;color:var(--text3)">該当する予約はありません</div>`;
     return `<div style="border:1px solid ${b.border};border-radius:10px;margin-bottom:6px;overflow:hidden">
-      <div class="db-tier-row-header" onclick="toggleDbArrivalTier(${b.max})" style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;background:${b.bg};cursor:pointer">
+      <div class="db-tier-row-header" onclick="${toggleFn}(${b.max})" style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;background:${b.bg};cursor:pointer">
         <span style="display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden">
           <span style="font-weight:700;color:${b.fg};white-space:nowrap;flex-shrink:0">${b.label}</span>
           <span style="background:rgba(0,0,0,.09);color:${b.fg};padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700;white-space:nowrap;flex-shrink:0">${b.items.length}件</span>
@@ -5156,35 +5181,51 @@ async function renderDashboardTodoSummary(prefetched){
   const {buckets, items, error} = prefetched
     ? buildFacilityDeadlineResult(prefetched, 7) // maxDays=7 → 期限当日〜7日以内
     : await fetchFacilityDeadlineItems(7);
-  if(error || !items || !items.length){ card.style.display = 'none'; return; }
+  if(error || !items || !items.length){ card.style.display = 'none'; if(typeof homeOnTodoRendered === 'function') homeOnTodoRendered(); return; }
   card.style.display = '';
   dbTodoSummaryCache = buckets;
   renderDbTodoSummaryFromCache();
 }
-function renderDbTodoSummaryFromCache(){
-  const el = document.getElementById('db-todo-summary');
-  if(!el || !dbTodoSummaryCache) return;
-  const totalCount = dbTodoSummaryCache.reduce((s,b)=>s+b.items.length, 0);
-  el.innerHTML = todoActionBarHtml('db') + dbTodoSummaryCache.map((b,idx) => {
-    const isOpen = !!dbTodoOpenTiers[idx];
-    const previewRefs = b.items.slice(0,3).map(f=>escHtml((f._booking&&f._booking.ref_no)||'')).join('、');
-    const moreCount = b.items.length - 3;
-    const previewText = b.items.length ? (previewRefs + (moreCount>0 ? ` 他${moreCount}件` : '')) : '';
+// target(省略可): ホーム画面・上部バーのアラート欄など、ダッシュボード以外へ同じ一覧表示を出すための指定。
+// 省略時は従来どおり #db-todo-summary に出す(動きは変わらない)。
+//   { el, buckets, openTiers, toggleFn(関数名), context, byBooking, only:[区分index...] }
+//   byBooking: 見出しの主な数字を予約の件数(booking_idの重複を除く)にし、対応事項(明細行数)を小さく添える。
+//   only: 指定した区分だけ描画する(操作バー・「すべて表示」ボタンは出さない)。
+function renderDbTodoSummaryFromCache(target){
+  const t = target || {};
+  const el = t.el || document.getElementById('db-todo-summary');
+  const buckets = t.buckets || dbTodoSummaryCache;
+  const openTiers = t.openTiers || dbTodoOpenTiers;
+  const toggleFn = t.toggleFn || 'toggleDbTodoTier';
+  if(!el || !buckets) return;
+  const totalCount = buckets.reduce((s,b)=>s+b.items.length, 0);
+  el.innerHTML = (t.only ? '' : todoActionBarHtml(t.context || 'db')) + buckets.map((b,idx) => {
+    if(t.only && !t.only.includes(idx)) return '';
+    const isOpen = !!openTiers[idx];
+    const bkRefs = t.byBooking ? Array.from(new Map(b.items.map(f=>[f.booking_id, (f._booking&&f._booking.ref_no)||''])).values()) : null;
+    const previewRefs = bkRefs ? bkRefs.slice(0,3).map(escHtml).join('、') : b.items.slice(0,3).map(f=>escHtml((f._booking&&f._booking.ref_no)||'')).join('、');
+    const moreCount = (bkRefs ? bkRefs.length : b.items.length) - 3;
+    const previewText = b.items.length ? (previewRefs + (moreCount>0 ? (bkRefs ? ` 他${moreCount}予約` : ` 他${moreCount}件`) : '')) : '';
+    const countHtml = bkRefs
+      ? `${bkRefs.length}予約</span><span style="font-size:10px;color:${b.fg};opacity:.8;white-space:nowrap;flex-shrink:0">対応事項 ${b.items.length}件`
+      : `${b.items.length}件`;
     const rowsHtml = b.items.length
       ? `<div class="tbl-wrap"><table class="confirm-table" style="width:100%;border-collapse:collapse;font-size:12px">${TODO_TABLE_COLGROUP_HTML}${TODO_TABLE_THEAD_HTML}<tbody>${b.items.map(f=>todoRow(f, b.fg, false)).join('')}</tbody></table></div>`
       : `<div style="padding:8px 12px;font-size:11px;color:var(--text3)">該当する予約はありません</div>`;
     return `<div style="border:1px solid ${b.border};border-radius:10px;margin-bottom:6px;overflow:hidden">
-      <div class="db-tier-row-header" onclick="toggleDbTodoTier(${idx})" style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;background:${b.bg};cursor:pointer">
+      <div class="db-tier-row-header" onclick="${toggleFn}(${idx})" style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;background:${b.bg};cursor:pointer">
         <span style="display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden">
           <span style="font-weight:700;color:${b.fg};white-space:nowrap;flex-shrink:0">${b.label}</span>
-          <span style="background:rgba(0,0,0,.09);color:${b.fg};padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700;white-space:nowrap;flex-shrink:0">${b.items.length}件</span>
+          <span style="background:rgba(0,0,0,.09);color:${b.fg};padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700;white-space:nowrap;flex-shrink:0">${countHtml}</span>
           ${!isOpen && previewText ? `<span style="font-size:11px;color:${b.fg};opacity:.85;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${previewText}</span>` : ''}
         </span>
         <span style="color:${b.fg};font-size:11px;flex-shrink:0">${isOpen?'▲':'▼'}</span>
       </div>
       ${isOpen ? rowsHtml : ''}
     </div>`;
-  }).join('') + `<button class="btn" style="margin-top:4px;font-size:12px" onclick="go('todo')">すべて表示（全${totalCount}件）</button>`;
+  }).join('') + (t.only ? '' : `<button class="btn" style="margin-top:4px;font-size:12px" onclick="go('todo')">すべて表示（全${totalCount}件）</button>`);
+  // ダッシュボード側の描画が更新されたら、ホーム画面・バーのアラート欄も同じデータで描き直す(末尾のHOME_SCREENブロック)
+  if(!target && typeof homeOnTodoRendered === 'function') homeOnTodoRendered();
 }
 
 // prefetched: renderDashboardTodoSummary()と同じ(省略時は従来通り自前で取得)。
@@ -5237,7 +5278,7 @@ function renderTodoPageFromCache(){
   const flatRows = allFlat.map(f=>todoRow(f, tierFgForDeadlineDays(f._days), !!f.deadline_completed)).join('');
   el.innerHTML = `
     <div style="margin-bottom:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-      <button class="btn" onclick="go('dashboard')">← ダッシュボードに戻る</button>
+      <button class="btn" onclick="go('dashboard')">${HOME_SCREEN_ENABLED ? '← ホームに戻る' : '← ダッシュボードに戻る'}</button>
       <span style="font-size:11px;color:var(--text3)">全${allFlat.length}件を対応期限日順に表示中</span>
     </div>
     ${todoActionBarHtml('page')}
@@ -31949,6 +31990,455 @@ function setDateInputValue(el, d){
     </div>
   </div>
 </div>
+
+<!-- ===== ダッシュボードの「ホーム」ボタン(見え方だけの追加。2026-10) =====
+     サイドバー(#sidebar)の項目を読み取ってボタンを生成する(メニュー定義はサイドバーが唯一の正。
+     ここには項目名・遷移先・表示条件を一切書かない)。ボタンを押すと対応するサイドバー項目の
+     click()を呼ぶだけなので、遷移先・権限による表示制限・メール受信箱の停止(EMAIL_INBOX_SUSPENDED)
+     の動きは、サイドバーを押した時と完全に同じになる。既存のコードは一切変更していない。
+     元に戻す方法: 下の HOME_BUTTONS_ENABLED を false にする(カード自体が作られず、従来と同じ画面になる)。
+     このブロック(<style>と<script>)ごと削除しても同じ。 -->
+<style>
+.hb-scope .hb-tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.hb-scope .hb-ghead{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;box-sizing:border-box;padding:6px 10px;border:1px solid var(--border);border-radius:14px;background:var(--bg);color:var(--text2);font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;text-align:left;white-space:nowrap}
+.hb-scope .hb-ghead:hover{border-color:var(--blue)}
+.hb-scope .hb-ghead[aria-expanded="true"]{background:var(--blue-lt);border-color:var(--blue);color:var(--blue)}
+.hb-scope .hb-ghead .hb-garrow{font-size:10px;flex-shrink:0}
+.hb-scope .hb-ghead .hb-gen{font-weight:400;color:var(--text3);text-transform:uppercase}
+.hb-scope .hb-ghead[aria-expanded="true"] .hb-gen{color:inherit}
+.hb-scope .hb-panel{margin-bottom:10px}
+.hb-scope .hb-panel:last-child{margin-bottom:0}
+.hb-scope .hb-panel[hidden]{display:none}
+.hb-scope .hb-plabel{margin:0 0 6px 2px;font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase}
+.hb-scope .hb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.hb-scope .hb-btn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-width:0;min-height:68px;box-sizing:border-box;padding:8px 6px;border:1px solid var(--border);border-radius:10px;background:var(--card,#fff);color:var(--text);font-family:inherit;text-align:center;cursor:pointer}
+.hb-scope .hb-btn:hover{background:var(--bg);border-color:var(--blue)}
+.hb-scope .hb-icon{font-size:20px;line-height:1.1}
+.hb-scope .hb-ja{font-size:12px;font-weight:600;line-height:1.25;overflow-wrap:anywhere;word-break:break-word;max-width:100%}
+.hb-scope .hb-en{font-size:10px;color:var(--text3);line-height:1.2;overflow-wrap:anywhere;word-break:break-word;max-width:100%}
+.hb-scope .hb-btn.hb-suspended{background:var(--bg);color:var(--text3);border-style:dashed}
+.hb-scope .hb-btn.hb-suspended .hb-icon,.hb-scope .hb-btn.hb-suspended .hb-ja{opacity:.55}
+.hb-scope .hb-susp{font-size:9px;font-weight:700;line-height:1.2;color:var(--text2);background:var(--border);border-radius:8px;padding:0 6px;margin-top:1px}
+@media(max-width:768px){.hb-scope .hb-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+</style>
+<script>
+const HOME_BUTTONS_ENABLED = true;
+(function(){
+  const openGroups = new Set();   // 開いているグループ(初期状態は全グループ閉じる。状態は保存しない=開くたびに閉じた状態から始まる)
+  let pending = false;
+  function isShown(el){ return !!el && getComputedStyle(el).display !== 'none'; }
+  function parseItem(it){
+    const first = it.firstChild && it.firstChild.nodeType === 3 ? it.firstChild.textContent.trim() : it.textContent.trim();
+    const m = first.match(/^(\S+)\s+([\s\S]+)$/);
+    const en = it.querySelector('.sb-en');
+    return {
+      icon: m ? m[1] : '',
+      ja: m ? m[2].trim() : first,
+      en: en ? en.textContent.trim().replace(/^\/\s*/, '') : ''
+    };
+  }
+  // ボタン群を card の中に作る。opts(省略時は従来のダッシュボードのホームカードと同じ):
+  //   allOpen: 全グループを開いた状態で並べる(見出しは開閉しない静的な見出し。ホーム画面用)
+  //   includeDashboard: 「ダッシュボード」のボタンも含める(ホーム画面用)
+  function fill(card, opts){
+    opts = opts || {};
+    const sidebar = document.getElementById('sidebar');
+    if(!sidebar) return;
+    const frag = document.createDocumentFragment();
+    if(!opts.allOpen){
+      const title = document.createElement('div');
+      title.className = 'card-title';
+      title.textContent = 'ホーム';
+      frag.appendChild(title);
+    }
+    const tabs = document.createElement('div');
+    tabs.className = 'hb-tabs';
+    const panels = document.createElement('div');
+    sidebar.querySelectorAll('.sb-sec[data-sec]').forEach(sec=>{
+      if(!isShown(sec)) return;
+      const key = sec.dataset.sec;
+      const body = sidebar.querySelector('.sb-sec-body[data-sec-body="' + key + '"]');
+      if(!body) return;
+      // ダッシュボード自身へ移るボタンは不要なので、ホームカードからだけ除く(サイドバーの項目は変更しない)
+      const items = Array.from(body.querySelectorAll('.sb-item')).filter(it=>isShown(it) && (opts.includeDashboard || it.dataset.pg !== 'dashboard'));
+      if(!items.length) return;
+      const label = sec.querySelector('.sb-sec-label');
+      const en = label && label.querySelector('.sb-en');
+      const ja = label ? Array.from(label.childNodes).filter(n=>n.nodeType===3).map(n=>n.textContent).join('').trim() : key;
+      const isOpen = opts.allOpen || openGroups.has(key);
+      // 見出し(横に並べる。折り返しあり)。押せる見た目: 枠つき+右向き矢印(開くと下向き・色つき)
+      const head = document.createElement('button');
+      head.type = 'button';
+      head.className = 'hb-ghead';
+      head.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+      const hl = document.createElement('span');
+      hl.appendChild(document.createTextNode(ja + ' '));
+      if(en){ const e = document.createElement('span'); e.className = 'hb-gen'; e.textContent = en.textContent; hl.appendChild(e); }
+      const arrow = document.createElement('span');
+      arrow.className = 'hb-garrow';
+      arrow.textContent = isOpen ? '▾' : '▸';
+      head.appendChild(hl); head.appendChild(arrow);
+      // 開いたグループ。複数開いたときに見分けられるよう、グループ名を小さく添える
+      const panel = document.createElement('div');
+      panel.className = 'hb-panel';
+      panel.hidden = !isOpen;
+      const pl = document.createElement('div');
+      pl.className = 'hb-plabel';
+      pl.textContent = ja + (en ? ' ' + en.textContent : '');
+      panel.appendChild(pl);
+      if(!opts.allOpen) head.addEventListener('click', ()=>{
+        const nowOpen = panel.hidden;   // 閉じていれば開く
+        panel.hidden = !nowOpen;
+        if(nowOpen) openGroups.add(key); else openGroups.delete(key);
+        head.setAttribute('aria-expanded', nowOpen ? 'true' : 'false');
+        arrow.textContent = nowOpen ? '▾' : '▸';
+      });
+      const grid = document.createElement('div');
+      grid.className = 'hb-grid';
+      items.forEach(it=>{
+        const info = parseItem(it);
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'hb-btn';
+        const i = document.createElement('span'); i.className = 'hb-icon'; i.textContent = info.icon;
+        const j = document.createElement('span'); j.className = 'hb-ja'; j.textContent = info.ja;
+        b.appendChild(i); b.appendChild(j);
+        if(info.en){ const e = document.createElement('span'); e.className = 'hb-en'; e.textContent = info.en; b.appendChild(e); }
+        // 停止中の機能(メール受信箱: EMAIL_INBOX_SUSPENDED)は、グレー表示+小さく「停止中」。押した時の動きはサイドバーと同じ(停止の案内が出る)。
+        if(it.dataset.pg === 'email-inbox' && typeof EMAIL_INBOX_SUSPENDED !== 'undefined' && EMAIL_INBOX_SUSPENDED){
+          b.classList.add('hb-suspended');
+          const sp = document.createElement('span'); sp.className = 'hb-susp'; sp.textContent = '停止中'; b.appendChild(sp);
+        }
+        // 遷移・権限・メール受信箱の停止は、サイドバー項目自身のonclickをそのまま使う(二重定義しない)
+        b.addEventListener('click', ()=>it.click());
+        grid.appendChild(b);
+      });
+      panel.appendChild(grid);
+      if(!opts.allOpen) tabs.appendChild(head);
+      panels.appendChild(panel);
+    });
+    if(!opts.allOpen) frag.appendChild(tabs);
+    frag.appendChild(panels);
+    card.replaceChildren(frag);
+  }
+  // ホーム画面(HOME_SCREENブロック)からも同じ生成処理を使う(HOME_BUTTONS_ENABLEDとは独立)
+  window.hbFillHomeButtons = fill;
+  if(!HOME_BUTTONS_ENABLED) return;
+  function build(){
+    pending = false;
+    const sidebar = document.getElementById('sidebar');
+    const anchor = document.getElementById('db-arrival-alert-card');
+    if(!sidebar || !anchor) return;
+    let card = document.getElementById('db-home-card');
+    if(!card){
+      card = document.createElement('div');
+      card.className = 'card hb-scope';
+      card.id = 'db-home-card';
+      anchor.insertAdjacentElement('afterend', card);
+    }
+    fill(card, {});
+  }
+  function schedule(){ if(pending) return; pending = true; requestAnimationFrame(build); }
+  // サイドバーの項目の表示・非表示(権限・ログイン後のel.style.display代入)に追従して作り直す
+  const sb = document.getElementById('sidebar');
+  if(sb) new MutationObserver(schedule).observe(sb, {attributes:true, attributeFilter:['style'], subtree:true});
+  schedule();
+})();
+</script>
+
+<!-- ===== 「ホーム」画面(最初の画面)・作業画面の上の移動バー・要対応アラート欄(HOME_SCREEN。2026-10) =====
+     ・HOME_SCREEN_ENABLED(上のメインscript先頭付近で定義)が false の時は、このブロックは何も作らない(従来と同じ画面)。
+     ・ホーム画面(#pg-home): 左=サイドバーと同じ項目のボタン(PR #238のボタン生成処理を再利用。全グループ開いた状態、
+       ダッシュボードも含む)、右=アラート欄(件数のみ。押すとその場で一覧が開く)、上部=検索ボックス。
+     ・移動バー: ホーム以外の画面の既存トップバー(.topbar)の中に「ホーム/よく使う3画面/要対応 N」を入れる。
+     ・アラートの一覧表示は、ダッシュボードの既存の描画処理(renderDbTodoSummaryFromCache/renderDbArrivalAlert)を
+       表示先を指定して再利用する。データはダッシュボードと同じ取得関数・同じ5分キャッシュを使い、新しい取得は足していない。
+     ・状態の保存(localStorage等)・DB変更は一切しない。 -->
+<style>
+.home-nav{display:none;align-items:center;gap:6px;margin-left:12px;flex-shrink:0;white-space:nowrap}
+body.home-nav-on .home-nav{display:flex}
+.home-nav .btn{font-size:12px;padding:5px 10px;white-space:nowrap}
+.home-nav .btn.hn-cur{background:var(--blue-lt);border-color:var(--blue);color:var(--blue);font-weight:600}
+.home-badge{display:inline-flex;align-items:center;justify-content:center;gap:4px;box-sizing:border-box;border:1px solid #ddd;border-radius:14px;padding:4px 10px;font-family:inherit;font-size:12px;font-weight:700;line-height:1.3;cursor:pointer;background:#f2f2f2;color:#666;white-space:nowrap;flex-shrink:0}
+.home-badge.hb-red{background:#fde8ea;color:#c0392b;border-color:#f5c6cb}
+.home-badge-top{display:none}
+body.home-nav-on .home-badge-top{display:inline-flex}
+#pg-home .home-cols{display:grid;grid-template-columns:2fr 1fr;gap:16px;align-items:start}
+#pg-home .home-left,#pg-home .home-right{min-width:0;margin-bottom:0}
+#pg-home .home-todo-row{display:none;width:100%;padding:10px;font-size:14px;margin-bottom:12px}
+#pg-home .home-hit{display:flex;justify-content:space-between;gap:8px;padding:7px 4px;border-top:1px solid var(--border);cursor:pointer;font-size:12px}
+#pg-home .home-hit:hover{background:var(--bg)}
+#pg-home .home-hit>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#home-search{width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;background:#fff}
+#home-drawer-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:89}
+#home-drawer{position:fixed;top:var(--deadline-banner-h,0px);right:0;bottom:0;width:min(440px,100vw);box-sizing:border-box;background:var(--card);border-left:1px solid var(--border);box-shadow:-4px 0 16px rgba(0,0,0,.15);z-index:90;display:none;flex-direction:column}
+body:not(.has-deadline-banner) #home-drawer{top:0}
+#home-drawer.open,#home-drawer-backdrop.open{display:flex}
+#home-drawer-backdrop.open{display:block}
+#home-drawer .hd-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;border-bottom:1px solid var(--border);font-weight:700;font-size:14px}
+#home-drawer .hd-body{flex:1;overflow-y:auto;padding:12px 14px}
+/* 通帳OCR(経理のみ): ダッシュボードにあったカードをホームへ移して使う。閉じている間はカード自体を出さない(ボタンで開閉) */
+#pg-home .home-ocr-card:not(.home-ocr-open){display:none}
+#pg-home .home-ocr-card{scroll-margin-top:110px}
+#pg-home .home-ocr-card button[onclick^="toggleDashboardBankbookOcr"]{display:none}
+/* サイドバーは基本は閉じる(PC幅。スマホは従来どおり)。「すべての画面」ボタンで重ねて開く。開閉の状態は保存しない */
+.menu-btn .mb-label{display:none}
+#home-sb-backdrop{display:none}
+@media(min-width:761px){
+  body.home-sb-closed .sb{position:fixed;left:-210px;top:0;z-index:80;transition:left .2s;box-shadow:2px 0 8px rgba(0,0,0,.1)}
+  body.home-sb-closed .sb.open{left:0}
+  body.home-sb-closed.has-deadline-banner .sb{top:var(--deadline-banner-h,34px);height:calc(100vh - var(--deadline-banner-h,34px))}
+  body.home-sb-closed .menu-btn{display:flex!important;width:auto;padding:0 10px;gap:6px}
+  body.home-sb-closed .menu-btn .mb-label{display:inline;font-size:12px;font-weight:600}
+  #home-sb-backdrop.open{display:block;position:fixed;inset:0;z-index:79;background:rgba(0,0,0,.2)}
+}
+@media(max-width:760px){
+  body.home-nav-on .topbar{flex-wrap:nowrap}
+  body.home-nav-on .topbar .tb-left{flex:1 1 auto;min-width:0}
+  .home-nav{margin-left:6px}
+  .home-nav .hn-quick{display:none}
+  #pg-home .home-cols{grid-template-columns:1fr}
+  #pg-home .home-right{display:none}
+  #pg-home .home-todo-row{display:flex}
+}
+</style>
+<script>
+(function(){
+  if(!HOME_SCREEN_ENABLED) return;   // オフ: 何も作らない(従来と同じ画面)
+  const homeOpen = { t:{}, a:{} };     // アラート欄の各区分の開閉(区分ごと。ページ再読み込みでリセット=保存しない)
+  let homeLoading = null, homeLoaded = false, homeDrawerIsOpen = false;
+  const sbHome = document.getElementById('sb-home-item');
+  if(sbHome) sbHome.style.display = '';
+  // ホームがダッシュボードの代わり: サイドバーのダッシュボード項目は非表示(コードは残す。定数オフで元に戻る)
+  const sbDash = document.querySelector('#sidebar .sb-item[data-pg="dashboard"]');
+  if(sbDash) sbDash.style.display = 'none';
+  // サイドバーは基本は閉じる(PC幅)。上のバーの☰(既存の.menu-btn)に「すべての画面」を添え、押したときだけ開く
+  document.body.classList.add('home-sb-closed');
+  const menuBtn = document.querySelector('.topbar .menu-btn');
+  if(menuBtn && !menuBtn.querySelector('.mb-label')){
+    const lb = document.createElement('span'); lb.className = 'mb-label'; lb.textContent = 'すべての画面';
+    menuBtn.appendChild(lb);
+  }
+  (function(){
+    const sbEl = document.getElementById('sidebar');
+    if(!sbEl) return;
+    const bd = document.createElement('div');
+    bd.id = 'home-sb-backdrop';
+    bd.addEventListener('click', ()=>sbEl.classList.remove('open'));
+    document.body.appendChild(bd);
+    new MutationObserver(()=>bd.classList.toggle('open', sbEl.classList.contains('open'))).observe(sbEl, {attributes:true, attributeFilter:['class']});
+  })();
+
+  // ---- データ(ダッシュボードと同じ取得関数・同じ5分キャッシュ。新しい取得は足さない) ----
+  // ダッシュボードを開いた時に loadBookingListGeneric('db') が行っている取得を、ホームが引き継ぐ。
+  // 各関数は5分TTLのキャッシュを持つので、ホームとダッシュボードを行き来しても取得は重複して走らない。
+  function homeLoad(){
+    if(homeLoading) return homeLoading;
+    homeLoading = (async()=>{
+      try{
+        if(!bookingsListCache.length || !cacheIsFresh(bookingsListCacheAt)){
+          bookingsListCache = await fetchBookingsListLight();
+          bookingsListCacheAt = Date.now();
+        }
+        const prefetched = await prefetchFacilityDeadlineAllItems();
+        await renderDashboardTodoSummary(prefetched);   // dbTodoSummaryCache(選択・一括操作が参照)も更新される
+        await refreshGlobalDeadlineBanner(prefetched);
+        await refreshAgentUnlinkedBanner();
+      }catch(e){
+        logError('ホーム画面のデータ読み込み', e, {toast:false});
+      }finally{
+        homeLoading = null; homeLoaded = true;
+        homeRenderAlerts();
+      }
+    })();
+    return homeLoading;
+  }
+  function homeTodoBuckets(){
+    return facilityDeadlineItemsCache
+      ? buildFacilityDeadlineResult(facilityDeadlineItemsCache, 7).buckets
+      : FACILITY_DEADLINE_TIERS.map(t=>({ ...t, items:[] }));
+  }
+  // 赤2種類(期限当日・超過 / 到着8日以内)の予約件数。予約の重複を除く(期限当日・超過は施設明細の行なのでbooking_idで除く)。
+  function homeUrgentCount(){
+    const ids = new Set();
+    homeTodoBuckets()[0].items.forEach(f=>ids.add(f.booking_id));
+    if(bookingsListCache && bookingsListCache.length) computeDbArrivalBuckets().buckets[0].items.forEach(b=>ids.add(b.id));
+    return ids.size;
+  }
+
+  // ---- アラート欄の描画(ホーム右・右から開く欄の両方で同じ) ----
+  window.homeToggleTodo = idx => { homeOpen.t[idx] = !homeOpen.t[idx]; homeRenderAlerts(); };
+  window.homeToggleArrival = max => { homeOpen.a[max] = !homeOpen.a[max]; homeRenderAlerts(); };
+  function renderAlertsInto(root, ctx){
+    if(!root) return;
+    root.innerHTML = ['bar','t0','a8','t123','a14','a21','agent','more'].map(k=>`<div data-h="${k}"></div>`).join('');
+    const q = k => root.querySelector(`[data-h="${k}"]`);
+    const buckets = homeTodoBuckets();
+    const todo = (k, only) => renderDbTodoSummaryFromCache({ el:q(k), buckets, openTiers:homeOpen.t, toggleFn:'homeToggleTodo', context:ctx, byBooking:true, only });
+    const arr = (k, only) => renderDbArrivalAlert({ el:q(k), openTiers:homeOpen.a, toggleFn:'homeToggleArrival', only });
+    q('bar').innerHTML = todoActionBarHtml(ctx);
+    // 表示順: 期限当日・超過(赤) → 到着8日以内(赤) → 期限前日〜7日以内 → 到着14日以内(黄) → 21日以内以降(灰) → Agent未紐付け(灰)
+    todo('t0', [0]);
+    arr('a8', [8]);
+    todo('t123', [1,2,3]);
+    arr('a14', [14]);
+    arr('a21', [21,30,60,90]);
+    const un = _agentUnlinkedCache || { bookings:[], invoices:[] };
+    q('agent').innerHTML = `<div style="border:1px solid #ddd;border-radius:10px;margin-bottom:6px;overflow:hidden">
+      <div class="db-tier-row-header" onclick="openAgentUnlinkedListModal()" style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;background:#f2f2f2;cursor:pointer">
+        <span style="display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden;flex-wrap:wrap">
+          <span style="font-weight:700;color:#666666;white-space:nowrap">Agentマスタ未紐付け</span>
+          <span style="background:rgba(0,0,0,.09);color:#666666;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700;white-space:nowrap">予約${un.bookings.length}件・請求書${un.invoices.length}件</span>
+        </span>
+        <span style="color:#666666;font-size:11px;flex-shrink:0">▶</span>
+      </div></div>`;
+    const total = buckets.reduce((s,b)=>s+b.items.length, 0);
+    q('more').innerHTML = `<button class="btn" style="margin-top:4px;font-size:12px" onclick="go('todo')">対応事項をすべて表示（全${total}件）</button>`;
+  }
+  function homeUpdateBadges(){
+    const n = homeLoaded ? homeUrgentCount() : null;
+    document.querySelectorAll('.home-badge').forEach(el=>{
+      el.textContent = '要対応 ' + (n === null ? '…' : n);
+      el.classList.toggle('hb-red', !!n);
+    });
+  }
+  function homeRenderAlerts(){
+    if(currentPageId === 'home') renderAlertsInto(document.getElementById('home-alerts'), 'home');
+    if(homeDrawerIsOpen) renderAlertsInto(document.getElementById('home-drawer-body'), 'drawer');
+    homeUpdateBadges();
+  }
+  window.homeOnTodoRendered = homeRenderAlerts;   // ダッシュボード側の一覧が更新された時(選択・一括操作・再取得)に呼ばれる
+
+  // ---- 右から開く欄 ----
+  window.homeOpenDrawer = function(){
+    homeDrawerIsOpen = true;
+    document.getElementById('home-drawer').classList.add('open');
+    document.getElementById('home-drawer-backdrop').classList.add('open');
+    homeRenderAlerts();
+    homeLoad();   // 開いたときだけ、既存の取得関数を呼ぶ(5分キャッシュ内なら取得は走らない)
+  };
+  window.homeCloseDrawer = function(){
+    homeDrawerIsOpen = false;
+    const d = document.getElementById('home-drawer'), b = document.getElementById('home-drawer-backdrop');
+    if(d) d.classList.remove('open');
+    if(b) b.classList.remove('open');
+    const body = document.getElementById('home-drawer-body');
+    if(body) body.innerHTML = '';   // 閉じている間は<input id>が重複しないよう空にする
+  };
+
+  // ---- ホーム画面 ----
+  function homeBuildPage(){
+    const pg = document.getElementById('pg-home');
+    if(!pg || pg.dataset.built) return;
+    pg.dataset.built = '1';
+    pg.innerHTML = `
+      <div class="card" id="home-search-card">
+        <input id="home-search" type="search" placeholder="検索（REF# / Agent / Tour名 / Tour Code）" autocomplete="off" oninput="homeSearchRender()">
+        <div id="home-search-results"></div>
+      </div>
+      <div id="home-ocr-slot"></div>
+      <button type="button" class="home-badge home-todo-row" onclick="homeOpenDrawer()">要対応 …</button>
+      <div class="home-cols">
+        <div class="card home-left hb-scope" id="home-buttons"></div>
+        <div class="card home-right"><div class="card-title">要対応・アラート</div><div id="home-alerts"></div></div>
+      </div>`;
+    // 通帳OCR(経理のみ): ダッシュボードにあったカード(ID・関数は変えずDOMだけ移動。権限は従来の.accounting-onlyのまま)をホームへ移す
+    const ocr = document.querySelector('#pg-dashboard > .card.accounting-only');
+    const slot = document.getElementById('home-ocr-slot');
+    if(ocr && slot){ ocr.classList.add('home-ocr-card'); slot.appendChild(ocr); }
+  }
+  window.homeToggleBankbookOcr = function(){
+    toggleDashboardBankbookOcr();
+    const area = document.getElementById('db-bankbook-ocr-area');
+    const card = area && area.closest('.home-ocr-card');
+    if(!card) return;
+    const open = area.style.display !== 'none';
+    card.classList.toggle('home-ocr-open', open);
+    if(open) card.scrollIntoView({behavior:'smooth', block:'start'});
+  };
+  function homeRenderButtons(){
+    const el = document.getElementById('home-buttons');
+    if(el && typeof hbFillHomeButtons === 'function') hbFillHomeButtons(el, { allOpen:true, includeDashboard:true });
+    // 通帳OCRのボタン(経理のみ。ダッシュボードと同じ isAccountingUser() の判定)
+    if(el && isAccountingUser()){
+      const panel = document.createElement('div'); panel.className = 'hb-panel';
+      panel.innerHTML = '<div class="hb-plabel">経理 ACCOUNTING</div><div class="hb-grid"><button type="button" class="hb-btn" onclick="homeToggleBankbookOcr()"><span class="hb-icon">📷</span><span class="hb-ja">通帳OCR</span><span class="hb-en">Bankbook OCR</span></button></div>';
+      el.insertBefore(panel, el.firstChild);
+    }
+  }
+  // 検索: ダッシュボードの検索(filterBookingListGeneric)と同じ対象・同じ判定(REF#/Agent/Tour Code/Tour名、全角→半角、日付範囲は問わない)
+  window.homeSearchRender = function(){
+    const out = document.getElementById('home-search-results');
+    const q = toHalfWidth(document.getElementById('home-search').value.trim().toLowerCase());
+    if(!out) return;
+    if(!q){ out.innerHTML = ''; return; }
+    const hits = bookingsListCache.filter(b=>`${b.ref_no||''} ${b.agent_name||''} ${b.tour_code||''} ${b.tour_name||''}`.toLowerCase().includes(q));
+    const rows = hits.slice(0, 20).map(b=>`<div class="home-hit" onclick="openBookingDetail('${b.id}')">
+        <span><span class="lnk" style="font-weight:600">${escHtml(b.ref_no||'')}</span> <span style="color:var(--text3)">${escHtml(b.agent_name||'')} ／ ${escHtml(bkTourLabel(b))}</span></span>
+        <span style="white-space:nowrap;color:var(--text3)">${escHtml(b.in_date||'')}</span></div>`).join('');
+    out.innerHTML = `<div style="font-size:11px;color:var(--text3);margin:8px 0 4px">${hits.length}件 / 全${bookingsListCache.length}件${hits.length>20?'（先頭20件を表示）':''}</div>` + rows;
+  };
+
+  // ---- 作業画面の上の移動バー(既存トップバーの中に入れる) ----
+  function homeInstallChrome(){
+    const left = document.querySelector('.topbar .tb-left');
+    const actions = document.querySelector('.topbar .tb-actions');
+    if(left && !document.getElementById('home-nav')){
+      const nav = document.createElement('div');
+      nav.id = 'home-nav'; nav.className = 'home-nav';
+      [['home','🏠 ホーム',''],['booking-list','Booking List','hn-quick'],['vendor-email','手配確定状況','hn-quick'],['hotels','ホテル予約管理','hn-quick']].forEach(([pg,label,cls])=>{
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'btn ' + cls; b.dataset.go = pg; b.textContent = label;
+        b.addEventListener('click', ()=>go(pg));
+        nav.appendChild(b);
+      });
+      left.appendChild(nav);
+    }
+    if(actions && !actions.querySelector('.home-badge-top')){
+      const bd = document.createElement('button');
+      bd.type = 'button'; bd.className = 'home-badge home-badge-top'; bd.textContent = '要対応 …';
+      bd.addEventListener('click', ()=>homeOpenDrawer());
+      actions.appendChild(bd);
+    }
+    if(!document.getElementById('home-drawer')){
+      const wrap = document.createElement('div');
+      wrap.innerHTML = `<div id="home-drawer-backdrop" onclick="homeCloseDrawer()"></div>
+        <div id="home-drawer" role="dialog" aria-label="要対応">
+          <div class="hd-head"><span>要対応・アラート</span><button type="button" class="btn" onclick="homeCloseDrawer()">✕ 閉じる</button></div>
+          <div class="hd-body" id="home-drawer-body"></div>
+        </div>`;
+      while(wrap.firstChild) document.body.appendChild(wrap.firstChild);
+    }
+  }
+  homeInstallChrome();
+
+  // go() から呼ばれる(ホーム画面・移動バーの切替)
+  window.homeOnGo = function(id){
+    homeCloseDrawer();
+    document.body.classList.toggle('home-nav-on', id !== 'home');
+    document.querySelectorAll('#home-nav [data-go]').forEach(b=>b.classList.toggle('hn-cur', b.dataset.go === id));
+    if(id === 'home'){
+      homeBuildPage();
+      homeRenderButtons();
+      homeRenderAlerts();
+      homeLoad();
+    }else{
+      homeUpdateBadges();
+    }
+  };
+
+  // サイドバー項目の表示・非表示(権限・ログイン後のel.style.display代入)に追従してボタンを作り直す
+  let btnPending = false;
+  const sb = document.getElementById('sidebar');
+  if(sb) new MutationObserver(()=>{
+    if(btnPending) return; btnPending = true;
+    requestAnimationFrame(()=>{ btnPending = false; if(currentPageId === 'home') homeRenderButtons(); });
+  }).observe(sb, {attributes:true, attributeFilter:['style'], subtree:true});
+
+  // このブロックはメインscriptの restoreSession() より後に実行されるため、再読み込みで既にホームが選ばれていた場合の取りこぼしを補う
+  if(currentPageId === 'home') window.homeOnGo('home');
+})();
+</script>
 
 </body>
 </html>
