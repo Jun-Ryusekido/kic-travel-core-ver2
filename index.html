@@ -32310,6 +32310,14 @@ body.home-nav-on .home-nav{display:flex}
 /* ユーザーのアイコン(上のバーの右端)と、押すと開く小さなメニュー(ユーザー名(ロール)・ログアウト) */
 #home-user-btn{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;box-sizing:border-box;width:34px;height:34px;padding:0;border-radius:50%;border:1px solid var(--blue);background:var(--blue-lt);color:var(--blue);font-family:inherit;font-size:11px;font-weight:700;cursor:pointer}
 #home-user-btn[aria-expanded="true"]{background:var(--blue);color:#fff}
+/* PC幅: 丸(イニシャル)の右に小さな▾を付け、丸と▾を1つのボタンにする(どちらを押してもメニューが開く)。スマホ(760px以下)は丸だけ */
+#home-user-btn .hu-ini{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%}
+#home-user-btn .hu-caret{display:none;font-size:10px;line-height:1}
+@media(min-width:761px){
+  #home-user-btn{width:auto;gap:4px;padding:0 10px 0 0;border-radius:18px}
+  #home-user-btn .hu-caret{display:inline}
+  #home-user-btn:hover{background:var(--blue);color:#fff}
+}
 #home-user-menu{display:none;position:fixed;z-index:95;box-sizing:border-box;min-width:200px;max-width:calc(100vw - 16px);background:var(--card);border:1px solid var(--border);border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.18);padding:10px}
 #home-user-menu.open{display:block}
 #home-user-menu .hum-who{padding:2px 4px 8px;margin-bottom:8px;border-bottom:1px solid var(--border);font-size:12px;font-weight:600;overflow-wrap:anywhere}
@@ -32561,7 +32569,8 @@ body:not(.has-deadline-banner) #home-drawer{top:0}
   function homeUserMenuIsOpen(){ const m = document.getElementById('home-user-menu'); return !!m && m.classList.contains('open'); }
   function homeUpdateUser(){
     const b = document.getElementById('home-user-btn'), av = document.getElementById('sb-avatar');
-    if(b) b.textContent = (av && av.textContent.trim()) || '👤';
+    const ini = b && b.querySelector('.hu-ini');
+    if(ini) ini.textContent = (av && av.textContent.trim()) || '👤';
   }
   function homeOpenUserMenu(){
     const b = document.getElementById('home-user-btn'), m = document.getElementById('home-user-menu');
@@ -32626,7 +32635,9 @@ body:not(.has-deadline-banner) #home-drawer{top:0}
     if(actions && !document.getElementById('home-user-btn')){
       const ub = document.createElement('button');
       ub.type = 'button'; ub.id = 'home-user-btn'; ub.setAttribute('aria-haspopup', 'true'); ub.setAttribute('aria-expanded', 'false');
-      ub.setAttribute('aria-label', 'ユーザーメニュー / User menu');
+      ub.setAttribute('aria-label', 'ユーザーメニュー / User Menu');
+      ub.title = 'ユーザーメニュー / User Menu';
+      ub.innerHTML = '<span class="hu-ini"></span><span class="hu-caret" aria-hidden="true">▾</span>';
       ub.addEventListener('click', e=>{ e.stopPropagation(); homeUserMenuIsOpen() ? homeCloseUserMenu() : homeOpenUserMenu(); });
       actions.appendChild(ub);
       const um = document.createElement('div');
