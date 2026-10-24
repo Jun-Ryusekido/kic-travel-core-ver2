@@ -1678,3 +1678,16 @@ limit 100;
 - 定数 `LOCAL_PAYMENT_BLOCK_COST_ADD`(初期値 true)。false で今までの動き。追加済みの行(仕入明細)は変更しない。
 - バスの手配ダイアログの「現地支払/クレジットカード」(`pn-payment`)は駐車場の即時予約(`saveParkingNowReservation`)用で、手配タブの支払方法とは別。今回の対象外。
 - 検証(Playwright・ダミーデータ): 管理者/スタッフ × PC1280/スマホ375 × 5タブで226項目合格。
+
+---
+
+## 仮払い一覧表・出金伝票の印刷で、ガイドの名前・口座をガイドタブのガイドから取る(2026-10-24・取得元だけの変更)
+- 背景(JUNさんの指示): 反映するガイドは、手配管理の「ガイド」タブ(booking_guides=`bdGuideItems`)のガイドにする。今までの出金伝票は、ガイド精算の精算リンク(`guide_settlements.guide_names`=`guideSettlementsCache`)から取っていた(作成時点の写しで、ガイドタブを変えても追従しない)。
+- 取得元: `_bdGuideTabGuideList()`(ガイドタブの並び順・重複は先頭だけ)。guide_idがあれば guidesマスタ(`guideRegistryCache`)の最新の名前・電話、無ければ自由入力の名前。口座は従来どおり `askVoucherPaymentInfo`(guide_bank_accounts → guides.bank_info。guide_idが無ければ名前の完全一致でマスタから補完)。
+- 出金伝票(`printLocalExpenseVoucher`): ガイド別のボタンはガイドタブのガイド。ボタンには順番号だけを渡し、クリック時に最新を読み直す(`printLocalExpenseVoucherAt`)。ガイドタブの描画のたびにボタンも作り直す。
+- 仮払い一覧表(`printLocalExpenses`)の見出し「ガイド：」: 今までは精算リンクのガイド名(区切り「 / 」)。ガイドタブの全員を「、」で並べる。電話は今まで印刷していない(出金伝票も名前だけ)。
+- ガイドタブにガイドがいない: 印刷の前に「ガイドタブにガイドがいません / No guide in the Guide tab」(戻って確認する/このまま印刷=ガイド欄は空欄)。出金伝票・仮払い一覧表の両方。
+- 口座情報が見つからない: 出金伝票で「振込」を選び、口座・フリーテキスト・手入力のどれも空のとき、「(ガイド名)の口座情報が見つかりません / Bank info not found」(戻って確認する/このまま印刷=口座欄は空欄)。現金のときは口座を印刷しないので出さない。
+- 変更しないもの: 出金伝票の金額の丸め(万円単位に切り上げ)、`printGuideVouchers`、ガイド精算書(精算リンクの値のまま)。
+- 定数 `PRINT_GUIDE_FROM_GUIDE_TAB`(初期値 true)。false で今までの取得(精算リンク)に戻る。
+- 検証(Playwright・ダミーデータ): 管理者/スタッフ × PC1280で44項目合格(ガイドタブのガイドと精算リンクのガイドを違う名前・口座にして確認)。
