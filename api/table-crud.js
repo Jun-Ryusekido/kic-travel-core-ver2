@@ -1536,7 +1536,7 @@ async function progressFetchAll(table, select, extra, bytesOut) {
 // 集計の元データ(権限に依存しない)。5分キャッシュ。
 async function loadProgressRaw() {
   const c = globalThis.__progressRawCache;
-  if (c && Date.now() - c.at < PROGRESS_CACHE_TTL_MS) return { raw: c.raw, cached: true };
+  if (c && Date.now() - c.at < PROGRESS_CACHE_TTL_MS) return { raw: c.raw, cached: true, at: c.at };
   const bytes = {};
   const [sales, invoices, hotels, buses, estimations, cancelled] = await Promise.all([
     progressFetchAll('booking_sales', 'booking_id,amount,payments', null, bytes),
@@ -1573,15 +1573,16 @@ async function loadProgressRaw() {
     verified: { booking_sales: sales.length, invoices: invoices.length, booking_hotels: hotels.length, booking_buses: buses.length, estimations: estimations.length, cancelled_bookings: cancelled.length },
     bytes,
   };
-  globalThis.__progressRawCache = { at: Date.now(), raw };
-  return { raw, cached: false };
+  const at = Date.now();
+  globalThis.__progressRawCache = { at, raw };
+  return { raw, cached: false, at };
 }
 
 async function doProgressSummary(session) {
   // 判定の純粋関数は、詳細画面と共用のファイル(UMD)を読み込む。読み込みに失敗した場合に
   // このactionだけが失敗する(他のactionに影響しない)よう、動的importにしている。
   const BP = (await import('../public/js/booking-progress.js')).default;
-  const { raw, cached } = await loadProgressRaw();
+  const { raw, cached, at } = await loadProgressRaw();
   const hide = !canViewFinancialsSession(session);
   const out = {};
   for (const id of raw.cancelled) out[id] = { c: 1 };
@@ -1599,7 +1600,7 @@ async function doProgressSummary(session) {
       rs: res.reasons.map((x) => [x.stage, x.code, x.badge, x.message]),
     };
   }
-  return { status: 200, body: { ok: true, items: out, canViewAmounts: !hide, verified: raw.verified, __progress: { cached, bytes: raw.bytes } } };
+  return { status: 200, body: { ok: true, items: out, canViewAmounts: !hide, verified: raw.verified, asOf: new Date(at).toISOString(), __progress: { cached, bytes: raw.bytes } } };
 }
 
 // 複数テーブルのクエリを1リクエストでまとめて取得する(予約詳細を開く時の売上・仕入・

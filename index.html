@@ -169,6 +169,12 @@ table{width:100%;border-collapse:collapse;font-size:12px}
 .pg-chip.pg-chip-alert{color:#A32D2D;border-color:#e8b4b4}
 .pg-chip.pg-chip-alert.active{background:#FCEBEB;border-color:#C62828;color:#A32D2D}
 .pg-chips-note{font-size:10px;color:var(--text3)}
+.pg-asof{display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap;font-size:10px;font-weight:400;color:var(--text3);white-space:nowrap}
+.pg-asof-btn{font-size:9px;padding:0 6px;line-height:1.7;border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--text2);cursor:pointer}
+.pg-asof-btn:disabled{opacity:.5;cursor:default}
+.pg-asof-err{color:#A32D2D}
+.pg-asof-m{display:none}
+@media(max-width:768px){ .pg-asof-m{display:inline-flex} }
 .pg-chip.pg-chip-alert.active.pg-chip-on{background:#C62828;border-color:#C62828;color:#fff}
 .pg-chip.pg-chip-alert.active.pg-chip-on .hn-en{opacity:.9}
 .bl-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:2px 0 8px}
@@ -4712,7 +4718,7 @@ function renderListHeader(prefix){
   const tabNow = blCurrentTab(prefix);
   let cols = LIST_COLUMNS;
   if(tabNow && tabNow !== 'upcoming') cols = LIST_COLUMNS_NO_PROGRESS;
-  else if(tabNow === 'upcoming') cols = LIST_COLUMNS.map(c=> c[0]==='attention' ? [c[0], '<span class="hn-t"><span class="hn-ja">手配の問題</span><span class="hn-en">Arrangement</span></span>', c[2], c[3]] : c);
+  else if(tabNow === 'upcoming') cols = LIST_COLUMNS.map(c=> c[0]==='attention' ? [c[0], '<span class="hn-t"><span class="hn-ja">手配の問題</span><span class="hn-en">Arrangement</span></span>', c[2], c[3]] : (c[0]==='progress' && PROGRESS_AS_OF_LABEL) ? [c[0], '進捗<div id="bl-pg-asof-wrap">'+progressAsOfHtml(false)+'</div>', c[2], c[3]] : c);
   document.getElementById(prefix+'-thead').innerHTML = '<tr>' + cols.map(([field,label,sortable,width])=>{
     let arrow = '';
     if(state.sortField===field) arrow = ' <span class="sort-arrow">'+(state.sortDir===1?'▲':'▼')+'</span>';
@@ -5919,6 +5925,9 @@ function statusPill(status){
 const BOOKING_PROGRESS_TABLES = new Set(['booking_sales','invoices','booking_hotels','booking_buses','estimations','bookings']);
 let bookingProgressSummary = null;   // {予約id: {sr,st,pt,ai,arr,est}}
 let bookingProgressAt = 0;
+let bookingProgressAsOf = null;      // サーバーが集計した時刻(ISO)。キャッシュを返したときはキャッシュを作った時刻
+let bookingProgressRefreshing = false;
+let bookingProgressRefreshFailed = false;
 let bookingProgressPromise = null;
 let bookingProgressError = null;
 let bookingProgressGen = 0;
@@ -5936,8 +5945,10 @@ function ensureBookingProgress(){
   const gen = bookingProgressGen;
   bookingProgressPromise = tableCrudApiCall(null, 'progressSummary', {}).then(d=>{
     bookingProgressSummary = d.items || {};
+    bookingProgressAsOf = d.asOf || null;
     bookingProgressResults = {};
     bookingProgressError = null;
+    updateProgressAsOf();
     // 取得中に書き込みがあった場合は、この結果を使いつつ次回すぐ再取得する
     bookingProgressAt = (gen === bookingProgressGen) ? Date.now() : 0;
     return bookingProgressSummary;
@@ -5949,6 +5960,39 @@ function ensureBookingProgress(){
   return bookingProgressPromise;
 }
 
+// 予約一覧(今後タブ)の「進捗」の下に出す「HH:MM 時点」(日本時間)と「更新 / Refresh」ボタン。
+// false にすると今までの表示(時刻・更新ボタンなし)に戻る。
+const PROGRESS_AS_OF_LABEL = true;
+function progressAsOfHtml(mobile){
+  if(!PROGRESS_AS_OF_LABEL || !bookingProgressAsOf) return '';
+  const t = new Date(bookingProgressAsOf).toLocaleString('ja-JP', { timeZone:'Asia/Tokyo', hour:'2-digit', minute:'2-digit', hour12:false });
+  const err = bookingProgressRefreshFailed ? '<span class="pg-asof-err">更新できませんでした / Refresh failed</span>' : '';
+  return `<span class="pg-asof${mobile?' pg-asof-m':''}"><span class="pg-asof-t">${t} 時点</span><button type="button" class="pg-asof-btn" onclick="refreshBookingProgress()"${bookingProgressRefreshing?' disabled':''}>更新 / Refresh</button>${err}</span>`;
+}
+// 時刻・更新ボタンを(再描画せずに)その場で更新する
+function updateProgressAsOf(){
+  const wrap = document.getElementById('bl-pg-asof-wrap');
+  if(wrap) wrap.innerHTML = progressAsOfHtml(false);
+  document.querySelectorAll('.pg-asof-m').forEach(el=>{
+    const tmp = document.createElement('div'); tmp.innerHTML = progressAsOfHtml(true);
+    if(tmp.firstElementChild) el.replaceWith(tmp.firstElementChild);
+  });
+}
+// 「更新」: ブラウザ側のキャッシュを破棄して取り直す(サーバー側のキャッシュは回避しない=キャッシュが生きている間は同じ数字が返ることがある)。
+// 取得中は押せない。失敗したときは前の数字を残して「更新できませんでした / Refresh failed」を出す。
+async function refreshBookingProgress(){
+  if(bookingProgressRefreshing) return;
+  bookingProgressRefreshing = true;
+  updateProgressAsOf();
+  const before = bookingProgressSummary, beforeAt = bookingProgressAt;
+  bookingProgressInvalidate();
+  const r = await ensureBookingProgress();
+  bookingProgressRefreshing = false;
+  bookingProgressRefreshFailed = !r;
+  if(!r && before){ bookingProgressSummary = before; bookingProgressAt = beforeAt; bookingProgressError = null; }   // 失敗時は前の数字を残す
+  updateProgressAsOf();
+  if(r) filterBookingListGeneric('bl');
+}
 // 一覧用: サーバーが計算して返した進捗(progressSummary。権限に応じて金額を含む/含まない文言)を、
 // 画面で扱う判定結果の形に直して返す。未取得ならnull。金額の数値そのものはサーバーから届かない。
 // サーバーに載っていない予約(売上・請求書・手配・見積が1件も無い予約)と中止の予約は、データを
@@ -6014,7 +6058,7 @@ function updateProgressChips(prefix, attentionCount){
   if(tabsOn){
     // タブ有効時: タブの「すべて」と紛らわしいため、チップ行の「すべて」は出さない。
     // 「手配に問題」はスイッチ(押すと絞り込み、もう一度押すと解除)。押されている間は色を濃くする
-    el.innerHTML = `<button type="button" class="pg-chip pg-chip-alert${only?' active pg-chip-on':''}" aria-pressed="${only}" onclick="setBookingListAttentionOnly('${prefix}',${only?'false':'true'})">${attLabel}</button>`;
+    el.innerHTML = `<button type="button" class="pg-chip pg-chip-alert${only?' active pg-chip-on':''}" aria-pressed="${only}" onclick="setBookingListAttentionOnly('${prefix}',${only?'false':'true'})">${attLabel}</button>${blCurrentTab(prefix)==='upcoming' ? progressAsOfHtml(true) : ''}`;
     return;
   }
   el.innerHTML =
